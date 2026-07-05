@@ -5,7 +5,9 @@ plugins {
 
 val neoforgeVersion: String = libs.versions.neoforge.get()
 
-configureBaseArchive("NeoForge")
+configureBaseArchive(ModLoader.NeoForge.name)
+
+configureModPublish(ModLoader.NeoForge) { tasks.jar.get().archiveFile }
 
 neoForge {
     version = neoforgeVersion

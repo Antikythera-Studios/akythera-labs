@@ -4,7 +4,9 @@ plugins {
     id("maven-publish")
 }
 
-configureBaseArchive("Fabric")
+configureBaseArchive(ModLoader.Fabric.name)
+
+configureModPublish(ModLoader.Fabric) { tasks.jar.get().archiveFile }
 
 repositories {
     parchmentMcRepository()

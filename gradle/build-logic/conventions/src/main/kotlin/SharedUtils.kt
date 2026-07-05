@@ -109,6 +109,8 @@ fun Project.configureBaseArchive(variant: String) {
 
 private fun Project.getFullModVersion(variant: String): String = "$variant-mc${mcVersion}-${modVersion}"
 
+private fun Project.getCompactModVersion(variant: String): String = "$variant-${modVersion}"
+
 enum class ModLoader(val conventionalName: String) {
     NeoForge("NeoForge"),
     Fabric("Fabric"),
@@ -189,10 +191,46 @@ fun Project.configureModPublish(
         changelog.set(releaseChangelog)
 
         modLoaders.add(modLoader.conventionalName)
-        type.set(STABLE)
-        displayName.set(project.getFullModVersion(modLoader.conventionalName))
+        val fullVersion = project.getFullModVersion(modLoader.conventionalName);
+        displayName.set("$modDisplayName+$fullVersion")
+        version.set(project.getCompactModVersion(modLoader.conventionalName))
+        type.set(ALPHA) // TODO: change publish type: ALPHA, BETA, STABLE
         file.set(jarFile())
         additionalFiles.from(sourcesJar)
+
+        val requiredDependencies = buildList {
+            if (modLoader.isFabricLike) {
+                add("fabric-api")
+                add("forge-config-api-port")
+                //add("akythera")
+            }
+        }
+
+        val optionalDependencies =
+            buildList {
+                if (modLoader.isFabricLike) {
+                    add("modmenu")
+                }
+            }
+
+        curseforge {
+            accessToken.set(providers.environmentVariable("CURSEFORGE_TOKEN"))
+            projectId.set("1594147")
+            minecraftVersions.add(mcVersion)
+            projectSlug.set("akytheralabs")
+
+            requiredDependencies.forEach { requires(it) }
+            optionalDependencies.forEach { optional(it) }
+        }
+
+        modrinth {
+            accessToken.set(providers.environmentVariable("MODRINTH_TOKEN"))
+            projectId.set("AkTWTnIS")
+            minecraftVersions.add(mcVersion)
+
+            requiredDependencies.forEach { requires(it) }
+            optionalDependencies.forEach { optional(it) }
+        }
     }
 }
 
