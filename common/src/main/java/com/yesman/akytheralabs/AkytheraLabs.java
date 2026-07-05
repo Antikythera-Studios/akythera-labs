@@ -1,0 +1,39 @@
+package com.yesman.akytheralabs;
+
+import com.yesman.akythera.api.animation.notify.impl.LogNotify;
+import com.yesman.akythera.api.animation.notify.impl.LogNotifyState;
+import com.yesman.akythera.api.animation.notify.impl.PlaySoundNotify;
+import com.yesman.akytheralabs.dataholder.DataHolderMapper;
+import com.yesman.akytheralabs.dataholder.animation.notify.impl.LogNotifyHolder;
+import com.yesman.akytheralabs.dataholder.animation.notify.impl.LogNotifyStateHolder;
+import com.yesman.akytheralabs.dataholder.animation.notify.impl.PlaySoundNotifyHolder;
+import net.minecraft.resources.Identifier;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jspecify.annotations.NonNull;
+
+public class AkytheraLabs {
+    private AkytheraLabs() {
+    }
+
+    public static final String MODID = "akytheralabs";
+    public static final Logger LOGGER = LogManager.getLogger(MODID);
+
+    /// Creates an identifier that points to an Akythera resource.
+    public static @NonNull Identifier identifier(@NonNull final String path) {
+        return Identifier.fromNamespaceAndPath(MODID, path);
+    }
+
+    /// Creates an identifier that points to an Akythera resource.
+    public static @NonNull Identifier samplePack(@NonNull final String path) {
+        return Identifier.fromNamespaceAndPath("akythera_sample_pack", path);
+    }
+
+    /// Registers every `engine notify type → editor holder factory` pair the
+    /// editor knows about. Called once from each platform's client init.
+    public static void bootstrapDataHolderMappings() {
+        DataHolderMapper.registerNotify(LogNotify.CODEC, LogNotifyHolder::new);
+        DataHolderMapper.registerNotify(PlaySoundNotify.CODEC, PlaySoundNotifyHolder::new);
+        DataHolderMapper.registerNotifyState(LogNotifyState.CODEC, LogNotifyStateHolder::new);
+    }
+}

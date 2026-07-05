@@ -1,0 +1,294 @@
+package com.yesman.akytheralabs.gui.widget.main;
+
+import com.yesman.akythera.client.gui.widget.AnchoredButton;
+import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.FileSystemHelper;
+import com.yesman.akytheralabs.FreemarkerExporter;
+import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.Util;
+import org.jspecify.annotations.Nullable;
+import org.lwjgl.util.tinyfd.TinyFileDialogs;
+
+import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/// Builds the two `File > Export` modals: "Export as Pack" (writes the loadable resource/data
+/// packs into a chosen folder) and "Export as Source Code" (runs [FreemarkerExporter] against a
+/// chosen source root + package). Mirrors the layout style of [ProjectSetupModalGenerator] /
+/// [EditorPreferencesModalGenerator]: a [WidgetContainerModal] of labelled rows plus Export /
+/// Cancel footer buttons.
+public final class ExportModalGenerator {
+    private static final int POPUP_W = 450;
+    private static final int LABEL_W = 100;
+
+    /// `src/main/java/` marker used to derive the java package from a chosen export directory.
+    /// Forward-slash form — paths are normalized before matching so Windows `\` paths also hit.
+    private static final String SOURCE_ROOT_MARKER = "src/main/java/";
+
+    private ExportModalGenerator() {
+    }
+
+    /// `Export > As Pack`: a Data Path row + a Resource Path row + footer buttons. The Data Path
+    /// receives the re-encoded data pack (`<projectName>_data.zip`) via [AkytheraProject#exportDataPack];
+    /// the Resource Path receives the assets as loose files under `assets/<projectName>/` via
+    /// [AkytheraProject#exportAssetsToDirectory] (NOT a zip resource pack). Both destinations are
+    /// remembered in `project_settings.akproject` ([AkytheraProject#saveExportPaths]) so the modal
+    /// reopens on the same folders. Each field is optional: a blank field skips that half of the export.
+    public static void openAsPack(Font font) {
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        String fallback = project.getProjectRoot().toString();
+
+        PathRow dataPathRow = new PathRow(
+            font,
+            Component.translatable(LangKeys.GUI_EXPORT_MODAL_DATA_PATH),
+            project.getLastExportDataPath().isBlank() ? fallback : project.getLastExportDataPath(),
+            null
+        );
+        PathRow resourcePathRow = new PathRow(
+            font,
+            Component.translatable(LangKeys.GUI_EXPORT_MODAL_RESOURCE_PATH),
+            project.getLastExportResourcePath().isBlank() ? fallback : project.getLastExportResourcePath(),
+            null
+        );
+
+        AnchoredButton exportBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_EXPORT), _ -> {
+            String dataDir = dataPathRow.getPath();
+            String resourceDir = resourcePathRow.getPath();
+            if (dataDir.isBlank() && resourceDir.isBlank()) return;
+
+            project.saveExportPaths(dataDir, resourceDir);
+
+            Path opened = null;
+            if (!dataDir.isBlank()) {
+                Path dataPath = Path.of(dataDir);
+                project.exportDataPack(dataPath);
+                opened = dataPath;
+            }
+            if (!resourceDir.isBlank()) {
+                Path resourcePath = Path.of(resourceDir);
+                project.exportAssetsToDirectory(resourcePath);
+                opened = resourcePath;
+            }
+
+            AkytheraEditorLayoutManager.getInstance().closeModal();
+            if (opened != null) Util.getPlatform().openFile(opened.toFile());
+        }).build();
+
+        AnchoredButton cancelBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ ->
+            AkytheraEditorLayoutManager.getInstance().closeModal()
+        ).build();
+
+        int btnW = WidgetContainerModal.evenButtonWidth(POPUP_W, 2);
+
+        WidgetContainerModal popup = WidgetContainerModal.builder(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_AS_PACK_TITLE), POPUP_W)
+            .widgetContainerRow(PathRow.ROW_H, dataPathRow)
+            .widgetContainerRow(PathRow.ROW_H, resourcePathRow)
+            .footerButton(cancelBtn, btnW)
+            .footerButton(exportBtn, btnW)
+            .build();
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+    }
+
+    /// `Export > As Source Code`: a Data Path row (generated `.java` output), a Resource Path row
+    /// (loose assets), plus an editable package row. Picking a Data Path re-derives the package name
+    /// from it (see [#derivePackageName]); the user can still override it. The Data Path feeds
+    /// [FreemarkerExporter#exportProject]; the Resource Path feeds [AkytheraProject#exportAssetsToDirectory].
+    /// Both destinations are remembered in `project_settings.akproject`
+    /// ([AkytheraProject#saveSourceExportPaths]), independently of the `As Pack` paths. Each field is
+    /// optional: a blank field skips that half of the export.
+    public static void openAsSourceCode(Font font) {
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        // Prefill the package from the remembered source path so a reopened modal shows the same
+        // derived package the last export used, not the bare "com.example.mod" placeholder.
+        PackageRow packageRow = new PackageRow(font, derivePackageName(project.getLastSourceDataPath()));
+
+        PathRow dataPathRow = new PathRow(
+            font,
+            Component.translatable(LangKeys.GUI_EXPORT_MODAL_SOURCE_CODE_PATH),
+            project.getLastSourceDataPath(),
+            chosen -> packageRow.setPackageName(derivePackageName(chosen))
+        );
+        PathRow resourcePathRow = new PathRow(
+            font,
+            Component.translatable(LangKeys.GUI_EXPORT_MODAL_RESOURCE_PATH),
+            project.getLastSourceResourcePath(),
+            null
+        );
+
+        AnchoredButton exportBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_EXPORT), _ -> {
+            String dataDir = dataPathRow.getPath();
+            String resourceDir = resourcePathRow.getPath();
+            if (dataDir.isBlank() && resourceDir.isBlank()) return;
+
+            project.saveSourceExportPaths(dataDir, resourceDir);
+
+            Path opened = null;
+
+            if (!dataDir.isBlank()) {
+                Path dataPath = Path.of(dataDir);
+                FreemarkerExporter.exportProject(project, dataPath, packageRow.getPackageName());
+                opened = dataPath;
+            }
+
+            if (!resourceDir.isBlank()) {
+                Path resourcePath = Path.of(resourceDir);
+                project.exportAssetsToDirectory(resourcePath);
+                // Show data pack directory first.
+                if (opened == null) opened = resourcePath;
+            }
+
+            AkytheraEditorLayoutManager.getInstance().closeModal();
+            if (opened != null) Util.getPlatform().openFile(opened.toFile());
+        }).build();
+
+        AnchoredButton cancelBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ ->
+            AkytheraEditorLayoutManager.getInstance().closeModal()
+        ).build();
+
+        int btnW = WidgetContainerModal.evenButtonWidth(POPUP_W, 2);
+
+        WidgetContainerModal popup = WidgetContainerModal.builder(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_AS_SOURCE_CODE_TITLE), POPUP_W)
+            .widgetContainerRow(PathRow.ROW_H, dataPathRow)
+            .widgetContainerRow(PathRow.ROW_H, resourcePathRow)
+            .widgetContainerRow(PackageRow.ROW_H, packageRow)
+            .footerButton(cancelBtn, btnW)
+            .footerButton(exportBtn, btnW)
+            .build();
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+    }
+
+    /// Mirrors java's package rule: take the path segment after `src/main/java/` and dot-join it.
+    /// e.g. `common\src\main\java\com\yesman\epicfight\data\` -> `com.yesman.epicfight.data`.
+    /// Returns `""` when the marker isn't present (caller leaves the package field blank).
+    static String derivePackageName(String path) {
+        String normalized = path.replace('\\', '/');
+        int idx = normalized.indexOf(SOURCE_ROOT_MARKER);
+        if (idx < 0) return "";
+
+        String relative = normalized.substring(idx + SOURCE_ROOT_MARKER.length());
+        // Trim leading/trailing slashes, then dot-join the remaining segments.
+        relative = relative.replaceAll("^/+", "").replaceAll("/+$", "");
+
+        return relative.isEmpty() ? "" : relative.replace('/', '.');
+    }
+
+    /// A read-only path display ([AdvancedEditBox] in non-editable mode) plus a folder-picker
+    /// button. Picking a folder updates the box and notifies [#onPathChosen] (used by the
+    /// source-code modal to refresh the derived package name).
+    private static final class PathRow extends WidgetContainerModal.WidgetsContainerRow {
+        static final int ROW_H = 38;
+        static final int BOX_H = 20;
+        static final int BROWSE_W = 20;
+
+        private final Font font;
+        private final Component label;
+        private final AdvancedEditBox<String> pathBox;
+
+        PathRow(Font font, Component label, String initialPath, @Nullable Consumer<String> onPathChosen) {
+            this.font = font;
+            this.label = label;
+
+            this.pathBox = AdvancedEditBox.filteredStringBox(
+                font,
+                _ -> true,
+                Component.empty(),
+                AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+                AnchoredWidget.VerticalAnchorType.TOP_HEIGHT
+            );
+            pathBox.setValueByString(initialPath);
+            pathBox.setEditable(false);
+            // Span from x=LABEL_W to the row's right edge, leaving room for the browse button.
+            pathBox.setX1(AnchoredWidget.pixel(LABEL_W));
+            pathBox.setX2(AnchoredWidget.pixel(BROWSE_W + 4));
+            pathBox.setY1(AnchoredWidget.pixel(0));
+            pathBox.setY2(AnchoredWidget.pixel(BOX_H));
+
+            AnchoredButton browseBtn = AnchoredButton.buttonBuilder(font, Component.empty(), _ -> onPressBrowse(onPathChosen))
+                .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(BROWSE_W))
+                .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(BOX_H))
+                .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
+                .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
+                .theme(AkytheraLabsButtonTheme.EXPORT_PATH_BROWSE_BUTTON)
+                .build();
+
+            addWidget(pathBox);
+            addWidget(browseBtn);
+        }
+
+        String getPath() {
+            return pathBox.getText();
+        }
+
+        /// Native folder picker runs off-thread (it blocks); the result is applied back on the
+        /// render thread — the same pattern the retarget modal's export-path browse button uses.
+        private void onPressBrowse(@Nullable Consumer<String> onPathChosen) {
+            String current = FileSystemHelper.toOsString(pathBox.getText());
+
+            CompletableFuture
+                .supplyAsync(() -> TinyFileDialogs.tinyfd_selectFolderDialog("Choose Export Folder", current))
+                .thenAcceptAsync(result -> {
+                    if (result == null) return;
+                    pathBox.setValueByString(result);
+                    if (onPathChosen != null) onPathChosen.accept(result);
+                }, Minecraft.getInstance());
+        }
+
+        @Override
+        protected void extractRowContent(WidgetContainerModal popup, GuiGraphicsExtractor g, ScreenRectangle rowRectangle, int mx, int my, float a) {
+            g.text(font, label, rowRectangle.left(), rowRectangle.top() + (BOX_H - font.lineHeight) / 2, 0xFFAAAAAA, false);
+        }
+    }
+
+    /// Editable package-name field, prefilled from the chosen export path but free to override.
+    private static final class PackageRow extends WidgetContainerModal.WidgetsContainerRow {
+        static final int ROW_H = 38;
+        static final int BOX_H = 20;
+
+        private final Font font;
+        private final AdvancedEditBox<String> packageBox;
+
+        PackageRow(Font font, String initialPackage) {
+            this.font = font;
+            this.packageBox = AdvancedEditBox.filteredStringBox(
+                font,
+                s -> s.matches("[a-zA-Z0-9_.]*"),
+                Component.literal("com.example.mod"),
+                AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+                AnchoredWidget.VerticalAnchorType.TOP_HEIGHT
+            );
+            packageBox.setValueByString(initialPackage);
+            packageBox.setX1(AnchoredWidget.pixel(LABEL_W));
+            packageBox.setX2(AnchoredWidget.pixel(0));
+            packageBox.setY1(AnchoredWidget.pixel(0));
+            packageBox.setY2(AnchoredWidget.pixel(BOX_H));
+
+            addWidget(packageBox);
+        }
+
+        void setPackageName(String packageName) {
+            packageBox.setValueByString(packageName);
+        }
+
+        String getPackageName() {
+            return packageBox.getText();
+        }
+
+        @Override
+        protected void extractRowContent(WidgetContainerModal popup, GuiGraphicsExtractor g, ScreenRectangle rowRectangle, int mx, int my, float a) {
+            g.text(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_PACKAGE_NAME), rowRectangle.left(), rowRectangle.top() + (BOX_H - font.lineHeight) / 2, 0xFFAAAAAA, false);
+        }
+    }
+}

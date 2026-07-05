@@ -1,0 +1,2239 @@
+package com.yesman.akytheralabs.gui.widget.script;
+
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
+import com.mojang.datafixers.util.Pair;
+import com.yesman.akythera.api.data.modularize.ScriptFunction;
+import com.yesman.akythera.api.data.modularize.ScriptType;
+import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
+import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
+import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.AbstractContainerWidget;
+import net.minecraft.client.gui.components.AbstractScrollArea;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
+import org.lwjgl.glfw.GLFW;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+
+/// The blueprint canvas: a grid background and a set of [AbstractNodeWidget]s that
+/// pan (left-drag) and zoom (scroll) independently of the editor's outer GUI scale.
+///
+/// Nodes live in graph space; rendering pushes a `translate(origin) + scale(zoom)`
+/// pose so nodes draw at their graph coordinates. The grid is drawn in screen space
+/// with its spacing multiplied by `zoom`, so lines stay crisp while the cells grow
+/// and shrink with the zoom level (mirroring UE's blueprint grid).
+public final class ScriptNodeGraphWidget extends AbstractContainerWidget implements AnchoredWidget {
+    private static final int GRID = 24;
+    private static final int MAJOR_EVERY = 4;
+    private static final float MIN_ZOOM = 0.30F;
+    private static final float MAX_ZOOM = 2.50F;
+    private static final float ZOOM_STEP = 1.10F;
+    private static final int DRAG_SNAP = 5;
+    /// Screen-pixel slop a right-press may move before it counts as a pan instead of a click.
+    private static final int PAN_THRESHOLD = 3;
+    /// Minimum Bézier handle length (graph space) for a wire's horizontal tangent — scaled by
+    /// [#zoom] at draw / hit-test time so the curve's bend tracks the graph scale.
+    private static final float WIRE_HANDLE_MIN = 40.0F;
+
+    private static final int COLOR_BG = 0xFF161616;
+    private static final int COLOR_GRID_MINOR = 0xFF222222;
+    private static final int COLOR_GRID_MAJOR = 0xFF2E2E2E;
+    private static final int COLOR_WIRE = 0xFFFFFFFF;
+    private static final int COLOR_PIN_COMPATIBLE = 0xFF59FF8C;
+    private static final int COLOR_MARQUEE_FILL = 0x22FFFFFF;
+    private static final int COLOR_MARQUEE_BORDER = 0xFFCFCFCF;
+
+    /// A wire between an output pin of one node and an input pin of another. Pin
+    /// indices are resolved against the live nodes each frame, so a connection stays
+    /// attached as its endpoints move.
+    private record Connection(
+        AbstractNodeWidget fromNode, int fromPin,
+        AbstractNodeWidget toNode, int toPin
+    ) {}
+
+    private final Font font;
+    private final List<AbstractNodeWidget> nodes = new ArrayList<>();
+    private final List<Connection> connections = new ArrayList<>();
+
+    /// Supplies the node suggestions shown when a wire is dropped on empty canvas, keyed
+    /// on the drag [NodeSuggestContext] so an execution drag offers flow nodes and a data
+    /// drag offers value providers. Injected by the host screen, which knows the available
+    /// functions / variables. The source graph is passed too, so graph-local suggestions (e.g. the
+    /// cached poses defined on *this* canvas) can be offered.
+    @Nullable
+    private BiFunction<ScriptNodeGraphWidget, NodeSuggestContext, List<NodeSuggestModal.Suggestion<NodeWidgetFactory>>> suggestionProvider;
+
+    /// The script owner type (e.g. the animator) whose available actions are offered when
+    /// the graph is right-clicked on empty canvas. Injected by the host screen, which knows
+    /// the concrete [com.yesman.akythera.core.reflection.DataDrivenScript] being edited.
+    @Nullable
+    private Class<?> scriptOwnerType;
+
+    /// The [ScriptFunction.Usage]s this canvas accepts — stamped onto every [NodeSuggestContext]
+    /// before the suggestion provider runs (UE's per-graph palette). A canvas may accept several: the
+    /// Event Graph is `SCRIPT`-only, while the Anim Graph / pose graphs are `{ANIM_GRAPH, SCRIPT}` so
+    /// they offer pose nodes **and** script pure functions (e.g. float math feeding a BlendSpace's
+    /// X/Y). Defaults to `{SCRIPT}`.
+    private Set<ScriptFunction.Usage> usage = EnumSet.of(ScriptFunction.Usage.SCRIPT);
+
+    /// Whether this canvas is pure data-flow (no execution pins) — the Anim Graph and the
+    /// state/transition sub-graphs. Suppresses the execution-flow constructs in the suggestion menu.
+    private boolean dataFlowOnly;
+
+    /// Invoked when an [AbstractNodeWidget#isActivatable] node is double-clicked (e.g. a
+    /// [StateMachineNodeWidget] → open its sub-tab). Injected by the host screen.
+    @Nullable
+    private Consumer<AbstractNodeWidget> nodeActivationHandler;
+
+    /// Invoked when the selection settles, with the single selected node (or null when zero / many are
+    /// selected). Lets the host drive a Details panel off the canvas selection. Injected by the screen.
+    @Nullable
+    private Consumer<AbstractNodeWidget> selectionHandler;
+
+    /// Screen-space offset of graph origin (graph 0,0) relative to the widget's top-left.
+    private float panX = 40.0F;
+    private float panY = 40.0F;
+    private float zoom = 1.0F;
+
+    /// Right-button press tracking. The right button now pans (drag) or opens a context
+    /// menu (press + release without crossing [#PAN_THRESHOLD]); we defer the decision to
+    /// release. `rightDown` is held between press and release, `rightDragged` latches once
+    /// the press has moved far enough to count as a pan.
+    private boolean rightDown;
+    private boolean rightDragged;
+    private double rightPressX;
+    private double rightPressY;
+
+    /// The currently selected nodes — drawn with the active (orange) outline and the
+    /// subjects of group move / delete. Left-click on a node selects just it; a left-drag
+    /// on empty canvas marquee-selects everything it covers.
+    private final List<AbstractNodeWidget> selectedNodes = new ArrayList<>();
+
+    /// Node-drag state. `draggingNode` is the grabbed node; the whole selection moves with
+    /// it, each node offset from its own start position captured in `dragStartPositions`.
+    @Nullable
+    private AbstractNodeWidget draggingNode;
+    private int grabOffsetX;
+    private int grabOffsetY;
+    private int dragAnchorStartX;
+    private int dragAnchorStartY;
+    private final List<AbstractNodeWidget> dragNodes = new ArrayList<>();
+    private final List<Pair<Integer, Integer>> dragStartPositions = new ArrayList<>();
+
+    /// Marquee (rubber-band) selection state, in graph space. Active while left-dragging
+    /// empty canvas. `marqueeBase` is the selection to keep when Shift makes the drag
+    /// additive (empty otherwise), unioned each frame with whatever the box covers.
+    private boolean marqueeing;
+    private final List<AbstractNodeWidget> marqueeBase = new ArrayList<>();
+    private int marqueeStartGx;
+    private int marqueeStartGy;
+    private int marqueeEndGx;
+    private int marqueeEndGy;
+
+    /// Wire-drag state. `wiring` is true while the mouse is held after grabbing an
+    /// output pin; `wireSourceNode`/`wireSourcePin` identify that pin and are kept set
+    /// while a suggestion modal is pending so the spline stays drawn. `wirePending`
+    /// marks the after-release window where the spline is pinned to the drop point
+    /// and the modal is open.
+    private boolean wiring;
+    private boolean wirePending;
+    @Nullable
+    private AbstractNodeWidget wireSourceNode;
+    private int wireSourcePin;
+    /// Which side the wire was grabbed from: true = an output pin (drag toward an input /
+    /// flow suggestion), false = a data input pin (drag toward an output / value suggestion).
+    private boolean wireFromOutput;
+    private double wireEndScreenX;
+    private double wireEndScreenY;
+    private int pendingDropGraphX;
+    private int pendingDropGraphY;
+
+    public ScriptNodeGraphWidget(
+        Font font,
+        Unit x1, Unit x2, Unit y1, Unit y2,
+        AnchoredWidget.HorizontalAnchorType horizontalAnchorType,
+        AnchoredWidget.VerticalAnchorType verticalAnchorType
+    ) {
+        super(0, 0, 0, 0, Component.empty(), AbstractScrollArea.defaultSettings(0));
+
+        this.font = font;
+        this.x1 = x1;
+        this.x2 = x2;
+        this.y1 = y1;
+        this.y2 = y2;
+        this.horizontalAnchorType = horizontalAnchorType;
+        this.verticalAnchorType = verticalAnchorType;
+    }
+
+    public void addNode(AbstractNodeWidget node) {
+        if (scriptOwnerType != null) node.setScriptOwnerType(scriptOwnerType);
+        nodes.add(node);
+    }
+
+    /// The entry (event) nodes currently on the canvas, in z-order. Lets the host screen backfill
+    /// missing events — e.g. add a Constructor absent from a save made before that event existed.
+    public List<EntryPointNodeWidget> entryNodes() {
+        return nodes.stream()
+            .filter(EntryPointNodeWidget.class::isInstance)
+            .map(EntryPointNodeWidget.class::cast)
+            .toList();
+    }
+
+    /// The unique names of every [StateMachineNodeWidget] on this canvas. Used by the host to keep
+    /// new state-machine names distinct and to find a machine's node.
+    public List<String> stateMachineNames() {
+        return nodes.stream()
+            .filter(StateMachineNodeWidget.class::isInstance)
+            .map(n -> ((StateMachineNodeWidget) n).machineName())
+            .toList();
+    }
+
+    /// The [com.yesman.akythera.core.animation.driver.AnimationLayerSignature] identifiers
+    /// (`identifier().toString()`) of every [AnimLayerNodeWidget] on this canvas. Used by the host to
+    /// offer only the still-unused signatures when suggesting a new layer node (no duplicate layers).
+    public List<String> animLayerSignatures() {
+        return nodes.stream()
+            .filter(AnimLayerNodeWidget.class::isInstance)
+            .map(n -> ((AnimLayerNodeWidget) n).signatureName())
+            .toList();
+    }
+
+    /// Sets the provider consulted when a wire is dropped on empty canvas to build
+    /// the [NodeSuggestModal] entries for the given [NodeSuggestContext].
+    public void setSuggestionProvider(@Nullable BiFunction<ScriptNodeGraphWidget, NodeSuggestContext, List<NodeSuggestModal.Suggestion<NodeWidgetFactory>>> provider) {
+        this.suggestionProvider = provider;
+    }
+
+    /// The names of every [CachedPoseNodeWidget] on this canvas — the cached poses a
+    /// [CachedPoseGetterNodeWidget] here may reference.
+    public List<String> cachedPoseNames() {
+        return nodes.stream()
+            .filter(CachedPoseNodeWidget.class::isInstance)
+            .map(n -> ((CachedPoseNodeWidget) n).cacheName())
+            .toList();
+    }
+
+    /// Sets the script owner type used to build the empty-canvas right-click suggestions
+    /// (flow nodes plus pure functions that take the owner). Without it, the right-click
+    /// suggest is skipped.
+    public void setScriptOwnerType(Class<?> ownerType) {
+        this.scriptOwnerType = ownerType;
+        for (AbstractNodeWidget node : nodes) node.setScriptOwnerType(ownerType);
+    }
+
+    /// Sets the [ScriptFunction.Usage]s this canvas offers in its node-suggestion menus (Event
+    /// Graph → `SCRIPT`, Anim Graph / pose graphs → `ANIM_GRAPH, SCRIPT`).
+    public void setUsage(ScriptFunction.Usage... usages) {
+        EnumSet<ScriptFunction.Usage> set = EnumSet.noneOf(ScriptFunction.Usage.class);
+        Collections.addAll(set, usages);
+        this.usage = set;
+    }
+
+    /// The [ScriptFunction.Usage]s this canvas offers — lets the host route an asset drop only onto a
+    /// canvas that accepts a pose (`ANIM_GRAPH`) node.
+    public Set<ScriptFunction.Usage> usage() {
+        return usage;
+    }
+
+    /// Marks this canvas as pure data-flow (no execution constructs in its suggestion menu).
+    public void setDataFlowOnly(boolean dataFlowOnly) {
+        this.dataFlowOnly = dataFlowOnly;
+    }
+
+    /// Whether this canvas is pure data-flow (no execution flow) — lets the host offer only a Get node
+    /// (never a Set, which is an execution-flow construct) when a variable is dropped here.
+    public boolean isDataFlowOnly() {
+        return dataFlowOnly;
+    }
+
+    /// Sets the handler fired when an [AbstractNodeWidget#isActivatable] node is double-clicked.
+    public void setNodeActivationHandler(@Nullable Consumer<AbstractNodeWidget> handler) {
+        this.nodeActivationHandler = handler;
+    }
+
+    /// Sets the handler fired when the selection settles (the single selected node, or null).
+    public void setSelectionHandler(@Nullable Consumer<AbstractNodeWidget> handler) {
+        this.selectionHandler = handler;
+    }
+
+    /// Notifies [#selectionHandler] of the current single-selection (null when zero or many selected).
+    private void fireSelectionChanged() {
+        if (selectionHandler != null) {
+            selectionHandler.accept(selectedNodes.size() == 1 ? selectedNodes.getFirst() : null);
+        }
+    }
+
+    /// ***************************************************************
+    /// Persistence — flatten the live canvas to / from [ScriptGraphData]
+    /// ***************************************************************
+
+    /// Builds the entry node for a freshly-loaded canvas. Injected by the host screen because the
+    /// entry node's title and pin shape are event-specific (the Update event exposes
+    /// `frameTime` / `partialTick`, the Constructor event exposes none), which this widget does not
+    /// know. Called with the persisted entry position and its output-pin labels, so the screen can
+    /// recover *which* event the row is (a row carrying data-output labels is the Update entry).
+    @FunctionalInterface
+    public interface EntryNodeFactory {
+        AbstractNodeWidget create(int graphX, int graphY, List<String> outLabels);
+    }
+
+    /// Flattens the live canvas into its persisted form: every node becomes a [ScriptGraphData.NodeData]
+    /// row (id = its index here, so the entry node — always first — is id 0) and every wire a
+    /// [ScriptGraphData.WireData] row referencing those ids.
+    ///
+    /// Reroute knots are persisted like any other node (with their pin shape), so the on-canvas
+    /// layout round-trips intact; the compiler is what splices them out when it lowers the graph
+    /// to engine nodes (see [com.yesman.akytheralabs.dataholder.animation.ScriptGraphCompiler]).
+    public ScriptGraphData exportGraph() {
+        Map<AbstractNodeWidget, Integer> idOf = new HashMap<>();
+        List<ScriptGraphData.NodeData> out = new ArrayList<>();
+
+        for (AbstractNodeWidget node : nodes) {
+            int id = idOf.size();
+            idOf.put(node, id);
+            out.add(describe(node, id));
+        }
+
+        List<ScriptGraphData.WireData> wires = new ArrayList<>();
+
+        for (Connection c : connections) {
+            Integer fromId = idOf.get(c.fromNode());
+            Integer toId = idOf.get(c.toNode());
+            if (fromId == null || toId == null) continue;
+
+            wires.add(new ScriptGraphData.WireData(fromId, c.fromPin(), toId, c.toPin()));
+        }
+
+        return new ScriptGraphData(out, wires);
+    }
+
+    /// Flattens the current selection into a [ScriptGraphData] for the clipboard — a selection-only
+    /// [#exportGraph]. Only **copyable** nodes are taken: a non-deletable structural singleton (an
+    /// event entry, the Output Pose, a transition's Result) is skipped, exactly as it cannot be
+    /// deleted. Ids are assigned over the copied nodes, and a wire is kept only when **both** of its
+    /// endpoints are in the copied set (a wire leaving the selection is dropped). Returns null when
+    /// nothing copyable is selected.
+    public @Nullable ScriptGraphData copySelection() {
+        List<AbstractNodeWidget> copied = selectedNodes.stream()
+            .filter(AbstractNodeWidget::isDeletable)
+            .toList();
+        if (copied.isEmpty()) return null;
+
+        Map<AbstractNodeWidget, Integer> idOf = new HashMap<>();
+        List<ScriptGraphData.NodeData> out = new ArrayList<>();
+
+        for (AbstractNodeWidget node : copied) {
+            int id = idOf.size();
+            idOf.put(node, id);
+            out.add(describe(node, id));
+        }
+
+        List<ScriptGraphData.WireData> wires = new ArrayList<>();
+
+        for (Connection c : connections) {
+            Integer fromId = idOf.get(c.fromNode());
+            Integer toId = idOf.get(c.toNode());
+            if (fromId == null || toId == null) continue; // wire crosses out of the selection
+
+            wires.add(new ScriptGraphData.WireData(fromId, c.fromPin(), toId, c.toPin()));
+        }
+
+        return new ScriptGraphData(out, wires);
+    }
+
+    /// Captures one live node as a [ScriptGraphData.NodeData], reading the kind-specific state
+    /// (function id, variable, literal, operator, dynamic output count, entry context labels).
+    private ScriptGraphData.NodeData describe(AbstractNodeWidget node, int id) {
+        int x = node.getX();
+        int y = node.getY();
+
+        return switch (node) {
+            case EntryPointNodeWidget e -> {
+                List<String> labels = new ArrayList<>();
+                for (int i = 0; i < e.outputPinCount(); i++) labels.add(e.outputPin(i).label());
+                yield ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.ENTRY, x, y).withOutLabels(labels);
+            }
+            case EntityPatchEntryNodeWidget e ->
+                // The entry kind is param-less, so it can't be recovered from labels — persist it in `op`.
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.ENTITY_PATCH_ENTRY, x, y)
+                    .withOp(e.entryKind().name());
+            case SequenceNodeWidget s ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.SEQUENCE, x, y).withOutputs(s.outputPinCount());
+            case BranchingNodeWidget ignored ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.BRANCH, x, y);
+            case FlowFunctionNodeWidget f ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.FLOW_FUNCTION, x, y).withFunction(f.function());
+            case PureFunctionNodeWidget p ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.PURE_FUNCTION, x, y).withFunction(p.function());
+            case LiteralNodeWidget l ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.LITERAL, x, y)
+                    .withLiteral(scriptTypeOf(l.valueType()), l.serializedValue());
+            case SelfNodeWidget ignored ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.SELF, x, y);
+            case ScriptVariableGetterNodeWidget g ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.VARIABLE_GETTER, x, y)
+                    .withVariable(g.variableName(), scriptTypeOf(g.variableType()));
+            case ScriptVariableSetterNodeWidget s ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.VARIABLE_SETTER, x, y)
+                    .withVariable(s.variableName(), scriptTypeOf(s.variableType()));
+            case ComparatorNodeWidget c ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.COMPARATOR, x, y).withOp(c.operator().name());
+            case OperatorNodeWidget o ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.OPERATOR, x, y).withOp(o.operator().name());
+            case RerouteNodeWidget r -> {
+                AbstractNodeWidget.Pin pin = r.outputPin(0);
+                yield ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.REROUTE, x, y)
+                    .withReroute(pin.exec(), scriptTypeOf(pin.type()));
+            }
+            case OutputPoseNodeWidget ignored ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.OUTPUT_POSE, x, y);
+            case AnimSequencePlayerNodeWidget a ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.ANIM_SEQUENCE_PLAYER, x, y).withAsset(a.sequenceId());
+            case BlendSpacePlayerNodeWidget b ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.BLEND_SPACE_PLAYER, x, y).withAsset(b.blendSpaceId());
+            case StateMachineNodeWidget s ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.STATE_MACHINE, x, y).withVariable(s.machineName(), null);
+            case AnimLayerNodeWidget a ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.ANIM_LAYER, x, y).withVariable(a.signatureName(), null);
+            case TypeConvertNodeWidget t ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.TYPE_CONVERT, x, y)
+                    .withTypeConvert(scriptTypeOf(t.fromType()), scriptTypeOf(t.toType()));
+            case TransitionResultNodeWidget ignored ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.TRANSITION_RESULT, x, y);
+            case CachedPoseNodeWidget c ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.CACHED_POSE, x, y).withVariable(c.cacheName(), null);
+            case CachedPoseGetterNodeWidget c ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.CACHED_POSE_GETTER, x, y).withVariable(c.cacheName(), null);
+            case NotNodeWidget ignored ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.NOT, x, y);
+            case LogicalOperationNodeWidget l ->
+                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.LOGICAL_OPERATION, x, y).withOp(l.operator().name());
+            default -> throw new IllegalArgumentException("Unsupported node widget type " + node.getClass().getSimpleName());
+        };
+    }
+
+    /// The registered [ScriptType] whose java type matches `type` (boxing-aware), or null when the
+    /// type is null or not a serializable script type (then a getter/setter falls back to `Object`
+    /// on load, and a reroute to a wildcard pin).
+    private static @Nullable ScriptType scriptTypeOf(@Nullable Class<?> type) {
+        if (type == null) return null;
+        for (ScriptType st : AkytheraRegistries.Frozen.SCRIPT_TYPE) {
+            if (boxedEquals(st.type(), type)) return st;
+        }
+        return null;
+    }
+
+    private static boolean boxedEquals(Class<?> a, Class<?> b) {
+        return wrap(a) == wrap(b);
+    }
+
+    private static Class<?> wrap(Class<?> t) {
+        if (!t.isPrimitive()) return t;
+        if (t == boolean.class) return Boolean.class;
+        if (t == byte.class)    return Byte.class;
+        if (t == short.class)   return Short.class;
+        if (t == char.class)    return Character.class;
+        if (t == int.class)     return Integer.class;
+        if (t == long.class)    return Long.class;
+        if (t == float.class)   return Float.class;
+        if (t == double.class)  return Double.class;
+        return t;
+    }
+
+    /// Rebuilds the canvas from persisted data: clears the live nodes / wires, recreates each
+    /// [ScriptGraphData.NodeData] as its widget (the entry row via `entryFactory`), then re-adds
+    /// every wire whose endpoints resolve to in-range pins. A no-op for [ScriptGraphData#EMPTY].
+    public void importGraph(ScriptGraphData data, EntryNodeFactory entryFactory) {
+        nodes.clear();
+        connections.clear();
+        selectedNodes.clear();
+
+        Map<Integer, AbstractNodeWidget> byId = new HashMap<>();
+        for (ScriptGraphData.NodeData nd : data.nodes()) {
+            AbstractNodeWidget widget = rebuild(nd, entryFactory);
+            if (widget == null) continue;
+            if (scriptOwnerType != null) widget.setScriptOwnerType(scriptOwnerType);
+            nodes.add(widget);
+            byId.put(nd.id(), widget);
+        }
+
+        for (ScriptGraphData.WireData wd : data.wires()) {
+            AbstractNodeWidget from = byId.get(wd.from());
+            AbstractNodeWidget to = byId.get(wd.to());
+            if (from == null || to == null) continue;
+            if (wd.fromPin() < 0 || wd.fromPin() >= from.outputPinCount()) continue;
+            if (wd.toPin() < 0 || wd.toPin() >= to.inputPinCount()) continue;
+            connections.add(new Connection(from, wd.fromPin(), to, wd.toPin()));
+        }
+    }
+
+    /// Recreates a single node widget from its persisted row, or null for an unrecognised /
+    /// incomplete row (e.g. a function node whose function id no longer resolves).
+    private @Nullable AbstractNodeWidget rebuild(ScriptGraphData.NodeData nd, EntryNodeFactory entryFactory) {
+        int x = nd.x();
+        int y = nd.y();
+
+        return switch (nd.kind()) {
+            case ENTRY -> entryFactory.create(x, y, nd.outLabels());
+            case ENTITY_PATCH_ENTRY -> {
+                EntityPatchEntryNodeWidget.Kind kind;
+                try {
+                    kind = EntityPatchEntryNodeWidget.Kind.valueOf(nd.op().orElse("UPDATE"));
+                } catch (IllegalArgumentException ex) {
+                    kind = EntityPatchEntryNodeWidget.Kind.UPDATE;
+                }
+                yield new EntityPatchEntryNodeWidget(font, kind, x, y);
+            }
+            case SEQUENCE -> {
+                SequenceNodeWidget s = new SequenceNodeWidget(
+                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SEQUENCE), x, y);
+                while (s.outputPinCount() < Math.max(1, nd.outputs())) s.onAddPin();
+                while (s.outputPinCount() > Math.max(1, nd.outputs())) s.removeOutputPin(s.outputPinCount() - 1);
+
+                yield s;
+            }
+            case BRANCH ->
+                new BranchingNodeWidget(
+                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_BRANCH), x, y
+                );
+            case FLOW_FUNCTION -> nd.function()
+                .<AbstractNodeWidget>map(f -> new FlowFunctionNodeWidget(font, f, x, y)).orElse(null);
+            case PURE_FUNCTION -> nd.function()
+                .<AbstractNodeWidget>map(f -> new PureFunctionNodeWidget(font, f, x, y)).orElse(null);
+            case LITERAL -> {
+                ScriptType type = nd.literalType().orElse(null);
+                if (type == null) yield null;
+                LiteralNodeWidget l = new LiteralNodeWidget(font, type.type(), x, y);
+                nd.literalValue().ifPresent(l::applySerializedValue);
+
+                yield l;
+            }
+            case SELF ->
+                new SelfNodeWidget(
+                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SELF), x, y
+                );
+            case VARIABLE_GETTER -> {
+                String name = nd.variable().orElse("");
+                Class<?> type = nd.variableType().map(ScriptType::type).orElse((Class)Object.class);
+
+                yield new ScriptVariableGetterNodeWidget(
+                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_GET_VARIABLE, name),
+                    name, type, x, y
+                );
+            }
+            case VARIABLE_SETTER -> {
+                String name = nd.variable().orElse("");
+                Class<?> type = nd.variableType().map(ScriptType::type).orElse((Class)Object.class);
+
+                yield new ScriptVariableSetterNodeWidget(
+                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SET),
+                    name, type, x, y
+                );
+            }
+            case COMPARATOR -> new ComparatorNodeWidget(
+                font, ComparatorNodeWidget.Operator.valueOf(nd.op().orElse("EQUAL")), x, y);
+            case OPERATOR -> new OperatorNodeWidget(
+                font, OperatorNodeWidget.Operator.valueOf(nd.op().orElse("ADD")), x, y);
+            case REROUTE -> {
+                boolean exec = nd.exec();
+                Class<?> type = nd.variableType().map(ScriptType::type).orElse(null);
+                int color = exec ? NodeColors.EXEC : NodeColors.forTypeOrWildcard(type);
+
+                yield new RerouteNodeWidget(font, new AbstractNodeWidget.Pin("", color, exec, type), x, y);
+            }
+            case OUTPUT_POSE -> new OutputPoseNodeWidget(
+                font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_OUTPUT_POSE), x, y);
+            case ANIM_SEQUENCE_PLAYER -> nd.asset()
+                .<AbstractNodeWidget>map(assetId -> new AnimSequencePlayerNodeWidget(font, assetId, x, y)).orElse(null);
+            case BLEND_SPACE_PLAYER -> nd.asset()
+                .<AbstractNodeWidget>map(assetId -> new BlendSpacePlayerNodeWidget(font, assetId, x, y)).orElse(null);
+            case STATE_MACHINE -> new StateMachineNodeWidget(font, nd.variable().orElse(""), x, y);
+            case ANIM_LAYER -> new AnimLayerNodeWidget(font, nd.variable().orElse(""), x, y);
+            case TYPE_CONVERT -> {
+                ScriptType from = nd.variableType().orElse(null);
+                ScriptType to = nd.literalType().orElse(null);
+                if (from == null || to == null) yield null;
+                yield new TypeConvertNodeWidget(font, from.type(), to.type(), x, y);
+            }
+            case TRANSITION_RESULT -> new TransitionResultNodeWidget(
+                font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_TRANSITION_RESULT), x, y);
+            case CACHED_POSE -> new CachedPoseNodeWidget(font, nd.variable().orElse(""), x, y);
+            case CACHED_POSE_GETTER -> new CachedPoseGetterNodeWidget(font, nd.variable().orElse(""), x, y);
+            case NOT -> new NotNodeWidget(font, x, y);
+            case LOGICAL_OPERATION -> new LogicalOperationNodeWidget(
+                font, LogicalOperationNodeWidget.Operator.valueOf(nd.op().orElse("AND")), x, y);
+        };
+    }
+
+    @Override
+    protected int contentHeight() {
+        return getHeight();
+    }
+
+    @Override
+    public @NonNull List<? extends GuiEventListener> children() {
+        // Nodes are rendered manually and are non-interactive this stage; keep event
+        // handling (pan / zoom) entirely in this widget's overrides.
+        return Collections.emptyList();
+    }
+
+    @Override
+    protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
+        g.fill(getX(), getY(), getRight(), getBottom(), COLOR_BG);
+
+        g.enableScissor(getX(), getY(), getRight(), getBottom());
+
+        drawGrid(g);
+
+        // Refresh per-node connected-pin state up front so node layout (type-detected pins,
+        // self badges) is settled before either the wires or the nodes are drawn.
+        pushConnectionState();
+
+        int graphMouseX = screenToGraphX(mouseX);
+        int graphMouseY = screenToGraphY(mouseY);
+
+        // Wires render here, *behind* the nodes: committed connections (graph→screen each frame
+        // so they track moving nodes, tinted by the value the wire carries), then any in-flight
+        // / pending wire, then the marquee. The nodes themselves are deferred to the frame's
+        // tail (see below) so a spline never paints over a node body — matching UE.
+        for (Connection c : connections) {
+            drawConnection(g,
+                graphToScreenX(c.fromNode().outputPinCenterX(c.fromPin())),
+                graphToScreenY(c.fromNode().outputPinCenterY(c.fromPin())),
+                graphToScreenX(c.toNode().inputPinCenterX(c.toPin())),
+                graphToScreenY(c.toNode().inputPinCenterY(c.toPin())),
+                pinWireColor(c.fromNode().outputPin(c.fromPin())));
+        }
+
+        if (wiring && wireSourceNode != null) {
+            renderActiveWire(g, graphMouseX, graphMouseY);
+        } else if (wirePending && wireSourceNode != null) {
+            // Spline pinned to the drop point while the suggestion modal is open.
+            drawConnection(g,
+                wireSourceScreenX(),
+                wireSourceScreenY(),
+                graphToScreenX(pendingDropGraphX),
+                graphToScreenY(pendingDropGraphY),
+                activeWireColor());
+        }
+
+        if (marqueeing) {
+            drawMarquee(g);
+        }
+
+        // Hover cursor over a node when no gesture owns the cursor: the move cross over the
+        // body (a drag anywhere off the pins moves the node) and the pointing hand over a pin
+        // marker (a drag there grabs a wire) — matching UE.
+        if (!wiring && !wirePending && draggingNode == null && !marqueeing && !rightDown && isMouseOver(mouseX, mouseY)) {
+            requestHoverCursor(g, graphMouseX, graphMouseY);
+        }
+
+        g.disableScissor();
+
+        // Defer the node widgets (and the header tooltip after them) to the frame's tail so they
+        // draw on top of the wires above. The deferred pass runs outside this method's pose /
+        // scissor, so both are re-established inside it.
+        ((GuiGraphicsAccessor) g).akythera$setDeferredWidgetRenderer(() -> {
+            g.enableScissor(getX(), getY(), getRight(), getBottom());
+
+            g.pose().pushMatrix();
+            g.pose().translate(getX() + panX, getY() + panY);
+            g.pose().scale(zoom, zoom);
+
+            for (AbstractWidget node : nodes) {
+                node.extractRenderState(g, graphMouseX, graphMouseY, a);
+            }
+
+            g.pose().popMatrix();
+            g.disableScissor();
+
+            drawHeaderTooltip(g, mouseX, mouseY, graphMouseX, graphMouseY);
+        });
+    }
+
+    /// Draws the rubber-band selection box (screen space): a faint fill plus a dashed
+    /// border, mirroring UE's marquee.
+    private void drawMarquee(GuiGraphicsExtractor g) {
+        int x0 = (int) graphToScreenX(Math.min(marqueeStartGx, marqueeEndGx));
+        int y0 = (int) graphToScreenY(Math.min(marqueeStartGy, marqueeEndGy));
+        int x1 = (int) graphToScreenX(Math.max(marqueeStartGx, marqueeEndGx));
+        int y1 = (int) graphToScreenY(Math.max(marqueeStartGy, marqueeEndGy));
+
+        g.fill(x0, y0, x1, y1, COLOR_MARQUEE_FILL);
+
+        int dash = 4, gap = 3;
+
+        for (int x = x0; x < x1; x += dash + gap) {
+            int xe = Math.min(x + dash, x1);
+            g.fill(x, y0, xe, y0 + 1, COLOR_MARQUEE_BORDER);
+            g.fill(x, y1 - 1, xe, y1, COLOR_MARQUEE_BORDER);
+        }
+
+        for (int y = y0; y < y1; y += dash + gap) {
+            int ye = Math.min(y + dash, y1);
+            g.fill(x0, y, x0 + 1, ye, COLOR_MARQUEE_BORDER);
+            g.fill(x1 - 1, y, x1, ye, COLOR_MARQUEE_BORDER);
+        }
+    }
+
+    /// Screen-space X/Y of the wire's source pin, picking the input or output column
+    /// from whichever side the wire was grabbed.
+    private float wireSourceScreenX() {
+        return graphToScreenX(wireFromOutput
+            ? wireSourceNode.outputPinCenterX(wireSourcePin)
+            : wireSourceNode.inputPinCenterX(wireSourcePin)
+        );
+    }
+
+    private float wireSourceScreenY() {
+        return graphToScreenY(wireFromOutput
+            ? wireSourceNode.outputPinCenterY(wireSourcePin)
+            : wireSourceNode.inputPinCenterY(wireSourcePin)
+        );
+    }
+
+    /// Draws the title-bar tooltip of the node under the cursor (screen space, after the
+    /// scissor closes so it isn't clipped). Suppressed while panning / dragging / wiring.
+    private void drawHeaderTooltip(GuiGraphicsExtractor g, int mouseX, int mouseY, int graphMouseX, int graphMouseY) {
+        if (rightDown || marqueeing || draggingNode != null || wiring || wirePending) return;
+        if (!isMouseOver(mouseX, mouseY)) return;
+
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            AbstractNodeWidget node = nodes.get(i);
+            if (!node.containsGraphPoint(graphMouseX, graphMouseY)) continue;
+
+            // Validation errors take precedence and show anywhere on the node; the node's own
+            // header tooltip is appended only while the cursor is over the title bar.
+            List<Component> lines = new ArrayList<>();
+            if (node.hasErrors()) lines.addAll(node.errorLines());
+            if (node.isOverHeader(graphMouseX, graphMouseY)) {
+                List<Component> header = node.headerTooltipLines();
+                if (header != null) lines.addAll(header);
+            }
+            if (!lines.isEmpty()) drawTooltipBox(g, lines, mouseX, mouseY);
+            return; // topmost node consumes the hover regardless
+        }
+    }
+
+    /// Requests the hover cursor for the topmost node under `(gx, gy)`: the pointing hand over
+    /// a pin marker (output or input), the move cross anywhere else on the node body. Leaves the
+    /// cursor untouched (default arrow) when the cursor is over empty canvas.
+    private void requestHoverCursor(GuiGraphicsExtractor g, int gx, int gy) {
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            AbstractNodeWidget node = nodes.get(i);
+            if (!node.containsGraphPoint(gx, gy)) continue;
+
+            boolean onPin = node.outputPinIndexAt(gx, gy) >= 0 || node.inputPinIndexAt(gx, gy) >= 0;
+            g.requestCursor(onPin ? CursorTypes.POINTING_HAND : CursorTypes.RESIZE_ALL);
+            return; // topmost node consumes the hover regardless
+        }
+    }
+
+    private void drawTooltipBox(GuiGraphicsExtractor g, List<Component> lines, int mouseX, int mouseY) {
+        int pad = 4;
+        int lineH = font.lineHeight + 1;
+        int textW = lines.stream().mapToInt(font::width).max().orElse(0);
+
+        int boxX = mouseX + 12;
+        int boxY = mouseY + 12;
+        int boxW = textW + pad * 2;
+        int boxH = lines.size() * lineH - 1 + pad * 2;
+
+        // Keep the box inside the widget bounds.
+        if (boxX + boxW > getRight()) boxX = getRight() - boxW;
+        if (boxY + boxH > getBottom()) boxY = getBottom() - boxH;
+
+        g.fill(boxX, boxY, boxX + boxW, boxY + boxH, 0xF0140C24);
+        g.outline(boxX, boxY, boxW, boxH, 0xFF3A2A6A);
+
+        for (int i = 0; i < lines.size(); i++) {
+            g.text(font, lines.get(i), boxX + pad, boxY + pad + i * lineH, 0xFFE0E0E0, false);
+        }
+    }
+
+    /// Draws the in-progress wire from the source pin to either the cursor or, when
+    /// hovering a valid drop pin, that pin (snapped + highlighted). Drives the cursor
+    /// to signal compatibility.
+    private void renderActiveWire(GuiGraphicsExtractor g, int graphMouseX, int graphMouseY) {
+        float sx = wireSourceScreenX();
+        float sy = wireSourceScreenY();
+        int wireColor = activeWireColor();
+
+        // From an output pin we snap onto input pins; from an input pin, onto output pins.
+        PinTarget target = wireFromOutput
+            ? findInputPinTarget(graphMouseX, graphMouseY)
+            : findOutputPinTarget(graphMouseX, graphMouseY);
+
+        if (target != null) {
+            if (targetCompatible(target)) {
+                float tx = graphToScreenX(wireFromOutput
+                    ? target.node().inputPinCenterX(target.pin())
+                    : target.node().outputPinCenterX(target.pin()));
+                float ty = graphToScreenY(wireFromOutput
+                    ? target.node().inputPinCenterY(target.pin())
+                    : target.node().outputPinCenterY(target.pin()));
+                drawConnection(g, sx, sy, tx, ty, wireColor);
+                drawPinHighlight(g, tx, ty, COLOR_PIN_COMPATIBLE);
+                g.requestCursor(CursorTypes.POINTING_HAND);
+                return;
+            }
+
+            g.requestCursor(CursorTypes.NOT_ALLOWED);
+        }
+
+        drawConnection(g, sx, sy, (float) wireEndScreenX, (float) wireEndScreenY, wireColor);
+    }
+
+    /// The draw color of the in-flight wire: a data pin uses its type color so the spline
+    /// reads as the value it carries (UE-style), while an execution pin stays the neutral
+    /// wire color.
+    private int activeWireColor() {
+        if (wireSourceNode == null) return COLOR_WIRE;
+
+        AbstractNodeWidget.Pin pin = wireFromOutput
+            ? wireSourceNode.outputPin(wireSourcePin)
+            : wireSourceNode.inputPin(wireSourcePin);
+        return pinWireColor(pin);
+    }
+
+    /// The wire color for `pin`: its type color for a data pin, the neutral wire color
+    /// for an execution pin.
+    private static int pinWireColor(AbstractNodeWidget.Pin pin) {
+        return pin.exec() ? COLOR_WIRE : pin.color();
+    }
+
+    /// How a dropped wire may join two data pins: a [#DIRECT] wire (same type or an implicit widening
+    /// cast), a [#CONVERT] wire (a [TypeConvertNodeWidget] auto-inserted for an explicit narrowing
+    /// cast, e.g. `double -> float`), or [#NONE] (incompatible).
+    private enum LinkKind { DIRECT, CONVERT, NONE }
+
+    /// Classifies an `output -> input` pin pairing. Execution pins only pair exec↔exec. Typed data
+    /// pins are [LinkKind#DIRECT] when the value is assignable (same type, or a widening like `float -> double`,
+    /// resolved via the target type's narrowing map) and [LinkKind#CONVERT] when only an explicit narrowing
+    /// cast applies (the source type's [com.yesman.akythera.api.data.modularize.ScriptType#explicitCastableTypes()]
+    /// names the target). A null type on either side is treated as a wildcard ([LinkKind#DIRECT]).
+    private LinkKind linkKind(AbstractNodeWidget.Pin output, AbstractNodeWidget.Pin input) {
+        if (output.exec() || input.exec()) {
+            return output.exec() && input.exec() ? LinkKind.DIRECT : LinkKind.NONE;
+        }
+
+        Class<?> provided = output.type();
+        Class<?> expected = input.type();
+        if (provided == null || expected == null) return LinkKind.DIRECT;
+        if (wrap(expected).isAssignableFrom(wrap(provided))) return LinkKind.DIRECT;
+
+        ScriptType providedType = scriptTypeOf(provided);
+        if (providedType != null && providedType.explicitCastableTypes().containsKey(wrap(expected))) {
+            return LinkKind.CONVERT; // explicit narrowing (e.g. double -> float)
+        }
+
+        ScriptType expectedType = scriptTypeOf(expected);
+        if (expectedType != null && expectedType.explicitCastableTypes().containsKey(wrap(provided))) {
+            return LinkKind.DIRECT; // implicit widening (e.g. float -> double)
+        }
+
+        return LinkKind.NONE;
+    }
+
+    /// The [LinkKind] of the wire's source pin against the opposite-side `target` pin, oriented so the
+    /// output pin is always the source of the value regardless of which end the drag began from.
+    private LinkKind targetLinkKind(PinTarget target) {
+        AbstractNodeWidget.Pin output = wireFromOutput
+            ? wireSourceNode.outputPin(wireSourcePin)
+            : target.node().outputPin(target.pin());
+        AbstractNodeWidget.Pin input = wireFromOutput
+            ? target.node().inputPin(target.pin())
+            : wireSourceNode.inputPin(wireSourcePin);
+        return linkKind(output, input);
+    }
+
+    /// Whether the wire's source pin and the opposite-side `target` pin can join at all (directly or
+    /// via an auto-inserted converter), regardless of which end the drag started from.
+    private boolean targetCompatible(PinTarget target) {
+        return targetLinkKind(target) != LinkKind.NONE;
+    }
+
+    /// A square ring around a pin marker (screen space), scaled with zoom.
+    private void drawPinHighlight(GuiGraphicsExtractor g, float cx, float cy, int color) {
+        int r = (int) (5 * zoom) + 2;
+        g.outline((int) cx - r, (int) cy - r, r * 2, r * 2, color);
+    }
+
+    /// A horizontal-tangent cubic Bézier spline mirroring UE's blueprint wires,
+    /// approximated by short filled segments.
+    private void drawConnection(GuiGraphicsExtractor g, float x0, float y0, float x1, float y1, int color) {
+        float handle = wireHandle(x0, x1);
+        float cx0 = x0 + handle;
+        float cx1 = x1 - handle;
+
+        // Wire weight grows with the zoom so it reads the same relative to the nodes at any scale.
+        int thickness = Math.max(1, Math.round(2 * zoom));
+
+        int segments = 32;
+        float px = x0, py = y0;
+        for (int i = 1; i <= segments; i++) {
+            float t = i / (float) segments;
+            float mt = 1.0F - t;
+            float bx = mt * mt * mt * x0 + 3 * mt * mt * t * cx0 + 3 * mt * t * t * cx1 + t * t * t * x1;
+            float by = mt * mt * mt * y0 + 3 * mt * mt * t * y0 + 3 * mt * t * t * y1 + t * t * t * y1;
+            drawThickLine(g, px, py, bx, by, color, thickness);
+            px = bx;
+            py = by;
+        }
+    }
+
+    private void drawThickLine(GuiGraphicsExtractor g, float x0, float y0, float x1, float y1, int color, int thickness) {
+        float dx = x1 - x0;
+        float dy = y1 - y0;
+        // Round up so the stepped samples always reach the endpoint (a truncated count would stop a
+        // pixel short and leave a seam between this segment and the next).
+        int steps = (int) Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)));
+
+        int prevX = Math.round(x0);
+        int prevY = Math.round(y0);
+
+        if (steps <= 0) {
+            g.fill(prevX, prevY, prevX + thickness, prevY + thickness, color);
+            return;
+        }
+
+        for (int i = 1; i <= steps; i++) {
+            float t = i / (float) steps;
+            int px = Math.round(x0 + dx * t);
+            int py = Math.round(y0 + dy * t);
+            // Fill the box spanning the previous pixel to this one. The samples are ≤1px apart, so a
+            // diagonal step fills its corner pixel too — keeping a 1px wire solid (no holes) instead
+            // of the 8-connected staircase that broke apart when zoomed out, while still thinning to
+            // `thickness` (down to 1px) on the wire's flat runs.
+            g.fill(Math.min(prevX, px), Math.min(prevY, py),
+                Math.max(prevX, px) + thickness, Math.max(prevY, py) + thickness, color);
+            prevX = px;
+            prevY = py;
+        }
+    }
+
+    /// Screen-space grid: line spacing scales with zoom, line thickness stays 1px.
+    private void drawGrid(GuiGraphicsExtractor g) {
+        float step = GRID * zoom;
+        if (step < 6.0F) return; // too dense to be useful when far zoomed out
+
+        float originX = getX() + panX;
+        float originY = getY() + panY;
+
+        int kx = (int) Math.ceil((getX() - originX) / step);
+        for (float sx = originX + kx * step; sx < getRight(); sx += step, kx++) {
+            int color = Math.floorMod(kx, MAJOR_EVERY) == 0 ? COLOR_GRID_MAJOR : COLOR_GRID_MINOR;
+            g.fill((int) sx, getY(), (int) sx + 1, getBottom(), color);
+        }
+
+        int ky = (int) Math.ceil((getY() - originY) / step);
+        for (float sy = originY + ky * step; sy < getBottom(); sy += step, ky++) {
+            int color = Math.floorMod(ky, MAJOR_EVERY) == 0 ? COLOR_GRID_MAJOR : COLOR_GRID_MINOR;
+            g.fill(getX(), (int) sy, getRight(), (int) sy + 1, color);
+        }
+    }
+
+    private int screenToGraphX(double screenX) {
+        return (int) ((screenX - getX() - panX) / zoom);
+    }
+
+    private int screenToGraphY(double screenY) {
+        return (int) ((screenY - getY() - panY) / zoom);
+    }
+
+    private float graphToScreenX(int graphX) {
+        return getX() + panX + graphX * zoom;
+    }
+
+    private float graphToScreenY(int graphY) {
+        return getY() + panY + graphY * zoom;
+    }
+
+    /// Rounds a graph coordinate to the nearest [#DRAG_SNAP] step.
+    private static int snap(int graphCoord) {
+        return Math.round((float) graphCoord / DRAG_SNAP) * DRAG_SNAP;
+    }
+
+    /// An input pin resolved as a wire's drop target.
+    private record PinTarget(AbstractNodeWidget node, int pin) {}
+
+    /// The topmost node (other than the wire source) whose input pin sits under the
+    /// given graph point, or null when none.
+    @Nullable
+    private PinTarget findInputPinTarget(int gx, int gy) {
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            AbstractNodeWidget node = nodes.get(i);
+            if (node == wireSourceNode) continue;
+
+            int pin = node.inputPinIndexAt(gx, gy);
+            if (pin >= 0) return new PinTarget(node, pin);
+        }
+
+        return null;
+    }
+
+    /// The topmost node (other than the wire source) whose **output** pin sits under the
+    /// given graph point, or null — the drop target when wiring from an input pin.
+    @Nullable
+    private PinTarget findOutputPinTarget(int gx, int gy) {
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            AbstractNodeWidget node = nodes.get(i);
+            if (node == wireSourceNode) continue;
+
+            int pin = node.outputPinIndexAt(gx, gy);
+            if (pin >= 0) return new PinTarget(node, pin);
+        }
+
+        return null;
+    }
+
+    @Nullable
+    private AbstractNodeWidget nodeAt(int gx, int gy) {
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            if (nodes.get(i).containsGraphPoint(gx, gy)) return nodes.get(i);
+        }
+
+        return null;
+    }
+
+    /// Pushes each node's connected **input** pins (index → feeding output pin) and **output**
+    /// pins (index → fed destination input pin) from the live connection set, ordered by pin
+    /// A single validation problem: the offending node and a human-readable message. Returned in
+    /// a flat list by [#validate], one entry per problem (a node may have several).
+    public record ValidationIssue(AbstractNodeWidget node, Component message) {}
+
+    /// Validates the live graph for the problems UE flags on compile and marks each offending node
+    /// with a red "ERROR!" banner (see [AbstractNodeWidget#setErrors]):
+    ///   - a **required data input** left unconnected (and not defaulting to `self`);
+    ///   - an **incompatible connection** — a wire whose source value type cannot drive its
+    ///     destination pin (catches a node re-typing its pins after the wire was made).
+    ///
+    /// Error state is recomputed wholesale: every node is re-flagged or cleared, so fixing a node
+    /// and validating again clears it. Returns the flat issue list (empty = the graph is valid).
+    public List<ValidationIssue> validate() {
+        // Settle `self` badges / type-detected pins against the current wiring before inspecting
+        // them, so validation never races the per-frame connection push.
+        pushConnectionState();
+
+        Map<AbstractNodeWidget, List<Component>> byNode = new HashMap<>();
+        List<ValidationIssue> issues = new ArrayList<>();
+
+        // Incompatible connections.
+        for (Connection c : connections) {
+            if (c.fromPin() >= c.fromNode().outputPinCount() || c.toPin() >= c.toNode().inputPinCount()) {
+                continue; // stale index against a node whose pins shrank; ignore defensively
+            }
+            AbstractNodeWidget.Pin from = c.fromNode().outputPin(c.fromPin());
+            AbstractNodeWidget.Pin to = c.toNode().inputPin(c.toPin());
+            if (!AbstractNodeWidget.pinsCompatible(from, to)) {
+                String slot = to.label().isEmpty() ? from.label() : to.label();
+                addIssue(byNode, issues, c.toNode(),
+                    Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VALIDATION_INCOMPATIBLE, slot));
+            }
+        }
+
+        // Unconnected required inputs.
+        for (AbstractNodeWidget node : nodes) {
+            for (int i = 0; i < node.inputPinCount(); i++) {
+                if (node.isRequiredInputUnconnected(i)) {
+                    addIssue(byNode, issues, node,
+                        Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VALIDATION_REQUIRED_INPUT,
+                            node.inputPin(i).label()));
+                }
+            }
+        }
+
+        // Apply (and clear) error state across every node.
+        for (AbstractNodeWidget node : nodes) {
+            node.setErrors(byNode.getOrDefault(node, List.of()));
+        }
+
+        return issues;
+    }
+
+    private static void addIssue(
+        Map<AbstractNodeWidget, List<Component>> byNode, List<ValidationIssue> issues,
+        AbstractNodeWidget node, Component message
+    ) {
+        if (!node.reportsValidationErrors()) return; // cosmetic node (reroute knot)
+        byNode.computeIfAbsent(node, _ -> new ArrayList<>()).add(message);
+        issues.add(new ValidationIssue(node, message));
+    }
+
+    /// index. Drives the `self` badge and type-detecting nodes. Rebuilt every frame so it stays
+    /// correct across undo/redo without hooking every mutation.
+    private void pushConnectionState() {
+        Map<AbstractNodeWidget, Map<Integer, AbstractNodeWidget.Pin>> inputsByNode = new HashMap<>();
+        Map<AbstractNodeWidget, Map<Integer, AbstractNodeWidget.Pin>> outputsByNode = new HashMap<>();
+
+        for (Connection c : connections) {
+            AbstractNodeWidget.Pin source = c.fromNode().outputPin(c.fromPin());
+            AbstractNodeWidget.Pin dest = c.toNode().inputPin(c.toPin());
+            inputsByNode.computeIfAbsent(c.toNode(), _ -> new TreeMap<>()).put(c.toPin(), source);
+            outputsByNode.computeIfAbsent(c.fromNode(), _ -> new TreeMap<>()).put(c.fromPin(), dest);
+        }
+
+        for (AbstractNodeWidget node : nodes) {
+            node.updateConnections(
+                inputsByNode.getOrDefault(node, Map.of()),
+                outputsByNode.getOrDefault(node, Map.of()));
+        }
+    }
+
+    /// Height of the editor screen this graph lives in (screen-space, editor scale), used to
+    /// decide whether a suggestion modal should open downward or flip above the cursor.
+    private int editorScreenHeight() {
+        Screen screen = AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen();
+        return screen != null ? screen.getRectangle().height() : getBottom();
+    }
+
+    /// Starts a wire drag from `node`'s pin `pin` (`fromOutput` selects the side),
+    /// anchored to the cursor at `screenX/screenY`.
+    private void beginWire(AbstractNodeWidget node, int pin, boolean fromOutput, double screenX, double screenY) {
+        wiring = true;
+        wirePending = false;
+        wireSourceNode = node;
+        wireSourcePin = pin;
+        wireFromOutput = fromOutput;
+        wireEndScreenX = screenX;
+        wireEndScreenY = screenY;
+    }
+
+    private void clearWire() {
+        wiring = false;
+        wirePending = false;
+        wireSourceNode = null;
+    }
+
+    /// Commits a connection and records it so making a wire can be undone / redone.
+    ///
+    /// A data input pin holds a single source, so a new wire into an already-wired input
+    /// displaces the previous connection (UE-style). Execution input pins fan in (many flow
+    /// predecessors into one node), so they keep every incoming wire.
+    private void addConnection(Connection connection) {
+        List<Connection> displaced = connection.toNode().inputPin(connection.toPin()).exec()
+            ? List.of()
+            : connections.stream()
+                .filter(c -> c.toNode() == connection.toNode() && c.toPin() == connection.toPin())
+                .toList();
+
+        connections.removeAll(displaced);
+        connections.add(connection);
+
+        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+            @Override
+            public void undo() {
+                connections.remove(connection);
+                connections.addAll(displaced);
+            }
+
+            @Override
+            public void redo() {
+                connections.removeAll(displaced);
+                connections.add(connection);
+            }
+        });
+    }
+
+    /// Auto-inserts a [TypeConvertNodeWidget] between an output pin and an input pin of a different
+    /// but explicitly-castable type (e.g. dropping a `double` output onto a `float` input): the node
+    /// is centred on the midpoint of the two pins, wired `fromNode -> converter -> toNode`, and (since
+    /// a data input holds one source) any wire already feeding the target input is displaced. Recorded
+    /// as one undoable unit.
+    private void insertConverter(AbstractNodeWidget fromNode, int fromPin, AbstractNodeWidget toNode, int toPin) {
+        Class<?> fromType = fromNode.outputPin(fromPin).type();
+        Class<?> toType = toNode.inputPin(toPin).type();
+
+        int midX = (fromNode.outputPinCenterX(fromPin) + toNode.inputPinCenterX(toPin)) / 2;
+        int midY = (fromNode.outputPinCenterY(fromPin) + toNode.inputPinCenterY(toPin)) / 2;
+
+        TypeConvertNodeWidget converter = new TypeConvertNodeWidget(font, fromType, toType, midX, midY);
+        if (scriptOwnerType != null) converter.setScriptOwnerType(scriptOwnerType);
+        converter.setX(midX - converter.getWidth() / 2);
+        converter.setY(midY - converter.getHeight() / 2);
+
+        Connection in = new Connection(fromNode, fromPin, converter, 0);
+        Connection out = new Connection(converter, 0, toNode, toPin);
+        List<Connection> displaced = connections.stream()
+            .filter(c -> c.toNode() == toNode && c.toPin() == toPin)
+            .toList();
+
+        applyConverter(converter, displaced, in, out);
+        selectOnly(converter);
+
+        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+            @Override
+            public void undo() {
+                connections.remove(in);
+                connections.remove(out);
+                nodes.remove(converter);
+                connections.addAll(displaced);
+                if (selectedNodes.remove(converter)) converter.setFocused(false);
+            }
+
+            @Override
+            public void redo() {
+                applyConverter(converter, displaced, in, out);
+                selectOnly(converter);
+            }
+        });
+    }
+
+    private void applyConverter(TypeConvertNodeWidget converter, List<Connection> displaced, Connection in, Connection out) {
+        connections.removeAll(displaced);
+        if (!nodes.contains(converter)) nodes.add(converter);
+        if (!connections.contains(in)) connections.add(in);
+        if (!connections.contains(out)) connections.add(out);
+    }
+
+    /// Breaks every wire attached to the given pin (`output` selects which endpoint to
+    /// match) and records it so the Alt+click disconnect can be undone / redone.
+    private void disconnectPin(AbstractNodeWidget node, int pinIndex, boolean output) {
+        List<Connection> removed = connections.stream()
+            .filter(c -> output
+                ? c.fromNode() == node && c.fromPin() == pinIndex
+                : c.toNode() == node && c.toPin() == pinIndex)
+            .toList();
+
+        if (removed.isEmpty()) return;
+
+        connections.removeAll(removed);
+
+        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+            @Override
+            public void undo() {
+                connections.addAll(removed);
+            }
+
+            @Override
+            public void redo() {
+                connections.removeAll(removed);
+            }
+        });
+    }
+
+    /// Retargets every [VariableNodeWidget] (Get / Set) referencing `variableName` to the
+    /// java type `newType` — re-coloring / re-typing their data pins — and then drops every
+    /// wire on those nodes the new type can no longer satisfy.
+    ///
+    /// Returns a [WorkHistory] that reverses both the pin retyping and the disconnections (or
+    /// null when no node referenced the variable). The change is **not** pushed onto the undo
+    /// stack here: the caller composes the returned handle with its own variable-type change so
+    /// the whole retype is a single undo step.
+    @Nullable
+    public WorkHistory retypeVariableNodes(String variableName, Class<?> newType) {
+        List<AbstractNodeWidget> targets = new ArrayList<>();
+        for (AbstractNodeWidget node : nodes) {
+            if (node instanceof VariableNodeWidget v && v.variableName().equals(variableName)) targets.add(node);
+        }
+        if (targets.isEmpty()) return null;
+
+        // All nodes for one variable share its type, so a single old type reverses them all.
+        Class<?> oldType = ((VariableNodeWidget) targets.getFirst()).variableType();
+
+        retypeNodes(targets, newType);
+
+        // Evaluated against the *new* pin types: a wire on a retyped node whose endpoints are
+        // no longer compatible is dropped (exec wires are unaffected — exec pins stay typeless).
+        List<Connection> removed = connections.stream()
+            .filter(c -> targets.contains(c.fromNode()) || targets.contains(c.toNode()))
+            .filter(c -> !AbstractNodeWidget.pinsCompatible(c.fromNode().outputPin(c.fromPin()), c.toNode().inputPin(c.toPin())))
+            .toList();
+        connections.removeAll(removed);
+
+        return new WorkHistory() {
+            @Override
+            public void undo() {
+                retypeNodes(targets, oldType);
+                connections.addAll(removed);
+            }
+
+            @Override
+            public void redo() {
+                retypeNodes(targets, newType);
+                connections.removeAll(removed);
+            }
+        };
+    }
+
+    private static void retypeNodes(List<AbstractNodeWidget> targets, Class<?> type) {
+        for (AbstractNodeWidget node : targets) ((VariableNodeWidget) node).applyVariableType(type);
+    }
+
+    /// Renames every [VariableNodeWidget] (Get / Set) referencing `oldName` to `newName`,
+    /// updating each node's title / pin label in place. No history is recorded here: the
+    /// caller's rename history re-invokes this on undo / redo with the names swapped, so the
+    /// node names track the variable's name without a separate undo step.
+    public void renameVariableNodes(String oldName, String newName) {
+        for (AbstractNodeWidget node : nodes) {
+            if (node instanceof VariableNodeWidget v && v.variableName().equals(oldName)) {
+                v.applyVariableName(newName);
+            }
+        }
+    }
+
+    /// Retargets every [CachedPoseGetterNodeWidget] referencing `oldName` to `newName` (updating each
+    /// node's title in place), so the getters track a renamed [CachedPoseNodeWidget]. No history is
+    /// recorded here — the caller's rename handling re-applies it.
+    public void renameCachedPoseGetters(String oldName, String newName) {
+        for (AbstractNodeWidget node : nodes) {
+            if (node instanceof CachedPoseGetterNodeWidget g && g.cacheName().equals(oldName)) {
+                g.setCacheName(newName);
+            }
+        }
+    }
+
+    /// Whether the screen point falls inside this canvas — used by the Variables panel to decide a
+    /// dragged variable was dropped onto the graph.
+    public boolean isPointInside(double screenX, double screenY) {
+        return isMouseOver(screenX, screenY);
+    }
+
+    /// Spawns `factory`'s node where a screen point lands (converted to graph space), recording the
+    /// add as one undoable unit and selecting the new node. Backs the Variables drag-and-drop: a
+    /// variable released over the canvas drops its Get / Set node at the cursor.
+    public void spawnNodeAt(NodeWidgetFactory factory, double screenX, double screenY) {
+        int gx = screenToGraphX(screenX);
+        int gy = screenToGraphY(screenY);
+
+        AbstractNodeWidget created = factory.create(font, gx, gy);
+        if (scriptOwnerType != null) created.setScriptOwnerType(scriptOwnerType);
+        nodes.add(created);
+        selectOnly(created);
+
+        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+            @Override
+            public void undo() {
+                nodes.remove(created);
+                if (selectedNodes.remove(created)) created.setFocused(false);
+            }
+
+            @Override
+            public void redo() {
+                nodes.add(created);
+                selectOnly(created);
+            }
+        });
+    }
+
+    /// Pastes a clipboard [ScriptGraphData] onto this canvas: each node row is rebuilt as its widget
+    /// (shifted by `dx` / `dy` in graph space so the paste doesn't sit exactly on the originals), and
+    /// kept only when `canPlace` accepts it — so a node illegal on this canvas (e.g. a State Machine
+    /// pasted into the Event Graph, or a duplicate signature) is silently dropped, mirroring UE. A
+    /// pasted wire survives only when **both** of its endpoints survived the filter. The pasted nodes
+    /// become the new selection and the whole paste is recorded as one undoable unit (one Ctrl+Z
+    /// reverts the lot). Entry rows never reach the clipboard, so the rebuild's entry factory is a
+    /// no-op. Returns the nodes actually added (empty = nothing could be placed here).
+    public List<AbstractNodeWidget> pasteGraph(ScriptGraphData data, int dx, int dy, Predicate<AbstractNodeWidget> canPlace) {
+        Map<Integer, AbstractNodeWidget> byId = new HashMap<>();
+        List<AbstractNodeWidget> added = new ArrayList<>();
+
+        for (ScriptGraphData.NodeData nd : data.nodes()) {
+            AbstractNodeWidget widget = rebuild(nd, (_, _, _) -> null);
+            if (widget == null) continue;
+
+            widget.setX(widget.getX() + dx);
+            widget.setY(widget.getY() + dy);
+            if (!canPlace.test(widget)) continue;
+
+            if (scriptOwnerType != null) widget.setScriptOwnerType(scriptOwnerType);
+            byId.put(nd.id(), widget);
+            added.add(widget);
+        }
+
+        if (added.isEmpty()) return List.of();
+
+        List<Connection> pastedWires = new ArrayList<>();
+
+        for (ScriptGraphData.WireData wd : data.wires()) {
+            AbstractNodeWidget from = byId.get(wd.from());
+            AbstractNodeWidget to = byId.get(wd.to());
+            if (from == null || to == null) continue; // an endpoint was filtered out
+            if (wd.fromPin() < 0 || wd.fromPin() >= from.outputPinCount()) continue;
+            if (wd.toPin() < 0 || wd.toPin() >= to.inputPinCount()) continue;
+
+            pastedWires.add(new Connection(from, wd.fromPin(), to, wd.toPin()));
+        }
+
+        applyPaste(added, pastedWires);
+        setSelection(added);
+
+        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+            @Override
+            public void undo() {
+                nodes.removeAll(added);
+                connections.removeAll(pastedWires);
+                for (AbstractNodeWidget n : added) {
+                    if (selectedNodes.remove(n)) n.setFocused(false);
+                }
+            }
+
+            @Override
+            public void redo() {
+                applyPaste(added, pastedWires);
+                setSelection(added);
+            }
+        });
+
+        return added;
+    }
+
+    /// Re-adds the pasted nodes / wires (shared by the initial paste and a redo), skipping any that
+    /// are somehow already present so a redo never double-inserts.
+    private void applyPaste(List<AbstractNodeWidget> added, List<Connection> wires) {
+        for (AbstractNodeWidget n : added) {
+            if (!nodes.contains(n)) nodes.add(n);
+        }
+        for (Connection c : wires) {
+            if (!connections.contains(c)) connections.add(c);
+        }
+    }
+
+    /// Removes a dynamic output pin: drops the wires on it and reindexes the wires on
+    /// the same node's higher outputs (their index shifts down by one), then removes
+    /// the pin from the node.
+    private void removeOutputPin(AbstractNodeWidget node, int pinIndex) {
+        connections.removeIf(c -> c.fromNode() == node && c.fromPin() == pinIndex);
+
+        for (int i = 0; i < connections.size(); i++) {
+            Connection c = connections.get(i);
+            if (c.fromNode() == node && c.fromPin() > pinIndex) {
+                connections.set(i, new Connection(node, c.fromPin() - 1, c.toNode(), c.toPin()));
+            }
+        }
+
+        node.removeOutputPin(pinIndex);
+    }
+
+    /// Right-click context menu for a dynamic output pin: offers "Remove Pin".
+    private void openPinContextMenu(AbstractNodeWidget node, int pinIndex, int screenX, int screenY) {
+        ContextMenuContainer menu = ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(120)
+            .entry()
+                .message(Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_REMOVE_PIN))
+                .onPress(_ -> removeOutputPin(node, pinIndex))
+                .done()
+            .build();
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, screenX, screenY);
+    }
+
+    /// Right-click context menu for a node body: offers "Delete", which removes the whole
+    /// current selection.
+    private void openNodeContextMenu(int screenX, int screenY) {
+        ContextMenuContainer menu = ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(120)
+            .entry()
+                .message(Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_DELETE))
+                .onPress(_ -> deleteSelection())
+                .done()
+            .build();
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, screenX, screenY);
+    }
+
+    /// Deletes every deletable node in the current selection as one undoable unit.
+    private void deleteSelection() {
+        deleteNodes(selectedNodes);
+    }
+
+    /// Removes `targets` (skipping non-deletable nodes like the entry point) from the graph
+    /// along with every wire attached to any of them, and records it so the whole removal
+    /// can be undone / redone as a single unit.
+    private void deleteNodes(List<AbstractNodeWidget> targets) {
+        // Snapshot the victims in ascending z-order so re-insertion on undo restores it.
+        List<AbstractNodeWidget> victims = targets.stream()
+            .filter(n -> n.isDeletable() && nodes.contains(n))
+            .sorted(Comparator.comparingInt(nodes::indexOf))
+            .toList();
+        if (victims.isEmpty()) return;
+
+        List<Integer> indices = victims.stream().map(nodes::indexOf).toList();
+        List<Connection> removed = connections.stream()
+            .filter(c -> victims.contains(c.fromNode()) || victims.contains(c.toNode()))
+            .toList();
+
+        applyDelete(victims, removed);
+
+        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+            @Override
+            public void undo() {
+                // Re-insert ascending so each node lands at its original z-order index
+                // (clamped in case the list shrank), then re-select them so the user sees
+                // what came back.
+                for (int i = 0; i < victims.size(); i++) {
+                    nodes.add(Math.min(indices.get(i), nodes.size()), victims.get(i));
+                }
+                connections.addAll(removed);
+                setSelection(victims);
+            }
+
+            @Override
+            public void redo() {
+                applyDelete(victims, removed);
+            }
+        });
+    }
+
+    /// Drops `victims` and `conns` from the graph and the selection (the live removal shared
+    /// by the initial delete and a redo).
+    private void applyDelete(List<AbstractNodeWidget> victims, List<Connection> conns) {
+        nodes.removeAll(victims);
+        connections.removeAll(conns);
+        for (AbstractNodeWidget n : victims) {
+            if (selectedNodes.remove(n)) n.setFocused(false);
+        }
+    }
+
+    /// Screen-space half-thickness within which a click counts as "on the wire".
+    private static final double WIRE_HIT_TOLERANCE = 5.0;
+
+    /// Double-click handler: if the point `(sx, sy)` (screen) lands on a wire, split it with a
+    /// reroute knot centred at `(gx, gy)` (graph) and report it handled.
+    private boolean tryInsertRerouteAt(double sx, double sy, int gx, int gy) {
+        Connection hit = connectionAt(sx, sy);
+        if (hit == null) return false;
+
+        insertReroute(hit, gx, gy);
+        return true;
+    }
+
+    /// The first connection whose spline passes within [#WIRE_HIT_TOLERANCE] of `(sx, sy)`, or
+    /// null. Each candidate is first rejected by a cheap bounding-box test on the spline's
+    /// control points, and only survivors pay for the per-segment distance test.
+    private @Nullable Connection connectionAt(double sx, double sy) {
+        for (Connection c : connections) {
+            float x0 = graphToScreenX(c.fromNode().outputPinCenterX(c.fromPin()));
+            float y0 = graphToScreenY(c.fromNode().outputPinCenterY(c.fromPin()));
+            float x1 = graphToScreenX(c.toNode().inputPinCenterX(c.toPin()));
+            float y1 = graphToScreenY(c.toNode().inputPinCenterY(c.toPin()));
+
+            if (!curveAabbHit(x0, y0, x1, y1, sx, sy)) continue;
+            if (curveHit(x0, y0, x1, y1, sx, sy)) return c;
+        }
+        return null;
+    }
+
+    /// Cheap reject: whether `(sx, sy)` lies inside the spline's control-point bounding box
+    /// (which contains the whole curve), expanded by the hit tolerance.
+    private boolean curveAabbHit(float x0, float y0, float x1, float y1, double sx, double sy) {
+        float handle = wireHandle(x0, x1);
+        float cx0 = x0 + handle;
+        float cx1 = x1 - handle;
+
+        double minX = Math.min(Math.min(x0, x1), Math.min(cx0, cx1)) - WIRE_HIT_TOLERANCE;
+        double maxX = Math.max(Math.max(x0, x1), Math.max(cx0, cx1)) + WIRE_HIT_TOLERANCE;
+        double minY = Math.min(y0, y1) - WIRE_HIT_TOLERANCE;
+        double maxY = Math.max(y0, y1) + WIRE_HIT_TOLERANCE;
+
+        return sx >= minX && sx <= maxX && sy >= minY && sy <= maxY;
+    }
+
+    /// Exact test: whether `(sx, sy)` is within [#WIRE_HIT_TOLERANCE] of the sampled spline,
+    /// using the same cubic Bézier geometry as [#drawConnection].
+    private boolean curveHit(float x0, float y0, float x1, float y1, double sx, double sy) {
+        float handle = wireHandle(x0, x1);
+        float cx0 = x0 + handle;
+        float cx1 = x1 - handle;
+
+        int segments = 24;
+        float px = x0, py = y0;
+        for (int i = 1; i <= segments; i++) {
+            float t = i / (float) segments;
+            float bx = bezier(x0, cx0, cx1, x1, t);
+            float by = bezier(y0, y0, y1, y1, t);
+            if (distanceToSegment(sx, sy, px, py, bx, by) <= WIRE_HIT_TOLERANCE) return true;
+            px = bx;
+            py = by;
+        }
+        return false;
+    }
+
+    /// Bézier handle length, mirroring [#drawConnection] so the hit-test matches what is drawn. The
+    /// minimum scales with [#zoom] so the curve's bend tracks the graph scale.
+    private float wireHandle(float x0, float x1) {
+        return Math.max(WIRE_HANDLE_MIN * zoom, Math.abs(x1 - x0) * 0.5F);
+    }
+
+    private static float bezier(float p0, float c0, float c1, float p1, float t) {
+        float mt = 1.0F - t;
+        return mt * mt * mt * p0 + 3 * mt * mt * t * c0 + 3 * mt * t * t * c1 + t * t * t * p1;
+    }
+
+    private static double distanceToSegment(double px, double py, double ax, double ay, double bx, double by) {
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lenSq = dx * dx + dy * dy;
+        double t = lenSq == 0.0 ? 0.0 : Math.clamp(((px - ax) * dx + (py - ay) * dy) / lenSq, 0.0, 1.0);
+        double cx = ax + t * dx;
+        double cy = ay + t * dy;
+        return Math.hypot(px - cx, py - cy);
+    }
+
+    /// Splits `original` (A → B) with a reroute knot centred on `(gx, gy)`: the wire becomes
+    /// A → knot → B, recorded as one undoable unit. The knot inherits the wire's value type.
+    private void insertReroute(Connection original, int gx, int gy) {
+        AbstractNodeWidget.Pin sample = original.fromNode().outputPin(original.fromPin());
+        RerouteNodeWidget knot = new RerouteNodeWidget(font, sample, gx, gy);
+        if (scriptOwnerType != null) knot.setScriptOwnerType(scriptOwnerType);
+        knot.setX(gx - knot.getWidth() / 2);
+        knot.setY(gy - knot.getHeight() / 2);
+
+        Connection a = new Connection(original.fromNode(), original.fromPin(), knot, 0);
+        Connection b = new Connection(knot, 0, original.toNode(), original.toPin());
+
+        applyReroute(knot, original, a, b);
+        selectOnly(knot);
+
+        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+            @Override
+            public void undo() {
+                nodes.remove(knot);
+                connections.remove(a);
+                connections.remove(b);
+                if (!connections.contains(original)) connections.add(original);
+                if (selectedNodes.remove(knot)) knot.setFocused(false);
+            }
+
+            @Override
+            public void redo() {
+                applyReroute(knot, original, a, b);
+                selectOnly(knot);
+            }
+        });
+    }
+
+    private void applyReroute(RerouteNodeWidget knot, Connection original, Connection a, Connection b) {
+        if (!nodes.contains(knot)) nodes.add(knot);
+        connections.remove(original);
+        if (!connections.contains(a)) connections.add(a);
+        if (!connections.contains(b)) connections.add(b);
+    }
+
+    /// The modal title for a suggestion `context`, matched to the gesture: the empty-canvas
+    /// right-click (flow + pure) reads as the broadest set, a parameter-output drag as
+    /// "actions taking this value", a data-input drag as "get value", and an execution drag
+    /// as "executable actions".
+    private static Component suggestTitle(NodeSuggestContext context) {
+        if (context.flow() && context.pureFunctions()) {
+            return Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SUGGEST_ENTRY_TITLE);
+        }
+        if (context.pureFunctions() && !context.valueProviders()) {
+            return Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SUGGEST_PARAMETER_TITLE);
+        }
+        if (context.valueProviders()) {
+            return Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SUGGEST_VALUE_TITLE);
+        }
+        return Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SUGGEST_TITLE);
+    }
+
+    /// Opens the suggestion modal while keeping the dropped wire pinned to `graphX/graphY`.
+    /// The modal entries are tailored to `context` (flow nodes for an execution drag, value
+    /// providers for a data drag). Picking an entry spawns its node there and links it to
+    /// the source pin in the correct direction; closing without a pick clears the wire.
+    private void openNodeSuggest(int screenX, int screenY, int graphX, int graphY, NodeSuggestContext context) {
+        if (suggestionProvider == null) {
+            clearWire();
+            return;
+        }
+
+        AbstractNodeWidget source = wireSourceNode;
+        int sourcePin = wireSourcePin;
+        boolean fromOutput = wireFromOutput;
+
+        wirePending = true;
+        pendingDropGraphX = graphX;
+        pendingDropGraphY = graphY;
+
+        NodeSuggestModal<NodeWidgetFactory> modal = new NodeSuggestModal<>(
+            font,
+            suggestTitle(context),
+            suggestionProvider.apply(this, context.withUsage(usage).withDataFlowOnly(dataFlowOnly)),
+            factory -> {
+                AbstractNodeWidget created = factory.create(font, graphX, graphY);
+                if (scriptOwnerType != null) created.setScriptOwnerType(scriptOwnerType);
+                nodes.add(created);
+
+                Connection link = linkSpawnedNode(source, sourcePin, fromOutput, created);
+                if (link != null) connections.add(link);
+
+                // Spawn + wire as one undoable unit so undo doesn't strand the node.
+                HistoryManager.getInstance().pushHistory(new WorkHistory() {
+                    @Override
+                    public void undo() {
+                        if (link != null) connections.remove(link);
+                        nodes.remove(created);
+                        if (selectedNodes.remove(created)) created.setFocused(false);
+                    }
+
+                    @Override
+                    public void redo() {
+                        nodes.add(created);
+                        if (link != null) connections.add(link);
+                    }
+                });
+
+                clearWire();
+            },
+            this::clearWire
+        );
+
+        // Open downward from the cursor, but flip the modal above it when it would clip off the
+        // screen bottom — calculated from the available space below the press point.
+        int openY = NodeSuggestModal.openYFor(screenY, editorScreenHeight());
+        AkytheraEditorLayoutManager.getInstance().openModalWidget(modal, screenX, openY);
+    }
+
+    /// Builds the connection from a wire-drop to a freshly spawned node, in the direction
+    /// the drag implies:
+    /// - an **execution** output drag links the source's exec output into the new flow
+    ///   node's exec input;
+    /// - a **data-output** (parameter) drag links the source's value output into the new
+    ///   pure node's first compatible parameter pin;
+    /// - a **data-input** drag links the new pure node's value output back into the source
+    ///   input pin.
+    ///
+    /// Returns null when there is no source (an empty-canvas spawn) or the new node has no
+    /// matching pin to attach.
+    @Nullable
+    private Connection linkSpawnedNode(@Nullable AbstractNodeWidget source, int sourcePin, boolean fromOutput, AbstractNodeWidget created) {
+        if (source == null) return null;
+
+        if (fromOutput) {
+            AbstractNodeWidget.Pin sourcePinDef = source.outputPin(sourcePin);
+            if (sourcePinDef.exec()) {
+                int execIn = created.firstExecInputPinIndex();
+                return execIn >= 0 ? new Connection(source, sourcePin, created, execIn) : null;
+            }
+
+            int dataIn = created.firstDataInputPinIndex(sourcePinDef.type());
+            return dataIn >= 0 ? new Connection(source, sourcePin, created, dataIn) : null;
+        }
+
+        int dataOut = created.firstDataOutputPinIndex();
+        return dataOut >= 0 ? new Connection(created, dataOut, source, sourcePin) : null;
+    }
+
+    @Override
+    public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
+        if (!isMouseOver(event.x(), event.y())) return false;
+
+        int gx = screenToGraphX(event.x());
+        int gy = screenToGraphY(event.y());
+
+        // A click outside the node being inline-edited commits and closes its editor (a click
+        // back on the same node lets its body handler keep / restart editing).
+        AbstractNodeWidget editing = inlineEditingNode();
+
+        if (editing != null && !editing.containsGraphPoint(gx, gy)) {
+            editing.endInlineEdit();
+        }
+
+        // Right button defers to release: a plain click opens a context menu, a drag pans.
+        if (event.button() == 1) {
+            rightDown = true;
+            rightDragged = false;
+            rightPressX = event.x();
+            rightPressY = event.y();
+            return true;
+        }
+
+        if (event.button() != 0) return true;
+
+        // Left button. Topmost node under the cursor wins (last drawn is on top).
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            AbstractNodeWidget node = nodes.get(i);
+            if (!node.containsGraphPoint(gx, gy)) continue;
+
+            // Double-clicking an activatable node (e.g. a State Machine) opens its own editor.
+            if (doubleClick && node.isActivatable()) {
+                selectOnly(node);
+                if (nodeActivationHandler != null) nodeActivationHandler.accept(node);
+                return true;
+            }
+
+            // Press the "Add pin" button to grow a dynamic-output node.
+            if (node.isOverAddPinButton(gx, gy)) {
+                selectOnly(node);
+                node.onAddPin();
+                return true;
+            }
+
+            // Ctrl+click toggles this node's membership in the selection without disturbing
+            // the rest, so nodes can be picked one by one. It takes priority over wiring /
+            // body controls so Ctrl is purely a "select" modifier (no drag is started).
+            if ((event.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0) {
+                toggleSelection(node);
+                return true;
+            }
+
+            if ((event.modifiers() & GLFW.GLFW_MOD_ALT) != 0) {
+                // Alt+click on a pin breaks every wire attached to it (undoable).
+                int outPin = node.outputPinIndexAt(gx, gy);
+
+                if (outPin >= 0) {
+                    disconnectPin(node, outPin, true);
+                    return true;
+                }
+
+                int inPin = node.inputPinIndexAt(gx, gy);
+
+                if (inPin >= 0) {
+                    disconnectPin(node, inPin, false);
+                    return true;
+                }
+            } else {
+                // Dragging out of an output pin draws a wire to the cursor.
+                int outPin = node.outputPinIndexAt(gx, gy);
+
+                if (outPin >= 0) {
+                    beginWire(node, outPin, true, event.x(), event.y());
+                    return true;
+                }
+
+                // Dragging out of an input pin draws a wire back toward a value provider.
+                int inPin = node.inputPinIndexAt(gx, gy);
+
+                if (inPin >= 0) {
+                    beginWire(node, inPin, false, event.x(), event.y());
+                    return true;
+                }
+            }
+
+            // Body controls (e.g. an inline literal editor) claim the click first.
+            if (node.onBodyClick(gx, gy, event.x(), event.y())) {
+                selectOnly(node);
+                return true;
+            }
+
+            // Clicking a node outside the current selection selects just it; clicking one
+            // already in a multi-selection keeps the group so it can be dragged as a whole.
+            if (!selectedNodes.contains(node)) selectOnly(node);
+
+            beginNodeDrag(node, gx, gy);
+
+            return true;
+        }
+
+        // Empty canvas. A double-click on a wire drops a reroute knot the wire bends through.
+        if (doubleClick && tryInsertRerouteAt(event.x(), event.y(), gx, gy)) {
+            return true;
+        }
+
+        // Empty canvas: start a marquee selection. Shift makes it additive (keeps the
+        // current selection); otherwise it replaces the selection.
+        marqueeBase.clear();
+
+        if ((event.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0) {
+            marqueeBase.addAll(selectedNodes);
+        } else {
+            clearSelection();
+            fireSelectionChanged();
+        }
+
+        marqueeing = true;
+        marqueeStartGx = gx;
+        marqueeStartGy = gy;
+        marqueeEndGx = gx;
+        marqueeEndGy = gy;
+
+        return true;
+    }
+
+    private void clearSelection() {
+        for (AbstractNodeWidget n : selectedNodes) n.setFocused(false);
+        selectedNodes.clear();
+    }
+
+    private void addToSelection(AbstractNodeWidget node) {
+        if (selectedNodes.contains(node)) return;
+        selectedNodes.add(node);
+        node.setFocused(true);
+    }
+
+    /// Flips `node`'s membership in the selection: drops it (and its focus outline) when
+    /// already selected, adds it otherwise. Backs the Ctrl+click pick-one-by-one gesture.
+    private void toggleSelection(AbstractNodeWidget node) {
+        if (selectedNodes.remove(node)) {
+            node.setFocused(false);
+        } else {
+            addToSelection(node);
+        }
+        fireSelectionChanged();
+    }
+
+    private void selectOnly(AbstractNodeWidget node) {
+        clearSelection();
+        addToSelection(node);
+        fireSelectionChanged();
+    }
+
+    private void setSelection(Collection<AbstractNodeWidget> selection) {
+        clearSelection();
+        for (AbstractNodeWidget n : selection) addToSelection(n);
+        fireSelectionChanged();
+    }
+
+    /// Begins dragging `node`'s header: the whole selection moves with it, each node
+    /// offset from its own captured start position so their relative layout is preserved.
+    private void beginNodeDrag(AbstractNodeWidget node, int gx, int gy) {
+        draggingNode = node;
+        grabOffsetX = gx - node.getX();
+        grabOffsetY = gy - node.getY();
+        dragAnchorStartX = node.getX();
+        dragAnchorStartY = node.getY();
+
+        dragNodes.clear();
+        dragStartPositions.clear();
+
+        for (AbstractNodeWidget n : selectedNodes) {
+            dragNodes.add(n);
+            dragStartPositions.add(Pair.of(n.getX(), n.getY()));
+        }
+    }
+
+    /// Recomputes the marquee selection: the base selection (for a Shift-additive drag)
+    /// unioned with every node the box currently covers. Rebuilt each frame so shrinking
+    /// the box deselects nodes it no longer encloses.
+    private void updateMarqueeSelection() {
+        int minX = Math.min(marqueeStartGx, marqueeEndGx);
+        int maxX = Math.max(marqueeStartGx, marqueeEndGx);
+        int minY = Math.min(marqueeStartGy, marqueeEndGy);
+        int maxY = Math.max(marqueeStartGy, marqueeEndGy);
+
+        clearSelection();
+
+        for (AbstractNodeWidget n : marqueeBase) addToSelection(n);
+
+        for (AbstractNodeWidget n : nodes) {
+            if (nodeIntersects(n, minX, minY, maxX, maxY)) addToSelection(n);
+        }
+
+        fireSelectionChanged();
+    }
+
+    private static boolean nodeIntersects(AbstractNodeWidget node, int minX, int minY, int maxX, int maxY) {
+        int nx0 = node.getX(), ny0 = node.getY();
+        int nx1 = nx0 + node.getWidth(), ny1 = ny0 + node.getHeight();
+
+        return nx0 < maxX && nx1 > minX && ny0 < maxY && ny1 > minY;
+    }
+
+    @Override
+    public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
+        if (wiring) {
+            wireEndScreenX = event.x();
+            wireEndScreenY = event.y();
+            return true;
+        }
+
+        if (draggingNode != null) {
+            // Re-derive the grabbed node's position from the cursor (so the grab point stays
+            // fixed regardless of zoom) and snap it to the grid, then shift every selected
+            // node by the same delta to keep their relative layout.
+            int targetX = snap(screenToGraphX(event.x()) - grabOffsetX);
+            int targetY = snap(screenToGraphY(event.y()) - grabOffsetY);
+            int ddx = targetX - dragAnchorStartX;
+            int ddy = targetY - dragAnchorStartY;
+
+            for (int i = 0; i < dragNodes.size(); i++) {
+                Pair<Integer, Integer> start = dragStartPositions.get(i);
+                dragNodes.get(i).setX(start.getFirst() + ddx);
+                dragNodes.get(i).setY(start.getSecond() + ddy);
+            }
+
+            return true;
+        }
+
+        if (marqueeing) {
+            marqueeEndGx = screenToGraphX(event.x());
+            marqueeEndGy = screenToGraphY(event.y());
+
+            updateMarqueeSelection();
+
+            return true;
+        }
+
+        if (rightDown) {
+            // A right-press that moves past the slop becomes a pan (which also suppresses
+            // the context menu on release).
+            if (!rightDragged && Math.abs(event.x() - rightPressX) + Math.abs(event.y() - rightPressY) < PAN_THRESHOLD) {
+                return true;
+            }
+
+            rightDragged = true;
+            panX += (float) dx;
+            panY += (float) dy;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    @Override
+    public boolean mouseReleased(@NonNull MouseButtonEvent event) {
+        if (wiring) {
+            wiring = false;
+
+            int gx = screenToGraphX(event.x());
+            int gy = screenToGraphY(event.y());
+
+            AbstractNodeWidget source = wireSourceNode;
+            int sourcePin = wireSourcePin;
+            boolean fromOutput = wireFromOutput;
+
+            // Dropped on a compatible opposite-side pin → commit the connection.
+            PinTarget target = fromOutput ? findInputPinTarget(gx, gy) : findOutputPinTarget(gx, gy);
+
+            if (source != null && target != null) {
+                LinkKind kind = targetLinkKind(target);
+                if (kind != LinkKind.NONE) {
+                    AbstractNodeWidget fromNode = fromOutput ? source : target.node();
+                    int fromPin = fromOutput ? sourcePin : target.pin();
+
+                    AbstractNodeWidget toNode = fromOutput ? target.node() : source;
+                    int toPin = fromOutput ? target.pin() : sourcePin;
+
+                    if (kind == LinkKind.CONVERT) {
+                        insertConverter(fromNode, fromPin, toNode, toPin);
+                    } else {
+                        addConnection(new Connection(fromNode, fromPin, toNode, toPin));
+                    }
+                    wireSourceNode = null;
+
+                    return true;
+                }
+            }
+
+            // Dropped on empty canvas → suggest a node, filtered to the drag context:
+            // an execution output asks for a flow node, a data output asks for pure
+            // functions taking that value, a data input asks for a value provider.
+            if (source != null && nodeAt(gx, gy) == null) {
+                AbstractNodeWidget.Pin sourcePinDef = fromOutput ? source.outputPin(sourcePin) : source.inputPin(sourcePin);
+
+                if (fromOutput && sourcePinDef.exec()) {
+                    openNodeSuggest((int) event.x(), (int) event.y(), gx, gy, NodeSuggestContext.execution());
+                    return true;
+                }
+
+                if (fromOutput) {
+                    openNodeSuggest((int) event.x(), (int) event.y(), gx, gy, NodeSuggestContext.parameter(sourcePinDef.type()));
+                    return true;
+                }
+
+                if (!sourcePinDef.exec()) {
+                    openNodeSuggest((int) event.x(), (int) event.y(), gx, gy, NodeSuggestContext.value(sourcePinDef.type()));
+                    return true;
+                }
+            }
+
+            // Otherwise (incompatible pin, node body, or unsupported drag): discard.
+            clearWire();
+
+            return true;
+        }
+
+        // Right button up: a click (no pan) opens the context menu under the cursor.
+        if (event.button() == 1 && rightDown) {
+            rightDown = false;
+            if (!rightDragged) openContextMenu(event);
+            rightDragged = false;
+
+            return true;
+        }
+
+        if (draggingNode != null) {
+            endNodeDrag();
+
+            return true;
+        }
+
+        if (marqueeing) {
+            marqueeing = false;
+            marqueeBase.clear();
+
+            return true;
+        }
+
+        return super.mouseReleased(event);
+    }
+
+    /// Commits a finished node drag: records a single history entry that moves every dragged
+    /// node from its start position to where it landed (a no-op drag records nothing).
+    private void endNodeDrag() {
+        AbstractNodeWidget anchor = draggingNode;
+        draggingNode = null;
+
+        List<AbstractNodeWidget> moved = new ArrayList<>(dragNodes);
+        List<Pair<Integer, Integer>> oldPos = new ArrayList<>(dragStartPositions);
+        dragNodes.clear();
+        dragStartPositions.clear();
+
+        if (anchor.getX() == dragAnchorStartX && anchor.getY() == dragAnchorStartY) return;
+
+        List<Pair<Integer, Integer>> newPos = new ArrayList<>();
+        for (AbstractNodeWidget n : moved) newPos.add(Pair.of(n.getX(), n.getY()));
+
+        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+            @Override
+            public void undo() {
+                applyPositions(moved, oldPos);
+            }
+
+            @Override
+            public void redo() {
+                applyPositions(moved, newPos);
+            }
+        });
+    }
+
+    private static void applyPositions(List<AbstractNodeWidget> ns, List<Pair<Integer, Integer>> pos) {
+        for (int i = 0; i < ns.size(); i++) {
+            ns.get(i).setX(pos.get(i).getFirst());
+            ns.get(i).setY(pos.get(i).getSecond());
+        }
+    }
+
+    /// Opens the right-click context menu under the cursor: a dynamic-output pin row offers
+    /// "Remove Pin", otherwise the node body offers "Delete" for the selection. Right-clicking
+    /// a node outside the selection first makes it the selection so the menu acts on it.
+    private void openContextMenu(MouseButtonEvent event) {
+        int gx = screenToGraphX(event.x());
+        int gy = screenToGraphY(event.y());
+
+        AbstractNodeWidget node = nodeAt(gx, gy);
+        if (node == null) {
+            // Empty canvas → offer the full action catalogue (flow + pure), as a free-standing
+            // spawn (no wire to link, so source stays null).
+            if (scriptOwnerType != null) {
+                openNodeSuggest((int) event.x(), (int) event.y(), gx, gy, NodeSuggestContext.entryPoint());
+            }
+            return;
+        }
+
+        int outPin = node.outputPinRowAt(gx, gy);
+        if (node.supportsDynamicOutputs() && outPin >= 0) {
+            if (!selectedNodes.contains(node)) selectOnly(node);
+            openPinContextMenu(node, outPin, (int) event.x(), (int) event.y());
+            return;
+        }
+
+        if (!selectedNodes.contains(node)) selectOnly(node);
+        if (selectedNodes.stream().anyMatch(AbstractNodeWidget::isDeletable)) {
+            openNodeContextMenu((int) event.x(), (int) event.y());
+        }
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (scrollY == 0.0 || !isMouseOver(mouseX, mouseY)) return false;
+
+        float oldZoom = zoom;
+        float newZoom = Math.clamp(zoom * (scrollY > 0 ? ZOOM_STEP : 1.0F / ZOOM_STEP), MIN_ZOOM, MAX_ZOOM);
+        if (newZoom == oldZoom) return true;
+
+        // Keep the graph point under the cursor anchored while zooming.
+        float graphX = (float) (mouseX - getX() - panX) / oldZoom;
+        float graphY = (float) (mouseY - getY() - panY) / oldZoom;
+
+        panX = (float) (mouseX - getX()) - graphX * newZoom;
+        panY = (float) (mouseY - getY()) - graphY * newZoom;
+        zoom = newZoom;
+
+        return true;
+    }
+
+    @Override
+    public boolean keyPressed(@NonNull KeyEvent event) {
+        // An inline editor (e.g. a literal node being typed into) captures all keys first, so
+        // typing never triggers node shortcuts like DELETE.
+        AbstractNodeWidget editing = inlineEditingNode();
+
+        if (editing != null) {
+            editing.inlineKeyPressed(event);
+            return true;
+        }
+
+        // DELETE removes the whole selection (clicking nodes makes this graph the focused
+        // leaf, so the key lands here). Non-deletable nodes like the entry point are kept.
+        if (EditorKeyMappings.DELETE.matches(event)
+            && selectedNodes.stream().anyMatch(AbstractNodeWidget::isDeletable)) {
+            deleteSelection();
+            return true;
+        }
+
+        return super.keyPressed(event);
+    }
+
+    @Override
+    public boolean charTyped(@NonNull CharacterEvent event) {
+        AbstractNodeWidget editing = inlineEditingNode();
+        if (editing != null && editing.inlineCharTyped(event)) return true;
+
+        return super.charTyped(event);
+    }
+
+    /// The node currently hosting an inline text editor, or null. At most one node edits at a
+    /// time; scanning keeps it correct across deletes / undo without a tracked reference.
+    private @Nullable AbstractNodeWidget inlineEditingNode() {
+        for (AbstractNodeWidget node : nodes) {
+            if (node.isInlineEditing()) return node;
+        }
+
+        return null;
+    }
+
+    @Override
+    protected void updateWidgetNarration(@NonNull NarrationElementOutput narrationElementOutput) {
+    }
+
+    /// ***************************************************************
+    /// [AnchoredWidget] implementations                              *
+    /// ***************************************************************
+    private Unit x1;
+    private Unit x2;
+    private Unit y1;
+    private Unit y2;
+    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+    private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+
+    @Override public Unit getX1() { return x1; }
+    @Override public Unit getX2() { return x2; }
+    @Override public Unit getY1() { return y1; }
+    @Override public Unit getY2() { return y2; }
+    @Override public void setX1(Unit unit) { x1 = unit; }
+    @Override public void setX2(Unit unit) { x2 = unit; }
+    @Override public void setY1(Unit unit) { y1 = unit; }
+    @Override public void setY2(Unit unit) { y2 = unit; }
+    @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
+    @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+}

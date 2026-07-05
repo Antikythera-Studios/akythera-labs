@@ -1,0 +1,25 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "compatibilityLevel": "JAVA_21",
+  "package": "com.yesman.akytheralabs.mixin",
+  "client": [
+    "MixinAbstractWidget",
+    "MixinAnimationManager",
+    "MixinArmatureManager",
+    "MixinGameRenderer",
+    "MixinGui",
+    "MixinGuiRenderer",
+    "MixinKeyboardHandler",
+    "MixinMeshManager",
+    "MixinMinecraft",
+    "MixinMouseHandler",
+    "MixinPauseScreen"
+  ],
+  "mixins": [
+    "MappedRegistryAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

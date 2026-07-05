@@ -1,0 +1,2 @@
+<#-- akythera:math_utils_less_equal (comparator, t1, t2) -> boolean; comparator unused --><#t>
+(${params[1]} <= ${params[2]})<#t>

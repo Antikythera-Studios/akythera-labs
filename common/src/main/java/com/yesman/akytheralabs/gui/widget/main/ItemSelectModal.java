@@ -1,0 +1,304 @@
+package com.yesman.akytheralabs.gui.widget.main;
+
+import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.AbstractSelectionList;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.util.Mth;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import org.apache.commons.lang3.mutable.MutableInt;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
+
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+
+public final class ItemSelectModal extends OverlayingWindowModal {
+    private static final int WIDTH  = 200;
+    private static final int HEIGHT = 160;
+    private static final int TITLE_H = 20;
+    private static final int SEARCH_H = 18;
+    private static final int LIST_TOP = TITLE_H + SEARCH_H;
+    private static final int SCROLLBAR_W = 5;
+    private static final int ROW_H = 18;
+    private static final int ITEM_ICON_SIZE = 12;
+
+    private final Font font;
+    private final Consumer<Item> onItemSelected;
+    private final AdvancedEditBox<String> searchBox;
+    private ItemList itemList;
+
+    public ItemSelectModal(Font font, Consumer<Item> onItemSelected) {
+        super(AnchoredWidget.pixel(WIDTH), AnchoredWidget.pixel(HEIGHT), Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_ITEM_SELECT_MODAL));
+        this.font = font;
+        this.onItemSelected = onItemSelected;
+
+        this.searchBox = AdvancedEditBox.stringBox(
+            font,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
+            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+            AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
+            () -> "",
+            str -> itemList.rebuild(str),
+            Component.translatable(LangKeys.GUI_MESSAGE_EMPTY_SEARCHBAR)
+        );
+        searchBox.setWidth(WIDTH);
+        searchBox.setHeight(SEARCH_H);
+
+        Set<Identifier> alreadyRegistered = AkytheraProject.getCurrentProject()
+            .getModifiableEntries(AkytheraRegistries.DataPack.ITEM_PATCH_KEY)
+            .stream().map(e -> e.getKey().identifier()).collect(Collectors.toSet());
+
+        List<Item> allItems = BuiltInRegistries.ITEM.stream()
+            .filter(item -> {
+                Optional<ResourceKey<@NonNull Item>> k = BuiltInRegistries.ITEM.getResourceKey(item);
+                return k.isPresent() && !alreadyRegistered.contains(k.get().identifier());
+            })
+            .sorted(Comparator.comparing(item -> item.getDefaultInstance().getHoverName().getString()))
+            .toList();
+
+        this.itemList = new ItemList(allItems);
+    }
+
+    @Override
+    public @NonNull List<? extends GuiEventListener> children() {
+        return List.of(searchBox, itemList);
+    }
+
+    @Override
+    protected int contentHeight() {
+        return HEIGHT;
+    }
+
+    @Override
+    public void setFocused(final @Nullable GuiEventListener focused) {
+        // Manual fix: focusing was released as soon as a widget focused if it's the same one as current focus
+        if (getFocused() == focused) {
+            return;
+        }
+
+        super.setFocused(focused);
+    }
+
+    @Override
+    public boolean isMouseOverHeader(double mouseX, double mouseY) {
+        return mouseX >= (double)getX()
+            && mouseY >= (double)getY()
+            && mouseX < (double)getRight()
+            && mouseY < (double)getY() + TITLE_H;
+    }
+
+    @Override
+    public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
+        // Route to children, then consume to prevent click-through to the screen below
+        super.mouseClicked(event, doubleClick);
+
+        return true;
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        return itemList.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    @Override
+    public boolean keyPressed(@NonNull KeyEvent event) {
+        if (event.isEscape()) {
+            if (AkytheraEditorLayoutManager.getInstance().isActive()) {
+                AkytheraEditorLayoutManager.getInstance().closeModal();
+                return true;
+            }
+        }
+
+        GuiEventListener focused = getFocused();
+        return focused != null && focused.keyPressed(event);
+    }
+
+    @Override
+    public boolean charTyped(@NonNull CharacterEvent event) {
+        GuiEventListener focused = getFocused();
+        return focused != null && focused.charTyped(event);
+    }
+
+    @Override
+    public boolean isMouseOver(double mouseX, double mouseY) {
+        // This modal covers the whole screen, always return true to interrupt original screen inputs
+        return isActive();
+    }
+
+    @Override
+    protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
+        super.extractWidgetRenderState(graphics, mouseX, mouseY, a);
+
+        graphics.fill(getX(), getY(), getRight(), getBottom(), 0xFF1E1E1E);
+        graphics.fill(getX(), getY(), getRight(), getY() + 1, 0xFF3A3A3A);
+        graphics.fill(getX(), getBottom() - 1, getRight(), getBottom(), 0xFF3A3A3A);
+        graphics.fill(getX(), getY(), getX() + 1, getBottom(), 0xFF3A3A3A);
+        graphics.fill(getRight() - 1, getY(), getRight(), getBottom(), 0xFF3A3A3A);
+        graphics.fill(getX(), getY(), getRight(), getY() + TITLE_H, 0xFF2A2A2A);
+
+        graphics.text(
+            font,
+            getMessage(),
+            getX() + (WIDTH - font.width(getMessage())) / 2,
+            getY() + (TITLE_H - font.lineHeight) / 2,
+            0xFFCCCCCC,
+            false
+        );
+
+        searchBox.extractRenderState(graphics, mouseX, mouseY, a);
+        itemList.extractRenderState(graphics, mouseX, mouseY, a);
+    }
+
+    @Override
+    protected void updateWidgetNarration(@NonNull NarrationElementOutput n) {
+    }
+
+    @Override
+    protected boolean closeOnPressBackground() {
+        return true;
+    }
+
+    private final class ItemList extends AbstractSelectionList<ItemList.@NonNull ItemEntry> implements AnchoredWidget {
+        private final List<Item> allItems;
+
+        ItemList(List<Item> allItems) {
+            super(Minecraft.getInstance(), WIDTH, HEIGHT - LIST_TOP, LIST_TOP, ROW_H);
+            this.allItems = allItems;
+            rebuild("");
+        }
+
+        void rebuild(String query) {
+            clearEntries();
+            String lower = query.toLowerCase();
+            MutableInt mi = new MutableInt(0);
+
+            allItems.stream()
+                .filter(item -> lower.isEmpty() || item.getDefaultInstance().getHoverName().getString().toLowerCase().contains(lower))
+                .forEach(item -> addEntry(new ItemEntry(item, mi.getAndIncrement())));
+        }
+
+        @Override
+        public int getRowWidth() {
+            return getWidth() - SCROLLBAR_WIDTH;
+        }
+
+        @Override
+        public int scrollbarWidth() {
+            return SCROLLBAR_W;
+        }
+
+        @Override
+        protected int scrollerHeight() {
+            return Mth.clamp((int)((float)(this.height * this.height) / (float)this.contentHeight()), 8, this.height - 8);
+        }
+
+        @Override
+        protected int scrollBarX() {
+            return getRight() - scrollbarWidth();
+        }
+
+        @Override
+        protected void extractListBackground(@NonNull GuiGraphicsExtractor graphics) {
+        }
+
+        @Override
+        protected void extractListSeparators(@NonNull GuiGraphicsExtractor graphics) {
+        }
+
+        @Override
+        protected boolean entriesCanBeSelected() {
+            return false;
+        }
+
+        @Override
+        protected void extractScrollbar(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+            if (!scrollable()) return;
+            int sbX = scrollBarX(), scrollerH = scrollerHeight(), scrollerY = scrollBarY();
+            boolean hovered = mouseX >= sbX && mouseX < sbX + SCROLLBAR_W && mouseY >= scrollerY && mouseY < scrollerY + scrollerH;
+
+            graphics.fill(sbX, getY(), sbX + SCROLLBAR_W, getBottom(), 0xFF1A1A1A);
+            graphics.fill(sbX + 1, scrollerY, sbX + SCROLLBAR_W - 1, scrollerY + scrollerH, hovered ? 0xFF6A6A6A : 0xFF505050);
+        }
+
+        @Override
+        protected void updateWidgetNarration(@NonNull NarrationElementOutput n) {}
+
+        final class ItemEntry extends AbstractSelectionList.Entry<@NonNull ItemEntry> {
+            private final Item item;
+            private final int rowIndex;
+
+            ItemEntry(Item item, int rowIndex) {
+                this.item = item;
+                this.rowIndex = rowIndex;
+            }
+
+            @Override
+            public void extractContent(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, boolean hovered, float a) {
+                int bg = hovered
+                    ? 0xFF1E4D72
+                    : rowIndex % 2 == 0
+                        ? 0xFF000000
+                        : 0xFF111111;
+
+                g.fill(getX()-2, getY(), getX() + getWidth(), getY() + getHeight(), bg);
+
+                ItemStack stack = item.getDefaultInstance();
+                g.item(stack, getX() + 2, getY() + (ROW_H - ITEM_ICON_SIZE) / 2);
+
+                String label = font.plainSubstrByWidth(stack.getHoverName().getString(), getWidth() - ITEM_ICON_SIZE - 8);
+
+                g.text(font, label, getX() + ITEM_ICON_SIZE + 8, getY() + (ROW_H - font.lineHeight) / 2, 0xFFCCCCCC, false);
+            }
+
+            @Override
+            public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
+                onItemSelected.accept(item);
+                return true;
+            }
+        }
+
+        /// ***************************************************************
+        /// [AnchoredWidget] implementations                              *
+        /// ***************************************************************
+        private Unit x1 = AnchoredWidget.pixel(0);
+        private Unit x2 = AnchoredWidget.pixel(0);
+        private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);
+        private Unit y2 = AnchoredWidget.pixel(0);
+        private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
+        private final AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+
+        @Override public Unit getX1() { return x1; }
+        @Override public Unit getX2() { return x2; }
+        @Override public Unit getY1() { return y1; }
+        @Override public Unit getY2() { return y2; }
+        @Override public void setX1(Unit unit) { x1 = unit; }
+        @Override public void setX2(Unit unit) { x2 = unit; }
+        @Override public void setY1(Unit unit) { y1 = unit; }
+        @Override public void setY2(Unit unit) { y2 = unit; }
+        @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
+        @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    }
+}

@@ -1,0 +1,56 @@
+package com.yesman.akytheralabs.neoforged;
+
+import com.yesman.akythera.client.gui.widget.common.WidgetTheme;
+import com.yesman.akythera.core.Akythera;
+import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.config.AkytheraLabsConfig;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsComboBoxTheme;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsEditBoxTheme;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.neoforge.data.event.GatherDataEvent;
+
+@Mod(value = AkytheraLabs.MODID, dist = Dist.CLIENT)
+public class AkytheraLabsNeoForged {
+    public AkytheraLabsNeoForged(IEventBus modEventBus, ModContainer modContainer) {
+        WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsButtonTheme.class);
+        WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsEditBoxTheme.class);
+        WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsComboBoxTheme.class);
+
+        modContainer.registerConfig(ModConfig.Type.CLIENT, AkytheraLabsConfig.SPEC);
+
+        modEventBus.addListener(this::doCommonStuff);
+        modEventBus.addListener(this::modConfigLoadingEvent);
+        modEventBus.addListener(this::dataGen);
+    }
+
+    private void doCommonStuff(final FMLCommonSetupEvent event) {
+        // Bootstrap data holder map after mod platform is loaded
+        AkytheraLabs.bootstrapDataHolderMappings();
+    }
+
+    private void modConfigLoadingEvent(final ModConfigEvent.Loading event) {
+        // Drop if not a client config event
+        if (!ModConfig.Type.CLIENT.equals(event.getConfig().getType())) return;
+
+        AkytheraLabsConfig.initConfigValues();
+    }
+
+    private void dataGen(final GatherDataEvent.Client event) {
+        /*
+        event.createDatapackRegistryObjects(
+            new RegistrySetBuilder().add(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, AkytheraSampleAnimationSequences::bootstrap)
+        );
+
+        event.createProvider(AkytheraSampleAnimationSequences::new);
+        event.createProvider(AkytheraSampleAnimationMontages::new);
+        event.createProvider(AkytheraSampleBlendSpace2Ds::new);
+        */
+    }
+}

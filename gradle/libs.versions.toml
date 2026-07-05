@@ -1,0 +1,61 @@
+[versions]
+mod = "0.1.0-SNAPSHOT.1"
+java = "25"
+
+# Minecraft
+minecraft = "26.1.2"
+
+# NeoForge
+# https://projects.neoforged.net/neoforged/neoforge
+neoforge = "26.1.2.76"
+# https://projects.neoforged.net/neoforged/moddevgradle
+moddevgradle = "2.0.141"
+# https://projects.neoforged.net/neoforged/neoform
+neoform = "26.1.2-1"
+
+# Fabric
+# Check versions at https://fabricmc.net/develop/
+fabric-loader = "0.19.3"
+fabric-api = "0.153.0+26.1.2"
+fabric-loom = "1.17-SNAPSHOT"
+fabric-modmenu = "18.0.0-beta.1"
+
+# SpongePowered Mixin
+mixin = "0.8.7"
+asm = "9.7"
+
+# Third-party mods
+forgeconfigapiport = "26.1.5"
+
+# Helper Gradle-plugins
+mcSafeResources = "0.0.2"
+modPublish = "1.1.0"
+
+# Freemarker library for generating code
+freemarker = "2.3.34"
+
+[libraries]
+# Fabric
+fabric-loader = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader" }
+fabric-minecraft = { module = "com.mojang:minecraft", version.ref = "minecraft" }
+fabric-api = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api" }
+fabric-modmenu = { module = "com.terraformersmc:modmenu", version.ref = "fabric-modmenu" }
+
+mixin = { module = "org.spongepowered:mixin", version.ref = "mixin" }
+asm-tree = { module = "org.ow2.asm:asm-tree", version.ref = "asm" }
+
+# Declared only in libraries[], not plugins[], as it's used only by Gradle convention plugins.
+modPublish-gradle-plugin = { module = "me.modmuss50.mod-publish-plugin:me.modmuss50.mod-publish-plugin.gradle.plugin", version.ref = "modPublish" }
+
+forgeconfigapiport-common = { module = "fuzs.forgeconfigapiport:forgeconfigapiport-common-neoforgeapi", version.ref = "forgeconfigapiport" }
+forgeconfigapiport-fabric = { module = "fuzs.forgeconfigapiport:forgeconfigapiport-fabric", version.ref = "forgeconfigapiport" }
+
+freemarker = { module = "org.freemarker:freemarker", version.ref = "freemarker" }
+
+[plugins]
+# Mod-loader plugins
+moddevgradle = { id = "net.neoforged.moddev", version.ref = "moddevgradle" }
+fabric-loom = { id = "net.fabricmc.fabric-loom", version.ref = "fabric-loom" }
+
+# Helper plugins
+mcSafeResources = { id = "dev.echoellet.mc-safe-resources", version.ref = "mcSafeResources" }

@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "compatibilityLevel": "JAVA_21",
+  "package": "com.yesman.akytheralabs.compat.playeranimlibrary.mixin",
+  "plugin": "com.yesman.akytheralabs.compat.playeranimlibrary.PALMixinPlugin",
+  "client": [
+    "MixinAvatarPALAccessor",
+    "MixinWorldviewPanel"
+  ],
+  "mixins": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

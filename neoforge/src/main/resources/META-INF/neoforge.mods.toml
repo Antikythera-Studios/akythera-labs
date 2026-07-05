@@ -1,0 +1,44 @@
+modLoader = "javafml"
+loaderVersion = "[1,)"
+license = "${license}"
+issueTrackerURL = "${issueTracker}"
+
+[[mods]]
+modId = "${modId}"
+version = "${modVersion}"
+displayName = "${displayName}"
+displayURL = "${displayUrl}"
+authors = "${authors}"
+description = "${description}"
+
+[[mixins]]
+config = "akytheralabs.mixins.json"
+
+[[mixins]]
+config = "akytheralabs.neoforged.mixins.json"
+
+[[mixins]]
+config = "akytheralabs-compat.player_animation_library.mixins.json"
+
+[[accessTransformers]]
+file="META-INF/accesstransformer.cfg"
+
+[[dependencies."${modId}"]]
+modId = "neoforge"
+type = "required"
+versionRange = "[${neoforgeVersion},)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."${modId}"]]
+modId = "minecraft"
+type = "required"
+versionRange = "[${minecraft}]"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."${modId}"]]
+modId = "akythera"
+type = "required"
+ordering = "BEFORE"
+side = "BOTH"
