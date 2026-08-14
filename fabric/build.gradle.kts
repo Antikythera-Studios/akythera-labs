@@ -19,7 +19,7 @@ dependencies {
     implementation(libs.fabric.api)
     implementation(libs.fabric.modmenu)
 
-    implementation("com.yesman.akythera:fabric")
+    implementation("io.github.yesssssman.akythera:fabric")
 
     implementation(libs.forgeconfigapiport.fabric) {
         exclude(group = libs.fabric.loader.get().group)

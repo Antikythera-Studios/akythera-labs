@@ -175,7 +175,61 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
             AkytheraLabs.identifier("widget/search_item")
         )),
         _ -> 0xFFFFFFFF
+    ),
+
+    /// Translate mode of the [GizmoComponent] overlay
+    GIZMO_TRANSLATE_BUTTON(
+        iconBoxRenderer(new WidgetSprites(
+            AkytheraLabs.identifier("widget/translate"),
+            AkytheraLabs.identifier("widget/translate_highlight")
+        )),
+        _ -> 0xFFFFFFFF
+    ),
+
+    /// Rotate mode of the [GizmoComponent] overlay
+    GIZMO_ROTATE_BUTTON(
+        iconBoxRenderer(new WidgetSprites(
+            AkytheraLabs.identifier("widget/rotate"),
+            AkytheraLabs.identifier("widget/rotate_highlight")
+        )),
+        _ -> 0xFFFFFFFF
+    ),
+
+    /// Scale mode of the [GizmoComponent] overlay
+    GIZMO_SCALE_BUTTON(
+        iconBoxRenderer(new WidgetSprites(
+            AkytheraLabs.identifier("widget/scale"),
+            AkytheraLabs.identifier("widget/scale_highlight")
+        )),
+        _ -> 0xFFFFFFFF
+    ),
+
+    /// Transform basis of the [GizmoComponent] overlay — one button carrying the icon of the basis
+    /// currently in use
+    GIZMO_ORIENTATION_BUTTON(
+        iconToggleRenderer(
+            AkytheraLabs.identifier("widget/local_space"),
+            AkytheraLabs.identifier("widget/world_space")
+        ),
+        _ -> 0xFFFFFFFF
     );
+
+    /// Side of the icon drawn by [#iconBoxRenderer] and [#iconToggleRenderer], in widget pixels.
+    private static final int ICON = 16;
+
+    /// Mono-tone box behind a [GizmoComponent] overlay button, keyed on its highlighted state.
+    private static int boxColor(AnchoredButton widget) {
+        return widget.isHighlighted() ? 0xFF575757
+            : widget.isHoveredOrFocused() ? 0xFF3F3F3F
+            : 0xFF282828;
+    }
+
+    /// Box behind a toggle-style overlay button: dark while disabled, else keyed on hover.
+    private static int toggleBoxColor(AnchoredButton widget) {
+        return !widget.active ? 0xFF1A1A1A
+            : widget.isHoveredOrFocused() ? 0xFF3F3F3F
+            : 0xFF282828;
+    }
 
     private static ButtonTheme.ButtonRenderer spriteRenderer(WidgetSprites sprites) {
         return (widget, graphics, _, _, _) -> {
@@ -187,6 +241,34 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
                 widget.getWidth(), widget.getHeight()
             );
         };
+    }
+
+    /// [#boxColor] box with an [#ICON]-sized icon centered in it, both keyed on the highlighted state.
+    private static ButtonTheme.ButtonRenderer iconBoxRenderer(WidgetSprites sprites) {
+        return (widget, graphics, _, _, _) -> {
+            graphics.fill(widget.getX(), widget.getY(), widget.getX() + widget.getWidth(), widget.getY() + widget.getHeight(), boxColor(widget));
+            blitIcon(graphics, widget, sprites.get(widget.active, widget.isHighlighted()));
+        };
+    }
+
+    /// [#toggleBoxColor] box carrying `on` while the widget is highlighted and `off` otherwise — the
+    /// two states of one button, not two buttons.
+    private static ButtonTheme.ButtonRenderer iconToggleRenderer(Identifier off, Identifier on) {
+        return (widget, graphics, _, _, _) -> {
+            graphics.fill(widget.getX(), widget.getY(), widget.getX() + widget.getWidth(), widget.getY() + widget.getHeight(), toggleBoxColor(widget));
+            blitIcon(graphics, widget, widget.isHighlighted() ? on : off);
+        };
+    }
+
+    /// Draws `icon` at [#ICON] size, centered in the widget.
+    private static void blitIcon(GuiGraphicsExtractor graphics, AnchoredButton widget, Identifier icon) {
+        graphics.blitSprite(
+            RenderPipelines.GUI_TEXTURED,
+            icon,
+            widget.getX() + (widget.getWidth() - ICON) / 2,
+            widget.getY() + (widget.getHeight() - ICON) / 2,
+            ICON, ICON
+        );
     }
 
     final ButtonRenderer buttonRenderer;

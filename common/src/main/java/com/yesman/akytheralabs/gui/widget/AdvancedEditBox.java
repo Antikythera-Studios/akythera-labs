@@ -140,6 +140,12 @@ public final class AdvancedEditBox<T> extends AbstractWidget
     /// Lazily initialized via [#addCharReplacement].
     private @Nullable Map<Character, Character> charReplacements = null;
 
+    /// Display-only decoration of [#text] — the last thing between the string and the screen (e.g.
+    /// suffixing a component's name with its type). It never feeds back into [#text], the filter, or
+    /// the bound value, so what a formatted box commits is exactly what was typed into it.
+    /// Lazily initialized via [#setFormatter]; null = draw [#text] verbatim.
+    private @Nullable Function<String, String> formatter = null;
+
     public AdvancedEditBox(
         final Font font,
         final Unit x1,
@@ -186,18 +192,22 @@ public final class AdvancedEditBox<T> extends AbstractWidget
             // of a read-only selection — stays visible. The view therefore follows the drag.
             ensureCursorVisible();
 
-            String visible = font.plainSubstrByWidth(text.substring(displayOffset), w - TEXT_PADDING * 2);
+            // The offsets index [#text]; a formatter only ever decorates an unfocused box, so they
+            // are re-clamped against the drawn string rather than driving it.
+            String display = displayText();
+            int from = Math.min(displayOffset, display.length());
+            String visible = font.plainSubstrByWidth(display.substring(from), w - TEXT_PADDING * 2);
 
             // Read-only drag selection highlight (drawn under the text).
             if (!editable && selectionAnchor != cursorPos) {
                 int selStart = Math.min(selectionAnchor, cursorPos);
                 int selEnd = Math.max(selectionAnchor, cursorPos);
-                int visStart = Math.max(selStart, displayOffset);
-                int visEnd = Math.min(selEnd, displayOffset + visible.length());
+                int visStart = Math.clamp(selStart, from, from + visible.length());
+                int visEnd = Math.clamp(selEnd, from, from + visible.length());
 
                 if (visEnd > visStart) {
-                    int hx1 = x + TEXT_PADDING + font.width(text.substring(displayOffset, visStart));
-                    int hx2 = x + TEXT_PADDING + font.width(text.substring(displayOffset, visEnd));
+                    int hx1 = x + TEXT_PADDING + font.width(display.substring(from, visStart));
+                    int hx2 = x + TEXT_PADDING + font.width(display.substring(from, visEnd));
                     graphics.fill(hx1, textY - 1, hx2, textY + 9, 0xFF2F5C8F);
                 }
             }
@@ -205,12 +215,25 @@ public final class AdvancedEditBox<T> extends AbstractWidget
             int textColor = editable ? 0xFFCCCCCC : 0xFF7A7A7A;
             graphics.text(font, visible, x + TEXT_PADDING, textY, textColor, false);
 
-            // Blinking cursor (only when editable + focused)
+            // Blinking cursor (only when editable + focused — where display is the raw text)
             if (editable && focused && cursorBlinkOn()) {
                 int cursorScreenX = x + TEXT_PADDING + font.width(text.substring(displayOffset, cursorPos));
                 graphics.fill(cursorScreenX, textY - 1, cursorScreenX + 1, textY + 9, 0xFFCCCCCC);
             }
         }
+    }
+
+    /// The string that actually reaches the screen: [#text] through [#formatter], if one is set.
+    /// A focused box is exempt and shows the raw text — edit mode is where the caret, the cursor
+    /// keys and the commit all work on [#text], so decoration there would put the cursor among
+    /// characters nobody typed. The formatted form is therefore what an *unfocused* box reads as.
+    private String displayText() {
+        return (formatter == null || isFocused()) ? text : formatter.apply(text);
+    }
+
+    /// Installs (or clears, with null) the display-only text transform. See [#formatter].
+    public void setFormatter(@Nullable Function<String, String> formatter) {
+        this.formatter = formatter;
     }
 
     private boolean cursorBlinkOn() {

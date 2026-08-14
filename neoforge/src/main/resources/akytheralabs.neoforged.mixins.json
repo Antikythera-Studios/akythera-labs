@@ -4,7 +4,7 @@
   "compatibilityLevel": "JAVA_21",
   "package": "com.yesman.akytheralabs.neoforged.mixin",
   "client": [
-    "MixinGameRenderer"
+    "MixinGui"
   ],
   "mixins": [
   ],

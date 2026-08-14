@@ -4,7 +4,7 @@ import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.dataholder.animation.AnimationMontageHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;

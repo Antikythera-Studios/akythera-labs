@@ -39,7 +39,7 @@ public abstract class MixinPauseScreen extends Screen {
 
         SpriteIconButton openEditorButton = SpriteIconButton.builder(
             Component.translatable(LangKeys.GUI_MESSAGE_OPEN_EDITOR),
-            _ -> minecraft.setScreen(new LoadAkytheraProjectScreen()),
+            _ -> minecraft.gui.setScreen(new LoadAkytheraProjectScreen()),
             true
         )
         .sprite(EDITOR_OPEN_BUTTON, 20, 20)
@@ -59,11 +59,11 @@ public abstract class MixinPauseScreen extends Screen {
 
         openEditorButton.setPosition(width / 2 + 106, backToGameY);
         openEditorButton.setSize(20, 20);
-        openEditorButton.active = !AkytheraEditorLayoutManager.getInstance().isActive() && minecraft.isSingleplayer();
+        openEditorButton.active = !AkytheraEditorLayoutManager.getInstance().isActive() && minecraft.isLocalServer();
 
         if (AkytheraEditorLayoutManager.getInstance().isActive()) {
             openEditorButton.setTooltip(Tooltip.create(Component.translatable(LangKeys.GUI_MESSAGE_ALREADY_OPENED)));
-        } else if (!minecraft.isSingleplayer()) {
+        } else if (!minecraft.isLocalServer()) {
             openEditorButton.setTooltip(Tooltip.create(Component.translatable(LangKeys.GUI_MESSAGE_NOT_A_SINGLEPLAYER)));
         }
 

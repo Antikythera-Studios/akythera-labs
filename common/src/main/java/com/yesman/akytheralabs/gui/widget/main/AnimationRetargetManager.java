@@ -196,10 +196,8 @@ public final class AnimationRetargetManager {
         record Failure(RetargetEntry entry, String reason) implements ExportResult {}
     }
 
-    /// Encodes an `.efasset` byte stream: `EFAS` magic + zlib(deflated bone-track blocks).
-    /// Block header layout (16 bytes): depth, payloadStartOffset, payloadEndOffset, typeId.
-    /// Class is named ahead of the upcoming `.akasset` rename — the wire-magic stays `EFAS`
-    /// for now so the existing `BinaryAnimationLoader` keeps reading our output.
+    /// Encodes an `.efasset` byte stream: `EFAS` magic plus zlib-deflated bone-track blocks. A block
+    /// header is 16 bytes — depth, payloadStartOffset, payloadEndOffset, typeId.
     private static final class AkAssetWriter {
         /// `BinaryAssetLoader.DataType.ANIM_BONE_TRACK.typeId` — mirrored as a constant
         /// because the enum's `typeId` field is package-private.
@@ -387,7 +385,7 @@ public final class AnimationRetargetManager {
             sourceToTarget.remove(src);
         }
 
-        /// Step 5 uses this to mark incomplete entries red before export.
+        /// Whether every bone of `clipBones` has a non-empty target mapping.
         public boolean isComplete(Set<String> clipBones) {
             for (String b : clipBones) {
                 String t = sourceToTarget.get(b);

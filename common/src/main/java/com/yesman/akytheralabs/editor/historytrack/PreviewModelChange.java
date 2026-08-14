@@ -1,8 +1,8 @@
 package com.yesman.akytheralabs.editor.historytrack;
 
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
+import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
-import com.yesman.akytheralabs.dataholder.animation.BlendSpace2DHolder;
+import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import org.jspecify.annotations.Nullable;
 
 /// Single-shot composite change for a BlendSpace2D preview-model selection
@@ -12,13 +12,13 @@ import org.jspecify.annotations.Nullable;
 /// values and the history class owns holder writes and previewer refresh.
 public final class PreviewModelChange implements WorkHistory {
     private final BlendSpace2DHolder holder;
-    private final ModelPreviewer previewer;
+    private final Model3DViewer previewer;
     private final @Nullable EntityPreviewModel oldModel;
     private final @Nullable EntityPreviewModel newModel;
 
     public PreviewModelChange(
         BlendSpace2DHolder holder,
-        ModelPreviewer previewer,
+        Model3DViewer previewer,
         @Nullable EntityPreviewModel oldModel,
         @Nullable EntityPreviewModel newModel
     ) {

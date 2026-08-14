@@ -4,6 +4,7 @@ import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
@@ -21,7 +22,7 @@ import java.nio.file.Path;
 
 /// Content-browser / explorer behaviour for one editable [EnumerableDataBlock] type. One instance
 /// per type, bound to its labs registry key (see
-/// [com.yesman.akytheralabs.dataholder.datablock.DataBlockRegistries]).
+/// [DataBlockRegistries]).
 ///
 /// Data blocks are property-less, so there is **no screen editor** (double-click is a no-op) — only
 /// **create** (green `+`, then rename to choose the identifier) and **remove** (context menu) are

@@ -38,7 +38,7 @@ public final class WorldViewport extends AbstractWidget implements AnchoredWidge
         this.y2 = y2;
         this.horizontalAnchorType = horizontalAnchorType;
         this.verticalAnchorType = verticalAnchorType;
-        mainRenderTarget = Minecraft.getInstance().getMainRenderTarget();
+        mainRenderTarget = Minecraft.getInstance().gameRenderer.mainRenderTarget();
 
         // Block inputs. In-game inputs are handled by AkytheraEditorLayoutManager#snatchInputs
         active = false;

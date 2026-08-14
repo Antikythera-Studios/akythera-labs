@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
+import com.yesman.akythera.client.gui.widget.CheckBox;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -31,6 +32,7 @@ import java.util.function.Consumer;
 public final class ExportModalGenerator {
     private static final int POPUP_W = 450;
     private static final int LABEL_W = 100;
+    private static final int RIGHT_MARGIN = 6;
 
     /// `src/main/java/` marker used to derive the java package from a chosen export directory.
     /// Forward-slash form — paths are normalized before matching so Windows `\` paths also hit.
@@ -40,13 +42,22 @@ public final class ExportModalGenerator {
     }
 
     /// `Export > As Pack`: a Data Path row + a Resource Path row + footer buttons. The Data Path
-    /// receives the re-encoded data pack (`<projectName>_data.zip`) via [AkytheraProject#exportDataPack];
-    /// the Resource Path receives the assets as loose files under `assets/<projectName>/` via
-    /// [AkytheraProject#exportAssetsToDirectory] (NOT a zip resource pack). Both destinations are
-    /// remembered in `project_settings.akproject` ([AkytheraProject#saveExportPaths]) so the modal
-    /// reopens on the same folders. Each field is optional: a blank field skips that half of the export.
+    /// receives the re-encoded data pack via [AkytheraProject#exportDataPack] — with "Include assets
+    /// in data pack" ticked it carries the project's assets under `data/<projectName>/assets/` and is
+    /// named `<projectName>_datapack_with_assets.zip`;
+    /// the Resource Path receives the assets as a zip resource pack (`<projectName>_resources.zip`) via
+    /// [AkytheraProject#exportResourcePack]. Both destinations are remembered in
+    /// `project_settings.akproject` ([AkytheraProject#saveExportPaths]) so the modal reopens on the same
+    /// folders. Each field is optional: a blank field skips that half of the export.
+    ///
+    /// Gated behind [BrokenEntriesModalGenerator]: broken entries are silently left out of the
+    /// export, so the user confirms that first.
     public static void openAsPack(Font font) {
         AkytheraProject project = AkytheraProject.getCurrentProject();
+        BrokenEntriesModalGenerator.confirmProceed(font, project, () -> openAsPackModal(font, project));
+    }
+
+    private static void openAsPackModal(Font font, AkytheraProject project) {
         String fallback = project.getProjectRoot().toString();
 
         PathRow dataPathRow = new PathRow(
@@ -54,6 +65,10 @@ public final class ExportModalGenerator {
             Component.translatable(LangKeys.GUI_EXPORT_MODAL_DATA_PATH),
             project.getLastExportDataPath().isBlank() ? fallback : project.getLastExportDataPath(),
             null
+        );
+        OptionRow includeAssetsRow = new OptionRow(
+            font,
+            Component.translatable(LangKeys.GUI_EXPORT_MODAL_INCLUDE_ASSETS)
         );
         PathRow resourcePathRow = new PathRow(
             font,
@@ -70,14 +85,16 @@ public final class ExportModalGenerator {
             project.saveExportPaths(dataDir, resourceDir);
 
             Path opened = null;
+
             if (!dataDir.isBlank()) {
                 Path dataPath = Path.of(dataDir);
-                project.exportDataPack(dataPath);
+                project.exportDataPack(dataPath, includeAssetsRow.isChecked());
                 opened = dataPath;
             }
+
             if (!resourceDir.isBlank()) {
                 Path resourcePath = Path.of(resourceDir);
-                project.exportAssetsToDirectory(resourcePath);
+                project.exportResourcePack(resourcePath);
                 opened = resourcePath;
             }
 
@@ -93,6 +110,7 @@ public final class ExportModalGenerator {
 
         WidgetContainerModal popup = WidgetContainerModal.builder(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_AS_PACK_TITLE), POPUP_W)
             .widgetContainerRow(PathRow.ROW_H, dataPathRow)
+            .widgetContainerRow(OptionRow.ROW_H, includeAssetsRow)
             .widgetContainerRow(PathRow.ROW_H, resourcePathRow)
             .footerButton(cancelBtn, btnW)
             .footerButton(exportBtn, btnW)
@@ -104,12 +122,19 @@ public final class ExportModalGenerator {
     /// `Export > As Source Code`: a Data Path row (generated `.java` output), a Resource Path row
     /// (loose assets), plus an editable package row. Picking a Data Path re-derives the package name
     /// from it (see [#derivePackageName]); the user can still override it. The Data Path feeds
-    /// [FreemarkerExporter#exportProject]; the Resource Path feeds [AkytheraProject#exportAssetsToDirectory].
+    /// [FreemarkerExporter#exportProject]; the Resource Path feeds [AkytheraProject#exportAssetsToDirectory]
+    /// (raw asset directory, NOT a zip — source-code exports keep resources editable on disk).
     /// Both destinations are remembered in `project_settings.akproject`
     /// ([AkytheraProject#saveSourceExportPaths]), independently of the `As Pack` paths. Each field is
     /// optional: a blank field skips that half of the export.
+    ///
+    /// Gated behind [BrokenEntriesModalGenerator], like [#openAsPack].
     public static void openAsSourceCode(Font font) {
         AkytheraProject project = AkytheraProject.getCurrentProject();
+        BrokenEntriesModalGenerator.confirmProceed(font, project, () -> openAsSourceCodeModal(font, project));
+    }
+
+    private static void openAsSourceCodeModal(Font font, AkytheraProject project) {
         // Prefill the package from the remembered source path so a reopened modal shows the same
         // derived package the last export used, not the bare "com.example.mod" placeholder.
         PackageRow packageRow = new PackageRow(font, derivePackageName(project.getLastSourceDataPath()));
@@ -244,6 +269,47 @@ public final class ExportModalGenerator {
                     pathBox.setValueByString(result);
                     if (onPathChosen != null) onPathChosen.accept(result);
                 }, Minecraft.getInstance());
+        }
+
+        @Override
+        protected void extractRowContent(WidgetContainerModal popup, GuiGraphicsExtractor g, ScreenRectangle rowRectangle, int mx, int my, float a) {
+            g.text(font, label, rowRectangle.left(), rowRectangle.top() + (BOX_H - font.lineHeight) / 2, 0xFFAAAAAA, false);
+        }
+    }
+
+    /// A labelled boolean option row. The [CheckBox]'s data provider / consumer pair targets
+    /// [#checked], which the modal reads when the Export button fires.
+    private static final class OptionRow extends WidgetContainerModal.WidgetsContainerRow {
+        static final int ROW_H = 26;
+        static final int BOX_H = 14;
+
+        private final Font font;
+        private final Component label;
+        private boolean checked;
+
+        OptionRow(Font font, Component label) {
+            this.font = font;
+            this.label = label;
+
+            CheckBox checkBox = new CheckBox(
+                font,
+                AnchoredWidget.pixel(RIGHT_MARGIN),
+                AnchoredWidget.pixel(BOX_H),
+                AnchoredWidget.pixel(0),
+                AnchoredWidget.pixel(BOX_H),
+                AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH,
+                AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
+                () -> checked,
+                value -> checked = value,
+                Component.empty(),
+                false
+            );
+
+            addWidget(checkBox);
+        }
+
+        boolean isChecked() {
+            return checked;
         }
 
         @Override

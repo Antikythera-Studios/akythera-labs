@@ -1,22 +1,36 @@
 package com.yesman.akytheralabs.gui.screen;
 
+import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
 import com.yesman.akythera.api.animation.animator.Animator;
+import com.yesman.akythera.api.data.modularize.node.ExecutionRecord;
+import com.yesman.akythera.api.world.patch.entity.EntityPatch;
+import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
+import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
+import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
+import com.yesman.akytheralabs.editor.debug.ScriptExecutionRecords;
+import net.minecraft.world.entity.Entity;
+import com.yesman.akythera.client.gui.widget.viewer.*;
+import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.animation.impl.AkytheraAnimationState;
 import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
+import com.yesman.akythera.core.animation.driver.FSMAnimationState;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
-import com.yesman.akytheralabs.dataholder.animation.AnimGraphCompiler;
-import com.yesman.akytheralabs.dataholder.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimGraphCompiler;
+import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -30,8 +44,13 @@ import com.yesman.akytheralabs.gui.panel.script.VariablePanel;
 import com.yesman.akytheralabs.gui.widget.*;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
+import com.yesman.akytheralabs.gui.widget.main.RegistryLookupModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.script.*;
+import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
+import com.yesman.akytheralabs.gui.widget.script.node.AnimInterfaceNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
+import com.yesman.akytheralabs.gui.widget.script.node.StateMachineNodeData;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -49,7 +68,9 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /// Editor screen for an [AnimatorScriptHolder] (a [DataDrivenAnimatorScript.AnimatorScriptBlueprint]).
 ///
@@ -57,11 +78,11 @@ import java.util.function.Predicate;
 /// top menu bar — preview + variables on the left, the blueprint graph tabs in the
 /// center, node details + asset browser on the right.
 ///
-/// Design stage only: every panel except the [ModelPreviewer] is a text placeholder,
+/// Design stage only: every panel except the [Model3DViewer] is a text placeholder,
 /// and no value editing is wired up. The preview model is chosen *before* the screen
 /// opens (see [com.yesman.akytheralabs.gui.widget.main.ContentWidget.AnimatorScriptContent])
 /// and stored on the holder, so the previewer shows it here.
-public final class AnimatorScriptEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class AnimatorScriptEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
 
     /// Seed layout for the Event Graph's two event nodes: the Constructor sits at `ENTRY_Y`, the
@@ -81,12 +102,11 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
-    private final ModelPreviewer modelPreviewer;
+    private final Model3DViewer model3DViewer;
     private final TabPanel blueprintEditor;
 
-    /// The live "Event Graph" node canvas — the only real graph this stage (hosts the Update +
-    /// Constructor event nodes). Saved to the holder's update graph. Kept so a variable type change
-    /// can retarget its Get / Set nodes (see [#onVariableRetyped]).
+    /// The "Event Graph" node canvas, hosting the Update and Constructor event nodes. Saved to the
+    /// holder's update graph.
     private final ScriptNodeGraphWidget updateGraph;
 
     /// The live "Anim Graph" pose canvas (UE's AnimGraph) — a data-flow graph terminating at an
@@ -124,7 +144,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
     /// Sub-graphs (state pose / transition condition) carry no ENTRY rows — their root rebuilds
     /// directly — so their import never consults an entry factory.
-    private final ScriptNodeGraphWidget.EntryNodeFactory subGraphEntryFactory = (x, y, labels) -> null;
+    private final ScriptNodeGraphWidget.EntryNodeFactory subGraphEntryFactory = (_, _, _) -> null;
 
     /// Mutable working copies of the blueprint's variables; flushed back to the
     /// holder only on [#save].
@@ -138,6 +158,10 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// repeated selection events.
     @Nullable
     private AbstractNodeWidget detailsNamedNode;
+
+    /// Set when a captured run named rows the Event Graph does not have — the pack and the canvas were
+    /// built from different graphs, so nothing is highlighted until the next reload.
+    private boolean debugSnapshotStale;
 
     private final AnimatorScriptHolder holder;
     private final ResourceKey<DataDrivenAnimatorScript.@NonNull AnimatorScriptBlueprint> resourceKey;
@@ -174,28 +198,30 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                     .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_LANGUAGE), () -> LanguageSelectionModal.open(font))
                     .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_EDITOR_PREFERENCES), () -> EditorPreferencesModalGenerator.open(font))
                 .done()
+                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS))
+                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS_DEBUG), () -> DebuggableScreen.openDebugSelector(font))
+                .done()
                 .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
                     .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
                     .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_ISSUE_REPORT), () -> {})
                 .done()
         );
 
-        // ModelPreviewer — the only live panel this stage. Shows the model picked
-        // during the "select model" step before this screen opened.
-        modelPreviewer = new ModelPreviewer(
+        // Shows the model picked before this screen opened.
+        model3DViewer = new Model3DViewer(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
             AkytheraEditorLayoutManager.getInstance()::getLayoutGuiScale
         );
-        modelPreviewer.addComponent(new ModelPreviewer.CameraComponent(true));
-        modelPreviewer.addComponent(new ModelPreviewer.BackgroundComponent(16, 16, 16, 255));
-        modelPreviewer.addComponent(new ModelPreviewer.GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
-        EntityPreviewModel.display(modelPreviewer, holder.getPreviewModel(), true, true);
 
-        // BlueprintEditor — a TabPanel with the two graph tabs shown in the design. Each
-        // tab body is a placeholder until the node graph is built.
+        model3DViewer.addComponent(new CameraComponent(true));
+        model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
+        model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
+        EntityPreviewModel.display(model3DViewer, holder.getPreviewModel(), true, true);
+
+        // The two graph tabs, Event Graph and Anim Graph.
         blueprintEditor = new TabPanel(
             minecraft.font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -203,8 +229,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
-        // "Event Graph" tab: a live node canvas seeded with the Update + Constructor event nodes.
-        // The "Anim Graph" (pose) tab stays a placeholder until the pose-node palette lands.
+
+        // "Event Graph" tab: a node canvas seeded with the Update and Constructor event nodes.
         updateGraph = new ScriptNodeGraphWidget(
             minecraft.font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -212,11 +238,14 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
+
         updateGraph.setSuggestionProvider(this::buildNodeSuggestions);
+
         // The animator script's owner type, so a right-click on empty canvas offers the
         // actions available on it (mirrors UE's context-sensitive blueprint menu). Set before the
         // graph is populated so loaded nodes inherit it.
         updateGraph.setScriptOwnerType(Animator.class);
+
         // The Event Graph is the locomotion-logic graph, so it offers only SCRIPT functions; the
         // Anim Graph (pose) tab offers ANIM_GRAPH ones (UE's per-graph node palette).
         updateGraph.setUsage(ScriptFunction.Usage.SCRIPT);
@@ -225,28 +254,35 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         // nodes. Each entry's title / pin shape is event-specific, so the graph asks back for it via
         // this factory — which recovers the event kind from the row's persisted output labels (a row
         // carrying data-output labels is the Update event; otherwise the Constructor).
-        ScriptNodeGraphWidget.EntryNodeFactory entryFactory = (x, y, outLabels) ->
-            outLabels.stream().anyMatch(label -> !label.isBlank())
-                ? new EntryPointNodeWidget(
-                    minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_UPDATE),
-                    EntryPointNodeWidget.EntryKind.UPDATE, x, y)
-                : new EntryPointNodeWidget(
-                    minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_CONSTRUCT),
-                    EntryPointNodeWidget.EntryKind.CONSTRUCTOR, x, y);
+        ScriptNodeGraphWidget.EntryNodeFactory entryFactory =
+            (x, y, outLabels) ->
+                outLabels.stream().anyMatch(label -> !label.isBlank())
+                    ? new EntryPointNodeWidget(
+                        minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_UPDATE),
+                        EntryPointNodeWidget.EntryKind.UPDATE, x, y
+                    )
+                    : new EntryPointNodeWidget(
+                        minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_CONSTRUCT),
+                        EntryPointNodeWidget.EntryKind.CONSTRUCTOR, x, y
+                    );
 
         ScriptGraphData savedUpdateGraph = holder.getUpdateGraph();
 
         if (savedUpdateGraph.isEmpty()) {
-            // Update is added first so it stays node id 0 — the compiler follows the first entry as
-            // the update flow — but it sits *below* the Constructor (drawn above it, UE-style). The
-            // Constructor event is structural this stage (the holder keeps a separate, still-empty
-            // construct graph), so its subtree is not compiled yet.
-            updateGraph.addNode(new EntryPointNodeWidget(
-                minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_UPDATE),
-                EntryPointNodeWidget.EntryKind.UPDATE, ENTRY_X, ENTRY_Y + ENTRY_GAP));
-            updateGraph.addNode(new EntryPointNodeWidget(
-                minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_CONSTRUCT),
-                EntryPointNodeWidget.EntryKind.CONSTRUCTOR, ENTRY_X, ENTRY_Y));
+            // Update is added first so it keeps node id 0 — the compiler falls back to the first
+            // entry as the update flow — while sitting below the Constructor on the canvas.
+            updateGraph.addNode(
+                new EntryPointNodeWidget(
+                    minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_UPDATE),
+                    EntryPointNodeWidget.EntryKind.UPDATE, ENTRY_X, ENTRY_Y + ENTRY_GAP
+                )
+            );
+            updateGraph.addNode(
+                new EntryPointNodeWidget(
+                    minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_CONSTRUCT),
+                    EntryPointNodeWidget.EntryKind.CONSTRUCTOR, ENTRY_X, ENTRY_Y
+                )
+            );
         } else {
             updateGraph.importGraph(savedUpdateGraph, entryFactory);
             backfillMissingEventNodes();
@@ -326,17 +362,29 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
         // Asset Browser (bottom-right): draggable Sequences / Blend Spaces. Dragging one onto the
         // Anim Graph spawns the matching pose-player node bound to that asset (see [#dropAssetAsNode]).
-        AssetBrowserPanel<Identifier> sequenceBrowser = new AssetBrowserPanel<>(
-            minecraft.font, AnimatorScriptEditorScreen::buildSequenceItems,
-            id -> draggingAsset = new AssetDrag(id, false),
+        AssetBrowserPanel<Holder<AnimationSequence>> sequenceBrowser = new AssetBrowserPanel<>(
+            minecraft.font,
+            //AnimatorScriptEditorScreen::buildSequenceItems,
+            () -> AkytheraProject.getCurrentProject()
+                .getMergedHolders(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY).stream()
+                .sorted(Comparator.comparing(h -> h.unwrapKey().map(k -> k.identifier().toString()).orElse("")))
+                .toList(),
+            h -> h.unwrapKey().map(ResourceKey::identifier).orElse(Identifier.parse("unknown")).toString(),
+            h -> draggingAsset = new AssetDrag(h.unwrapKey().orElseThrow().identifier(), true),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
-        AssetBrowserPanel<Identifier> blendSpaceBrowser = new AssetBrowserPanel<>(
-            minecraft.font, AnimatorScriptEditorScreen::buildBlendSpaceItems,
-            id -> draggingAsset = new AssetDrag(id, true),
+        AssetBrowserPanel<Holder<BlendSpace2D>> blendSpaceBrowser = new AssetBrowserPanel<>(
+            minecraft.font,
+            //AnimatorScriptEditorScreen::buildBlendSpaceItems,
+            () -> AkytheraProject.getCurrentProject()
+                .getMergedHolders(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY).stream()
+                .sorted(Comparator.comparing(h -> h.unwrapKey().map(k -> k.identifier().toString()).orElse("")))
+                .toList(),
+            h -> h.unwrapKey().map(ResourceKey::identifier).orElse(Identifier.parse("unknown")).toString(),
+            h -> draggingAsset = new AssetDrag(h.unwrapKey().orElseThrow().identifier(), true),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
@@ -380,8 +428,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         var leftSplit = columns.get(0).subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, r.get(2));
         var rightSplit = columns.get(2).subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, r.get(3));
 
-        leftSplit.get(0).resizeCallback(modelPreviewer::relocate);
-        leftSplit.get(0).resizeFinishCallback(_ -> modelPreviewer.onResizeCompleted());
+        leftSplit.get(0).resizeCallback(model3DViewer::relocate);
+        leftSplit.get(0).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
         leftSplit.get(1).area(variablePanel);
         columns.get(1).area(blueprintHostArea);
         rightSplit.get(0).area(scriptNodeDetailsPanel);
@@ -413,7 +461,9 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         if (update == null) {
             update = new EntryPointNodeWidget(
                 minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_UPDATE),
-                EntryPointNodeWidget.EntryKind.UPDATE, ENTRY_X, ENTRY_Y + ENTRY_GAP);
+                EntryPointNodeWidget.EntryKind.UPDATE, ENTRY_X, ENTRY_Y + ENTRY_GAP
+            );
+
             updateGraph.addNode(update);
         }
 
@@ -425,9 +475,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 constructorY = ENTRY_Y;
                 update.setY(constructorY + ENTRY_GAP);
             }
-            updateGraph.addNode(new EntryPointNodeWidget(
-                minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_CONSTRUCT),
-                EntryPointNodeWidget.EntryKind.CONSTRUCTOR, update.getX(), constructorY));
+
+            updateGraph.addNode(
+                new EntryPointNodeWidget(
+                    minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_CONSTRUCT),
+                    EntryPointNodeWidget.EntryKind.CONSTRUCTOR, update.getX(), constructorY
+                )
+            );
         }
     }
 
@@ -442,7 +496,9 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// nodes and the owner's pure functions. Categories are additive (a right-click shows
     /// several at once), and the context's `functionFilter` narrows the [ScriptFunction]
     /// entries. Re-evaluated on each open so newly added variables appear.
-    private List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> buildNodeSuggestions(ScriptNodeGraphWidget graph, NodeSuggestContext context) {
+    private List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> buildNodeSuggestions(
+        ScriptNodeGraphWidget graph, NodeSuggestContext context
+    ) {
         List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions = new ArrayList<>();
 
         if (context.flow()) addFlowSuggestions(suggestions, context.providedType(), context.functionFilter(), context.usage(), context.dataFlowOnly());
@@ -475,51 +531,50 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         NodeSuggestContext context
     ) {
         Class<?> provided = context.providedType();
+
         if (provided != null) {
             ScriptType from = scriptTypeOf(provided);
             if (from == null) return;
+
             for (Class<?> target : from.explicitCastableTypes().keySet()) {
                 suggestions.add(new NodeSuggestModal.Suggestion<>(
                     Component.literal("Convert to " + TypeConvertNodeWidget.typeName(target)),
                     (font, x, y) -> new TypeConvertNodeWidget(font, provided, target, x, y)));
             }
+
             return;
         }
 
         Class<?> expected = context.expectedType();
         if (expected == null) return;
-        Class<?> expectedBoxed = boxedType(expected);
+
+        Class<?> expectedBoxed = ParseUtils.box(expected);
+
         for (ScriptType st : AkytheraRegistries.Frozen.SCRIPT_TYPE) {
             if (!st.explicitCastableTypes().containsKey(expectedBoxed)) continue;
             Class<?> source = st.type();
-            suggestions.add(new NodeSuggestModal.Suggestion<>(
-                Component.literal("Convert " + TypeConvertNodeWidget.typeName(source)
-                    + " to " + TypeConvertNodeWidget.typeName(expected)),
-                (font, x, y) -> new TypeConvertNodeWidget(font, source, expected, x, y)));
+            suggestions.add(
+                new NodeSuggestModal.Suggestion<>(
+                    Component.literal(
+                        "Convert " + TypeConvertNodeWidget.typeName(source) + " to "
+                            + TypeConvertNodeWidget.typeName(expected)
+                    ),
+                    (font, x, y) -> new TypeConvertNodeWidget(font, source, expected, x, y)
+                )
+            );
         }
     }
 
     /// The registered [ScriptType] whose java type matches `type` (boxing-aware), or null when no
     /// script type backs it.
     private static @Nullable ScriptType scriptTypeOf(Class<?> type) {
-        Class<?> boxed = boxedType(type);
-        for (ScriptType st : AkytheraRegistries.Frozen.SCRIPT_TYPE) {
-            if (boxedType(st.type()) == boxed) return st;
-        }
-        return null;
-    }
+        Class<?> boxed = ParseUtils.box(type);
 
-    private static Class<?> boxedType(Class<?> t) {
-        if (!t.isPrimitive()) return t;
-        if (t == byte.class) return Byte.class;
-        if (t == short.class) return Short.class;
-        if (t == int.class) return Integer.class;
-        if (t == long.class) return Long.class;
-        if (t == float.class) return Float.class;
-        if (t == double.class) return Double.class;
-        if (t == boolean.class) return Boolean.class;
-        if (t == char.class) return Character.class;
-        return t;
+        for (ScriptType st : AkytheraRegistries.Frozen.SCRIPT_TYPE) {
+            if (ParseUtils.box(st.type()) == boxed) return st;
+        }
+
+        return null;
     }
 
     /// The pose-specific nodes offered in any ANIM_GRAPH canvas (the root Anim Graph or a state's pose
@@ -555,8 +610,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                     String name = id.toString();
                     if (usedLayers.contains(name)) continue;
                     suggestions.add(new NodeSuggestModal.Suggestion<>(
-                        Component.literal("Anim Layer '" + name + "'"),
-                        (font, x, y) -> new AnimLayerNodeWidget(font, name, x, y)
+                        Component.literal(name),
+                        (font, x, y) -> new AnimLayerNodeWidget(
+                            font,
+                            AkytheraProject.getCurrentProject()
+                                .getDataBlockHolderOrDangling(AnimationLayerSignature.ENUM_MANAGER, id),
+                            x, y),
+                        "Anim Layer"
                     ));
                 }
             }
@@ -569,6 +629,36 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                     (font, x, y) -> new CachedPoseGetterNodeWidget(font, cached, x, y)
                 ));
             }
+
+            // Animation Interface nodes — replaceable pose slots keyed by an AnimationInterfaceKey,
+            // offered per resource type (the engine's two interface kinds). A key registers once per
+            // animator (BlendingAnimator#addAnimInterface throws on a duplicate), so keys already
+            // used anywhere on this script — any pose canvas, root or state — are filtered out.
+            Set<String> usedInterfaceKeys = usedAnimInterfaceKeys();
+            for (Identifier id : AkytheraProject.getCurrentProject()
+                    .getMergedDataBlockIdentifiers(AnimationInterfaceKey.ENUM_MANAGER)) {
+                String name = id.toString();
+                if (usedInterfaceKeys.contains(name)) continue;
+
+                suggestions.add(new NodeSuggestModal.Suggestion<>(
+                    Component.literal(name),
+                    (font, x, y) -> new AnimSequenceInterfaceNodeWidget(
+                        font,
+                        AkytheraProject.getCurrentProject()
+                            .getDataBlockHolderOrDangling(AnimationInterfaceKey.ENUM_MANAGER, id),
+                        null, x, y),
+                    "Anim Sequence Interface"
+                ));
+                suggestions.add(new NodeSuggestModal.Suggestion<>(
+                    Component.literal(name),
+                    (font, x, y) -> new BlendSpaceInterfaceNodeWidget(
+                        font,
+                        AkytheraProject.getCurrentProject()
+                            .getDataBlockHolderOrDangling(AnimationInterfaceKey.ENUM_MANAGER, id),
+                        null, x, y),
+                    "Blend Space 2D Interface"
+                ));
+            }
         }
 
         // The cache **definition** (sink) may only be created on the root Anim Graph.
@@ -577,9 +667,33 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             String cacheName = uniqueCachedPoseName();
             suggestions.add(new NodeSuggestModal.Suggestion<>(
                 Component.literal("New Cached Pose"),
-                (font, x, y) -> new CachedPoseNodeWidget(font, cacheName, x, y)
+                (font, x, y) -> new PoseCachingNodeWidget(font, cacheName, x, y)
             ));
         }
+    }
+
+    /// Every [AnimationInterfaceKey] identifier already used by an Animation Interface node anywhere
+    /// on this script: the root Anim Graph, any open pose sub-tab (live widgets), and every stored
+    /// state pose sub-graph (closed tabs). A key registers **once per animator**, so a used key is
+    /// never offered (or pasted) again.
+    private Set<String> usedAnimInterfaceKeys() {
+        Set<String> used = new HashSet<>(poseGraph.animInterfaceKeys());
+
+        for (ScriptNodeGraphWidget open : openSubGraphs.values()) {
+            used.addAll(open.animInterfaceKeys());
+        }
+
+        for (StateMachineData machine : stateMachines.values()) {
+            for (StateMachineData.StateData state : machine.states()) {
+                for (GraphNode row : state.poseGraph().nodes()) {
+                    if (row.data() instanceof AnimInterfaceNodeData animInterface) {
+                        used.add(animInterface.interfaceKeyId().toString());
+                    }
+                }
+            }
+        }
+
+        return used;
     }
 
     /// A cached-pose name not already used on the root Anim Graph (where every cache is defined).
@@ -622,16 +736,37 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             previewSequence(sequencePlayer.sequenceId());
         }
 
+        // A sequence-typed Animation Interface previews its default animation the same way.
+        if (node instanceof AnimSequenceInterfaceNodeWidget seqInterface
+            && seqInterface.defaultAnimationId() != null) {
+            previewSequence(seqInterface.defaultAnimationId());
+        }
+
         if (node instanceof StateMachineNodeWidget sm) {
             if (detailsNamedNode == sm) return;
             variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
             detailsNamedNode = sm;
             scriptNodeDetailsPanel.showStateMachine(sm::machineName, newName -> renameStateMachine(sm, newName));
-        } else if (node instanceof CachedPoseNodeWidget cp) {
+        } else if (node instanceof PoseCachingNodeWidget cp) {
             if (detailsNamedNode == cp) return;
             variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
             detailsNamedNode = cp;
             scriptNodeDetailsPanel.showStateMachine(cp::cacheName, newName -> renameCachedPose(cp, newName));
+        } else if (node instanceof AnimInterfaceNodeWidget animInterface) {
+            if (detailsNamedNode == animInterface) return;
+            variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
+            detailsNamedNode = animInterface;
+            showAnimInterfaceDetails(animInterface);
+        } else if (node instanceof AnimSequencePlayerNodeWidget sequencePlayer) {
+            if (detailsNamedNode == sequencePlayer) return;
+            variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
+            detailsNamedNode = sequencePlayer;
+            showSequencePlayerDetails(sequencePlayer);
+        } else if (node instanceof BlendSpacePlayerNodeWidget blendSpacePlayer) {
+            if (detailsNamedNode == blendSpacePlayer) return;
+            variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
+            detailsNamedNode = blendSpacePlayer;
+            showBlendSpacePlayerDetails(blendSpacePlayer);
         } else {
             if (detailsNamedNode == null) return;
             detailsNamedNode = null;
@@ -639,13 +774,225 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
     }
 
-    /// Plays the animation sequence bound to `sequenceId` on the [#modelPreviewer] — looping and
+    /// Shows the Details panel for a Sequence Player node: the one sequence it plays, rebindable
+    /// through the picker. Picking previews the new clip, mirroring what selecting the node does.
+    private void showSequencePlayerDetails(AnimSequencePlayerNodeWidget node) {
+        scriptNodeDetailsPanel.showIdentifierRows(List.of(assetRow(
+            LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_SEQUENCE,
+            AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY,
+            node::sequenceId,
+            picked -> {
+                node.setSequenceId(picked);
+                previewSequence(picked);
+            })));
+    }
+
+    /// Shows the Details panel for a Blendspace Player node: the one blendspace it plays, rebindable
+    /// through the picker (which also re-derives the node's axis pin labels).
+    private void showBlendSpacePlayerDetails(BlendSpacePlayerNodeWidget node) {
+        scriptNodeDetailsPanel.showIdentifierRows(List.of(assetRow(
+            LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_BLEND_SPACE,
+            AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY,
+            node::blendSpaceId,
+            node::setBlendSpaceId)));
+    }
+
+    /// Shows the Details panel for an Animation Interface node: **both** its key — re-keyable over the
+    /// interface keys still free on this script — and its default animation, over the node's resource
+    /// type (anim sequences for a sequence interface, blendspaces for a Blend Space 2D one). Picking a
+    /// default on a sequence interface also previews it, like the Sequence Player.
+    private void showAnimInterfaceDetails(AnimInterfaceNodeWidget node) {
+        String label = LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_DEFAULT_ANIMATION;
+
+        // One branch per resource type: the row's registry decides the entry type, so the two cases
+        // can't share a call (their `ResourceKey`s have no common entry type to infer).
+        ScriptNodeDetailsPanel.IdentifierRow animation = node instanceof AnimSequenceInterfaceNodeWidget
+            ? assetRow(label, AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, node::defaultAnimationId,
+                picked -> {
+                    node.setDefaultAnimationId(picked);
+                    if (picked != null) previewSequence(picked);
+                })
+            : assetRow(label, AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY, node::defaultAnimationId,
+                node::setDefaultAnimationId);
+
+        scriptNodeDetailsPanel.showIdentifierRows(List.of(interfaceKeyRow(node), animation));
+    }
+
+    /// A Details row for an asset-valued node property: the node's current id, marked red while it
+    /// resolves in neither the project nor the level, and a magnifier opening the entry lookup over
+    /// `registryKey` (project ∪ level, the same set the Asset Browser drag offers). A pick runs
+    /// `apply` and is recorded as one undoable step (see [#commitNodeIdentifier]).
+    private <T> ScriptNodeDetailsPanel.IdentifierRow assetRow(
+        String labelKey,
+        ResourceKey<? extends Registry<T>> registryKey,
+        Supplier<@Nullable Identifier> current,
+        Consumer<@Nullable Identifier> apply
+    ) {
+        return new ScriptNodeDetailsPanel.IdentifierRow(
+            labelKey,
+            current,
+            id -> AkytheraProject.getCurrentProject().hasEntry(registryKey, id),
+            box -> openPickerUnder(box, RegistryLookupModal.dataPackEntries(
+                font, Component.translatable(labelKey), registryKey, false,
+                key -> commitNodeIdentifier(current, apply, key.identifier(), box)))
+        );
+    }
+
+    /// The Animation Interface key row. A key registers **once per animator**, so the lookup offers the
+    /// merged [AnimationInterfaceKey] blocks minus every key already used by another interface node on
+    /// this script — the node's own key stays listed, so re-opening the picker never hides the current
+    /// value. Built per press so the used-key set is current.
+    private ScriptNodeDetailsPanel.IdentifierRow interfaceKeyRow(AnimInterfaceNodeWidget node) {
+        Supplier<@Nullable Identifier> current = () -> Identifier.tryParse(node.interfaceKeyName());
+
+        return new ScriptNodeDetailsPanel.IdentifierRow(
+            LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_INTERFACE_KEY,
+            current,
+            id -> {
+                Holder<AnimationInterfaceKey> holder = AkytheraProject.getCurrentProject()
+                    .getDataBlockHolder(AnimationInterfaceKey.ENUM_MANAGER, id);
+                return holder != null && holder.isBound();
+            },
+            box -> {
+                Set<String> used = usedAnimInterfaceKeys();
+                used.remove(node.interfaceKeyName());
+
+                List<ResourceKey<AnimationInterfaceKey>> options = AkytheraProject.getCurrentProject()
+                    .getMergedDataBlockIdentifiers(AnimationInterfaceKey.ENUM_MANAGER).stream()
+                    .filter(id -> !used.contains(id.toString()))
+                    .map(id -> ResourceKey.create(AnimationInterfaceKey.ENUM_MANAGER.directoryKey(), id))
+                    .toList();
+
+                openPickerUnder(box, new RegistryLookupModal<>(
+                    font,
+                    Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_INTERFACE_KEY),
+                    options,
+                    // An unparseable key reads as null; nothing to re-key to, so such an undo is a no-op.
+                    key -> commitNodeIdentifier(current, id -> {
+                        if (id != null) node.setInterfaceKeyName(id.toString());
+                    }, key.identifier(), box)));
+            }
+        );
+    }
+
+    /// Writes `picked` onto the node, refreshes the row's box, and records the change as one
+    /// [DataChange] — so a node property edit is undoable and marks the title dirty, like every other
+    /// edit on this screen. A pick equal to the current value is dropped.
+    private static void commitNodeIdentifier(
+        Supplier<@Nullable Identifier> current,
+        Consumer<@Nullable Identifier> apply,
+        Identifier picked,
+        PopupBox<Identifier> box
+    ) {
+        Identifier old = current.get();
+        if (picked.equals(old)) return;
+
+        apply.accept(picked);
+        box.setValue(picked);
+
+        HistoryManager.getInstance().pushHistory(new DataChange<>(old, picked, value -> {
+            apply.accept(value);
+            box.setValue(value);
+        }));
+    }
+
+    /// Drops `modal` open under `box` — sized to it and flipped / edge-aligned when the viewport would
+    /// clip it, the placement every [PopupBox] picker in the editor uses (see
+    /// [AkytheraEditorLayoutManager#openModalWidgetUnder]).
+    private static void openPickerUnder(PopupBox<Identifier> box, RegistryLookupModal<?> modal) {
+        AkytheraEditorLayoutManager.getInstance().openModalWidgetUnder(box, modal);
+    }
+
+    /// Selection handler for a State Machine tab: a single selected state shows its (re-assignable)
+    /// [FSMAnimationState] signature in the Details panel; any other selection (empty / multi / Entry)
+    /// reverts the panel to the selected variable.
+    private void onStateSelected(
+        String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.@Nullable StateNode state
+    ) {
+        if (state == null) {
+            detailsNamedNode = null;
+            scriptNodeDetailsPanel.showVariable(variableController.getSelected());
+            return;
+        }
+
+        variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
+        detailsNamedNode = null; // a machine state is not an AbstractNodeWidget-tracked selection
+        showStateDetails(machineName, machine, state);
+    }
+
+    /// Builds and shows the Details combo for a selected machine state: the merged [FSMAnimationState]
+    /// signatures minus the reserved Entry / Exit states and minus every signature another state on the
+    /// same machine already carries (so a pick can never duplicate a state), the state's own current
+    /// signature kept in the list. Picking one re-signs the state (after flushing any of its now
+    /// stale-keyed sub-tabs); the `(none)` row and a blank / duplicate are rejected and revert.
+    private void showStateDetails(
+        String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.StateNode state
+    ) {
+        Set<String> taken = machine.stateNames();
+        taken.remove(state.name()); // the state's own current signature stays selectable
+
+        Set<Identifier> reserved = Set.of(
+            AkytheraAnimationState.ENTRY.identifier(),
+            AkytheraAnimationState.EXIT.identifier());
+
+        List<Identifier> options = new ArrayList<>();
+
+        for (Identifier id : AkytheraProject.getCurrentProject()
+                .getMergedDataBlockIdentifiers(FSMAnimationState.ENUM_MANAGER)) {
+            if (reserved.contains(id)) continue;
+            if (taken.contains(id.toString())) continue;
+            options.add(id);
+        }
+
+        options.sort(Comparator.comparing(Identifier::toString));
+
+        scriptNodeDetailsPanel.showAnimationState(
+            options,
+            () -> Identifier.tryParse(state.name()),
+            picked -> {
+                if (picked == null) return false;
+                if (picked.toString().equals(state.name())) return true;
+                // Flush + close this state's now stale-keyed sub-tabs (they key off the old name) before
+                // the re-sign so their write-back lands on the old name; the change then retargets it.
+                closeStateSubTabs(machineName, state.name());
+                return machine.changeStateSignature(state, picked.toString());
+            });
+    }
+
+    /// Closes (flushing first) every open sub-tab whose key embeds `stateName` on `machineName` — the
+    /// state's own pose sub-tab and every transition-condition sub-tab entering or leaving it — so a
+    /// state re-sign can't leave name-keyed sub-tab bookkeeping pointing at the old signature.
+    private void closeStateSubTabs(String machineName, String stateName) {
+        String poseKey = machineName + "/state/" + stateName;
+        String transPrefix = machineName + "/trans/";
+
+        List<ScriptNodeGraphWidget> toClose = new ArrayList<>();
+
+        for (Map.Entry<String, ScriptNodeGraphWidget> e : openSubGraphs.entrySet()) {
+            String key = e.getKey();
+
+            if (key.equals(poseKey)) {
+                toClose.add(e.getValue());
+            } else if (key.startsWith(transPrefix)) {
+                String pair = key.substring(transPrefix.length()); // "from>to"
+                int split = pair.indexOf('>');
+                if (split < 0) continue;
+                String from = pair.substring(0, split);
+                String to = pair.substring(split + 1);
+                if (from.equals(stateName) || to.equals(stateName)) toClose.add(e.getValue());
+            }
+        }
+
+        for (ScriptNodeGraphWidget graph : toClose) closeTab(graph);
+    }
+
+    /// Plays the animation sequence bound to `sequenceId` on the [#model3DViewer] — looping and
     /// self-advancing — so pressing a [AnimSequencePlayerNodeWidget] shows that clip on the preview
     /// model. No-op when the asset can't be resolved (e.g. a dangling id) or the previewer has no
     /// live entity model component.
     private void previewSequence(Identifier sequenceId) {
-        ModelPreviewer.EntityModelComponent entityModel =
-            modelPreviewer.getComponent(ModelPreviewer.EntityModelComponent.class);
+        EntityModelComponent entityModel =
+            model3DViewer.getComponent(EntityModelComponent.class);
         if (entityModel == null) return;
 
         Holder<AnimationSequence> sequence = AkytheraProject.getCurrentProject()
@@ -658,7 +1005,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Renames a Cached Pose node to `rawName` (trimmed) and retargets every getter referencing the old
     /// name, so the cache and its `Use cached pose` readers stay linked. Returns false — rejecting the
     /// edit — when the name is blank or already used by another cache on the Anim Graph.
-    private boolean renameCachedPose(CachedPoseNodeWidget node, String rawName) {
+    private boolean renameCachedPose(PoseCachingNodeWidget node, String rawName) {
         String oldName = node.cacheName();
         String newName = rawName.trim();
         if (newName.equals(oldName)) return true;
@@ -674,10 +1021,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         // dangling getter: the main Anim Graph, every open sub-graph tab (live widgets), and every
         // stored state-machine state pose sub-graph (closed tabs).
         poseGraph.renameCachedPoseGetters(oldName, newName);
+
         for (ScriptNodeGraphWidget open : openSubGraphs.values()) {
             open.renameCachedPoseGetters(oldName, newName);
         }
+
         stateMachines.replaceAll((name, data) -> data.withCachedPoseGettersRenamed(oldName, newName));
+
         return true;
     }
 
@@ -709,12 +1059,15 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// (each tab's close callback flushes its edits first).
     private void closeMachineTabs(String machineName) {
         List<ScriptNodeGraphWidget> subTabs = new ArrayList<>();
+
         for (Map.Entry<String, ScriptNodeGraphWidget> e : openSubGraphs.entrySet()) {
             if (e.getKey().startsWith(machineName + "/")) subTabs.add(e.getValue());
         }
+
         for (ScriptNodeGraphWidget sub : subTabs) closeTab(sub);
 
         StateMachineGraphWidget machineTab = openStateMachines.get(machineName);
+
         if (machineTab != null) closeTab(machineTab);
     }
 
@@ -746,6 +1099,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         );
         widget.setOnStateActivated(state -> openStatePoseTab(name, widget, state.name()));
         widget.setOnTransitionActivated((from, to) -> openTransitionConditionTab(name, widget, from, to));
+        // Selecting a single state shows its (re-assignable) FSMAnimationState signature in the Details panel.
+        widget.setOnStateSelected(state -> onStateSelected(name, widget, state));
         openStateMachines.put(name, widget);
 
         Runnable flush = () -> stateMachines.put(name, widget.exportData());
@@ -865,9 +1220,9 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         queue.add(poseGraph.exportGraph());
 
         while (!queue.isEmpty()) {
-            for (ScriptGraphData.NodeData node : queue.poll().nodes()) {
-                if (node.kind() != ScriptGraphData.Kind.STATE_MACHINE) continue;
-                String name = node.variable().orElse("");
+            for (GraphNode row : queue.poll().nodes()) {
+                if (!(row.data() instanceof StateMachineNodeData machine)) continue;
+                String name = machine.machineName();
                 if (referenced.add(name)) {
                     StateMachineData data = stateMachines.get(name);
                     if (data != null) {
@@ -1103,34 +1458,6 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         );
     }
 
-    /// Every available animation sequence — the current project's plus every installed mod's / the
-    /// level's — as a draggable Asset Browser item (payload = its asset id).
-    private static List<AssetBrowserPanel.Item<Identifier>> buildSequenceItems() {
-        return mergedAssetItems(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY);
-    }
-
-    /// Every available blendspace — the current project's plus every installed mod's / the level's —
-    /// as a draggable Asset Browser item (payload = its asset id).
-    private static List<AssetBrowserPanel.Item<Identifier>> buildBlendSpaceItems() {
-        return mergedAssetItems(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY);
-    }
-
-    /// Builds the draggable Asset Browser items for every available asset of `registryKey` — both the
-    /// current project's and the installed mods' / the level's (see [AkytheraProject#getMergedEntries]).
-    /// De-duplicated by asset id (a project asset shadowing a mod's same-id one collapses to one row)
-    /// and sorted by full identifier so rows group by namespace. The label is the full `namespace:path`
-    /// so the owning mod / project is visible.
-    private static <T> List<AssetBrowserPanel.Item<Identifier>> mergedAssetItems(
-        ResourceKey<? extends Registry<T>> registryKey
-    ) {
-        return AkytheraProject.getCurrentProject().getMergedEntries(registryKey).stream()
-            .map(e -> e.getKey().identifier())
-            .distinct()
-            .sorted(Comparator.comparing(Identifier::toString))
-            .map(id -> new AssetBrowserPanel.Item<>(id.toString(), id))
-            .toList();
-    }
-
     /// Drops the dragged Asset Browser asset onto the Anim Graph as a pose-player node bound to it: a
     /// blendspace → [BlendSpacePlayerNodeWidget], a sequence → [AnimSequencePlayerNodeWidget]. No-op
     /// unless the Anim Graph is the active tab and the cursor is inside it.
@@ -1141,15 +1468,17 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         if (!graph.isPointInside(screenX, screenY)) return;
 
         NodeWidgetFactory factory = drag.blendSpace()
-            ? (font, x, y) -> new BlendSpacePlayerNodeWidget(font, drag.id(), x, y)
-            : (font, x, y) -> new AnimSequencePlayerNodeWidget(font, drag.id(), x, y);
+            ? (font, x, y) -> new BlendSpacePlayerNodeWidget(
+                font, EditorHolderCodecs.resolve(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY, drag.id()), x, y)
+            : (font, x, y) -> new AnimSequencePlayerNodeWidget(
+                font, EditorHolderCodecs.resolve(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, drag.id()), x, y);
 
         graph.spawnNodeAt(factory, screenX, screenY);
     }
 
-    /// ***************************************************************
-    /// Node copy / paste
-    /// ***************************************************************
+    // ***************************************************************
+    // Node copy / paste
+    // ***************************************************************
 
     /// The last copied selection, shared across every canvas and every open animator-script editor
     /// (a `static` clipboard, so a node copied here pastes into another script too). Holds the copied
@@ -1179,9 +1508,9 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// snapshot reflects any unsaved tab edits. Empty when the selection holds no State Machine.
     private Map<String, StateMachineData> collectMachineData(ScriptGraphData copied) {
         Deque<String> queue = new ArrayDeque<>();
-        for (ScriptGraphData.NodeData nd : copied.nodes()) {
-            if (nd.kind() == ScriptGraphData.Kind.STATE_MACHINE) {
-                nd.variable().filter(name -> !name.isEmpty()).ifPresent(queue::add);
+        for (GraphNode row : copied.nodes()) {
+            if (row.data() instanceof StateMachineNodeData machine && !machine.machineName().isEmpty()) {
+                queue.add(machine.machineName());
             }
         }
         if (queue.isEmpty()) return Map.of();
@@ -1198,9 +1527,9 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             out.put(name, data);
 
             for (StateMachineData.StateData state : data.states()) {
-                for (ScriptGraphData.NodeData nd : state.poseGraph().nodes()) {
-                    if (nd.kind() == ScriptGraphData.Kind.STATE_MACHINE) {
-                        nd.variable().filter(n -> !n.isEmpty()).ifPresent(queue::add);
+                for (GraphNode row : state.poseGraph().nodes()) {
+                    if (row.data() instanceof StateMachineNodeData nested && !nested.machineName().isEmpty()) {
+                        queue.add(nested.machineName());
                     }
                 }
             }
@@ -1223,9 +1552,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         usedMachines.addAll(poseGraph.stateMachineNames());
         usedMachines.addAll(graph.stateMachineNames());
 
+        // Interface keys already used across the script — a pasted Animation Interface must not
+        // reuse one (a key registers once per animator).
+        Set<String> usedInterfaceKeys = usedAnimInterfaceKeys();
+
         List<AbstractNodeWidget> pasted = graph.pasteGraph(
             clipboard.graph(), PASTE_OFFSET, PASTE_OFFSET,
-            node -> canPasteNodeOnto(node, graph, usedMachines));
+            node -> canPasteNodeOnto(node, graph, usedMachines, usedInterfaceKeys));
 
         if (pasted.stream().anyMatch(StateMachineNodeWidget.class::isInstance)) {
             clipboard.machines().forEach(stateMachines::putIfAbsent);
@@ -1240,10 +1573,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     ///   - pose sources / readers (sequence + blendspace players, cached-pose getter) — only on a pose
     ///     (ANIM_GRAPH) canvas;
     ///   - a State Machine — a pose canvas, with a signature still free on this script;
+    ///   - an Animation Interface — a pose canvas, with an interface key still free on this script;
     ///   - Anim Layers / Cached Pose definitions — only the root Anim Graph, unduplicated there;
     ///   - everything else (Self / Literal / member getters / math / logic / reroute / convert) — any
     ///     canvas (all accept SCRIPT).
-    private boolean canPasteNodeOnto(AbstractNodeWidget node, ScriptNodeGraphWidget target, Set<String> usedMachines) {
+    private boolean canPasteNodeOnto(
+        AbstractNodeWidget node, ScriptNodeGraphWidget target, Set<String> usedMachines, Set<String> usedInterfaceKeys
+    ) {
         boolean animGraph = target.usage().contains(ScriptFunction.Usage.ANIM_GRAPH);
         boolean rootAnimGraph = target == poseGraph;
         boolean dataFlowOnly = target.isDataFlowOnly();
@@ -1264,8 +1600,10 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
             case StateMachineNodeWidget sm -> animGraph && !usedMachines.contains(sm.machineName());
 
+            case AnimInterfaceNodeWidget ai -> animGraph && !usedInterfaceKeys.contains(ai.interfaceKeyName());
+
             case AnimLayerNodeWidget al -> rootAnimGraph && !target.animLayerSignatures().contains(al.signatureName());
-            case CachedPoseNodeWidget cp -> rootAnimGraph && !target.cachedPoseNames().contains(cp.cacheName());
+            case PoseCachingNodeWidget cp -> rootAnimGraph && !target.cachedPoseNames().contains(cp.cacheName());
 
             default -> true;
         };
@@ -1279,7 +1617,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
         addRenderableWidget(topMenuBar);
         addRenderableWidget(panelManager);
-        addRenderableWidget(modelPreviewer);
+        addRenderableWidget(model3DViewer);
     }
 
     private void layoutWidgets() {
@@ -1324,7 +1662,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
     /// Compiles the live canvas into the runtime blueprint *in memory only* — it evaluates the node
     /// connections and builds the actual [DataDrivenAnimatorScript.AnimatorScriptBlueprint] tree (via
-    /// [AnimatorScriptHolder#makeObject] / [com.yesman.akytheralabs.dataholder.animation.ScriptGraphCompiler])
+    /// [AnimatorScriptHolder#makeObject] / [ScriptGraphCompiler])
     /// without touching the file system, so the author can sanity-check that the graph lowers
     /// cleanly. Mirrors [#save]'s flatten-to-holder step but skips `saveEntry`.
     private void compile() {
@@ -1349,15 +1687,27 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             return;
         }
 
-        // A data block referenced by a state / transition / anim layer may have been deleted in the
-        // content browser while this script was open: its holder is now unbound. Report it and abort
-        // before makeObject() resolves any holder's value() (which would throw).
-        List<Identifier> missing = AnimGraphCompiler.findMissingDataBlocks(holder.getPoseGraph(), stateMachines);
+        // Any unresolved (failed-decode) node is a hard compile error — the compilers throw on it
+        // (ScriptGraphData#requireNoFailedNodes). Report each row here first so the user sees
+        // which nodes, not just the throw.
+        List<String> unresolved = collectUnresolvedNodes();
+
+        if (!unresolved.isEmpty()) {
+            AkytheraLabs.LOGGER.warn("Compile of '{}' aborted — unresolved nodes: {}", resourceKey.identifier(), unresolved);
+            showCompileToast(false, Component.literal(String.join("; ", unresolved)));
+            return;
+        }
+
+        // A data block referenced by a state / transition / anim layer, or an asset a pose player is
+        // bound to, may have been deleted in the content browser while this script was open: the
+        // reference no longer resolves. Report it and abort before makeObject() resolves any holder's
+        // value() (which would throw) or lowers a dangling asset id.
+        List<Identifier> missing = AnimGraphCompiler.findMissingReferences(holder.getPoseGraph(), stateMachines);
 
         if (!missing.isEmpty()) {
-            AkytheraLabs.LOGGER.warn("Compile of '{}' aborted — missing data blocks: {}", resourceKey.identifier(), missing);
+            AkytheraLabs.LOGGER.warn("Compile of '{}' aborted — missing references: {}", resourceKey.identifier(), missing);
             showCompileToast(false, Component.literal(
-                "Missing data blocks: " + String.join(", ", missing.stream().map(Identifier::toString).toList())));
+                "Missing references: " + String.join(", ", missing.stream().map(Identifier::toString).toList())));
             return;
         }
 
@@ -1368,6 +1718,31 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         } catch (RuntimeException e) {
             AkytheraLabs.LOGGER.error("Failed to compile animator script '{}'", resourceKey.identifier(), e);
             showCompileToast(false, Component.literal(resourceKey.identifier().toString()));
+        }
+    }
+
+    /// Every unresolved (failed-decode) node across the holder's graphs — the Event / Anim Graph
+    /// plus every state machine's pose and condition sub-graphs — as report lines for the compile
+    /// toast. Non-empty aborts the compile: the compilers hard-fail on these rows.
+    private List<String> collectUnresolvedNodes() {
+        List<String> out = new ArrayList<>();
+        appendUnresolved(holder.getUpdateGraph(), out);
+        appendUnresolved(holder.getPoseGraph(), out);
+
+        for (StateMachineData machine : stateMachines.values()) {
+            for (StateMachineData.StateData s : machine.states()) {
+                appendUnresolved(s.poseGraph(), out);
+                for (StateMachineData.TransitionData t : s.transitions()) appendUnresolved(t.conditionGraph(), out);
+            }
+            for (StateMachineData.TransitionData t : machine.entryTransitions()) appendUnresolved(t.conditionGraph(), out);
+        }
+
+        return out;
+    }
+
+    private static void appendUnresolved(ScriptGraphData graph, List<String> out) {
+        for (ScriptGraphData.FailedNode f : graph.failedNodes()) {
+            out.add("Unresolved node (id " + f.id() + "): " + f.message());
         }
     }
 
@@ -1471,7 +1846,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     private void showCompileToast(boolean success, @Nullable Component page) {
         Identifier icon = AkytheraLabs.identifier(success ? "widget/compile_success" : "widget/compile_fail");
         Component title = Component.literal(success ? "Compile Succeeded" : "Compile Failed");
-        minecraft.getToastManager().addToast(new CompileResultToast(icon, title, success ? null : page));
+        minecraft.gui.toastManager().addToast(new CompileResultToast(icon, title, success ? null : page));
     }
 
     /// Flushes the edited variable drafts back onto the holder. The graphs are flushed separately
@@ -1540,6 +1915,83 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         return HistoryManager.getInstance().currentSavePoint() != savePoint;
     }
 
+    /// ***************************************************************
+    /// [DebuggableScreen]                                            *
+    /// ***************************************************************
+
+    /// Entities whose animator runs *this* script — mirroring any other entity would highlight rows
+    /// against a run that never touched them.
+    @Override
+    public Predicate<Entity> debugTargetFilter() {
+        return entity -> {
+            EntityPatch<?> patch = ((EntityAccessor)entity).akythera$getEntityPatch();
+
+            if (patch == null) {
+                return false;
+            }
+
+            DataDrivenAnimatorScript script = AnimatorProbe.dataDrivenScript(patch);
+
+            return script != null && script.getBlueprint().key().equals(resourceKey);
+        };
+    }
+
+    /// Mirrors the possessed entity onto the open canvases every tick: the state outline from live
+    /// driver state, the Event Graph's highlighting and recorded values from the recorded run.
+    ///
+    /// Only the **update** record is used. A row id is assigned per canvas, so the ids in the construct
+    /// record — which covers the Event Graph's Constructor chain *and* the Anim Graph's layer stores —
+    /// come from two different numberings and cannot be told apart.
+    @Override
+    public void onDebugTick(final EntityPatch<?> entityPatch) {
+        Set<String> activeStates = AnimatorProbe.activeStateIds(entityPatch);
+
+        for (StateMachineGraphWidget machine : openStateMachines.values()) {
+            machine.setActiveStateIds(activeStates);
+        }
+
+        DataDrivenAnimatorScript script = AnimatorProbe.dataDrivenScript(entityPatch);
+        ExecutionRecord update = script == null
+            ? null
+            : ((ScriptExecutionRecords)(Object)script).akytheralabs$getUpdateRecord();
+
+        if (update == null) {
+            updateGraph.clearDebugRecord();
+            debugSnapshotStale = false;
+            return;
+        }
+
+        debugSnapshotStale = !updateGraph.setDebugRecord(update);
+    }
+
+    /// Drops every debug highlight once nothing is possessed, so a finished session does not leave the
+    /// canvas frozen on its last capture.
+    private void clearDebugStateWhenIdle() {
+        if (EntityDebugSession.getInstance().isActive()) {
+            return;
+        }
+
+        updateGraph.clearDebugRecord();
+        debugSnapshotStale = false;
+
+        for (StateMachineGraphWidget machine : openStateMachines.values()) {
+            machine.setActiveStateIds(Set.of());
+        }
+    }
+
+    /// Says the captured run cannot be mapped onto this canvas, in place of the highlights it replaces.
+    private void drawStaleDebugBanner(GuiGraphicsExtractor graphics) {
+        Component message = Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DEBUG_STALE);
+        int bannerWidth = font.width(message) + 16;
+        int bannerHeight = font.lineHeight + 6;
+        int x = blueprintEditor.getX() + (blueprintEditor.getWidth() - bannerWidth) / 2;
+        int y = blueprintEditor.getY() + 4;
+
+        graphics.fill(x, y, x + bannerWidth, y + bannerHeight, AbstractNodeWidget.COLOR_ERROR_BANNER);
+        graphics.outline(x, y, bannerWidth, bannerHeight, AbstractNodeWidget.COLOR_ERROR_OUTLINE);
+        graphics.text(font, message, x + 8, y + 3, 0xFFFFFFFF, false);
+    }
+
     @Override
     public void handleQuitRequest() {
         SafeCloseScreen.openQuiteScreen(
@@ -1562,7 +2014,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
     @Override
     public void onClose() {
-        modelPreviewer.destroy();
+        model3DViewer.destroy();
         AkytheraProject.getCurrentProject().saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());
         AkytheraEditorLayoutManager.getInstance().removeLastScreen();
     }
@@ -1573,8 +2025,17 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     }
 
     @Override
+    public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        clearDebugStateWhenIdle();
+
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
+
+        if (debugSnapshotStale) drawStaleDebugBanner(graphics);
+    }
+
+    @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
-        AkytheraEditorLayoutManager.blurFocusChainLeaf(this);
+        AkytheraEditorLayoutManager.blurFocusChainLeaf(this, event.x(), event.y());
         return super.mouseClicked(event, doubleClick);
     }
 
@@ -1650,10 +2111,10 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     }
 
     /// Instead of assigning `modal` directly into [Screen#getFocused], check and return opened modal via
-    /// [AkytheraEditorLayoutManager#getModal()] to release focus automatically when closed.
+    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
     @Nullable
     public GuiEventListener getFocused() {
-        AbstractWidget modal = AkytheraEditorLayoutManager.getInstance().getModal();
+        AbstractWidget modal = getFocusOwningModal();
         if (modal != null) return modal;
 
         return super.getFocused();

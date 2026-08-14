@@ -16,7 +16,7 @@ dependencies {
     compileOnly(libs.forgeconfigapiport.common) // Required in non-Forge like platforms
     compileOnly(libs.freemarker)
 
-    compileOnly("com.yesman.akythera:common")
+    compileOnly("io.github.yesssssman.akythera:common")
 }
 
 mcSafeResources {

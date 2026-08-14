@@ -5,12 +5,13 @@ import com.google.gson.JsonParser;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.JsonOps;
-import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
+import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
+import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
+import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
-import com.yesman.akythera.api.world.patch.item.ItemPatch;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.mixin.MappedRegistryAccessor;
 import net.minecraft.core.RegistrationInfo;
@@ -48,12 +49,15 @@ public final class DataPackRegistryReloader {
 
     private record RegistryEntry<T>(ResourceKey<Registry<T>> key, Codec<T> codec) {}
 
+    /// Reloaded in order: an [EntityPatchBlueprint] resolves the animator script its armature names,
+    /// so it decodes after the registry holding those.
     private static final List<RegistryEntry<?>> REGISTRIES = List.of(
         new RegistryEntry<>(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, AnimationMontage.CODEC),
         new RegistryEntry<>(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, AnimationSequence.CODEC),
         new RegistryEntry<>(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY, BlendSpace2D.CODEC),
-        new RegistryEntry<>(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, ItemPatch.Builder.CODEC),
-        new RegistryEntry<>(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, DataDrivenAnimatorScript.AnimatorScriptBlueprint.CODEC)
+        new RegistryEntry<>(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, ItemPatchBlueprint.CODEC),
+        new RegistryEntry<>(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, DataDrivenAnimatorScript.AnimatorScriptBlueprint.CODEC),
+        new RegistryEntry<>(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, EntityPatchBlueprint.CODEC)
     );
 
     /// Server thread: re-decode every datapack registry from the server's freshly reloaded
@@ -126,10 +130,10 @@ public final class DataPackRegistryReloader {
     /// Unfreeze -> clear the lookup maps (but keep `byKey`, so existing [net.minecraft.core.Holder.Reference]s
     /// rebind to the new values instead of dangling) -> re-register -> refreeze.
     ///
-    /// We flip `frozen` directly instead of calling `freeze()`: vanilla `freeze()` throws when tags
-    /// are already bound while the NeoForge variant short-circuits, so toggling the flag keeps the
-    /// behavior identical on both loaders. Tags are left untouched — they reference the same
-    /// rebound `Holder.Reference`s, so they stay valid.
+    /// The `frozen` flag is toggled directly: vanilla's `freeze()` throws when tags are already
+    /// bound while the NeoForge variant short-circuits, and the flag behaves identically on both
+    /// loaders. Tags are left untouched — they reference the same rebound `Holder.Reference`s and
+    /// stay valid.
     @SuppressWarnings("unchecked")
     private static <T> void refill(WritableRegistry<T> registry, Map<ResourceKey<T>, T> entries) {
         MappedRegistryAccessor<T> accessor = (MappedRegistryAccessor<T>) registry;

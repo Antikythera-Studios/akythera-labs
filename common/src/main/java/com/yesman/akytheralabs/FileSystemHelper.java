@@ -24,14 +24,13 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-/// One stop for project file I/O. Wraps `java.nio.file.Files` so that:
-/// 1. callers don't have to remember `createDirectories(parent)` before every write,
+/// One stop for project file I/O over `java.nio.file.Files`:
+/// 1. every write creates its parent directories first,
 /// 2. failures funnel into one logger,
 /// 3. path-string conversion (id `/` ↔ OS separator) lives in one place,
-/// 4. recursive delete uses one shape (reverse-order walk).
+/// 4. recursive delete has one shape, a reverse-order walk.
 ///
-/// Registry / accessor bookkeeping stays in [AkytheraProject] — this helper
-/// only touches the disk.
+/// This helper only touches the disk; registry and accessor bookkeeping lives in [AkytheraProject].
 @NullMarked
 public final class FileSystemHelper {
     private FileSystemHelper() {}
@@ -127,9 +126,7 @@ public final class FileSystemHelper {
         }
     }
 
-    /// Encode `value` via `codec` to pretty-printed JSON and write at `file`.
-    /// Replaces the old `createDataObject(Codec, T...)` stub — that signature
-    /// can't actually write because it has no path.
+    /// Encodes `value` through `codec` to pretty-printed JSON and writes it at `file`.
     public static <T> boolean writeJson(Path file, Codec<T> codec, T value) {
         try {
             JsonElement json = codec.encodeStart(JsonOps.INSTANCE, value).getOrThrow();
@@ -194,13 +191,8 @@ public final class FileSystemHelper {
     }
 
     /// Bulk move into a destination directory. Each `file` lands at
-    /// `to.resolve(file.getFileName())`. Returns the list of
-    /// `(src, dst)` pairs that actually moved — drop-in for history callers
-    /// that need to record what they did so they can undo it.
-    ///
-    /// Returns [com.mojang.datafixers.util.Pair] per the project convention
-    /// for ad-hoc two-value tuples — destructure with `.getFirst()` /
-    /// `.getSecond()`.
+    /// `to.resolve(file.getFileName())`, and the `(src, dst)` pairs that actually moved come back —
+    /// enough for a history entry to undo the move.
     public static List<Pair<Path, Path>> moveInto(Path to, Path... files) {
         List<Pair<Path, Path>> moved = new ArrayList<>(files.length);
 

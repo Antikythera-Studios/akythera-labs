@@ -2,31 +2,25 @@ package com.yesman.akytheralabs.editor.historytrack;
 
 import java.util.Stack;
 
-/// A unit of editor history per making changes
-///
-/// Managed by [HistoryManager]
+/// One undoable editor change, managed by [HistoryManager].
 public interface WorkHistory {
-    /// Revert the change
+    /// Reverts the change.
     void undo();
 
-    /// Recover [#undo]
+    /// Replays the change after an [#undo].
     void redo();
 
-    /// Inspect the last work history in [HistoryManager#toUndo] stack
-    /// and determine whether to merge or abort the pushed history.
-    ///
-    /// Used in two-steps to change histories like mouse dragging start/end.
+    /// Inspects the last entry on [HistoryManager#toUndo] and decides whether to merge with it or
+    /// abort the push. This is what pairs the two halves of a drag — its start and its end.
     default boolean verifyLastHistory(final Stack<WorkHistory> toUndo) { return true; }
 
-    /// A gate to confirm [HistoryManager#undo]. Critical changes like file
-    /// deletion will require users to confirm the undo task by a modal.
-    ///
-    /// Default action: just proceed the `undo` task given as the parameter
+    /// A gate on [HistoryManager#undo]: a destructive change such as a file deletion confirms
+    /// through a modal first. The default runs `undo` straight away.
     default void requestUndoConfirmation(Runnable proceed) {
         proceed.run();
     }
 
-    /// Same goes with [#requestUndoConfirmation], but [HistoryManager#redo].
+    /// The [#requestUndoConfirmation] gate for [HistoryManager#redo].
     default void requestRedoConfirmation(Runnable proceed) {
         proceed.run();
     }

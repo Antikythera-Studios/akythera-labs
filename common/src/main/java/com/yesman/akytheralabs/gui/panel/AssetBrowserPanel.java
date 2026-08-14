@@ -13,13 +13,14 @@ import org.jspecify.annotations.NonNull;
 
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /// "Asset Browser" tab page: a scrolling list of draggable assets. Pressing a row begins a drag whose
 /// drop is handled by the owning screen.
 ///
 /// Generic over the drag payload `T`. The panel itself knows nothing about where the rows come from or
-/// what they are — the owner passes a `source` supplier of [Item]s (label + payload) and an
+/// what they are — the owner passes a `source` supplier of [Asset]s (label + payload) and an
 /// `onBeginDrag` callback. The montage editor feeds it [com.yesman.akythera.api.asset.AssetAccessor]s
 /// of clips; the blendspace editor feeds it sequence holders.
 public final class AssetBrowserPanel<T> extends AbstractSelectionList<AssetBrowserPanel<T>.@NonNull Entry>
@@ -30,14 +31,18 @@ public final class AssetBrowserPanel<T> extends AbstractSelectionList<AssetBrows
     private final Font font;
 
     /// Supplies the rows to show. Re-queried on every [#rebuild].
-    private final Supplier<List<Item<T>>> source;
+    private final Supplier<List<T>> source;
 
     /// Called when a row press starts a drag — the screen takes over from here.
     private final Consumer<T> onBeginDrag;
 
+    /// Asset object -> String mapper
+    private final Function<T, String> displayFunction;
+
     public AssetBrowserPanel(
         Font font,
-        Supplier<List<Item<T>>> source,
+        Supplier<List<T>> source,
+        Function<T, String> displayFunction,
         Consumer<T> onBeginDrag,
         Unit x1, Unit x2, Unit y1, Unit y2,
         HorizontalAnchorType horizontalAnchorType,
@@ -47,6 +52,7 @@ public final class AssetBrowserPanel<T> extends AbstractSelectionList<AssetBrows
 
         this.font = font;
         this.source = source;
+        this.displayFunction = displayFunction;
         this.onBeginDrag = onBeginDrag;
         this.x1 = x1;
         this.x2 = x2;
@@ -61,8 +67,8 @@ public final class AssetBrowserPanel<T> extends AbstractSelectionList<AssetBrows
     public void rebuild() {
         clearEntries();
 
-        for (Item<T> item : source.get()) {
-            addEntry(new Entry(item));
+        for (T asset : source.get()) {
+            addEntry(new Entry(asset));
         }
 
         updateSizeAndPosition(getWidth(), getHeight(), getX(), getY());
@@ -118,27 +124,23 @@ public final class AssetBrowserPanel<T> extends AbstractSelectionList<AssetBrows
         updateSizeAndPosition(getWidth(), getHeight(), getX(), getY());
     }
 
-    /// A single browsable asset: the text to draw plus the payload handed to `onBeginDrag` when dragged.
-    public record Item<T>(String label, T payload) {
-    }
-
     public final class Entry extends AbstractSelectionList.Entry<AssetBrowserPanel<T>.@NonNull Entry> {
-        private final Item<T> item;
+        private final T asset;
 
-        Entry(Item<T> item) {
-            this.item = item;
+        Entry(T asset) {
+            this.asset = asset;
         }
 
         @Override
         public void extractContent(@NonNull GuiGraphicsExtractor g, int mx, int my, boolean hovered, float a) {
             if (hovered) g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), 0xFF262626);
-            g.text(font, Component.literal(item.label()), getX() + 6, getY() + (getHeight() - font.lineHeight) / 2, 0xFFCCCCCC, false);
+            g.text(font, Component.literal(displayFunction.apply(asset)), getX() + 6, getY() + (getHeight() - font.lineHeight) / 2, 0xFFCCCCCC, false);
         }
 
         @Override
         public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
             if (event.button() != 0) return false;
-            onBeginDrag.accept(item.payload());
+            onBeginDrag.accept(asset);
             return true;
         }
     }

@@ -5,12 +5,8 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
 import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.CloseableWidget;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.CameraComponent;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.EntityModelComponent;
-import com.yesman.akythera.client.gui.widget.ResizeCompleteCallbackListener;
+import com.yesman.akythera.client.gui.widget.*;
+import com.yesman.akythera.client.gui.widget.viewer.*;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.util.helper.ParseUtils;
@@ -39,6 +35,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -72,7 +69,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
     private final AdvancedEditBox<String> animationSearchBox;
     private final ModelList modelList;
     private final AnimList animList;
-    private final ModelPreviewer preview;
+    private final Model3DViewer preview;
     private final AnchoredButton closeScreenButton;
 
     /// Currently-highlighted model in the left list — reported alongside the animation on confirm so
@@ -123,7 +120,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
             Component.translatable(LangKeys.GUI_MESSAGE_EMPTY_SEARCHBAR)
         );
 
-        this.preview = new ModelPreviewer(
+        this.preview = new Model3DViewer(
             AnchoredWidget.fraction(MODEL_LIST_PCT + ANIM_LIST_PCT), AnchoredWidget.fraction(0),
             AnchoredWidget.pixel(TITLE_H + SEARCH_H), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
@@ -132,8 +129,8 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         );
 
         preview.addComponent(new CameraComponent(true));
-        preview.addComponent(new ModelPreviewer.BackgroundComponent(18, 18, 18, 255));
-        preview.addComponent(new ModelPreviewer.GridFloorComponent(1.0F, 6, 68, 68, 68, 255));
+        preview.addComponent(new BackgroundComponent(18, 18, 18, 255));
+        preview.addComponent(new GridFloorComponent(1.0F, 6, 68, 68, 68, 255));
 
         this.closeScreenButton = AnchoredButton
             .buttonBuilder(font, Component.literal("X"), _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
@@ -338,7 +335,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
                 dispatcher.renderers.entrySet().stream()
                     .filter(e -> e.getValue() instanceof LivingEntityRenderer<?, ?, ?>)
                     .map(e -> new VanillaModelRow(e.getKey(), (LivingEntityRenderer<?, ?, ?>) e.getValue())),
-                Stream.of(new VanillaModelRow(EntityType.PLAYER, dispatcher.playerRenderers.get(DefaultPlayerSkin.getDefaultSkin().model())))
+                Stream.of(new VanillaModelRow(EntityTypes.PLAYER, dispatcher.playerRenderers.get(DefaultPlayerSkin.getDefaultSkin().model())))
             )
             .filter(row -> lower.isEmpty() || row.label().getString().toLowerCase().contains(lower))
             .sorted(Comparator.comparing(row -> row.label().getString()))
@@ -552,7 +549,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         void rebuild(String query) {
             clearEntries();
 
-            // Title row for the animations category
+            // Title row for the animationsToReplace category
             addEntry(new TitleEntry(Component.translatable(LangKeys.GUI_ANIMATION_SELECT_MODAL_CATEGORY_ANIMATIONS)));
 
             String lower = ParseUtils.toLowerCase(query);

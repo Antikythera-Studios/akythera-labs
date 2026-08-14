@@ -1,5 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akytheralabs.gui.widget.script.node.ComparatorNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.Nullable;
@@ -86,5 +88,10 @@ public final class ComparatorNodeWidget extends AbstractNodeWidget {
 
         public String symbol() { return symbol; }
         public String menuLabel() { return menuLabel; }
+    }
+
+    @Override
+    public NodeData toData() {
+        return new ComparatorNodeData(operator);
     }
 }

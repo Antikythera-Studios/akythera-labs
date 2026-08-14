@@ -6,7 +6,7 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.dataholder.animation.AnimationSequenceHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;

@@ -4,7 +4,7 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
-import com.yesman.akytheralabs.dataholder.animation.AnimationMontageHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.generated.LangKeys;

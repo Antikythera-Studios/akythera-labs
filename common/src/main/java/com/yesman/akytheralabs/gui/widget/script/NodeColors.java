@@ -3,12 +3,9 @@ package com.yesman.akytheralabs.gui.widget.script;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import net.minecraft.world.phys.Vec3;
 
-/// Pin and header colors keyed on a value's java type, mirroring Unreal's
-/// type-coded pins (red boolean, green float, teal integer, yellow vector, …).
-/// Used by the data-driven node widgets so a pin's color advertises its type.
-///
-/// [#forType] is public so the Variables UI (the type combo's color indicator and the
-/// drag ghost) can paint a variable in the exact same color its Get / Set node pins use.
+/// Pin and header colors keyed on a value's java type, mirroring Unreal's type-coded pins — red
+/// boolean, green float, teal integer, yellow vector and so on — so a pin's color advertises what
+/// it carries.
 public final class NodeColors {
     static final int EXEC = 0xFFEEEEEE;
     /// A "wildcard" pin color for a data pin whose type is not yet decided (e.g. a

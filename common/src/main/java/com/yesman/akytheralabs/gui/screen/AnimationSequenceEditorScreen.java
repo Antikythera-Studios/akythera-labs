@@ -1,8 +1,14 @@
 package com.yesman.akytheralabs.gui.screen;
 
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
+import com.yesman.akythera.api.world.patch.entity.EntityPatch;
+import com.yesman.akythera.client.gui.widget.viewer.*;
+import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
+import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
+import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
+import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
 import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.asset.loader.ArmatureLoader;
@@ -10,8 +16,8 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
-import com.yesman.akytheralabs.dataholder.animation.AnimationSequenceHolder;
-import com.yesman.akytheralabs.dataholder.animation.NotifyTrackHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
+import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -36,6 +42,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -44,8 +51,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
 
-public final class AnimationSequenceEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class AnimationSequenceEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
 
@@ -54,7 +62,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
 
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
-    private final ModelPreviewer modelPreviewer;
+    private final Model3DViewer model3DViewer;
     private final WidgetTable propertiesTable;
     private final PanelHeader propertiesHeader;
     private final AnimationTrackEditorPanel notifyTrackEditorPanel;
@@ -92,12 +100,15 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
                 .newList(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW))
                     .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW_SELECT_PREVIEW_MODEL), this::openPreviewModelSelectModal)
                 .done()
+                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS))
+                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS_DEBUG), () -> DebuggableScreen.openDebugSelector(font))
+                .done()
                 .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
                     .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
                 .done()
         );
 
-        modelPreviewer = new ModelPreviewer(
+        model3DViewer = new Model3DViewer(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
@@ -105,10 +116,10 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
             AkytheraEditorLayoutManager.getInstance()::getLayoutGuiScale
         );
 
-        modelPreviewer.addComponent(new ModelPreviewer.CameraComponent(true));
-        modelPreviewer.addComponent(new ModelPreviewer.BackgroundComponent(16, 16, 16, 255));
-        modelPreviewer.addComponent(new ModelPreviewer.GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
-        EntityPreviewModel.display(modelPreviewer, holder.getPreviewModel(), true, true);
+        model3DViewer.addComponent(new CameraComponent(true));
+        model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
+        model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
+        EntityPreviewModel.display(model3DViewer, holder.getPreviewModel(), true, true);
 
         propertiesHeader = new PanelHeader(
             minecraft.font,
@@ -129,7 +140,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         notifyDetailsPanel = new NotifyDetailsPanel(this);
         notifyTrackEditorPanel = new AnimationTrackEditorPanel(
             holder.getNotifyTrackHolder(),
-            modelPreviewer,
+            model3DViewer,
             holder,
             notifyDetailsPanel::onSelectionChanged,
             panel -> {
@@ -141,6 +152,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
             }
         );
         notifyTrackEditorPanel.ensureAtLeastOneTrack();
+        notifyTrackEditorPanel.setDebugDrivenChecker(EntityDebugSession.getInstance()::isActive);
 
         refreshPreviewAnimation();
 
@@ -154,7 +166,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         // holder before the new clip is replayed. The notify track then re-fits its frame window
         // and playhead to the new clip's length.
         holder.setAnimClipChangeListener(() -> {
-            EntityPreviewModel.display(modelPreviewer, holder.getPreviewModel(), true, true);
+            EntityPreviewModel.display(model3DViewer, holder.getPreviewModel(), true, true);
             refreshPreviewAnimation();
             refreshRootTrajectory();
             notifyTrackEditorPanel.onClipLengthChanged();
@@ -176,8 +188,8 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         var notifyAndDetails = topAndBottom.get(1)
             .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.get(2));
 
-        leftAndRight.get(0).resizeCallback(modelPreviewer::relocate);
-        leftAndRight.get(0).resizeFinishCallback(_ -> modelPreviewer.onResizeCompleted());
+        leftAndRight.get(0).resizeCallback(model3DViewer::relocate);
+        leftAndRight.get(0).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
         leftAndRight.get(1).resizeCallback(rect -> {
             propertiesHeader.relocate(rect);
             propertiesTable.relocate(rect);
@@ -199,7 +211,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
 
         addRenderableWidget(topMenuBar);
         addRenderableWidget(panelManager);
-        addRenderableWidget(modelPreviewer);
+        addRenderableWidget(model3DViewer);
         addRenderableWidget(propertiesHeader);
         addRenderableWidget(propertiesTable);
     }
@@ -210,7 +222,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
             holder.getPreviewModel(),
             newModel -> {
                 holder.setPreviewModel(newModel);
-                EntityPreviewModel.display(modelPreviewer, newModel, true, true);
+                EntityPreviewModel.display(model3DViewer, newModel, true, true);
                 refreshPreviewAnimation();
             }
         );
@@ -222,12 +234,12 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
     /// playback-end stop for non-looping sequences. Safe to call after any `displayEntity` — the
     /// freshly created component is fetched from the previewer.
     private void refreshPreviewAnimation() {
-        ModelPreviewer.EntityModelComponent entityModelComponent = modelPreviewer.getComponent(ModelPreviewer.EntityModelComponent.class);
+        EntityModelComponent entityModelComponent = model3DViewer.getComponent(EntityModelComponent.class);
         if (entityModelComponent == null) return;
 
         entityModelComponent.setSimplePlayingAnimation(holder.getAnimClip(), false);
 
-        if (entityModelComponent.getAnimator() instanceof ModelPreviewer.EntityModelComponent.SimpleHeadlessAnimator simpleHeadlessAnimator) {
+        if (entityModelComponent.getAnimator() instanceof EntityModelComponent.SimpleHeadlessAnimator simpleHeadlessAnimator) {
             simpleHeadlessAnimator.setOnPlaybackEnds(() -> {
                 if (!holder.loops()) {
                     notifyTrackEditorPanel.setPlaying(false);
@@ -246,18 +258,18 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
     /// Adds or removes the root-motion trajectory preview based on the holder's current flag.
     /// Called on construction and whenever the Root Motion checkbox flips.
     private void refreshRootTrajectory() {
-        modelPreviewer.removeAllComponents(ModelPreviewer.RootMotionTrajectoryComponent.class);
+        model3DViewer.removeAllComponents(RootMotionTrajectoryComponent.class);
 
         if (!holder.isRootMotion()) return;
 
-        modelPreviewer.addComponent(new ModelPreviewer.RootMotionTrajectoryComponent(
+        model3DViewer.addComponent(new RootMotionTrajectoryComponent(
             () -> samplePath(holder.getAnimClip().get()),
             () -> {
                 AnimationClip clip = holder.getAnimClip().get();
                 if (clip == null) return Vec3.ZERO;
 
-                ModelPreviewer.EntityModelComponent c = modelPreviewer.getComponent(ModelPreviewer.EntityModelComponent.class);
-                float elapsed = (c != null && c.getAnimator() instanceof ModelPreviewer.EntityModelComponent.EditorScrubAnimator s)
+                EntityModelComponent c = model3DViewer.getComponent(EntityModelComponent.class);
+                float elapsed = (c != null && c.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator s)
                     ? s.getElapsedTime() : 0.0F;
                 return rootLoc(clip, elapsed);
             }
@@ -307,6 +319,31 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
+    /// ***************************************************************
+    /// [DebuggableScreen]                                            *
+    /// ***************************************************************
+
+    @Override
+    public Predicate<Entity> debugTargetFilter() {
+        return entity -> ((EntityAccessor)entity).akythera$getEntityPatch() != null;
+    }
+
+    /// Snaps the track playhead onto the possessed entity's playback, parking it at 0 once the entity
+    /// moves on to another animation. Leaves it alone only while the edited entry cannot be resolved
+    /// at all — being unable to tell is not the same as knowing the entity moved on.
+    @Override
+    public void onDebugTick(final EntityPatch<?> entityPatch) {
+        AnimationSequence edited = AnimatorProbe.resolve(entityPatch, resourceKey);
+
+        if (edited == null) {
+            return;
+        }
+
+        AnimationDriver driver = AnimatorProbe.findDriverPlaying(entityPatch, edited);
+
+        notifyTrackEditorPanel.setDebugCurrentFrame(driver == null ? 0.0F : driver.getTime() * 60.0F);
+    }
+
     /// True when the live history top has diverged from the last save point — i.e. there are edits
     /// to persist. Drives both the title's `*` marker and the quit-prompt skip.
     private boolean hasUnsavedChanges() {
@@ -335,7 +372,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
 
     @Override
     public void onClose() {
-        modelPreviewer.destroy();
+        model3DViewer.destroy();
         AkytheraProject.getCurrentProject().saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());
         AkytheraEditorLayoutManager.getInstance().removeLastScreen();
     }
@@ -347,7 +384,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
-        AkytheraEditorLayoutManager.blurFocusChainLeaf(this);
+        AkytheraEditorLayoutManager.blurFocusChainLeaf(this, event.x(), event.y());
         return super.mouseClicked(event, doubleClick);
     }
 
@@ -394,10 +431,10 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
     }
 
     /// Instead of assigning `modal` directly into [#getFocused()], check and return opened modal via
-    /// [AkytheraEditorLayoutManager#getModal()] to release focus automatically when closed.
+    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
     @Nullable
     public GuiEventListener getFocused() {
-        AbstractWidget modal = AkytheraEditorLayoutManager.getInstance().getModal();
+        AbstractWidget modal = getFocusOwningModal();
         if (modal != null) return modal;
 
         return super.getFocused();

@@ -47,6 +47,9 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
     private final Font font;
     private final List<Tab> tabs = new ArrayList<>();
     private int activeIndex = -1;
+    /// Index of the tab header being drag-reordered; -1 when none. Set on a header press,
+    /// cleared on release. Live-swaps with a neighbour when the cursor crosses its midpoint.
+    private int draggingTabIndex = -1;
     /// How far the tab strip is slid left, in pixels. Always 0 when the strip fits.
     private int headerScrollX = 0;
     /// Largest valid [#headerScrollX] given the current strip and panel widths.
@@ -192,25 +195,30 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
         return font.width(t.title) + TAB_PADDING_X * 2 + (t.closeable ? CLOSE_BTN_W : 0);
     }
 
+    /// The rectangle the active tab's content is laid out in — the panel minus the header strip. Lets
+    /// a host re-relocate its tab content after mutating it (e.g. re-filling a table on selection)
+    /// without recomputing the header offset — and without passing the content's own rect back in,
+    /// which would re-apply its anchor insets and drift it every call.
+    public ScreenRectangle getBodyRectangle() {
+        return new ScreenRectangle(getX(), getY() + HEADER_H, getWidth(), Math.max(0, getHeight() - HEADER_H));
+    }
+
     private void relocateBody() {
         if (activeIndex < 0) {
             return;
         }
 
         AbstractWidget content = tabs.get(activeIndex).content;
-        int bodyX = getX();
-        int bodyY = getY() + HEADER_H;
-        int bodyW = getWidth();
-        int bodyH = Math.max(0, getHeight() - HEADER_H);
+        ScreenRectangle body = getBodyRectangle();
 
         if (content instanceof AnchoredWidget aw) {
-            aw.relocate(new ScreenRectangle(bodyX, bodyY, bodyW, bodyH));
+            aw.relocate(body);
         } else {
             // Non-anchored content: stretch to the body rect by raw setters.
-            content.setX(bodyX);
-            content.setY(bodyY);
-            content.setWidth(bodyW);
-            content.setHeight(bodyH);
+            content.setX(body.left());
+            content.setY(body.top());
+            content.setWidth(body.width());
+            content.setHeight(body.height());
         }
     }
 
@@ -279,6 +287,7 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
                         removeTab(i);
                     } else {
                         setActiveIndex(i);
+                        draggingTabIndex = i;
                     }
                     return true;
                 }
@@ -307,6 +316,7 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
 
     @Override
     public boolean mouseReleased(@NonNull MouseButtonEvent event) {
+        draggingTabIndex = -1;
         setDragging(false);
 
         return activeIndex >= 0 && tabs.get(activeIndex).content.mouseReleased(event);
@@ -314,7 +324,37 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
 
     @Override
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
+        if (draggingTabIndex >= 0) {
+            reorderDraggedTab(event.x());
+            return true;
+        }
+
         return activeIndex >= 0 && tabs.get(activeIndex).content.mouseDragged(event, dx, dy);
+    }
+
+    /// Swaps the dragged tab with the neighbour whose header midpoint the cursor has crossed.
+    /// The active tab follows the dragged one (tabs are only draggable after being activated by
+    /// the initiating press).
+    private void reorderDraggedTab(double mouseX) {
+        int target = draggingTabIndex;
+
+        if (target > 0) {
+            Tab prev = tabs.get(target - 1);
+            if (mouseX < (prev.headerLeft + prev.headerRight) / 2.0) target--;
+        }
+
+        if (target == draggingTabIndex && target < tabs.size() - 1) {
+            Tab next = tabs.get(target + 1);
+            if (mouseX > (next.headerLeft + next.headerRight) / 2.0) target++;
+        }
+
+        if (target == draggingTabIndex) return;
+
+        Tab dragged = tabs.remove(draggingTabIndex);
+        tabs.add(target, dragged);
+        activeIndex = target;
+        draggingTabIndex = target;
+        relocateHeaderRects();
     }
 
     @Override
@@ -357,7 +397,7 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
 
     @Override
     public void setFocused(final @Nullable GuiEventListener focused) {
-        // Manual fix: focusing was released as soon as a widget focused if it's the same one as current focus
+        // Re-focusing the already-focused child clears the focus in vanilla's implementation.
         if (getFocused() == focused) {
             return;
         }

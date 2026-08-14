@@ -2,6 +2,8 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.core.reflection.FunctionSignature;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.PureFunctionNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.Nullable;
@@ -14,7 +16,7 @@ import java.util.List;
 /// execution pins**. The left side has one data input per parameter, labeled from
 /// [FunctionSignature#parameterNames] (the owner slot of a member function shows as
 /// "Target"); the right side has the single return-value output. Hovering the title
-/// shows the function's description plus its parameter names. Visual only.
+/// shows the function's description plus its parameter names.
 public final class PureFunctionNodeWidget extends AbstractNodeWidget {
     private final ScriptFunction function;
     @Nullable
@@ -68,5 +70,10 @@ public final class PureFunctionNodeWidget extends AbstractNodeWidget {
 
     public ScriptFunction function() {
         return function;
+    }
+
+    @Override
+    public NodeData toData() {
+        return new PureFunctionNodeData(function);
     }
 }

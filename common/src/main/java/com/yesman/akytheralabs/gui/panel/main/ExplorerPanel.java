@@ -7,7 +7,7 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
-import com.yesman.akytheralabs.dataholder.datablock.DataBlockRegistries;
+import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
 import com.yesman.akytheralabs.editor.historytrack.FileCreation;
 import com.yesman.akytheralabs.editor.historytrack.FileDeletion;
 import com.yesman.akytheralabs.editor.historytrack.FileMove;
@@ -784,7 +784,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             }
         }
 
-        /// Called by ExplorerPanel after rebuildEntries() to immediately begin editing a new node.
+        /// Selects `node` and opens its inline name editor.
         void startEditingNode(TreeNode node) {
             for (TreeEntry entry : children()) {
                 if (entry.node == node) {

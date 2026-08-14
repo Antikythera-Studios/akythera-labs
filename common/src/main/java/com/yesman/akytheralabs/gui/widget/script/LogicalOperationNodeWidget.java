@@ -1,5 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akytheralabs.gui.widget.script.node.LogicalOperationNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
@@ -51,5 +53,10 @@ public final class LogicalOperationNodeWidget extends AbstractNodeWidget {
 
         public String symbol() { return symbol; }
         public String menuLabel() { return menuLabel; }
+    }
+
+    @Override
+    public NodeData toData() {
+        return new LogicalOperationNodeData(operator);
     }
 }

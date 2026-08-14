@@ -49,7 +49,7 @@ public abstract class MixinAnimationManager {
 
         Identifier fullId = Identifier.fromNamespaceAndPath(
             namespace,
-            armature.identifier().getPath().replaceAll("armatures/", "animations/") + "/" + animPath
+            armature.identifier().getPath().replaceAll("armatures/", "animationsToReplace/") + "/" + animPath
         );
         cir.setReturnValue(project.getOrIssueEditorAnimationAccessor(fullId));
     }

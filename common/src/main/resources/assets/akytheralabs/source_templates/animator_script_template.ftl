@@ -10,7 +10,7 @@
 ///
 /// Register this script to `AkytheraRegistries.Frozen.SCRIPT_TYPE` to expose
 /// the script class to AkytheraLabs, listing your animator scripts in
-/// entity patch script > armature component
+/// entity patch script > armature patchComponent
 
 package ${package};
 

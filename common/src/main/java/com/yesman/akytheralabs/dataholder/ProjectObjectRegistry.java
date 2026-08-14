@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.dataholder;
 
 import com.mojang.serialization.Codec;
+import com.yesman.akytheralabs.AkytheraLabs;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.core.Registry;
@@ -15,7 +16,7 @@ import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-/// Compact version of [Registry]. Avoided implementing it due to NeoForged added more methods to implement.
+/// A compact stand-in for [Registry], holding the open project's entries.
 @NullMarked
 public final class ProjectObjectRegistry<T, H extends DataHolder<T>> {
     private final ResourceKey<? extends Registry<T>> registryKey;
@@ -40,10 +41,28 @@ public final class ProjectObjectRegistry<T, H extends DataHolder<T>> {
     public ProjectObjectRegistry(ResourceKey<? extends Registry<T>> registryKey, Supplier<H> defaultObjectProvider, Codec<H> codec) {
         this.registryKey = registryKey;
         this.defaultObjectProvider = defaultObjectProvider;
-        this.codec = codec;
+        // Every entry decode/encode goes through the guard: a decode failure yields a default holder
+        // carrying the exception + the file's raw JSON, and encode re-emits that raw while the
+        // failure stands — so a save can never wipe a file the editor couldn't read.
+        this.codec = AbstractDataHolder.guarded(codec, defaultObjectProvider);
     }
 
-    /// Return value always null. Don't use it
+    /// [DataHolder#makeObject], degrading instead of propagating: a throw — a dangling reference,
+    /// the unresolved-node compile gate — lands on the holder's object-failure channel and yields the
+    /// default object. The holder's data stays intact and editable.
+    private T makeObjectGuarded(H dataHolder, ResourceKey<T> resourceKey) {
+        try {
+            T object = dataHolder.makeObject();
+            dataHolder.markObjectFailed(null);
+            return object;
+        } catch (Exception e) {
+            AkytheraLabs.LOGGER.error("makeObject() failed for {}; registering the default object", resourceKey.identifier(), e);
+            dataHolder.markObjectFailed(e);
+            return defaultObjectProvider.get().makeObject();
+        }
+    }
+
+    /// Always returns null.
     @SuppressWarnings("unchecked")
     public Holder.@Nullable Reference<H> register(ResourceKey<T> resourceKey, H dataHolder) {
         dataHolderByResourceKey.put(resourceKey, dataHolder);
@@ -57,7 +76,7 @@ public final class ProjectObjectRegistry<T, H extends DataHolder<T>> {
             ((AbstractDataHolder<T>) a).setOwnResourceKey(resourceKey);
         }
 
-        T object = dataHolder.makeObject();
+        T object = makeObjectGuarded(dataHolder, resourceKey);
 
         objectByResourceKey.put(resourceKey, object);
         objectByResourceKeyInv.put(object, resourceKey);
@@ -125,7 +144,7 @@ public final class ProjectObjectRegistry<T, H extends DataHolder<T>> {
             objectByIdentifierInv.remove(old);
         }
 
-        T fresh = holder.makeObject();
+        T fresh = makeObjectGuarded(holder, resourceKey);
         objectByResourceKey.put(resourceKey, fresh);
         objectByResourceKeyInv.put(fresh, resourceKey);
         objectByIdentifier.put(resourceKey.identifier(), fresh);
@@ -216,7 +235,7 @@ public final class ProjectObjectRegistry<T, H extends DataHolder<T>> {
                 typed.setOwnResourceKey(newKey);
             }
 
-            T object = holder.makeObject();
+            T object = makeObjectGuarded(holder, newKey);
 
             dataHolderByResourceKey.put(newKey, holder);
             dataHolderByResourceKeyInv.put(holder, newKey);

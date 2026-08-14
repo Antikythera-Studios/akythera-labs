@@ -19,13 +19,24 @@ import java.util.stream.Stream;
 /// (see [ProjectObjectRegistry#rekey]). Every referrer shares the one cached instance per key
 /// ([ProjectObjectRegistry#projectHolder]), so a rename is a single key mutation here — no
 /// per-reference rewrite.
-public final class ProjectObjectHolder<T> implements Holder<T>, EditorReference {
+/// Extends [Holder.Reference] rather than implementing [Holder], which is sealed to its own two
+/// implementations. `Reference` is the one left `non-sealed`; it keeps the key it was built with in
+/// a field of its own that refuses to be rebound, so [#key] shadows it and every method that would
+/// read it is overridden below.
+public final class ProjectObjectHolder<T> extends Holder.Reference<T> implements EditorReference {
     private final ProjectObjectRegistry<T, ?> registry;
     private ResourceKey<T> key;
 
     ProjectObjectHolder(ProjectObjectRegistry<T, ?> registry, ResourceKey<T> key) {
+        super(Type.STAND_ALONE, EditorHolderOwner.get(), key, null);
+
         this.registry = registry;
         this.key = key;
+    }
+
+    @Override
+    public ResourceKey<T> key() {
+        return key;
     }
 
     /// Called only by [ProjectObjectRegistry#rekey] — "renames" this shared holder.

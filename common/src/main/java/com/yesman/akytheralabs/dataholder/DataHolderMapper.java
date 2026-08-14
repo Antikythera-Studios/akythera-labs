@@ -3,8 +3,8 @@ package com.yesman.akytheralabs.dataholder;
 import com.mojang.serialization.MapCodec;
 import com.yesman.akythera.api.animation.notify.AnimationNotify;
 import com.yesman.akythera.api.animation.notify.AnimationNotifyState;
-import com.yesman.akytheralabs.dataholder.animation.notify.AnimationNotifyHolder;
-import com.yesman.akytheralabs.dataholder.animation.notify.AnimationNotifyStateHolder;
+import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
+import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
 import org.jspecify.annotations.Nullable;
 
 import java.util.LinkedHashMap;

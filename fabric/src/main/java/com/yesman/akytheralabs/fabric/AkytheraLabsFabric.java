@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.fabric;
 import com.yesman.akythera.client.gui.widget.common.WidgetTheme;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.gui.widget.script.node.ScriptNodeTypes;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsComboBoxTheme;
@@ -20,6 +21,7 @@ public final class AkytheraLabsFabric implements ClientModInitializer {
         WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsComboBoxTheme.class);
 
         AkytheraLabs.bootstrapDataHolderMappings();
+        ScriptNodeTypes.bootstrap();
 
         ModConfigEvents.loading(AkytheraLabs.MODID).register(modConfig -> {
             if (modConfig.getType() == ModConfig.Type.CLIENT) {

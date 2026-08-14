@@ -3,7 +3,7 @@ package com.yesman.akytheralabs.gui.panel.animation;
 import com.yesman.akythera.client.gui.widget.Static;
 import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akytheralabs.dataholder.animation.NotifyTrackHolder;
+import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;

@@ -1,6 +1,6 @@
 package com.yesman.akytheralabs.editor.historytrack;
 
-import com.yesman.akytheralabs.dataholder.animation.BlendSpace2DHolder;
+import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 
 import java.util.Stack;
 

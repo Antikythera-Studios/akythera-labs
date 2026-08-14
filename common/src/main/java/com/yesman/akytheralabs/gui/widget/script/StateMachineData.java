@@ -3,14 +3,17 @@ package com.yesman.akytheralabs.gui.widget.script;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.core.animation.driver.FSMAnimationState;
-import com.yesman.akytheralabs.dataholder.datablock.DataBlockHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.dataholder.DataBlockHolder;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import net.minecraft.core.Holder;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 /// The persisted contents of one Anim Graph [StateMachineNodeWidget] — the states and the transitions
 /// between them. Keyed in the holder by the state machine's name (see
-/// [com.yesman.akytheralabs.dataholder.animation.AnimatorScriptHolder]).
+/// [AnimatorScriptHolder]).
 ///
 /// **Builder-shaped** to mirror `AnimationStateMachine.stateModelBuilder()`: each transition is owned
 /// by the state it leaves from (`from` is implicit), and the hardcoded Entry node's outgoing edges
@@ -48,6 +51,21 @@ public record StateMachineData(
 
     public boolean isEmpty() {
         return states.isEmpty() && entryTransitions.isEmpty();
+    }
+
+    /// The shared rename-tracking instances this machine's sub-graphs bind — each state's pose graph
+    /// and each transition's condition graph. The state signatures and transition targets themselves
+    /// are the owning holder's ([AnimatorScriptHolder#referencedReferences]).
+    public Stream<EditorReference> referencedReferences() {
+        Stream<ScriptGraphData> graphs = Stream.concat(
+            states.stream().flatMap(s -> Stream.concat(
+                Stream.of(s.poseGraph()),
+                s.transitions().stream().map(TransitionData::conditionGraph)
+            )),
+            entryTransitions.stream().map(TransitionData::conditionGraph)
+        );
+
+        return graphs.flatMap(ScriptGraphData::referencedReferences);
     }
 
     /// A copy with every cached-pose getter in any state's pose sub-graph retargeted from `oldName` to

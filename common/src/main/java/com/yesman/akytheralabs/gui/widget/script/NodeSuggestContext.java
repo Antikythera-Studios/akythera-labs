@@ -30,10 +30,9 @@ import java.util.function.Predicate;
 /// — e.g. the numeric operator / comparator nodes, which would otherwise slip past
 /// `functionFilter` because they are not [ScriptFunction]s.
 ///
-/// `functionFilter` is the per-function predicate applied on top of the pure/non-pure
-/// split — previously the context could only filter by `expectedType` (i.e. return type),
-/// so this lets a caller inject an arbitrary requirement (e.g. "accepts the dragged pin
-/// type as a parameter", "takes the script owner") without the context knowing about it.
+/// `functionFilter` is the per-function predicate applied on top of the pure/non-pure split. It
+/// carries requirements the context knows nothing about — "accepts the dragged pin type as a
+/// parameter", "takes the script owner" — which `expectedType` alone cannot express.
 ///
 /// `usage` is the set of [ScriptFunction.Usage]s the hosting canvas accepts — the "Event Graph" is
 /// [ScriptFunction.Usage#SCRIPT]-only, while the "Anim Graph" / pose graphs accept both

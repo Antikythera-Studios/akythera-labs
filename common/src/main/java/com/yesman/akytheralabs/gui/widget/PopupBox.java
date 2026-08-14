@@ -2,7 +2,7 @@ package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.client.gui.widget.common.DataBoundWidget;
+import com.yesman.akythera.client.gui.widget.common.WarningMarkableWidget;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractContainerWidget;
@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /// A search-and-pick editor cell (modeled on [com.yesman.akythera.client.gui.widget.ClampedNumberBox]'s
 /// composite layout): a **read-only** [AdvancedEditBox] showing the bound value's display name, plus a
@@ -27,11 +28,24 @@ import java.util.function.Function;
 ///
 /// The box never mutates the bound value itself; the modal opened by `onSearchPressed` is expected to
 /// write the value and push [#valueSetter] to refresh the displayed name.
-public final class PopupBox<T> extends AbstractContainerWidget implements AnchoredWidget, DataBoundWidget<T> {
+///
+/// As a [WarningMarkableWidget], an optional [#withValidator] predicate flags an invalid bound
+/// value (a dangling holder, a stale key) with a red border on the display box — re-evaluated on
+/// every [#setValue], i.e. at screen build ([com.yesman.akythera.client.gui.widget.WidgetTable])
+/// and on every modal pick.
+public final class PopupBox<T> extends AbstractContainerWidget
+    implements AnchoredWidget, WarningMarkableWidget<T>, DropdownSizeMemory {
+
     private static final int PADDING = 2;
 
     private final AdvancedEditBox<String> displayBox;
     private final AnchoredButton searchButton;
+
+    /// Size this box's picker was last dragged to, or 0 while it has never been resized — see
+    /// [DropdownSizeMemory]. Kept here so reopening the picker restores the size the user chose, for
+    /// as long as this cell lives.
+    private int dropdownWidth;
+    private int dropdownHeight;
 
     /// Converts the bound value into the string shown in the read-only box.
     private final Function<T, String> nameFunction;
@@ -81,9 +95,8 @@ public final class PopupBox<T> extends AbstractContainerWidget implements Anchor
             .build();
     }
 
-    /// Positions the read-only box and the square magnifier button inside this widget's
-    /// current bounds. Called from every position/size mutation, since [com.yesman.akythera.client.gui.widget.WidgetTable]
-    /// re-seats its cells per frame via setX/setY.
+    /// Positions the read-only box and the square magnifier button inside this widget's current
+    /// bounds. Runs on every position and size mutation.
     private void layoutChildren() {
         int buttonSize = getHeight();
         int buttonX = getX() + getWidth() - buttonSize;
@@ -120,6 +133,22 @@ public final class PopupBox<T> extends AbstractContainerWidget implements Anchor
     @Override
     protected int contentHeight() {
         return getHeight();
+    }
+
+    @Override
+    public int dropdownWidth() {
+        return dropdownWidth;
+    }
+
+    @Override
+    public int dropdownHeight() {
+        return dropdownHeight;
+    }
+
+    @Override
+    public void rememberDropdownSize(int width, int height) {
+        this.dropdownWidth = width;
+        this.dropdownHeight = height;
     }
 
     @Override
@@ -219,14 +248,45 @@ public final class PopupBox<T> extends AbstractContainerWidget implements Anchor
     /// Shown when the bound value is null — nothing selected yet, or an optional pick cleared.
     private static final String NONE_DISPLAY = "<none>";
 
+    /// Flags an invalid bound value (returns false) for the red-border mark. Null = no validation
+    /// (never marked). A null *value* is always valid — that's the deliberate `<none>`.
+    @Nullable
+    private Predicate<T> validator;
+
+    /// Builder-style: sets the per-site validity predicate and re-evaluates it against the
+    /// currently displayed value's absence (a fresh box starts unmarked; the table's initialize
+    /// pushes the real value right after construction).
+    public PopupBox<T> withValidator(Predicate<T> validator) {
+        this.validator = validator;
+        return this;
+    }
+
     /// Refreshes the displayed name from `value`. Does not fire [#valueChangeCallback] — the
-    /// modal flow that changed the bound data already handled it.
+    /// modal flow that changed the bound data already handled it. Re-evaluates [#validator]:
+    /// an invalid value marks the display box red; a valid one (or `<none>`) clears the mark.
     public void setValue(@Nullable T value) {
         displayBox.setValueByString(value == null ? NONE_DISPLAY : nameFunction.apply(value));
+
+        if (validator == null || value == null || validator.test(value)) {
+            unmark();
+        } else {
+            mark();
+        }
+    }
+
+    @Override
+    public void mark() {
+        displayBox.mark();
+    }
+
+    @Override
+    public void unmark() {
+        displayBox.unmark();
     }
 
     @Override
     public void reset() {
         displayBox.setValueByString(NONE_DISPLAY);
+        unmark();
     }
 }

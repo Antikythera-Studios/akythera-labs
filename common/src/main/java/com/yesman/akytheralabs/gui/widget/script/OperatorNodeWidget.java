@@ -1,5 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.OperatorNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.Nullable;
@@ -102,5 +104,10 @@ public final class OperatorNodeWidget extends AbstractNodeWidget {
 
         public String symbol() { return symbol; }
         public String menuLabel() { return menuLabel; }
+    }
+
+    @Override
+    public NodeData toData() {
+        return new OperatorNodeData(operator);
     }
 }

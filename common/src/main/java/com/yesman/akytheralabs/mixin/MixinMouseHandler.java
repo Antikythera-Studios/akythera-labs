@@ -2,14 +2,14 @@ package com.yesman.akytheralabs.mixin;
 
 import com.mojang.blaze3d.platform.Window;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
-import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
+import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Gui;
 import net.minecraft.client.MouseHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Overlay;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
-import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -20,85 +20,81 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class MixinMouseHandler {
     @Redirect(
         at = @At(
-            value = "FIELD",
-            target = "Lnet/minecraft/client/Minecraft;screen:Lnet/minecraft/client/gui/screens/Screen;",
-            opcode = Opcodes.GETFIELD
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/Gui;screen()Lnet/minecraft/client/gui/screens/Screen;"
         ),
         method = "onButton(JLnet/minecraft/client/input/MouseButtonInfo;I)V"
     )
-    private Screen onMouseButtonRedirectScreen(Minecraft minecraft) {
+    private Screen onMouseButtonRedirectScreen(Gui gui) {
         // Returns AkytheraEditorLayoutManager editor screen instead of in-game viewport screen when editor layout activated (Applied to below snatch methods)
-        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : minecraft.screen;
+        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : gui.screen();
     }
 
     @Redirect(
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/client/Minecraft;getOverlay()Lnet/minecraft/client/gui/screens/Overlay;"
+            target = "Lnet/minecraft/client/gui/Gui;overlay()Lnet/minecraft/client/gui/screens/Overlay;"
         ),
         method = "onButton(JLnet/minecraft/client/input/MouseButtonInfo;I)V"
     )
-    private Overlay onMouseButtonRedirectOverlay(Minecraft minecraft) {
+    private Overlay onMouseButtonRedirectOverlay(Gui gui) {
         // Returns no overlay info when AkytheraEditorLayoutManager editor activated to allow inputs while reloading resources (Applied to below snatch methods)
-        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? null : minecraft.getOverlay();
-    }
-
-    @Redirect(
-        at = @At(
-            value = "FIELD",
-            target = "Lnet/minecraft/client/Minecraft;screen:Lnet/minecraft/client/gui/screens/Screen;",
-            opcode = Opcodes.GETFIELD
-        ),
-        method = "onScroll(JDD)V"
-    )
-    private Screen onMouseScrollRedirectScreen(Minecraft minecraft) {
-        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : minecraft.screen;
+        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? null : gui.overlay();
     }
 
     @Redirect(
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/client/Minecraft;getOverlay()Lnet/minecraft/client/gui/screens/Overlay;"
+            target = "Lnet/minecraft/client/gui/Gui;screen()Lnet/minecraft/client/gui/screens/Screen;"
         ),
         method = "onScroll(JDD)V"
     )
-    private Overlay onMouseScrollRedirectOverlay(Minecraft minecraft) {
-        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? null : minecraft.getOverlay();
-    }
-
-    @Redirect(
-        at = @At(
-            value = "FIELD",
-            target = "Lnet/minecraft/client/Minecraft;screen:Lnet/minecraft/client/gui/screens/Screen;",
-            opcode = Opcodes.GETFIELD
-        ),
-        method = "handleAccumulatedMovement()V"
-    )
-    private Screen onHandleAccumulatedMovementRedirectScreen(Minecraft minecraft) {
-        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : minecraft.screen;
+    private Screen onMouseScrollRedirectScreen(Gui gui) {
+        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : gui.screen();
     }
 
     @Redirect(
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/client/Minecraft;getOverlay()Lnet/minecraft/client/gui/screens/Overlay;"
+            target = "Lnet/minecraft/client/gui/Gui;overlay()Lnet/minecraft/client/gui/screens/Overlay;"
         ),
-        method = "handleAccumulatedMovement()V"
+        method = "onScroll(JDD)V"
     )
-    private Overlay onHandleAccumulatedMovementRedirectOverlay(Minecraft minecraft) {
-        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? null : minecraft.getOverlay();
+    private Overlay onMouseScrollRedirectOverlay(Gui gui) {
+        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? null : gui.overlay();
     }
 
     @Redirect(
         at = @At(
-            value = "FIELD",
-            target = "Lnet/minecraft/client/Minecraft;screen:Lnet/minecraft/client/gui/screens/Screen;",
-            opcode = Opcodes.GETFIELD
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/Gui;screen()Lnet/minecraft/client/gui/screens/Screen;"
+        ),
+        method = "handleAccumulatedMovement()V"
+    )
+    private Screen onHandleAccumulatedMovementRedirectScreen(Gui gui) {
+        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : gui.screen();
+    }
+
+    @Redirect(
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/Gui;overlay()Lnet/minecraft/client/gui/screens/Overlay;"
+        ),
+        method = "handleAccumulatedMovement()V"
+    )
+    private Overlay onHandleAccumulatedMovementRedirectOverlay(Gui gui) {
+        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? null : gui.overlay();
+    }
+
+    @Redirect(
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/Gui;screen()Lnet/minecraft/client/gui/screens/Screen;"
         ),
         method = "onDrop(JLjava/util/List;I)V"
     )
-    private Screen onFileDropRedirectScreen(Minecraft minecraft) {
-        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : minecraft.screen;
+    private Screen onFileDropRedirectScreen(Gui gui) {
+        return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : gui.screen();
     }
 
     /// Vanilla [net.minecraft.client.gui.components.events.ContainerEventHandler] only latches
@@ -179,18 +175,20 @@ public abstract class MixinMouseHandler {
         cancellable = true
     )
     private static void getScaledXPos(Window window, double x, CallbackInfoReturnable<Double> callbackInfo) {
-        if (AkytheraEditorLayoutManager.getInstance().isActive()) {
-            int editorScale = AkytheraEditorLayoutManager.getInstance().getLayoutGuiScale();
+        AkytheraEditorLayoutManager layoutManager = AkytheraEditorLayoutManager.getInstance();
 
-            if (AkytheraEditorLayoutManager.getInstance().snatchInputs()) {
+        if (layoutManager.isActive()) {
+            int editorScale = layoutManager.getLayoutGuiScale();
+            WorldViewportHost host = layoutManager.getWorldViewportHost();
+
+            if (layoutManager.snatchInputs() || host == null) {
                 // Editor UI: coordinates in editor GUI units
                 callbackInfo.setReturnValue(x * (1.0D / editorScale));
                 callbackInfo.cancel();
             } else {
                 // Game viewport: subtract viewport screen-pixel origin, then divide by the
                 // game's own GUI scale (recalculated by resizeDisplay after viewport resize)
-                MainEditorScreen mainScreen = AkytheraEditorLayoutManager.getInstance().getMainScreen();
-                callbackInfo.setReturnValue((x - mainScreen.getWorldViewportX() * editorScale) * (1.0D / window.getGuiScale()));
+                callbackInfo.setReturnValue((x - host.getWorldViewportRectangle().left() * editorScale) * (1.0D / window.getGuiScale()));
                 callbackInfo.cancel();
             }
         }
@@ -204,18 +202,20 @@ public abstract class MixinMouseHandler {
         cancellable = true
     )
     private static void getScaledYPos(Window window, double y, CallbackInfoReturnable<Double> callbackInfo) {
-        if (AkytheraEditorLayoutManager.getInstance().isActive()) {
-            int editorScale = AkytheraEditorLayoutManager.getInstance().getLayoutGuiScale();
+        AkytheraEditorLayoutManager layoutManager = AkytheraEditorLayoutManager.getInstance();
 
-            if (AkytheraEditorLayoutManager.getInstance().snatchInputs()) {
+        if (layoutManager.isActive()) {
+            int editorScale = layoutManager.getLayoutGuiScale();
+            WorldViewportHost host = layoutManager.getWorldViewportHost();
+
+            if (layoutManager.snatchInputs() || host == null) {
                 // Editor UI: coordinates in editor GUI units
                 callbackInfo.setReturnValue(y * (1.0D / editorScale));
                 callbackInfo.cancel();
             } else {
                 // Game viewport: subtract viewport screen-pixel origin, then divide by the
                 // game's own GUI scale (recalculated by resizeDisplay after viewport resize)
-                MainEditorScreen mainScreen = AkytheraEditorLayoutManager.getInstance().getMainScreen();
-                callbackInfo.setReturnValue((y - mainScreen.getWorldViewportY() * editorScale) * (1.0D / window.getGuiScale()));
+                callbackInfo.setReturnValue((y - host.getWorldViewportRectangle().top() * editorScale) * (1.0D / window.getGuiScale()));
                 callbackInfo.cancel();
             }
         }

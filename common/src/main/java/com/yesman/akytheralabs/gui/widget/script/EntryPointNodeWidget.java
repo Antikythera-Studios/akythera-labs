@@ -1,12 +1,17 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akytheralabs.gui.widget.script.node.EntryPointNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /// A flow entry (event) node for an animator-script graph. Each event is a flow origin: an
 /// execution output plus whatever runtime parameters the event is invoked with. The Event Graph
 /// shows two — the per-tick **Update** event (which also exposes `frameTime` / `partialTick`) and
-/// the once-at-init **Constructor** event (exec only). Visual only.
+/// the once-at-init **Constructor** event, which is exec-only.
 public final class EntryPointNodeWidget extends AbstractNodeWidget {
     private static final int EXEC_COLOR = 0xFFEEEEEE;
     private static final int FLOAT_COLOR = 0xFF6CCB5F;
@@ -52,5 +57,13 @@ public final class EntryPointNodeWidget extends AbstractNodeWidget {
     @Override
     public boolean isDeletable() {
         return false;
+    }
+
+    @Override
+    public NodeData toData() {
+        List<String> labels = new ArrayList<>(outputPinCount());
+        for (int i = 0; i < outputPinCount(); i++) labels.add(outputPin(i).label());
+
+        return new EntryPointNodeData(labels);
     }
 }

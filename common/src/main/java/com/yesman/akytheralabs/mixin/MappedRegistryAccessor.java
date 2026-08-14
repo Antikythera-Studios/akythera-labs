@@ -12,9 +12,10 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 
 import java.util.Map;
 
-/// Exposes {@link MappedRegistry}'s private lookup state so a dev-time reload can refill a
-/// frozen datapack registry in place (see {@code DataPackRegistryReloader}). {@code byKey} is
-/// intentionally not exposed: it is kept across a refill so existing {@link Holder.Reference}s
+/// Exposes [MappedRegistry]'s private lookup state, so a dev-time reload can refill a frozen
+/// datapack registry in place — see [com.yesman.akytheralabs.dev.DataPackRegistryReloader].
+///
+/// `byKey` stays unexposed. A refill keeps it, which is what lets the existing [Holder.Reference]s
 /// rebind to the new values instead of dangling.
 @Mixin(MappedRegistry.class)
 public interface MappedRegistryAccessor<T> {

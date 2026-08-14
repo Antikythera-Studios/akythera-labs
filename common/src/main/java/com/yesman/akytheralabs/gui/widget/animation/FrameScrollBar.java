@@ -1,6 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
+import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -57,7 +57,7 @@ public final class FrameScrollBar extends AbstractWidget implements AnchoredWidg
     }
 
     private float totalFrames() {
-        ModelPreviewer.EntityModelComponent.@Nullable EditorScrubAnimator a = parent.headlessAnimator();
+        EntityModelComponent.@Nullable EditorScrubAnimator a = parent.headlessAnimator();
 
         if (a == null || a.getPreviewAnimation() == null || a.getPreviewAnimation().get() == null) {
             return 0.0F;

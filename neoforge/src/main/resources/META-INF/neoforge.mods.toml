@@ -40,5 +40,5 @@ side = "BOTH"
 [[dependencies."${modId}"]]
 modId = "akythera"
 type = "required"
-ordering = "BEFORE"
+ordering = "AFTER"
 side = "BOTH"

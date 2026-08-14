@@ -3,29 +3,29 @@ mod = "0.1.0-SNAPSHOT.1"
 java = "25"
 
 # Minecraft
-minecraft = "26.1.2"
+minecraft = "26.2"
 
 # NeoForge
 # https://projects.neoforged.net/neoforged/neoforge
-neoforge = "26.1.2.76"
+neoforge = "26.2.0.59"
 # https://projects.neoforged.net/neoforged/moddevgradle
-moddevgradle = "2.0.141"
+moddevgradle = "2.0.143"
 # https://projects.neoforged.net/neoforged/neoform
-neoform = "26.1.2-1"
+neoform = "26.2-2"
 
 # Fabric
 # Check versions at https://fabricmc.net/develop/
 fabric-loader = "0.19.3"
-fabric-api = "0.153.0+26.1.2"
+fabric-api = "0.157.0+26.2"
 fabric-loom = "1.17-SNAPSHOT"
-fabric-modmenu = "18.0.0-beta.1"
+fabric-modmenu = "20.0.1"
 
 # SpongePowered Mixin
 mixin = "0.8.7"
 asm = "9.7"
 
 # Third-party mods
-forgeconfigapiport = "26.1.5"
+forgeconfigapiport = "26.2.1"
 
 # Helper Gradle-plugins
 mcSafeResources = "0.0.2"

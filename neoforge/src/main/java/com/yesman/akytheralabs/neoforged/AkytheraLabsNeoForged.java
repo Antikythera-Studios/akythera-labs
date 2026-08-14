@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.neoforged;
 import com.yesman.akythera.client.gui.widget.common.WidgetTheme;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.gui.widget.script.node.ScriptNodeTypes;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsComboBoxTheme;
@@ -27,12 +28,12 @@ public class AkytheraLabsNeoForged {
 
         modEventBus.addListener(this::doCommonStuff);
         modEventBus.addListener(this::modConfigLoadingEvent);
-        modEventBus.addListener(this::dataGen);
     }
 
     private void doCommonStuff(final FMLCommonSetupEvent event) {
         // Bootstrap data holder map after mod platform is loaded
         AkytheraLabs.bootstrapDataHolderMappings();
+        ScriptNodeTypes.bootstrap();
     }
 
     private void modConfigLoadingEvent(final ModConfigEvent.Loading event) {
@@ -40,17 +41,5 @@ public class AkytheraLabsNeoForged {
         if (!ModConfig.Type.CLIENT.equals(event.getConfig().getType())) return;
 
         AkytheraLabsConfig.initConfigValues();
-    }
-
-    private void dataGen(final GatherDataEvent.Client event) {
-        /*
-        event.createDatapackRegistryObjects(
-            new RegistrySetBuilder().add(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, AkytheraSampleAnimationSequences::bootstrap)
-        );
-
-        event.createProvider(AkytheraSampleAnimationSequences::new);
-        event.createProvider(AkytheraSampleAnimationMontages::new);
-        event.createProvider(AkytheraSampleBlendSpace2Ds::new);
-        */
     }
 }

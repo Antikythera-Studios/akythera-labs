@@ -1,12 +1,13 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.EntityModelComponent.EditorScrubAnimator;
+import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
+import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
+import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent.EditorScrubAnimator;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.util.helper.MathUtils;
-import com.yesman.akytheralabs.dataholder.animation.NotifyTrackHolder;
-import com.yesman.akytheralabs.dataholder.animation.PlayableAnimationHolder;
+import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
+import com.yesman.akytheralabs.akythera.animation.PlayableAnimationHolder;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ListInsert;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -28,6 +29,7 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -89,8 +91,11 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     /// Whether animation being updated
     private boolean playing = false;
 
+    /// See [#isDebugDriven].
+    private BooleanSupplier debugDriven = () -> false;
+
     /// Currently opened model previewer
-    private final ModelPreviewer modelPreviewer;
+    private final Model3DViewer model3DViewer;
     private NotifyTrackHolder.@Nullable NotifyRef selected;
 
     /// Footer children.
@@ -101,13 +106,13 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
     public AnimationTrackEditorPanel(
         NotifyTrackHolder holder,
-        ModelPreviewer modelPreviewer,
+        Model3DViewer model3DViewer,
         PlayableAnimationHolder<?> playableAnimationHolder,
         Consumer<NotifyTrackHolder.@Nullable NotifyRef> onSelectionChanged,
         Function<AnimationTrackEditorPanel, List<AnimTrackEntry>> rowBuilderFn
     ) {
         this.holder = holder;
-        this.modelPreviewer = modelPreviewer;
+        this.model3DViewer = model3DViewer;
         this.playableAnimationHolder = playableAnimationHolder;
         this.onSelectionChanged = onSelectionChanged;
         this.rowBuilderFn = rowBuilderFn;
@@ -140,7 +145,6 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
             .verticalAnchorType(AnchoredWidget.VerticalAnchorType.CENTER_HEIGHT)
             .theme(AkytheraLabsButtonTheme.ANIM_TRACK_RESUME_BUTTON)
             .build();
-        playButton.active = !playing;
 
         this.pauseButton = AnchoredButton.buttonBuilder(
                 Minecraft.getInstance().font, Component.empty(), _ -> setPlaying(false)
@@ -151,7 +155,6 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
             .verticalAnchorType(AnchoredWidget.VerticalAnchorType.CENTER_HEIGHT)
             .theme(AkytheraLabsButtonTheme.ANIM_TRACK_PAUSE_BUTTON)
             .build();
-        pauseButton.active = playing;
 
         this.frameBox = AdvancedEditBox.filteredStringBox(
             Minecraft.getInstance().font,
@@ -197,6 +200,13 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     }
 
     public void setCurrentFrame(float frame) {
+        if (isDebugDriven()) return;
+
+        applyCurrentFrame(frame);
+    }
+
+    /// Moves the playhead past the [#isDebugDriven] gate.
+    private void applyCurrentFrame(float frame) {
         EditorScrubAnimator headlessAnimator = getHeadlessAnimator();
         if (headlessAnimator == null || headlessAnimator.getPreviewAnimation() == null) return;
 
@@ -216,14 +226,36 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     }
 
     public void setPlaying(boolean playing) {
+        if (isDebugDriven()) return;
+
+        applyPlaying(playing);
+    }
+
+    /// Writes the playback state past the [#isDebugDriven] gate.
+    private void applyPlaying(boolean playing) {
         this.playing = playing;
 
         EditorScrubAnimator a = getHeadlessAnimator();
         if (a != null) a.setUpdatePose(playing);
+    }
 
-        // Swap button enabled state so the textured sprite picks the right (enabled/disabled) variant.
-        playButton.active = !playing;
-        pauseButton.active = playing;
+    /// Whether the playhead follows a possessed entity's animator instead of the editor's own
+    /// playback. Installed by the owning screen; false for a screen that does not debug.
+    public boolean isDebugDriven() {
+        return debugDriven.getAsBoolean();
+    }
+
+    /// Installs the probe behind [#isDebugDriven].
+    public void setDebugDrivenChecker(final BooleanSupplier debugDriven) {
+        this.debugDriven = debugDriven;
+    }
+
+    /// Moves the playhead to a frame taken from the possessed entity, stopping the editor's own
+    /// playback first so the two do not both advance the preview.
+    public void setDebugCurrentFrame(final float frame) {
+        if (playing) applyPlaying(false);
+
+        applyCurrentFrame(frame);
     }
 
     // These fields are exposed for [FrameScrollBar] to read/write the visible-frame window.
@@ -238,7 +270,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     }
 
     private @Nullable EditorScrubAnimator getHeadlessAnimator() {
-        ModelPreviewer.EntityModelComponent c = modelPreviewer.getComponent(ModelPreviewer.EntityModelComponent.class);
+        EntityModelComponent c = model3DViewer.getComponent(EntityModelComponent.class);
         return (c != null && c.getAnimator() instanceof EditorScrubAnimator s) ? s : null;
     }
 
@@ -377,6 +409,13 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
             currentFrame = playingAnimator.getElapsedTime() * 60F;
         }
 
+        // Transport enablement, derived here so it also follows a debug session starting or ending.
+        // The enabled state additionally picks the textured sprite's enabled/disabled variant.
+        boolean debugDriven = isDebugDriven();
+        playButton.active = !debugDriven && !playing;
+        pauseButton.active = !debugDriven && playing;
+        frameBox.active = !debugDriven;
+
         // Mirror the playhead into the frame box unless the user is currently typing in it —
         // don't stomp their in-progress edit.
         if (!frameBox.isFocused()) {
@@ -429,12 +468,12 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
             frame += frameStride;
         }
 
-        ModelPreviewer.EntityModelComponent entityModelComponent = modelPreviewer.getComponent(ModelPreviewer.EntityModelComponent.class);
+        EntityModelComponent entityModelComponent = model3DViewer.getComponent(EntityModelComponent.class);
 
         // Draws out-of-frame areas
         if (
             entityModelComponent != null
-            && entityModelComponent.getAnimator() instanceof ModelPreviewer.EntityModelComponent.EditorScrubAnimator headlessAnimator
+            && entityModelComponent.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator headlessAnimator
             && headlessAnimator.getPreviewAnimation() != null
         ) {
             int x = getX();

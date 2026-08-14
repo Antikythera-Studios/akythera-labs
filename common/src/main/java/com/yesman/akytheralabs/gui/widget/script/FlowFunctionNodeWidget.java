@@ -2,6 +2,8 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.core.reflection.FunctionSignature;
+import com.yesman.akytheralabs.gui.widget.script.node.FlowFunctionNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
@@ -11,7 +13,7 @@ import java.util.List;
 /// executes a single non-pure [ScriptFunction]. The left side carries the execution
 /// input and one data pin per parameter (the owner slot of a member function is shown
 /// as "Target"); the right side carries the execution output plus a "Return Value"
-/// data pin when the function returns a value. Visual only — pins are not wired this stage.
+/// data pin when the function returns a value.
 public final class FlowFunctionNodeWidget extends AbstractNodeWidget {
     private static final int TITLE_COLOR = 0xFF1F3A5A;
 
@@ -46,5 +48,10 @@ public final class FlowFunctionNodeWidget extends AbstractNodeWidget {
 
     public ScriptFunction function() {
         return function;
+    }
+
+    @Override
+    public NodeData toData() {
+        return new FlowFunctionNodeData(function);
     }
 }

@@ -1,7 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
-import com.yesman.akytheralabs.dataholder.animation.NotifyTrackHolder;
+import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.editor.historytrack.DraggingDataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.NotifyStateRangeChange;
@@ -48,8 +48,7 @@ public final class NotifyStateWidget extends AbstractWidget {
         return track;
     }
 
-    /// Recomputes the widget's bounds from the model's frame window and the row's
-    /// current top. Called by the entry every render.
+    /// Recomputes the widget's bounds from the model's frame window and the row's current top.
     public void updatePosition(int rowTop, int rowHeight) {
         int x1 = parent.frameToX(model.from);
         int x2 = parent.frameToX(model.to);

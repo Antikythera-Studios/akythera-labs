@@ -179,7 +179,7 @@ public final class Grid<T extends AbstractWidget> extends AbstractContainerWidge
 
     @Override
     public void setFocused(final @Nullable GuiEventListener focused) {
-        // Manual fix: focusing was released as soon as a widget focused if it's the same one as current focus
+        // Re-focusing the already-focused child clears the focus in vanilla's implementation.
         if (getFocused() == focused) {
             return;
         }

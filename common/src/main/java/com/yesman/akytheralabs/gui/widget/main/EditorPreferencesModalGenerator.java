@@ -29,7 +29,7 @@ public final class EditorPreferencesModalGenerator {
         }).build();
 
         AnchoredButton cancelBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ -> {
-            AkytheraLabsConfig.revertToSpecValues();
+            AkytheraLabsConfig.initConfigValues();
             AkytheraEditorLayoutManager.getInstance().rescaleScreens(AkytheraLabsConfig.getEditorGuiScale());
             AkytheraEditorLayoutManager.getInstance().closeModal();
         }).build();

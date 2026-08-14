@@ -1,6 +1,9 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.core.animation.keyframe.Pose;
+import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.StateMachineNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
@@ -9,13 +12,11 @@ import net.minecraft.network.chat.Component;
 /// Double-clicking it opens a closeable `{name}` sub-tab hosting the
 /// [StateMachineGraphWidget] where its states / transitions are authored.
 ///
-/// The machine's name is unique within the script and is the key under which its
-/// [StateMachineData] is stored (see
-/// [com.yesman.akytheralabs.dataholder.animation.AnimatorScriptHolder#getStateMachines]). It is
-/// also the cached-pose name a `CachedPoseGetter` references (Stage 3b).
+/// The machine's name is unique within the script, and is the key its [StateMachineData] is stored
+/// under — see [AnimatorScriptHolder#getStateMachines].
 ///
-/// Compile rule (see the graph compilers): emit the pose node that builds / reads the engine
-/// `AnimationStateMachine` assembled from this machine's [StateMachineData] (engine plan, Stage 3b).
+/// Compile rule: emit the pose node that builds and reads the engine `AnimationStateMachine`
+/// assembled from this machine's [StateMachineData].
 public final class StateMachineNodeWidget extends AbstractNodeWidget {
     /// Neutral gray title, matching UE's State Machine node.
     private static final int TITLE_COLOR = 0xFF3A3A3A;
@@ -38,7 +39,7 @@ public final class StateMachineNodeWidget extends AbstractNodeWidget {
         return machineName;
     }
 
-    /// Renames the machine in place (title + name), e.g. when its sub-tab is renamed (Stage 3b).
+    /// Renames the machine in place, title and name both.
     public void setMachineName(String name) {
         this.machineName = name;
         setMessage(Component.literal(name));
@@ -48,5 +49,10 @@ public final class StateMachineNodeWidget extends AbstractNodeWidget {
     @Override
     public boolean isActivatable() {
         return true;
+    }
+
+    @Override
+    public NodeData toData() {
+        return new StateMachineNodeData(machineName);
     }
 }

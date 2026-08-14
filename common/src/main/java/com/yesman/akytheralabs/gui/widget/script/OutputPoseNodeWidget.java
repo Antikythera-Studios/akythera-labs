@@ -2,6 +2,8 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.blueprint.script.AnimatorScript;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.OutputPoseNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
@@ -32,5 +34,10 @@ public final class OutputPoseNodeWidget extends AbstractNodeWidget {
     @Override
     public boolean isDeletable() {
         return false;
+    }
+
+    @Override
+    public NodeData toData() {
+        return new OutputPoseNodeData();
     }
 }

@@ -8,9 +8,8 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 
-/// Design-stage filler: a flat-coloured rectangle with a single centered line of
-/// text. Used as the body of the not-yet-implemented panels (the blueprint graph
-/// tabs) so the layout reads correctly without any editing behaviour wired up.
+/// A flat-coloured rectangle with a single centered line of text, standing in as the body of a
+/// panel that carries no editing behaviour of its own.
 public final class PlaceholderContent extends AbstractWidget implements AnchoredWidget {
     private static final int COLOR_BG = 0xFF1E1E1E;
     private static final int COLOR_TEXT = 0xFF707070;

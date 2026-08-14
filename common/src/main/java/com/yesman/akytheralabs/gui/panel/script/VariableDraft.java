@@ -2,11 +2,12 @@ package com.yesman.akytheralabs.gui.panel.script;
 
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
+import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import org.jspecify.annotations.Nullable;
 
 /// Mutable working copy of a [ScriptVariables.VariableInfo] (which is an immutable
 /// record). The Variables / Details panels edit a `VariableDraft` in place; the
-/// edits are flushed back into the [com.yesman.akytheralabs.dataholder.animation.AnimatorScriptHolder]
+/// edits are flushed back into the [AnimatorScriptHolder]
 /// only when the user presses "Save". See [VariableEditController].
 public final class VariableDraft {
     private String name;

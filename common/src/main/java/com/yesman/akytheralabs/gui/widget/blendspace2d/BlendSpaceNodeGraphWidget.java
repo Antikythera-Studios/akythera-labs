@@ -3,13 +3,14 @@ package com.yesman.akytheralabs.gui.widget.blendspace2d;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.math.algorithm.DelaunayTriangulation;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
-import com.yesman.akytheralabs.dataholder.animation.AnimationRef;
-import com.yesman.akytheralabs.dataholder.animation.BlendSpace2DHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationRef;
+import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ListInsert;
 import com.yesman.akytheralabs.editor.historytrack.ListRemove;
 import com.yesman.akytheralabs.editor.historytrack.NodeXYChange;
 import com.yesman.akytheralabs.editor.historytrack.PendingNodeXYChange;
+import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.client.Minecraft;
@@ -21,6 +22,7 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.network.chat.Component;
@@ -29,7 +31,9 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -46,6 +50,9 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
     private final BlendSpace2DHolder blendSpace2DHolder;
     private final Consumer<BlendSpace2DHolder.@Nullable MutableAnimNode> nodePressCallback;
     private final BiConsumer<Float, Float> previewCursorMoveCallback;
+
+    /// See [#isDebugDriven].
+    private BooleanSupplier debugDriven = () -> false;
 
     /// True while the owning screen is dragging a sequence out of the Asset Browser; drives the
     /// ghost-node drop preview. Reads the screen's `draggingSequence` state live.
@@ -177,7 +184,7 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
             return false;
         }
 
-        if (isInGraphBound) {
+        if (isInGraphBound && !isDebugDriven()) {
             previewCursor.setPosition((int)event.x(), (int)event.y());
             previewCursorMoveCallback.accept(toBlendX((int)event.x()), toBlendY((int)event.y()));
             setFocused(previewCursor);
@@ -191,6 +198,19 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
     @Override
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
         return getFocused() != null && isDragging() && event.button() == 0 && getFocused().mouseDragged(event, dx, dy);
+    }
+
+    @Override
+    public boolean keyPressed(@NonNull KeyEvent event) {
+        // DELETE removes the selected node — the same undoable path as the context menu's "Remove Node"
+        // ([#removeNode]). Selecting a node makes this graph the screen's focused widget, so the key
+        // lands here; with nothing selected the event falls through (e.g. to the screen's shortcuts).
+        if (EditorKeyMappings.DELETE.matches(event) && selectedNodeWidget != null) {
+            removeNode(selectedNodeWidget);
+            return true;
+        }
+
+        return super.keyPressed(event);
     }
 
     @Override
@@ -239,31 +259,88 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
     }
 
     private void drawTriangleWireframe(GuiGraphicsExtractor graphics) {
-        for (DelaunayTriangulation.Triangle t : blendSpace2DHolder.getNodeSpace().getTriangles()) {
-            DelaunayTriangulation.DelaunayPoint p1 = blendSpace2DHolder.getNodeSpace().getPoint(t.a());
-            DelaunayTriangulation.DelaunayPoint p2 = blendSpace2DHolder.getNodeSpace().getPoint(t.b());
-            DelaunayTriangulation.DelaunayPoint p3 = blendSpace2DHolder.getNodeSpace().getPoint(t.c());
+        DelaunayTriangulation<BlendSpace2DHolder.MutableAnimNode> space = blendSpace2DHolder.getNodeSpace();
 
-            if (p1 == null || p2 == null || p3 == null) continue;
+        // An interior edge is shared by two triangles, so drawing per-triangle rasterizes it (and all
+        // its per-pixel fills) twice. Dedup on the edge's two point indices — order-normalized and
+        // packed into a long — so each unique edge is drawn once, halving the fills and the overdraw.
+        Set<Long> drawnEdges = new HashSet<>();
 
-            drawLine(graphics, toScreenX(p1.x()), toScreenY(p1.y()), toScreenX(p2.x()), toScreenY(p2.y()));
-            drawLine(graphics, toScreenX(p2.x()), toScreenY(p2.y()), toScreenX(p3.x()), toScreenY(p3.y()));
-            drawLine(graphics, toScreenX(p3.x()), toScreenY(p3.y()), toScreenX(p1.x()), toScreenY(p1.y()));
+        for (DelaunayTriangulation.Triangle t : space.getTriangles()) {
+            drawEdgeOnce(graphics, space, drawnEdges, t.a(), t.b());
+            drawEdgeOnce(graphics, space, drawnEdges, t.b(), t.c());
+            drawEdgeOnce(graphics, space, drawnEdges, t.c(), t.a());
         }
     }
 
-    /// Bresenham line using 1×1 fill pixels
-    private void drawLine(GuiGraphicsExtractor graphics, int x0, int y0, int x1, int y1) {
-        int dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-        int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-        int err = dx - dy;
+    /// Rasterizes the edge between point indices [i] and [j] once. [drawnEdges] holds the
+    /// order-normalized packed index pair of every edge already drawn this frame, so an edge shared by
+    /// two triangles is skipped on its second visit. No-op if either endpoint is missing.
+    private void drawEdgeOnce(
+        GuiGraphicsExtractor graphics,
+        DelaunayTriangulation<BlendSpace2DHolder.MutableAnimNode> space,
+        Set<Long> drawnEdges,
+        int i,
+        int j
+    ) {
+        long key = ((long) Math.min(i, j) << 32) | (Math.max(i, j) & 0xFFFFFFFFL);
+        if (!drawnEdges.add(key)) return;
 
-        while (true) {
-            graphics.fill(x0, y0, x0 + 1, y0 + 1, LINE_COLOR);
-            if (x0 == x1 && y0 == y1) break;
-            int e2 = 2 * err;
-            if (e2 > -dy) { err -= dy; x0 += sx; }
-            if (e2 <  dx) { err += dx; y0 += sy; }
+        DelaunayTriangulation.DelaunayPoint p1 = space.getPoint(i);
+        DelaunayTriangulation.DelaunayPoint p2 = space.getPoint(j);
+        if (p1 == null || p2 == null) return;
+
+        drawLine(graphics, toScreenX(p1.x()), toScreenY(p1.y()), toScreenX(p2.x()), toScreenY(p2.y()));
+    }
+
+    /// Bresenham line, but coalesced into runs along the major axis: each maximal span sharing the
+    /// minor coordinate is one `fill` instead of one-per-pixel. Every `fill` is a separate
+    /// `GuiRenderState` element whose insert cost is superlinear in the element count (the render
+    /// state does an intersecting-bounds search per element), so the dense triangle wireframe was
+    /// dominating frame time. This makes the element count scale with the minor-axis delta rather than
+    /// the full pixel length — axis-aligned edges collapse to a single `fill`.
+    private void drawLine(GuiGraphicsExtractor graphics, int x0, int y0, int x1, int y1) {
+        int dx = Math.abs(x1 - x0);
+        int dy = Math.abs(y1 - y0);
+
+        if (dx >= dy) {
+            // X-major: walk left→right, flush a horizontal run each time y steps.
+            if (x0 > x1) { int t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
+            int sy = y1 >= y0 ? 1 : -1;
+            int err = dx / 2;
+            int y = y0;
+            int runStartX = x0;
+
+            for (int x = x0; x <= x1; x++) {
+                err -= dy;
+                if (err < 0) {
+                    graphics.fill(runStartX, y, x + 1, y + 1, LINE_COLOR);
+                    y += sy;
+                    err += dx;
+                    runStartX = x + 1;
+                }
+            }
+
+            if (runStartX <= x1) graphics.fill(runStartX, y, x1 + 1, y + 1, LINE_COLOR);
+        } else {
+            // Y-major: walk top→bottom, flush a vertical run each time x steps.
+            if (y0 > y1) { int t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
+            int sx = x1 >= x0 ? 1 : -1;
+            int err = dy / 2;
+            int x = x0;
+            int runStartY = y0;
+
+            for (int y = y0; y <= y1; y++) {
+                err -= dx;
+                if (err < 0) {
+                    graphics.fill(x, runStartY, x + 1, y + 1, LINE_COLOR);
+                    x += sx;
+                    err += dy;
+                    runStartY = y + 1;
+                }
+            }
+
+            if (runStartY <= y1) graphics.fill(x, runStartY, x + 1, y1 + 1, LINE_COLOR);
         }
     }
 
@@ -317,6 +394,23 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
     @Override
     public @NonNull List<? extends GuiEventListener> children() {
         return Collections.unmodifiableList(children);
+    }
+
+    /// Whether the preview cursor follows a possessed entity's blend-space driver instead of the
+    /// user's pointer. Installed by the owning screen; false for a screen that does not debug.
+    public boolean isDebugDriven() {
+        return debugDriven.getAsBoolean();
+    }
+
+    /// Installs the probe behind [#isDebugDriven].
+    public void setDebugDrivenChecker(final BooleanSupplier debugDriven) {
+        this.debugDriven = debugDriven;
+    }
+
+    /// Places the preview cursor at a blend-space coordinate. Does not fire
+    /// [#previewCursorMoveCallback] — the caller already holds the value it is moving the cursor to.
+    public void setPreviewCursor(final float blendX, final float blendY) {
+        previewCursor.setPosition(toScreenX(blendX), toScreenY(blendY));
     }
 
     private int toScreenX(float bsX) {
@@ -392,7 +486,9 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
         blendSpace2DHolder.removeNode(index);
     }
 
-    // Remove by widget
+    /// Remove by widget — the one undoable removal path, shared by the context menu's "Remove Node" and
+    /// the DELETE key (see [#keyPressed]). The [ListRemove] entry restores the node at its list index on
+    /// undo and re-syncs the widgets through [#syncNodeWidgets].
     private void removeNode(BlendSpaceNodeGraphWidget.@NonNull NodeWidget nodeWidget) {
         BlendSpace2DHolder.MutableAnimNode node = nodeWidget.bsNode;
         List<BlendSpace2DHolder.MutableAnimNode> nodes = blendSpace2DHolder.getNodesMutable();
@@ -406,6 +502,11 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
                 nodes, listIndex, node, this::syncNodeWidgets
             ));
         }
+
+        // The selection dies with the node: the Details table must stop editing an entry that is gone,
+        // and a stale `selectedNodeWidget` would make the next removal delete whatever node has since
+        // taken the removed one's index.
+        if (selectedNodeWidget == nodeWidget) setSelectedNode(null);
     }
 
     /// Refresh `children` from the holder's current node list. Called by
@@ -525,6 +626,8 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
 
         @Override
         protected void onDrag(@NonNull MouseButtonEvent event, double dx, double dy) {
+            if (isDebugDriven()) return;
+
             setX((int)Math.clamp(event.x(), toScreenX(blendSpace2DHolder.getMinX()), toScreenX(blendSpace2DHolder.getMaxX())));
             setY((int)Math.clamp(event.y(), toScreenY(blendSpace2DHolder.getMaxY()), toScreenY(blendSpace2DHolder.getMinY())));
             previewCursorMoveCallback.accept(toBlendX(getX()), toBlendY(getY()));

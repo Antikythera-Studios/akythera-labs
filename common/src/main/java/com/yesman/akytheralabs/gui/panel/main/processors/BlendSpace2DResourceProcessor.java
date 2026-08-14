@@ -4,7 +4,7 @@ import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.dataholder.animation.BlendSpace2DHolder;
+import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;

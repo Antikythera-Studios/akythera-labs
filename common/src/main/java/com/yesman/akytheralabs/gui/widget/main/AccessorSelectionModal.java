@@ -44,7 +44,8 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
     private static final int SCROLLBAR_W = 5;
     private static final int ROW_H = 16;
 
-    private static final String NONE_LABEL = "<none>";
+    /// How every picker spells "nothing selected", rows and PopupBox displays alike.
+    public static final String NONE_LABEL = "<none>";
 
     private final Font font;
     private final AssetAccessor.Type type;
@@ -79,6 +80,15 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
         this.accessorList = new AccessorList(listAccessors(type));
     }
 
+    /// Whether `accessor`'s id is still in the merged listing this modal shows for its type — the
+    /// [com.yesman.akytheralabs.gui.widget.PopupBox] validity probe for accessor cells (a
+    /// deleted / renamed asset drops out of the listing, but referrers keep the stale instance).
+    /// Enumerates without loading any asset; runs only at screen build and on picks.
+    public static boolean resolves(AssetAccessor<?> accessor) {
+        return listAccessors(accessor.type()).stream()
+            .anyMatch(a -> a.identifier().equals(accessor.identifier()));
+    }
+
     /// The project's merged accessor listing for `type` (mod-registered + project-issued, deduped),
     /// filtered by the accessors' runtime type so mixed listings (the mesh one) narrow correctly.
     private static List<AssetAccessor<?>> listAccessors(AssetAccessor.Type type) {
@@ -109,7 +119,8 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
         };
 
         String trimmed = accessor.identifier().toString().replace(directory, "");
-        return trimmed.equals(DataHolder.EMPTY_REFERENCE.toString()) ? "<none>" : trimmed;
+
+        return trimmed.equals(DataHolder.EMPTY_REFERENCE.toString()) ? NONE_LABEL : trimmed;
     }
 
     @Override

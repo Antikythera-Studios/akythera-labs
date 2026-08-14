@@ -1,20 +1,23 @@
 package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.generated.LangKeys;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.network.chat.Component;
 
+import java.util.concurrent.CompletableFuture;
+
 /// A non-interactive [WidgetContainerModal] showing a spinning "await" icon plus a message — shown
 /// while a background task (e.g. an asynchronous save) runs. Open it before the task, then close it
 /// via [AkytheraEditorLayoutManager#closeModal] once the task completes.
 ///
-/// The spinner is an [AwaitIconRow] (a [WidgetContainerModal.WidgetsContainerRow]) painting twelve
-/// fading blades rotated around the row centre, advancing one step per frame — ported from the
-/// 1.21.1 `AwaitIconMessageScreen` to 26.1's [GuiGraphicsExtractor] / 2D matrix stack (the old 3D
-/// `PoseStack` + `Axis.ZP.rotationDegrees` becomes `pose().rotate(radians)`).
+/// The spinner is an [AwaitIconRow], a [WidgetContainerModal.WidgetsContainerRow] painting twelve
+/// fading blades rotated around the row centre and advancing one step per frame, through
+/// [GuiGraphicsExtractor]'s 2D matrix stack.
 public final class AwaitIconModal {
     private static final int MODAL_WIDTH = 200;
     private static final int ICON_ROW_H = 48;
@@ -37,6 +40,29 @@ public final class AwaitIconModal {
     /// Convenience overload using the default "Saving..." message.
     public static WidgetContainerModal openSaving(Font font) {
         return open(font, Component.translatable(LangKeys.GUI_MESSAGE_SAVING));
+    }
+
+    /// Runs `work` off the render thread behind a "Saving..." modal, closing it on the render thread
+    /// once the work finishes. The modal blocks input for the duration, which is what makes it safe
+    /// to encode holders off-thread — nothing can mutate them mid-write.
+    ///
+    /// With no editor screen open there is nowhere to put a modal (the layout manager refuses), so
+    /// the work runs on the caller's thread instead and this returns an already-completed future.
+    public static CompletableFuture<Void> runSaving(Runnable work) {
+        AkytheraEditorLayoutManager layout = AkytheraEditorLayoutManager.getInstance();
+        Minecraft minecraft = Minecraft.getInstance();
+
+        if (!layout.isActive()) {
+            work.run();
+            return CompletableFuture.completedFuture(null);
+        }
+
+        WidgetContainerModal modal = openSaving(minecraft.font);
+
+        return CompletableFuture.runAsync(work).whenCompleteAsync((result, error) -> {
+            if (layout.getModal() == modal) layout.closeModal();
+            if (error != null) AkytheraLabs.LOGGER.error("Background save failed", error);
+        }, minecraft);
     }
 
     /// The spinning-blades row. Drawn entirely in [#extractRowContent]; advances its own frame counter

@@ -238,7 +238,7 @@ public final class WidgetContainerModal extends OverlayingWindowModal {
 
     @Override
     public void setFocused(final @Nullable GuiEventListener focused) {
-        // Manual fix: focusing was released as soon as a widget focused if it's the same one as current focus
+        // Re-focusing the already-focused child clears the focus in vanilla's implementation.
         if (getFocused() == focused) {
             return;
         }
@@ -380,7 +380,7 @@ public final class WidgetContainerModal extends OverlayingWindowModal {
             // Cap the modal box height so the body scrolls instead of overflowing the screen
             int screenH = AkytheraEditorLayoutManager.getInstance().isActive()
                 ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen().height
-                : Minecraft.getInstance().screen.height;
+                : Minecraft.getInstance().gui.screen().height;
 
             int boxHeight = Math.min(lastHeight, screenH - VIEWPORT_GUTTER);
 

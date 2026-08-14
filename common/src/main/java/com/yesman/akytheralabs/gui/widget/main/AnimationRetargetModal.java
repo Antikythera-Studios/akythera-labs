@@ -4,14 +4,9 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.armature.ArmatureManager;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.CheckBox;
-import com.yesman.akythera.client.gui.widget.CloseableWidget;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.CameraComponent;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.EntityModelComponent;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.EntityModelComponent.SimpleHeadlessAnimator;
-import com.yesman.akythera.client.gui.widget.ResizeCompleteCallbackListener;
+import com.yesman.akythera.client.gui.widget.*;
+import com.yesman.akythera.client.gui.widget.viewer.*;
+import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent.SimpleHeadlessAnimator;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.asset.armature.Armature;
@@ -51,6 +46,7 @@ import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
@@ -132,7 +128,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     private final ModelList modelList;
     private final ArmatureList armatureList;
 
-    private final ModelPreviewer preview;
+    private final Model3DViewer preview;
 
     private final AdvancedEditBox<String> exportPathBox;
     private final AnchoredButton exportPathBrowseBtn;
@@ -219,7 +215,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         );
 
         // Preview: anchored to the right edge with RIGHT_WIDTH → x1=right offset, x2=width.
-        this.preview = new ModelPreviewer(
+        this.preview = new Model3DViewer(
             AnchoredWidget.pixel(0), AnchoredWidget.fraction(PREVIEW_PCT),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(BOTTOM_BAR_H),
             HorizontalAnchorType.RIGHT_WIDTH,
@@ -228,8 +224,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         );
 
         preview.addComponent(new CameraComponent(true));
-        preview.addComponent(new ModelPreviewer.BackgroundComponent(18, 18, 18, 255));
-        preview.addComponent(new ModelPreviewer.GridFloorComponent(1.0F, 50, 68, 68, 68, 255));
+        preview.addComponent(new BackgroundComponent(18, 18, 18, 255));
+        preview.addComponent(new GridFloorComponent(1.0F, 50, 68, 68, 68, 255));
 
         // Footer widgets: all centered in the top FOOTER_ROW_H band of the bottom bar.
         // bottom offset (BOTTOM_HEIGHT y1) = WARNING_AREA_H + (FOOTER_ROW_H - FOOTER_WIDGET_H) / 2.
@@ -283,13 +279,13 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     private static String defaultExportPath() {
         return AkytheraProject.getCurrentProject().getProjectRoot()
-            .resolve("assets").resolve("animmodels").resolve("animations")
+            .resolve("assets").resolve("animmodels").resolve("animationsToReplace")
             .toString();
     }
 
     /// Left column splits into 3 equal-height sections (preview models / armatures /
-    /// animations-to-retarget) plus a fixed one-row "Source Armature" slot between
-    /// armatures and animations. Pixel heights are recomputed every relocate.
+    /// animationsToReplace-to-retarget) plus a fixed one-row "Source Armature" slot between
+    /// armatures and animationsToReplace. Pixel heights are recomputed every relocate.
     @Override
     public void relocate(ScreenRectangle screenRectangle) {
         // 1. Run base relocate — positions the modal and runs an initial child iteration
@@ -451,7 +447,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         g.fill(leftRight - 1, getY() + TITLE_H, leftRight, bottomY, 0xFF333333);
         g.fill(rightLeft - 1, getY() + TITLE_H, rightLeft, bottomY, 0xFF333333);
 
-        // "Source Armature" — one-row slot between armatures and animations.
+        // "Source Armature" — one-row slot between armatures and animationsToReplace.
         int srcArmTop = srcArmSectionTopY();
         g.text(font, Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_SOURCE_ARMATURE), getX() + 6, srcArmTop + 2, 0xFFAAAAAA, false);
         int slotTop = srcArmTop + LIST_LABEL_H + 2;
@@ -477,7 +473,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         g.fill(getX() + 1, animTop, leftRight - 1, animTop + 1, 0xFF3A3A3A);
         g.text(font, Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_ANIMATIONS_TO_RETARGET), getX() + 6, animTop + 4, 0xFFAAAAAA, false);
 
-        // Hint in the animations area when source armature is ready and no entries yet.
+        // Hint in the animationsToReplace area when source armature is ready and no entries yet.
         if (sourceArmature != null && animList.children().isEmpty()) {
             Component hint = Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_MESSAGE_DRAG_AND_DROP_ANIMATIONS);
             List<FormattedCharSequence> split = font.split(hint, animList.getWidth() - 4);
@@ -504,7 +500,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             if (e instanceof AbstractWidget w) w.extractRenderState(g, mouseX, mouseY, a);
         }
 
-        // Inline incompat warning under the animations list, fades after duration.
+        // Inline incompat warning under the animationsToReplace list, fades after duration.
         long now = System.currentTimeMillis();
         int warnBaseY = getBottom() - BOTTOM_BAR_H - 12;
 
@@ -866,9 +862,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         boneMappingPanel.rebuild();
     }
 
-    /// Called from a `BoneMappingPanel.Entry` combo selection. Propagates the pick to every
-    /// selected entry's template + rebuilds the panel so all rows refresh their
-    /// "available targets" lists.
+    /// Propagates a bone pick to every selected entry's template, then rebuilds the panel so each
+    /// row refreshes its available-targets list.
     private void onPick(String clipBone, @Nullable String pickedArmBone) {
         if (focusedEntry == null) return;
 
@@ -934,7 +929,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
                 dispatcher.renderers.entrySet().stream()
                     .filter(e -> e.getValue() instanceof LivingEntityRenderer<?, ?, ?>)
                     .map(e -> new VanillaModelRow(e.getKey(), (LivingEntityRenderer<?, ?, ?>) e.getValue())),
-                Stream.of(new VanillaModelRow(EntityType.PLAYER, dispatcher.playerRenderers.get(DefaultPlayerSkin.getDefaultSkin().model())))
+                Stream.of(new VanillaModelRow(EntityTypes.PLAYER, dispatcher.playerRenderers.get(DefaultPlayerSkin.getDefaultSkin().model())))
             )
             .filter(row -> lower.isEmpty() || row.label().getString().toLowerCase().contains(lower))
             .sorted(Comparator.comparing(row -> row.label().getString()))
@@ -1533,7 +1528,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
         MappingRow(String clipBone) {
             this.clipBone = clipBone;
-            List<String> avail = availableTargets(clipBone);
+            Set<String> avail = availableTargets(clipBone);
 
             this.combo = new AdvancedComboBox<>(
                 font,
@@ -1570,14 +1565,14 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             return List.of(combo);
         }
 
-        private List<String> availableTargets(String clipBone) {
-            if (focusedEntry == null) return List.of();
+        private Set<String> availableTargets(String clipBone) {
+            if (focusedEntry == null) return Set.of();
 
             Set<String> used = new HashSet<>(focusedEntry.template.mapping().values());
             String selfTarget = focusedEntry.template.getTarget(clipBone);
-            if (selfTarget != null) used.remove(selfTarget);     // keep self pickable
+            if (selfTarget != null) used.remove(selfTarget); // keep self pickable
 
-            List<String> avail = new ArrayList<>();
+            Set<String> avail = new TreeSet<>();
 
             for (String armBone : currentArmatureBoneNames) {
                 if (!used.contains(armBone)) avail.add(armBone);

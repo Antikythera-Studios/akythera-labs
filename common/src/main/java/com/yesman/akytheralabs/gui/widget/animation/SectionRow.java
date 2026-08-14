@@ -4,7 +4,7 @@ import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
-import com.yesman.akytheralabs.dataholder.animation.AnimationMontageHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.editor.historytrack.DraggingDataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.PendingDataChange;

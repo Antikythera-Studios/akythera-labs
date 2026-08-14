@@ -10,11 +10,13 @@ import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.panel.main.WorldviewPanel;
+import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
 import com.yesman.akytheralabs.gui.widget.main.*;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -32,7 +34,7 @@ import java.util.Optional;
 /// in-game screens like inventory or chest container.
 ///
 /// [Minecraft#level] always not null when the screen is opened
-public final class MainEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class MainEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, WorldViewportHost {
     private static final int RIGHT_TOOLBAR_WIDTH = 40;
     private static final int TOP_BAR_HEIGHT = 22;
 
@@ -78,6 +80,7 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
                 //.done()
                 .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS))
                     .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS_ANIMATION_RETARGET), () -> AnimationRetargetModal.open(font))
+                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS_DEBUG), () -> DebuggableScreen.openDebugSelector(font))
                 .done()
                 .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
                     .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
@@ -211,10 +214,10 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
     }
 
     /// Instead of assigning `modal` directly into [#focused], check and return opened modal via
-    /// [AkytheraEditorLayoutManager#getModal()] to release focus automatically when closed.
+    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
     @Nullable
     public GuiEventListener getFocused() {
-        AbstractWidget modal = AkytheraEditorLayoutManager.getInstance().getModal();
+        AbstractWidget modal = getFocusOwningModal();
         if (modal != null) return modal;
 
         return super.getFocused();
@@ -233,7 +236,7 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
-        AkytheraEditorLayoutManager.blurFocusChainLeaf(this);
+        AkytheraEditorLayoutManager.blurFocusChainLeaf(this, event.x(), event.y());
 
         // TopMenuBar gets first click priority (handles open dropdown or closes it)
         if (topMenuBar.mouseClicked(event, doubleClick)) return true;
@@ -273,13 +276,6 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
         return super.getChildAt(x, y);
     }
 
-    public boolean pointerInGameplayViewport(final int mouseX, final int mouseY) {
-        return mouseX >= worldViewport.getX() &&
-            mouseY >= worldViewport.getY() &&
-            mouseX < worldViewport.getRight() &&
-            mouseY < worldViewport.getBottom();
-    }
-
     private void saveProject() {
         AkytheraProject project = AkytheraProject.getCurrentProject();
         project.saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());
@@ -291,8 +287,8 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
         return panelManager.isDragging();
     }
 
-    public int getWorldViewportX() { return worldViewport.getX(); }
-    public int getWorldViewportY() { return worldViewport.getY(); }
-    public int getWorldViewportWidth() { return worldViewport.getWidth(); }
-    public int getWorldViewportHeight() { return worldViewport.getHeight(); }
+    @Override
+    public ScreenRectangle getWorldViewportRectangle() {
+        return worldViewport.getRectangle();
+    }
 }

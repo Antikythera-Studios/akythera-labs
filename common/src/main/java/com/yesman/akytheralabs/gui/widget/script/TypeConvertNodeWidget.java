@@ -1,5 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.TypeConvertNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
@@ -59,5 +61,10 @@ public final class TypeConvertNodeWidget extends AbstractNodeWidget {
         if (type == float.class || type == Float.class) return "float";
         if (type == double.class || type == Double.class) return "double";
         return type.getSimpleName();
+    }
+
+    @Override
+    public NodeData toData() {
+        return new TypeConvertNodeData(scriptTypeOf(fromType), scriptTypeOf(toType));
     }
 }

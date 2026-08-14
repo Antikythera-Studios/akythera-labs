@@ -2,12 +2,8 @@ package com.yesman.akytheralabs.gui.widget.main;
 
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.lifecycle.ComponentsFactory;
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.CloseableWidget;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.CameraComponent;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.EntityModelComponent;
-import com.yesman.akythera.client.gui.widget.ResizeCompleteCallbackListener;
+import com.yesman.akythera.client.gui.widget.*;
+import com.yesman.akythera.client.gui.widget.viewer.*;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
@@ -34,6 +30,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -43,12 +40,12 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 /// Maps an [EntityType] to a default [Armature] accessor for headless model previews
-/// ([com.yesman.akythera.client.gui.widget.ModelPreviewer]) via
+/// ([Model3DViewer]) via
 /// [ComponentsFactory#registerDefaultArmature]. Each row pairs an entity type with a
 /// [PopupBox] (`<entity>  ->  [armature]`, matching [AnimationRetargetModal]'s bone-mapping
 /// rows) whose magnifier stacks the shared [AccessorSelectionModal] armature picker — with
 /// the `<none>` row enabled, so a mapping can be cleared again. The right column hosts a
-/// [ModelPreviewer]: selecting a row displays its vanilla model in bind pose (no animation
+/// [Model3DViewer]: selecting a row displays its vanilla model in bind pose (no animation
 /// is ever pushed), re-displayed after a pick so the new armature mapping takes effect.
 public final class ModelArmatureMappingModal extends OverlayingWindowModal
     implements ResizeCompleteCallbackListener, CloseableWidget
@@ -72,7 +69,7 @@ public final class ModelArmatureMappingModal extends OverlayingWindowModal
     private final Font font;
     private final AnchoredButton closeScreenButton;
     private final AdvancedEditBox<String> searchBox;
-    private final ModelPreviewer preview;
+    private final Model3DViewer preview;
     private MappingList mappingList; // assigned after the search box, whose responder captures it
 
     public ModelArmatureMappingModal(Font font) {
@@ -104,7 +101,7 @@ public final class ModelArmatureMappingModal extends OverlayingWindowModal
         );
 
         // Right-column previewer, same setup as AnimationRetargetModal's.
-        this.preview = new ModelPreviewer(
+        this.preview = new Model3DViewer(
             AnchoredWidget.pixel(0), AnchoredWidget.fraction(PREVIEW_PCT),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(1),
             HorizontalAnchorType.RIGHT_WIDTH,
@@ -113,8 +110,8 @@ public final class ModelArmatureMappingModal extends OverlayingWindowModal
         );
 
         preview.addComponent(new CameraComponent(true));
-        preview.addComponent(new ModelPreviewer.BackgroundComponent(18, 18, 18, 255));
-        preview.addComponent(new ModelPreviewer.GridFloorComponent(1.0F, 50, 68, 68, 68, 255));
+        preview.addComponent(new BackgroundComponent(18, 18, 18, 255));
+        preview.addComponent(new GridFloorComponent(1.0F, 50, 68, 68, 68, 255));
 
         this.mappingList = new MappingList(buildEntityCatalog());
     }
@@ -128,7 +125,7 @@ public final class ModelArmatureMappingModal extends OverlayingWindowModal
                 dispatcher.renderers.entrySet().stream()
                     .filter(e -> e.getValue() instanceof LivingEntityRenderer<?, ?, ?>)
                     .map(Map.Entry::getKey),
-                Stream.<EntityType<?>>of(EntityType.PLAYER)
+                Stream.<EntityType<?>>of(EntityTypes.PLAYER)
             )
             .sorted(Comparator.comparing(ModelArmatureMappingModal::entityLabel))
             .toList();

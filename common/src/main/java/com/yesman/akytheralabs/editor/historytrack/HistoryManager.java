@@ -4,26 +4,23 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Stack;
 
-/// A history manager stacks previous works
+/// The editor's undo / redo stacks.
 public final class HistoryManager {
     private static final HistoryManager INSTANCE = new HistoryManager();
 
-    /// Cap on the undo stack so a long editing session can't grow memory without bound. Once
-    /// exceeded, the oldest (bottom-most) entry is dropped — making the *N*th-from-last change no
-    /// longer undoable, the standard editor trade-off. The redo stack needs no separate cap: it only
-    /// gains entries by undoing (bounded by the undo depth) and is cleared on every new push.
+    /// Cap on the undo stack. Past it the oldest entry is dropped, so the *N*th-from-last change
+    /// stops being undoable. The redo stack needs no cap of its own: it only gains entries by undoing
+    /// and is cleared on every new push.
     private static final int MAX_UNDO_HISTORY = 64;
 
     public static HistoryManager getInstance() {
         return INSTANCE;
     }
 
-    /// Stores the recent changes in FIFO stack so that `undo` task
-    /// calls the last change first
+    /// The recent changes, most recent last, so [#undo] takes the last one first.
     private final Stack<WorkHistory> toUndo = new Stack<>();
 
-    /// Stores the recent `undo` calls so when the user requests
-    /// `redo`,
+    /// The entries [#undo] popped, for [#redo] to replay.
     private final Stack<WorkHistory> toRedo = new Stack<>();
 
     /// True while a [WorkHistory#redo] / [WorkHistory#undo] is being applied.
@@ -49,14 +46,12 @@ public final class HistoryManager {
 
         toUndo.push(workHistory);
 
-        // Bound the undo depth: drop the oldest entries once over the cap (FIFO eviction from the
-        // bottom of the stack) so memory stays bounded across a long session.
+        // Drop the oldest entries once over the cap.
         while (toUndo.size() > MAX_UNDO_HISTORY) {
             toUndo.removeFirst();
         }
 
-        // Reset the redo stack when new history comes to
-        // prevent history twist
+        // A new change makes the redo stack unreachable.
         toRedo.clear();
     }
 
@@ -115,29 +110,25 @@ public final class HistoryManager {
         });
     }
 
-    /// Called by the layout manager when a screen (or screen-like modal) is
-    /// about to open. The next user push will be preceded by a
-    /// [ScreenSavePoint] on the undo stack so its contents stay scoped.
+    /// Marks the next user push to be preceded by a [ScreenSavePoint], scoping everything above it
+    /// to the screen or screen-like modal about to open.
     public void requestSavePointOnNextAction() {
         needsSavePoint = true;
     }
 
     /// The current top of the undo stack, or `null` when it is empty.
     ///
-    /// Editor screens snapshot this reference as their "last save point" to drive the unsaved-changes
-    /// marker (the `*` in the title bar): a screen is dirty whenever this no longer equals the snapshot,
-    /// and clean again once a save (or an undo back to that point) restores it. Reference identity is
-    /// used deliberately, so it survives undo/redo without any per-change bookkeeping.
+    /// Editor screens snapshot this reference as their last save point and drive the `*` unsaved
+    /// marker off it: a screen is dirty while this no longer equals the snapshot, and clean again once
+    /// a save — or an undo back to that point — restores it. The comparison is by identity.
     public @Nullable WorkHistory currentSavePoint() {
         return toUndo.isEmpty() ? null : toUndo.peek();
     }
 
-    /// Called by the layout manager when a screen (or screen-like modal) is
-    /// closing. Pops the undo stack down to (and including) the most recent
-    /// [ScreenSavePoint].
+    /// Pops the undo stack down to, and including, the most recent [ScreenSavePoint] — the scope of
+    /// the screen or screen-like modal now closing.
     public void popScreen() {
-        // If the current state is pending to produce any new history, we don't
-        // need to pop out any history stack. Safe to skip.
+        // A pending save point means nothing was pushed under it, so there is nothing to pop.
         if (needsSavePoint) {
             needsSavePoint = false;
             return;
@@ -151,10 +142,8 @@ public final class HistoryManager {
         toRedo.clear();
     }
 
-    /// Hard wipe. Kept around for callers that genuinely need the whole stack
-    /// gone (none in normal screen / modal lifecycle anymore — see
-    /// [#popScreen]). Also resets [#needsSavePoint] so a stale request from
-    /// a just-opened-then-wiped scope doesn't carry over.
+    /// Drops both stacks whole, and resets [#needsSavePoint] so a request from a just-wiped scope
+    /// does not carry over. The screen and modal lifecycle uses [#popScreen] instead.
     public void removeAllHistory() {
         toUndo.clear();
         toRedo.clear();

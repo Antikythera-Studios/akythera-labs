@@ -113,7 +113,7 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
 
     @Override
     public void setFocused(final @Nullable GuiEventListener focused) {
-        // Manual fix: focusing was released as soon as a widget focused if it's the same one as current focus
+        // Re-focusing the already-focused child clears the focus in vanilla's implementation.
         if (getFocused() == focused) {
             return;
         }
@@ -499,7 +499,7 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
 
         @Override
         public void setFocused(final @Nullable GuiEventListener focused) {
-            // Manual fix: focusing was released as soon as a widget focused if it's the same one as current focus
+            // Re-focusing the already-focused child clears the focus in vanilla's implementation.
             if (getFocused() == focused) {
                 return;
             }
@@ -534,10 +534,9 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
         }
 
         /// Forwards drags to the focused child for every button. The inherited
-        /// [AbstractContainerWidget#mouseDragged] only forwards left-button (button 0)
-        /// drags — and handles its own scrollbar grab there — so we try `super` first
-        /// (preserving scrollbar dragging) and fall back to forwarding right-button drags
-        /// the base class would otherwise drop.
+        /// [AbstractContainerWidget#mouseDragged] forwards only left-button drags and handles its own
+        /// scrollbar grab there, so it runs first and the fallback below picks up the right-button
+        /// drags it leaves behind.
         @Override
         public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
             if (super.mouseDragged(event, dx, dy)) {
@@ -548,10 +547,10 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
             return focused != null && isDragging() && AkytheraEditorLayoutManager.acceptsDragButton(event) && focused.mouseDragged(event, dx, dy);
         }
 
-        /// Mirror of [#mouseDragged] for the button-up. The inherited release only fires for the
-        /// left button, so we forward a right-button editor release (and clear dragging) here.
-        /// `super` already handles and clears a left-button release — leaving `isDragging()`
-        /// false by the time we reach the fallback — so this never double-dispatches.
+        /// The [#mouseDragged] treatment for the button-up: the inherited release fires only for the
+        /// left button, so a right-button editor release is forwarded here and clears the drag.
+        /// `super` handles and clears a left-button release itself, leaving `isDragging()` false by
+        /// the time the fallback runs, so no release is ever dispatched twice.
         @Override
         public boolean mouseReleased(@NonNull MouseButtonEvent event) {
             if (super.mouseReleased(event)) {

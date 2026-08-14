@@ -1,8 +1,7 @@
-/// Written by `forgeconfigapiport`
+/// The editor's persisted configuration, held as `forgeconfigapiport` config specs.
 ///
-/// the namespace `neoforge` in this class is a reflection
-/// of NeoForge's original code, the usage is ensured by
-/// non-forge platforms by `forgeconfigapiport`.
+/// The `neoforge` namespace this class imports from is NeoForge's own; `forgeconfigapiport` supplies
+/// it on the non-Forge platforms.
 
 package com.yesman.akytheralabs.config;
 
@@ -42,21 +41,16 @@ public final class AkytheraLabsConfig {
         editorGuiScale = value;
     }
 
-    /// Init config values = config specs
+    /// Loads the in-memory values from the config specs.
     public static void initConfigValues() {
         editorGuiScale = EDITOR_GUI_SCALE.getAsInt();
         applyKeyMappingsFromSpec();
     }
 
-    /// Save config specs = config values
+    /// Writes the in-memory values back into the config specs and saves them.
     public static void saveConfigValues() {
         setAndSave(EDITOR_GUI_SCALE, editorGuiScale);
         setAndSave(KEY_MAPPINGS, serializeKeyMappings());
-    }
-
-    public static void revertToSpecValues() {
-        editorGuiScale = EDITOR_GUI_SCALE.getAsInt();
-        applyKeyMappingsFromSpec();
     }
 
     private static List<String> serializeKeyMappings() {

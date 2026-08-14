@@ -6,7 +6,7 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dataholder.ProjectObjectRegistry;
-import com.yesman.akytheralabs.dataholder.entitypatch.EntityPatchBlueprintHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;

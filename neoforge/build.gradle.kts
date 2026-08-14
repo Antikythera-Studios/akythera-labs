@@ -55,7 +55,7 @@ neoForge {
 }
 
 dependencies {
-    implementation("com.yesman.akythera:neoforge")
+    implementation("io.github.yesssssman.akythera:neoforge")
 
     implementation(libs.freemarker)
 

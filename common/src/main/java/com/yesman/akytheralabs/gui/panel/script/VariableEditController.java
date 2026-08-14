@@ -15,6 +15,7 @@ import com.yesman.akythera.client.gui.widget.common.AnchoredWidget.VerticalAncho
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -316,7 +317,7 @@ public final class VariableEditController {
     public void addDefaultValueRow(WidgetTable table, VariableDraft draft) {
         table.newRow().addWidget(label(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VARIABLE_DEFAULT));
 
-        Class<?> c = ParseUtils.unwrapPrimitive(draft.getType().type());
+        Class<?> c = ParseUtils.unbox(draft.getType().type());
 
         if (c == Float.class) c = float.class;
         if (c == Double.class) c = double.class;
@@ -374,8 +375,36 @@ public final class VariableEditController {
                 pushDefaultHistory(draft, oldV, now);
             });
             table.addWidget(box);
+        } else if (c == Vec3.class) {
+            // Three per-axis boxes like EditorWidgetFactory's Vec3 producer: each axis writes a
+            // whole new vector live; a commit pushes one history entry holding full old/new
+            // vectors, whose replay rebuilds the Details table (so all three boxes refresh).
+            for (int i = 0; i < 3; i++) {
+                int axis = i;
+
+                ClampedNumberBox<Double> box = new ClampedNumberBox<>(
+                    font,
+                    EditorWidgetFactory.columnStart(axis, 3, LABEL_W), EditorWidgetFactory.columnSize(axis, 3, LABEL_W),
+                    AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
+                    HorizontalAnchorType.LEFT_WIDTH, VerticalAnchorType.TOP_HEIGHT,
+                    () -> EditorWidgetFactory.axisOf((Vec3) draft.getDefaultVal(), axis),
+                    v -> draft.setDefaultVal(EditorWidgetFactory.withAxis((Vec3) draft.getDefaultVal(), axis, v)),
+                    Component.empty(), false,
+                    -Double.MAX_VALUE, Double.MAX_VALUE, 0.1D, -0.1D,
+                    Double::parseDouble, d -> ParseUtils.floatingPointToString(d.floatValue()), Double::compareTo, Double::sum
+                );
+
+                box.setOnCommitted((oldV, _) -> {
+                    Vec3 newVec = (Vec3) draft.getDefaultVal(); // the axis setter already wrote the new value
+                    Vec3 oldVec = EditorWidgetFactory.withAxis(newVec, axis, oldV);
+                    if (Objects.equals(oldVec, newVec)) return;
+                    pushDefaultHistory(draft, oldVec, newVec);
+                });
+
+                table.addWidget(box);
+            }
         } else {
-            // Vec3, comparator and any other codec type: read-only JSON view for this stage.
+            // Comparator and any other codec type: a read-only JSON view.
             table.addWidget(new Static(
                 font,
                 AnchoredWidget.pixel(LABEL_W + 2), AnchoredWidget.pixel(INDENT),
@@ -448,7 +477,7 @@ public final class VariableEditController {
     /// value so [ScriptVariables.VariableInfo]'s
     /// codec can encode it on save.
     public static @Nullable Object defaultValueFor(ScriptType type) {
-        Class<?> c = ParseUtils.unwrapPrimitive(type.type());
+        Class<?> c = ParseUtils.unbox(type.type());
         if (c == byte.class) return (byte) 0;
         if (c == short.class) return (short) 0;
         if (c == int.class) return 0;

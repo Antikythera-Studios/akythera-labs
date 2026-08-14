@@ -4,17 +4,27 @@
   "compatibilityLevel": "JAVA_21",
   "package": "com.yesman.akytheralabs.mixin",
   "client": [
+    "AnimationLayerAccessor",
+    "AnimationStateMachineAccessor",
+    "BlendSpace2DDriverAccessor",
+    "BlendingAnimatorAccessor",
+    "CachedPoseReferenceAccessor",
     "MixinAbstractWidget",
     "MixinAnimationManager",
     "MixinArmatureManager",
+    "MixinDataDrivenAnimatorScript",
     "MixinGameRenderer",
+    "MixinGameRendererAccessor",
     "MixinGui",
     "MixinGuiRenderer",
+    "MixinHud",
     "MixinKeyboardHandler",
     "MixinMeshManager",
     "MixinMinecraft",
+    "MixinMob",
     "MixinMouseHandler",
-    "MixinPauseScreen"
+    "MixinPauseScreen",
+    "MixinPlayer"
   ],
   "mixins": [
     "MappedRegistryAccessor"

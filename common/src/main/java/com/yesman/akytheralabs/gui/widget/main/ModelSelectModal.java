@@ -5,9 +5,10 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.client.gui.widget.CloseableWidget;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.CameraComponent;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer.EntityModelComponent;
+import com.yesman.akythera.client.gui.widget.viewer.BackgroundComponent;
+import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
+import com.yesman.akythera.client.gui.widget.viewer.CameraComponent;
+import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
 import com.yesman.akythera.client.gui.widget.ResizeCompleteCallbackListener;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.util.helper.ParseUtils;
@@ -33,6 +34,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -55,7 +57,7 @@ public final class ModelSelectModal extends OverlayingWindowModal
     private final CatalogSource catalog;
     private final AdvancedEditBox<String> searchBox;
     private final ModelList modelList;
-    private final ModelPreviewer preview;
+    private final Model3DViewer preview;
 
     /// Default catalog: skeletal meshes + every vanilla living entity.
     public ModelSelectModal(
@@ -96,7 +98,7 @@ public final class ModelSelectModal extends OverlayingWindowModal
             Component.translatable(LangKeys.GUI_MESSAGE_EMPTY_SEARCHBAR)
         );
 
-        this.preview = new ModelPreviewer(
+        this.preview = new Model3DViewer(
             AnchoredWidget.pixel(0), AnchoredWidget.fraction(50),
             AnchoredWidget.pixel(TITLE_H + SEARCH_H), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH,
@@ -105,7 +107,7 @@ public final class ModelSelectModal extends OverlayingWindowModal
         );
 
         preview.addComponent(new CameraComponent(true));
-        preview.addComponent(new ModelPreviewer.BackgroundComponent(18, 18, 18, 255));
+        preview.addComponent(new BackgroundComponent(18, 18, 18, 255));
 
         if (initialModel != null) {
             getRowById(initialModel.modelId(), initialModel.modelType()).ifPresent(modelList::setSelected);
@@ -314,7 +316,7 @@ public final class ModelSelectModal extends OverlayingWindowModal
                 dispatcher.renderers.entrySet().stream()
                     .filter(e -> e.getValue() instanceof LivingEntityRenderer<?, ?, ?>)
                     .map(e -> new VanillaModelRow(e.getKey())),
-                Stream.of(new VanillaModelRow(EntityType.PLAYER))
+                Stream.of(new VanillaModelRow(EntityTypes.PLAYER))
             )
             .filter(row -> lower.isEmpty() || row.label().getString().toLowerCase().contains(lower))
             .sorted(Comparator.comparing(row -> row.label().getString()))
@@ -336,7 +338,7 @@ public final class ModelSelectModal extends OverlayingWindowModal
             BuiltInRegistries.ENTITY_TYPE.stream()
                 .filter(type -> dispatcher.renderers.get(type) instanceof LivingEntityRenderer<?, ?, ?>)
                 .map(VanillaModelRow::new),
-            Stream.of(new VanillaModelRow(EntityType.PLAYER))
+            Stream.of(new VanillaModelRow(EntityTypes.PLAYER))
         )
         .filter(row -> lower.isEmpty() || row.label().getString().toLowerCase().contains(lower))
         .sorted(Comparator.comparing(row -> row.label().getString()))
@@ -351,7 +353,7 @@ public final class ModelSelectModal extends OverlayingWindowModal
         return rows;
     }
 
-    private Optional<ModelList.Entry> getRowById(Identifier id, ModelPreviewer.EntityModelComponent.ModelType type) {
+    private Optional<ModelList.Entry> getRowById(Identifier id, EntityModelComponent.ModelType type) {
         return modelList.children().stream().filter(e ->
             switch (type) {
                 case SKELETAL_MESH ->
@@ -369,14 +371,14 @@ public final class ModelSelectModal extends OverlayingWindowModal
             case SkeletalMeshRow sr -> {
                 preview.displayEntity(
                     sr.accessor().identifier(),
-                    ModelPreviewer.EntityModelComponent.ModelType.SKELETAL_MESH,
+                    EntityModelComponent.ModelType.SKELETAL_MESH,
                     true, true
                 );
             }
             case VanillaModelRow vr -> {
                 preview.displayEntity(
                     BuiltInRegistries.ENTITY_TYPE.getKey(vr.type()),
-                    ModelPreviewer.EntityModelComponent.ModelType.VANILLA_ENTITY,
+                    EntityModelComponent.ModelType.VANILLA_ENTITY,
                     true, true
                 );
             }

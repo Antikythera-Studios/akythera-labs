@@ -21,20 +21,18 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-/// Reads assets & data objects from each project folders under 'akythera_projects'
+/// Reads assets and data objects out of the project folders under `akythera_projects`.
 ///
-/// The resource namespace is restricted to have only one, the project name and
-/// 'assets' and 'data' directories will skip the namespace folder. This will ease
-/// when renaming the project name getting rid of the necessity of renaming namespace
-/// folder and keep the consistency of the project—Allows only one namespace per project
-/// to avoid name crash between projects.
+/// A project carries exactly one namespace, its own name, so two projects can never collide. The
+/// namespace names the project directory and the `assets` / `data` directories sit inside it, which
+/// leaves a project rename a single directory move.
 ///
-/// Path layout (namespace-first, reversed from vanilla):
+/// Path layout, namespace-first and so reversed from vanilla:
 /// - Vanilla: `{root}/assets/{namespace}/{path}`
 /// - Project: `{projectsRoot}/{namespace}/assets/{path}`
 ///
-/// This manager is stateless. The namespace is always read from the incoming [Identifier],
-/// so no reconstruction is needed when switching projects.
+/// Stateless: the namespace is read from the incoming [Identifier] every time, so switching
+/// projects rebuilds nothing.
 @NullMarked
 public final class ProjectResourceManager implements ResourceManager {
     /// Only called while a project is active — safe to resolve lazily.

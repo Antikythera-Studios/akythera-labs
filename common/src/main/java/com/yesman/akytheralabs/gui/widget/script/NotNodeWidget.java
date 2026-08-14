@@ -1,5 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NotNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
@@ -19,5 +21,10 @@ public final class NotNodeWidget extends AbstractNodeWidget {
         addOutput(new Pin("", NodeColors.forType(boolean.class), false, boolean.class));
 
         relayout();
+    }
+
+    @Override
+    public NodeData toData() {
+        return new NotNodeData();
     }
 }

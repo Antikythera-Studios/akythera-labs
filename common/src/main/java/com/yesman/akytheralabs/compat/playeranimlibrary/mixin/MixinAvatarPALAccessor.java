@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 import java.util.Map;
 
 /// Accessor into the members PAL's `AvatarMixin` merges into [Avatar], so
-/// [MixinWorldviewPanel] can rebuild the avatar's animation stack after a project reload.
+/// [MixinProjectReloader] can rebuild the avatar's animation stack after a project reload.
 ///
 /// The targets are another mod's `@Unique` members, which only exist in the class once PAL's
 /// mixin has been applied — `priority = 2000` orders this mixin after PAL's (default 1000).

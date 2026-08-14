@@ -171,7 +171,7 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
 
     @Override
     protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
-        // Page background + 1-px border (no dimmer)
+        // Page background + 1-posX border (no dimmer)
         graphics.fill(getX(), getY(), getRight(), getBottom(), 0xFF1E1E1E);
         graphics.fill(getX(), getY(), getRight(), getY() + 1, 0xFF3A3A3A);
         graphics.fill(getX(), getBottom() - 1, getRight(), getBottom(), 0xFF3A3A3A);

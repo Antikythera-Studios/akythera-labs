@@ -1,6 +1,12 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.core.animation.keyframe.Pose;
+import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
+import com.yesman.akytheralabs.akythera.animation.AnimGraphCompiler;
+import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
+import net.minecraft.core.Holder;
+import com.yesman.akytheralabs.gui.widget.script.node.AnimLayerNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
@@ -17,7 +23,7 @@ import net.minecraft.network.chat.Component;
 /// State Machine applies to its [com.yesman.akythera.core.animation.driver.FSMAnimationState] states).
 /// A signature is its own identity, so — like a state — it is never renamed in place.
 ///
-/// Compile rule (in [com.yesman.akytheralabs.dataholder.animation.AnimGraphCompiler], not a node
+/// Compile rule (in [AnimGraphCompiler], not a node
 /// method): every layer node `map_put`s `animation_layer_create(source)` under its signature into the
 /// `construct` event — so the layer exists for the whole lifecycle regardless of whether its output is
 /// wired ("presence of any layer node puts a new layer in the constructor"). When this node's output
@@ -27,12 +33,14 @@ public final class AnimLayerNodeWidget extends AbstractNodeWidget {
     /// Indigo title, distinguishing the layer node from the other pose sources.
     private static final int TITLE_COLOR = 0xFF3A2A4A;
 
-    private final String signatureName;
+    /// The layer's signature, as the shared live holder — the binding follows a rename of an
+    /// editor-created signature.
+    private final Holder<AnimationLayerSignature> signature;
 
-    public AnimLayerNodeWidget(Font font, String signatureName, int graphX, int graphY) {
-        super(font, Component.literal("Layer: " + signatureName), graphX, graphY);
+    public AnimLayerNodeWidget(Font font, Holder<AnimationLayerSignature> signature, int graphX, int graphY) {
+        super(font, Component.literal("Layer: " + EditorHolderCodecs.blockId(signature)), graphX, graphY);
 
-        this.signatureName = signatureName;
+        this.signature = signature;
 
         setTitleColor(TITLE_COLOR);
         addInput(new Pin("Source", NodeColors.forType(Pose.class), false, Pose.class));
@@ -45,6 +53,16 @@ public final class AnimLayerNodeWidget extends AbstractNodeWidget {
     /// (`identifier().toString()`) — its persistence key (stored in the node's `variable` field) and
     /// what the compiler stores / reads the layer under.
     public String signatureName() {
-        return signatureName;
+        return EditorHolderCodecs.blockId(signature).toString();
+    }
+
+    /// The bound signature, for the row this widget describes.
+    public Holder<AnimationLayerSignature> signature() {
+        return signature;
+    }
+
+    @Override
+    public NodeData toData() {
+        return new AnimLayerNodeData(signature);
     }
 }

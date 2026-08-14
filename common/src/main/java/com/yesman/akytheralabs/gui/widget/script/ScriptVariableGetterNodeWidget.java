@@ -1,13 +1,17 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.VariableGetterNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
+
+import java.util.Optional;
 
 /// Widget for a [com.yesman.akythera.api.data.modularize.node.ScriptVariableGetterNode]:
 /// a pure node that reads a script member variable. No execution pins and no inputs —
 /// just one output, colored and typed by the variable, labeled with the variable name.
-/// The title bar is tinted to match the type, like its setter counterpart. Visual only.
+/// The title bar is tinted to match the type, like its setter counterpart.
 public final class ScriptVariableGetterNodeWidget extends AbstractNodeWidget implements VariableNodeWidget {
     private String variableName;
     private Class<?> variableType;
@@ -49,5 +53,10 @@ public final class ScriptVariableGetterNodeWidget extends AbstractNodeWidget imp
 
     public Class<?> variableType() {
         return variableType;
+    }
+
+    @Override
+    public NodeData toData() {
+        return new VariableGetterNodeData(variableName, Optional.ofNullable(scriptTypeOf(variableType)));
     }
 }

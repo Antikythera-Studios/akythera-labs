@@ -1,7 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
 import com.yesman.akythera.core.util.LogicalSide;
-import com.yesman.akytheralabs.dataholder.animation.NotifyTrackHolder;
+import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.editor.historytrack.DraggingDataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.PendingDataChange;
@@ -12,9 +12,8 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 
-/// Point-in-time mutableNotify draggable child. The owning [NotifyRow] sets
-/// our X/Y just before each render pass via [#updatePosition]; we don't compute
-/// our own row Y because only the row knows its current top.
+/// A draggable point-in-time notify marker. The owning [NotifyRow] sets its X and Y through
+/// [#updatePosition] just before each render pass, the row being what knows its own current top.
 public final class NotifyWidget extends AbstractWidget {
     public static final int FLAG_W = 8;
     public static final int FLAG_H = 14;
@@ -34,8 +33,7 @@ public final class NotifyWidget extends AbstractWidget {
         return model;
     }
 
-    /// Called by the entry every render to align with the row's current top
-    /// and the latest zoomed `frameToX` mapping.
+    /// Aligns this marker with the row's current top and the latest zoomed `frameToX` mapping.
     public void updatePosition(int rowTop, int rowHeight) {
         setX(parent.frameToX(model.time));
         setY(rowTop + (rowHeight - FLAG_H) / 2);

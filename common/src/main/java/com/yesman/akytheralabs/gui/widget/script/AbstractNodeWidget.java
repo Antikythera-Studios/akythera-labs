@@ -1,6 +1,10 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -24,8 +28,6 @@ import java.util.Map;
 /// draws at its graph coordinates and the graph's pan/zoom maps that onto the screen.
 /// The host also drives [#setFocused] and, while the cursor is over the node, passes
 /// graph-space mouse coordinates so the node resolves its own hover state.
-///
-/// This stage is visual only: pins are not wired.
 public abstract class AbstractNodeWidget extends AbstractWidget implements AnchoredWidget {
     protected static final int TITLE_PAD = 5;
     protected static final int ROW_H = 19;
@@ -43,8 +45,10 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     private static final int COLOR_LABEL = 0xFFCCCCCC;
     private static final int COLOR_LABEL_HOVER = 0xFFFFFFFF;
 
-    private static final int COLOR_ERROR_OUTLINE = 0xFFD83A3A;
-    private static final int COLOR_ERROR_BANNER = 0xCCB01010;
+    /// The error-marking palette, shared with the non-node editor surfaces that mark failures the
+    /// same way.
+    public static final int COLOR_ERROR_OUTLINE = 0xFFD83A3A;
+    public static final int COLOR_ERROR_BANNER = 0xCCB01010;
     private static final String ERROR_LABEL = "ERROR!";
 
     private static final String ADD_PIN_LABEL = "Add pin";
@@ -62,15 +66,35 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     private static final int COLOR_SELF_BADGE = 0xFF2A2A2A;
     private static final String SELF_LABEL = "self";
 
+    /// Colour of a recorded value written after its pin's parameter name — warm, so it reads as debug
+    /// output rather than as node content.
+    private static final int COLOR_RECORDED_VALUE = 0xFFF0C878;
+
     protected final Font font;
 
     private final List<Pin> inputs = new ArrayList<>();
     private final List<Pin> outputs = new ArrayList<>();
     private int titleColor = 0xFF3A3A4A;
 
+    /// Recorded values written after this node's input-pin names, keyed by input pin index. Pushed by
+    /// the host each frame from the captured run; empty when this node records nothing.
+    private Map<Integer, String> recordedInputs = Map.of();
+
+    /// Replaces the recorded values and re-fits the node to them, so a pin row grows and shrinks with
+    /// the text it shows. Unchanged values cost a map comparison and nothing else.
+    public void setRecordedInputs(final Map<Integer, String> recordedInputs) {
+        if (this.recordedInputs.equals(recordedInputs)) {
+            return;
+        }
+
+        this.recordedInputs = Map.copyOf(recordedInputs);
+        relayout();
+    }
+
     /// Validation errors flagged on this node by [ScriptNodeGraphWidget#validate] (an unconnected
     /// required input, an incompatible wire). Non-empty drives the red outline + "ERROR!" banner
-    /// (UE-style) and the host's hover tooltip. Empty = the node passed validation.
+    /// (UE-style) and the host's hover tooltip — as does a non-empty [#intrinsicErrors]. Empty = the
+    /// node passed validation.
     private List<Component> errors = List.of();
 
     /// The script owner type (`DataDrivenScript#getScriptOwner`'s class), injected by the
@@ -110,6 +134,22 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     protected void addInput(Pin pin) { inputs.add(pin); }
     protected void addOutput(Pin pin) { outputs.add(pin); }
     protected void setTitleColor(int color) { this.titleColor = color; }
+
+    /// This node's current state as its persisted payload. The inverse of [NodeData#createWidget];
+    /// the canvas adds the id and position around it.
+    public abstract NodeData toData();
+
+    /// The registered [ScriptType] whose java type matches `type` (boxing-aware), or null when the
+    /// type is null or not a serializable script type.
+    public static @Nullable ScriptType scriptTypeOf(@Nullable Class<?> type) {
+        if (type == null) return null;
+
+        for (ScriptType st : AkytheraRegistries.Frozen.SCRIPT_TYPE) {
+            if (ParseUtils.box(st.type()) == ParseUtils.box(type)) return st;
+        }
+
+        return null;
+    }
 
     public int outputPinCount() { return outputs.size(); }
     public int inputPinCount() { return inputs.size(); }
@@ -151,6 +191,12 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         return connectedInputs.values();
     }
 
+    /// The source output pin feeding input `index`, or null while that input is unwired — for the
+    /// type-detecting nodes whose inputs do not all take part in the detection.
+    protected @Nullable Pin connectedInputSource(int index) {
+        return connectedInputs.get(index);
+    }
+
     /// The destination input pins this node's outputs currently feed into, in output-pin order.
     protected Iterable<Pin> connectedOutputTargets() {
         return connectedOutputs.values();
@@ -171,7 +217,17 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     }
 
     public boolean hasErrors() {
-        return !errors.isEmpty();
+        return !errors.isEmpty() || !intrinsicErrors().isEmpty();
+    }
+
+    /// Errors the node determines about itself — an asset binding that resolves nowhere, a required
+    /// pick left unmade — next to the wiring problems the graph-wide [ScriptNodeGraphWidget#validate]
+    /// pass finds. [#hasErrors] / [#errorLines] read them fresh, so such a node is red on sight, and
+    /// [ScriptNodeGraphWidget#validate] folds them into its issue list, so they fail a compile too.
+    ///
+    /// Runs per node, per frame: keep the check to cheap lookups. Default: none.
+    public List<Component> intrinsicErrors() {
+        return List.of();
     }
 
     /// Whether validation may flag this node. Cosmetic / transparent nodes (a reroute knot) opt
@@ -180,9 +236,17 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         return true;
     }
 
-    /// The error messages flagged on this node, for the host to show as a hover tooltip.
+    /// The error messages flagged on this node, for the host to show as a hover tooltip — the
+    /// validation pass' ([#setErrors]) plus the node's own ([#intrinsicErrors]).
     public List<Component> errorLines() {
-        return errors;
+        List<Component> intrinsic = intrinsicErrors();
+        if (intrinsic.isEmpty()) return errors;
+        if (errors.isEmpty()) return intrinsic;
+
+        List<Component> all = new ArrayList<>(errors);
+        all.addAll(intrinsic);
+
+        return all;
     }
 
     /// Whether input pin `index` is a *required* data input left unsatisfied — not an execution
@@ -266,14 +330,24 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     /// Recomputes width/height from the title and pin rows. Subclasses must call this
     /// once after adding their pins.
     ///
-    /// Width fits the widest input label plus the widest output label (execution pins
-    /// included — their labels like "True"/"Then 0" take space too), keeping at least
-    /// [#MIN_PIN_GAP] of clear space between the two columns so they never overlap.
+    /// Width fits the widest input label — plus any recorded value written after it — and the widest
+    /// output label (execution pins included: their labels like "True"/"Then 0" take space too),
+    /// keeping at least [#MIN_PIN_GAP] of clear space between the two columns so they never overlap.
     protected void relayout() {
         int titleW = font.width(getMessage()) + H_PAD * 2;
 
         int selfReserve = font.width(SELF_LABEL) + 6 + PIN_LABEL_GAP;
-        int maxIn = inputs.stream().mapToInt(p -> font.width(p.label()) + (isSelfCapable(p) ? selfReserve : 0)).max().orElse(0);
+        int maxIn = 0;
+
+        for (int i = 0; i < inputs.size(); i++) {
+            Pin pin = inputs.get(i);
+            String suffix = recordedSuffix(i);
+
+            maxIn = Math.max(maxIn, font.width(pin.label())
+                + (suffix == null ? 0 : font.width(suffix))
+                + (isSelfCapable(pin) ? selfReserve : 0));
+        }
+
         int maxOut = outputs.stream().mapToInt(p -> font.width(p.label())).max().orElse(0);
         // Mirrors drawPin geometry: marker column (H_PAD) + half-pin + gap + label, on
         // each side, with MIN_PIN_GAP of slack between the input and output labels.
@@ -302,6 +376,13 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
 
     public Pin inputPin(int index) { return inputs.get(index); }
     public Pin outputPin(int index) { return outputs.get(index); }
+
+    /// The `": value"` written after input pin `index`'s name, or null when it records nothing.
+    protected @Nullable String recordedSuffix(int index) {
+        String recorded = recordedInputs.get(index);
+
+        return recorded == null ? null : ": " + recorded;
+    }
 
     /// Index of the output pin (exec or data) whose marker/row sits under the given
     /// graph point, or -1 when none. The host graph uses this to begin a wire drag.
@@ -340,6 +421,35 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         }
 
         return -1;
+    }
+
+    /// Index of the input pin whose **hover band** — the marker, its label and any recorded value
+    /// after it, exactly the span [#drawPin] brightens — contains the given graph point, or -1 when
+    /// none. More forgiving than [#inputPinIndexAt]; the right-click gesture reads from here so the
+    /// menu opens wherever the row lights up.
+    public int inputPinLabelAt(int gx, int gy) {
+        if (gx < getX()) return -1;
+
+        for (int i = 0; i < inputs.size(); i++) {
+            Pin pin = inputs.get(i);
+            String recorded = recordedSuffix(i);
+            int cy = rowCenterY(i);
+
+            int right = getX() + inputBandWidth(
+                pin.label().isEmpty() ? 0 : font.width(pin.label()),
+                recorded == null ? 0 : font.width(recorded)
+            );
+
+            if (gx < right && gy >= cy - ROW_H / 2 && gy < cy + ROW_H / 2) return i;
+        }
+
+        return -1;
+    }
+
+    /// Width of an input pin's hover band measured from the node's left edge: the marker column, the
+    /// label, and any recorded value written after it.
+    private int inputBandWidth(int labelW, int recordedW) {
+        return H_PAD + PIN / 2 + PIN_LABEL_GAP + labelW + recordedW + 2;
     }
 
     /// Whether the given graph point is over the "Add pin" button row at the bottom
@@ -430,10 +540,9 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         return typeCompatible(output.type(), input.type());
     }
 
-    /// Whether a value of `provided` can drive a slot expecting `expected`, with the
-    /// same assignability / numeric-coercion rules as [#pinsCompatible]. A null on
-    /// either side means "untyped / unknown" and is accepted. Exposed so the host
-    /// screen can pre-filter value-provider suggestions by the dragged pin's type.
+    /// Whether a value of `provided` can drive a slot expecting `expected`, under the same
+    /// assignability and numeric-coercion rules as [#pinsCompatible]. A null on either side means
+    /// untyped or unknown, and is accepted.
     public static boolean valueAssignable(@Nullable Class<?> provided, @Nullable Class<?> expected) {
         return typeCompatible(provided, expected);
     }
@@ -485,8 +594,8 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
 
         for (int i = 0; i < rows; i++) {
             int cy = rowTop + i * ROW_H + ROW_H / 2;
-            if (i < inputs.size()) drawPin(g, x, cy, inputs.get(i), true, shouldShowSelf(i, inputs.get(i)), mouseX, mouseY);
-            if (i < outputs.size()) drawPin(g, x + w, cy, outputs.get(i), false, false, mouseX, mouseY);
+            if (i < inputs.size()) drawPin(g, x, cy, inputs.get(i), true, shouldShowSelf(i, inputs.get(i)), recordedSuffix(i), mouseX, mouseY);
+            if (i < outputs.size()) drawPin(g, x + w, cy, outputs.get(i), false, false, null, mouseX, mouseY);
         }
 
         // "Add pin" button row (dynamic-output nodes only), right-aligned like UE.
@@ -510,7 +619,7 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         g.outline(x, y, w, h, outlineColor);
 
         // UE-style "ERROR!" banner hung beneath the body for a node that failed validation.
-        if (hasErrors()) drawErrorBanner(g, x, y + h, w);
+        if (hasErrors()) drawErrorBanner(g, font, x, y + h, w, ERROR_LABEL);
 
         // Subclass overlay (e.g. a literal node's inline edit box), drawn on top of the body.
         extractBodyOverlay(g, mouseX, mouseY, a);
@@ -530,15 +639,16 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         return isSelfCapable(pin) && !isInputConnected(index);
     }
 
-    private void drawPin(GuiGraphicsExtractor g, int edgeX, int cy, Pin pin, boolean leftSide, boolean showSelf, int mouseX, int mouseY) {
+    private void drawPin(GuiGraphicsExtractor g, int edgeX, int cy, Pin pin, boolean leftSide, boolean showSelf, @Nullable String recorded, int mouseX, int mouseY) {
         int markerCenterX = leftSide ? edgeX + H_PAD : edgeX - H_PAD;
         int labelW = pin.label().isEmpty() ? 0 : font.width(pin.label());
+        int recordedW = recorded == null ? 0 : font.width(recorded);
 
         // Hover band covers the marker + its label.
         int bandLeft, bandRight;
         if (leftSide) {
             bandLeft = edgeX;
-            bandRight = markerCenterX + PIN / 2 + PIN_LABEL_GAP + labelW + 2;
+            bandRight = edgeX + inputBandWidth(labelW, recordedW);
         } else {
             bandRight = edgeX;
             bandLeft = markerCenterX - PIN / 2 - PIN_LABEL_GAP - labelW - 2;
@@ -563,10 +673,16 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
             g.text(font, pin.label(), labelX, cy - font.lineHeight / 2, labelColor, false);
         }
 
+        // Recorded value, written straight after the parameter name in its own colour so the name
+        // still reads as the node's content.
+        if (recorded != null) {
+            g.text(font, recorded, labelX + labelW, cy - font.lineHeight / 2, COLOR_RECORDED_VALUE, false);
+        }
+
         // "self" badge: a small pill after the (left-side) label marking the pin as
         // defaulting to the script owner when nothing is wired in.
         if (showSelf) {
-            int badgeX = (pin.label().isEmpty() ? labelX : labelX + labelW + PIN_LABEL_GAP) - 2;
+            int badgeX = (pin.label().isEmpty() ? labelX : labelX + labelW + recordedW + PIN_LABEL_GAP) - 2;
             int badgeW = font.width(SELF_LABEL) + 6;
             int badgeTop = cy - font.lineHeight / 2 - 2;
             int badgeBottom = cy + font.lineHeight / 2 + 1;
@@ -576,16 +692,17 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         }
     }
 
-    /// The red "ERROR!" banner hung beneath the node body (UE's invalid-node marker). Purely
-    /// decorative — it sits outside the node's hit bounds, so it never intercepts clicks.
-    private void drawErrorBanner(GuiGraphicsExtractor g, int x, int top, int w) {
+    /// The red banner hung beneath a body, UE's invalid-node marker. Purely decorative: it sits
+    /// outside the widget's hit bounds, so it never intercepts clicks. Shared with the non-node
+    /// editor surfaces that mark failures the same way.
+    public static void drawErrorBanner(GuiGraphicsExtractor g, Font font, int x, int top, int w, String label) {
         int bannerH = font.lineHeight + 4;
         int bannerTop = top + 1;
         g.fill(x, bannerTop, x + w, bannerTop + bannerH, COLOR_ERROR_BANNER);
         g.outline(x, bannerTop, w, bannerH, COLOR_ERROR_OUTLINE);
 
-        int labelW = font.width(ERROR_LABEL);
-        g.text(font, ERROR_LABEL, x + (w - labelW) / 2, bannerTop + (bannerH - font.lineHeight) / 2, 0xFFFFFFFF, false);
+        int labelW = font.width(label);
+        g.text(font, label, x + (w - labelW) / 2, bannerTop + (bannerH - font.lineHeight) / 2, 0xFFFFFFFF, false);
     }
 
     /// A small plus glyph centered on (cx, cy) for the "Add pin" button.

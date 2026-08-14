@@ -2,9 +2,9 @@ package com.yesman.akytheralabs.gui.screen;
 
 import com.mojang.datafixers.util.Pair;
 import com.yesman.akythera.api.asset.AssetAccessor;
-import com.yesman.akythera.client.gui.widget.ClampedNumberBox;
-import com.yesman.akythera.client.gui.widget.ModelPreviewer;
-import com.yesman.akythera.client.gui.widget.Static;
+import com.yesman.akythera.api.world.patch.entity.EntityPatch;
+import com.yesman.akythera.client.gui.widget.viewer.*;
+import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
 import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.animation.driver.AnimationMontagePlayer;
@@ -15,16 +15,13 @@ import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.math.algorithm.DelaunayTriangulation;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
-import com.yesman.akythera.core.util.helper.ParseUtils;
-import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.animation.AnimationRef;
+import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
-import com.yesman.akytheralabs.dataholder.animation.AnimationRef;
-import com.yesman.akytheralabs.dataholder.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
-import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.PreviewModelChange;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -33,8 +30,7 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.panel.AssetBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.blendspace2d.BlendSpaceDetailsPanel;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
-import com.yesman.akytheralabs.gui.widget.AkytheraLabsEditBoxTheme;
+import com.yesman.akytheralabs.gui.panel.components.ComponentDetailsPanel;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
@@ -42,7 +38,13 @@ import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.blendspace2d.BlendSpaceNodeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
+import com.yesman.akythera.api.world.patch.entity.EntityPatch;
+import com.yesman.akythera.core.animation.driver.BlendSpace2DDriver;
+import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
+import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
+import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
+import com.yesman.akytheralabs.mixin.BlendSpace2DDriverAccessor;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -50,8 +52,8 @@ import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.network.chat.Component;
 import net.minecraft.core.Holder;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.Entity;
@@ -60,20 +62,16 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.*;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /// Editor screen for the BlendSpace2D asset.
-public final class BlendSpace2DEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class BlendSpace2DEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
     // Widget layout parameters
     private static final int TOP_BAR_H = 22;
 
     // Details table layout
-    private static final int LABEL_W = 80;
-    private static final int INDENT = 8;
     private static final int ROW_H = 20;
 
     /// Trajectory sampling interval (sec) — mirrors the root-motion fixed tick (0.05).
@@ -81,9 +79,13 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
 
     private final AdjustablePanelManager panelManager;
 
+    /// Shared factory that turns `@EditorEditable` holder fields into rows — fills the holder-level
+    /// [#detailsTable] once and re-fills the selection-scoped [#nodeEditorTable] on every node select.
+    private final EditorWidgetFactory widgetFactory;
+
     private final TopMenuBar topMenuBar;
     private final BlendSpaceNodeGraphWidget graphWidget;
-    private final ModelPreviewer modelPreviewer;
+    private final Model3DViewer model3DViewer;
     private final WidgetTable detailsTable;
     private final WidgetTable nodeEditorTable;
     private final TabPanel tabPanel;
@@ -139,6 +141,9 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
                 .newList(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW))
                 .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW_SELECT_PREVIEW_MODEL), this::openPreviewModelSelectModal)
                 .done()
+                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS))
+                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS_DEBUG), () -> DebuggableScreen.openDebugSelector(font))
+                .done()
                 .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
                     .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
                 .done()
@@ -160,17 +165,19 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
 
-        modelPreviewer = new ModelPreviewer(
+        graphWidget.setDebugDrivenChecker(EntityDebugSession.getInstance()::isActive);
+
+        model3DViewer = new Model3DViewer(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
             AkytheraEditorLayoutManager.getInstance()::getLayoutGuiScale
         );
-        modelPreviewer.addComponent(new ModelPreviewer.CameraComponent(true));
-        modelPreviewer.addComponent(new ModelPreviewer.BackgroundComponent(16, 16, 16, 255));
-        modelPreviewer.addComponent(new ModelPreviewer.GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
-        EntityPreviewModel.display(modelPreviewer, blendSpaceHolder.getPreviewModel(), true, true);
+        model3DViewer.addComponent(new CameraComponent(true));
+        model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
+        model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
+        EntityPreviewModel.display(model3DViewer, blendSpaceHolder.getPreviewModel(), true, true);
 
         installBlendAnimator();
 
@@ -186,9 +193,13 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
             ROW_H
         );
 
-        new EditorWidgetFactory(minecraft.font).fillWidgetTable(detailsTable, blendSpaceHolder);
+        widgetFactory = new EditorWidgetFactory(minecraft.font);
+        widgetFactory.fillWidgetTable(detailsTable, blendSpaceHolder);
 
-        // Tab content (the tab strip is its header now), so fill from near the top.
+        // Tab content (the tab strip is its header now), so fill from near the top. The node's X / Y /
+        // Animation rows are generated by the factory from the selected node's @EditorEditable fields
+        // (see #refreshNodeEditor) — the screen holds no per-field widget logic. Empty until a node is
+        // selected.
         nodeEditorTable = new WidgetTable(
             this,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -198,58 +209,15 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
             ROW_H
         );
 
-        ClampedNumberBox<Float> xBox = makeFloatBox(
-            () -> selectedNode != null ? selectedNode.x() : 0f,
-            v -> { if (selectedNode != null) selectedNode.setX(v); },
-            -Float.MAX_VALUE, Float.MAX_VALUE
-        );
-
-        xBox.setOnCommitted((oldVal, newVal) -> pushNodeCoordCommit(
-            xBox, selectedNode, oldVal, newVal, BlendSpace2DHolder.MutableAnimNode::setX
-        ));
-
-        ClampedNumberBox<Float> yBox = makeFloatBox(
-            () -> selectedNode != null ? selectedNode.y() : 0f,
-            v -> { if (selectedNode != null) selectedNode.setY(v); },
-            -Float.MAX_VALUE, Float.MAX_VALUE
-        );
-
-        yBox.setOnCommitted((oldVal, newVal) -> pushNodeCoordCommit(
-            yBox, selectedNode, oldVal, newVal, BlendSpace2DHolder.MutableAnimNode::setY
-        ));
-
-        // Animation row: read-only — assignment happens by dropping a sequence from the Asset Browser.
-        AdvancedEditBox animationBox = new AdvancedEditBox<>(
-            font,
-            AnchoredWidget.pixel(LABEL_W + 2), AnchoredWidget.pixel(INDENT),
-            AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
-            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT, AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            () -> selectedNode != null ? selectedNode.animation().displayName() : "",
-            _ -> {},
-            _ -> true,
-            s -> s,
-            s -> s,
-            Component.empty()
-        );
-        animationBox.setTheme(AkytheraLabsEditBoxTheme.DEFAULT_EDIT_BOX);
-        animationBox.setEditable(false);
-
-        nodeEditorTable
-            .newRow()
-            .addWidget(makeLabel(Component.literal("X")))
-            .addWidget(xBox)
-            .newRow()
-            .addWidget(makeLabel(Component.literal("Y")))
-            .addWidget(yBox)
-            .newRow()
-            .addWidget(makeLabel(Component.translatable(LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_ANIMATION)))
-            .addWidget(animationBox);
-
-        nodeEditorTable.initialize(false);
-
         // Bottom-right tab strip: "Node Details" (the editor table) + "Asset Browser" (draggable sequences).
         assetBrowserPage = new AssetBrowserPanel<>(
-            font, BlendSpace2DEditorScreen::buildSequenceAssetItems, this::beginSequenceDrag,
+            font,
+            () -> AkytheraProject.getCurrentProject()
+                .getMergedHolders(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY).stream()
+                .sorted(Comparator.comparing(h -> h.unwrapKey().map(k -> k.identifier().toString()).orElse("")))
+                .toList(),
+            h -> h.unwrapKey().map(ResourceKey::identifier).orElse(Identifier.parse("unknown")).toString(),
+            this::beginSequenceDrag,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
@@ -293,8 +261,8 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         var topSplit = topAndBottom.getFirst().subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.get(1));
         var bottomSplit = topAndBottom.get(1).subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.get(2));
 
-        topSplit.get(0).resizeCallback(modelPreviewer::relocate);
-        topSplit.get(0).resizeFinishCallback(_ -> modelPreviewer.onResizeCompleted());
+        topSplit.get(0).resizeCallback(model3DViewer::relocate);
+        topSplit.get(0).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
         topSplit.get(1).area(new BlendSpaceDetailsPanel(minecraft.font, detailsTable));
 
         bottomSplit.get(0).resizeCallback(graphWidget::relocate);
@@ -311,18 +279,6 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         draggingSequence = sequence;
     }
 
-    /// Every available animation sequence, sorted by identifier — **both** editor-created (project
-    /// `ProjectObjectHolder`s) and built-in (engine/datapack holders) — so a blendspace node can
-    /// reference either. The node holds a [Holder] (via [AnimationRef]) so editor renames ripple
-    /// and built-ins resolve at runtime.
-    private static List<AssetBrowserPanel.Item<Holder<AnimationSequence>>> buildSequenceAssetItems() {
-        return AkytheraProject.getCurrentProject()
-            .getMergedHolders(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY).stream()
-            .sorted(Comparator.comparing(h -> h.unwrapKey().map(k -> k.identifier().toString()).orElse("")))
-            .map(h -> new AssetBrowserPanel.Item<>(h.unwrapKey().map(k -> k.identifier().toString()).orElse("?"), h))
-            .toList();
-    }
-
     /// Drop the dragged sequence at the cursor: add a new graph node there carrying that sequence as its
     /// animation (snapped to the grid when snapping is on). No-op if dropped outside the graph area.
     private void dropSequenceAsNode(double x, double y) {
@@ -337,10 +293,11 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         super.init();
 
         layoutWidgets();
+
         addRenderableWidget(topMenuBar);
         addRenderableWidget(panelManager);
         addRenderableWidget(graphWidget);
-        addRenderableWidget(modelPreviewer);
+        addRenderableWidget(model3DViewer);
     }
 
     private void openPreviewModelSelectModal() {
@@ -352,11 +309,11 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
                 if (Objects.equals(oldModel, newModel)) return;
 
                 blendSpaceHolder.setPreviewModel(newModel);
-                EntityPreviewModel.display(modelPreviewer, newModel, true, true);
+                EntityPreviewModel.display(model3DViewer, newModel, true, true);
                 installBlendAnimator();
 
                 HistoryManager.getInstance().pushHistory(new PreviewModelChange(
-                    blendSpaceHolder, modelPreviewer, oldModel, newModel
+                    blendSpaceHolder, model3DViewer, oldModel, newModel
                 ));
             }
         );
@@ -364,64 +321,27 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
-    private Static makeLabel(Component text) {
-        return new Static(
-            font,
-            AnchoredWidget.pixel(INDENT), AnchoredWidget.pixel(LABEL_W - INDENT),
-            AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
-            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH, AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            text
-        );
-    }
-
-    private ClampedNumberBox<Float> makeFloatBox(
-        Callable<Float> getter,
-        Consumer<Float> setter,
-        float min,
-        float max
-    ) {
-        return new ClampedNumberBox<>(
-            font,
-            AnchoredWidget.pixel(LABEL_W + 2), AnchoredWidget.pixel(INDENT),
-            AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
-            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT, AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            getter,
-            setter,
-            Component.empty(),
-            false,
-            min, max, 0.1f, -0.1f,
-            Float::parseFloat,
-            ParseUtils::floatingPointToString,
-            Float::compareTo,
-            Float::sum
-        );
-    }
-
-    private void pushNodeCoordCommit(
-        ClampedNumberBox<Float> box,
-        BlendSpace2DHolder.@Nullable MutableAnimNode capturedNode,
-        Float oldVal,
-        Float newVal,
-        BiConsumer<BlendSpace2DHolder.MutableAnimNode, Float> apply
-    ) {
-        if (capturedNode == null || Objects.equals(oldVal, newVal)) return;
-
-        HistoryManager.getInstance().pushHistory(new DataChange<>(
-            oldVal, newVal,
-            v -> {
-                apply.accept(capturedNode, v);
-                if (selectedNode == capturedNode) {
-                    box.setValue(v);
-                    setFocused(box);
-                }
-            }
-        ));
-    }
-
     private void onNodeSelected(BlendSpace2DHolder.@Nullable MutableAnimNode node) {
         selectedNode = node;
         graphWidget.selectNode(node);
-        nodeEditorTable.initialize(false);
+        refreshNodeEditor();
+    }
+
+    /// Rebuilds the node-detail table for the current selection through [EditorWidgetFactory], driven
+    /// by the node's `@EditorEditable` fields (X / Y / Animation) — so the screen carries no per-field
+    /// widget logic, matching [ComponentDetailsPanel].
+    /// Clears to empty when nothing is selected. The re-fill adds fresh widgets, so the table is
+    /// relocated to position them (the factory's `initialize` only reads values) — against the tab
+    /// panel's body rect, not the table's own rect, which would re-apply its anchor insets and drift.
+    private void refreshNodeEditor() {
+        if (selectedNode == null) {
+            nodeEditorTable.clearWidgets();
+            nodeEditorTable.initialize(false);
+        } else {
+            widgetFactory.fillWidgetTable(nodeEditorTable, selectedNode);
+        }
+
+        nodeEditorTable.relocate(tabPanel.getBodyRectangle());
     }
 
     private void layoutWidgets() {
@@ -455,6 +375,35 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
+    // ***************************************************************
+    // * DebuggableScreen                                            *
+    // ***************************************************************
+
+    @Override
+    public Predicate<Entity> debugTargetFilter() {
+        return entity -> ((EntityAccessor)entity).akythera$getEntityPatch() != null;
+    }
+
+    /// Moves the preview cursor onto the control point the possessed entity's driver is sampling.
+    /// Leaves it where it is while the entity plays something else — unlike a playhead, a focal point
+    /// has no neutral position to fall back to.
+    @Override
+    public void onDebugTick(final EntityPatch<?> entityPatch) {
+        BlendSpace2D edited = AnimatorProbe.resolve(entityPatch, resourceKey);
+
+        if (edited == null || !(AnimatorProbe.findDriverPlaying(entityPatch, edited) instanceof BlendSpace2DDriver driver)) {
+            return;
+        }
+
+        // The driver class is final, so the mixin-added accessor interface is only reachable through
+        // Object — javac rejects the direct cast.
+        BlendSpace2DDriverAccessor accessor = (BlendSpace2DDriverAccessor)(Object)driver;
+
+        previewX = accessor.akytheralabs$getTargetX();
+        previewY = accessor.akytheralabs$getTargetY();
+        graphWidget.setPreviewCursor(previewX, previewY);
+    }
+
     /// True when the live history top has diverged from the last save point — i.e. there are edits
     /// to persist. Drives both the title's `*` marker and the quit-prompt skip.
     private boolean hasUnsavedChanges() {
@@ -483,7 +432,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
 
     @Override
     public void onClose() {
-        modelPreviewer.destroy();
+        model3DViewer.destroy();
         AkytheraProject.getCurrentProject().saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());
 
         // Prevents infinite loop
@@ -497,7 +446,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
-        AkytheraEditorLayoutManager.blurFocusChainLeaf(this);
+        AkytheraEditorLayoutManager.blurFocusChainLeaf(this, event.x(), event.y());
         return super.mouseClicked(event, doubleClick);
     }
 
@@ -531,6 +480,16 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
             return true;
         }
 
+        if (EditorKeyMappings.REDO.matches(event)) {
+            HistoryManager.getInstance().redo();
+            return true;
+        }
+
+        if (EditorKeyMappings.UNDO.matches(event)) {
+            HistoryManager.getInstance().undo();
+            return true;
+        }
+
         return super.keyPressed(event);
     }
 
@@ -556,10 +515,10 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
     }
 
     /// Instead of assigning `modal` directly into [Screen#getFocused], check and return opened modal via
-    /// [AkytheraEditorLayoutManager#getModal()] to release focus automatically when closed.
+    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
     @Nullable
     public GuiEventListener getFocused() {
-        AbstractWidget modal = AkytheraEditorLayoutManager.getInstance().getModal();
+        AbstractWidget modal = getFocusOwningModal();
         if (modal != null) return modal;
 
         return super.getFocused();
@@ -569,7 +528,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
     /// node + cursor edits need no re-install. `updatePose = true`: the animator runs its own clock and
     /// the control point (cursor) chooses the blend each frame.
     private void installBlendAnimator() {
-        ModelPreviewer.EntityModelComponent c = modelPreviewer.getComponent(ModelPreviewer.EntityModelComponent.class);
+        EntityModelComponent c = model3DViewer.getComponent(EntityModelComponent.class);
 
         if (c != null) {
             BlendSpaceAnimator animator = new BlendSpaceAnimator(this::previewBlendSpace, () -> previewX, () -> previewY);
@@ -584,7 +543,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
     /// Adds or removes the root-motion trajectory preview based on whether any node animation has root
     /// motion on. Called on construction, model swap, and the holder's node-graph change listener.
     private void refreshRootTrajectory() {
-        modelPreviewer.removeAllComponents(ModelPreviewer.RootMotionTrajectoryComponent.class);
+        model3DViewer.removeAllComponents(RootMotionTrajectoryComponent.class);
 
         if (!anyNodeHasRootMotion()) return;
 
@@ -592,9 +551,9 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         // can't change without the listener rebuilding the component, so only cursor moves invalidate it.
         @SuppressWarnings("unchecked")
         List<Vec3>[] cache = new List[]{null};
-        float[] cacheKey = {Float.NaN, Float.NaN};
+        float[] cacheKey = { Float.NaN, Float.NaN };
 
-        modelPreviewer.addComponent(new ModelPreviewer.RootMotionTrajectoryComponent(
+        model3DViewer.addComponent(new RootMotionTrajectoryComponent(
             () -> {
                 if (cache[0] == null || previewX != cacheKey[0] || previewY != cacheKey[1]) {
                     cache[0] = sampleBlendPath();
@@ -607,8 +566,8 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
                 BlendSpace2D bs = previewBlendSpace();
                 if (bs == null) return Vec3.ZERO;
 
-                ModelPreviewer.EntityModelComponent c = modelPreviewer.getComponent(ModelPreviewer.EntityModelComponent.class);
-                float elapsed = (c != null && c.getAnimator() instanceof ModelPreviewer.EntityModelComponent.EditorScrubAnimator s)
+                EntityModelComponent c = model3DViewer.getComponent(EntityModelComponent.class);
+                float elapsed = (c != null && c.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator s)
                     ? s.getElapsedTime() : 0.0F;
                 return blendedRoot(bs, previewX, previewY, elapsed);
             }
@@ -624,8 +583,9 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         float total = blendedTotalTime(bs, previewX, previewY);
         if (total <= 0.0F) return List.of();
 
-        int steps = Math.min(4000, Math.max(1, (int) (total / TRAJECTORY_SAMPLE_STEP)));
+        int steps = Math.clamp((int) (total / TRAJECTORY_SAMPLE_STEP), 1, 4000);
         List<Vec3> pts = new ArrayList<>(steps + 1);
+
         for (int i = 0; i <= steps; i++) {
             float t = Math.min(i * TRAJECTORY_SAMPLE_STEP, total);
             pts.add(blendedRoot(bs, previewX, previewY, t));
@@ -716,12 +676,16 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
 
     /// The built engine BlendSpace2D, rebuilt only when the holder's [BlendSpace2DHolder#getStructureVersion]
     /// moved (node add/remove/position/animation). Avoids re-resolving every node clip per frame.
-    private @Nullable BlendSpace2D previewBlendSpace() {
+    private BlendSpace2D previewBlendSpace() {
         long v = blendSpaceHolder.getStructureVersion();
 
         if (previewBlendSpace == null || v != previewBlendSpaceVersion) {
             previewBlendSpace = blendSpaceHolder.makeObject();
-            previewBlendSpaceVersion = v;
+            // makeObject() runs rebuildDelaunay(), which itself bumps the structure version. Snapshot the
+            // version *after* the build so the cache key matches on the next frame — capturing the pre-build
+            // `v` would leave the key one behind and force a full rebuild (two Delaunay triangulations) every
+            // frame. Any real edit still strictly increments the version, so it triggers exactly one rebuild.
+            previewBlendSpaceVersion = blendSpaceHolder.getStructureVersion();
         }
 
         return previewBlendSpace;
@@ -729,9 +693,9 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
 
     /// Headless animator that previews a [BlendSpace2D] for the editor. Reads its blendspace and control
     /// point (x, y) live from suppliers, so node/position/animation edits and cursor moves show up without
-    /// re-install. Pose = barycentric blend of the enclosing triangle's 3 corner animations, mirroring
+    /// re-install. Pose = barycentric blend of the enclosing triangle's 3 corner animationsToReplace, mirroring
     /// `BlendSpace2DDriver#getPose`. [#getOwner] / [#getMontagePlayer] unsupported.
-    private static final class BlendSpaceAnimator implements ModelPreviewer.EntityModelComponent.EditorScrubAnimator {
+    private static final class BlendSpaceAnimator implements EntityModelComponent.EditorScrubAnimator {
         private final Supplier<@Nullable BlendSpace2D> blendSupplier;
         private final Supplier<Float> xSupplier;
         private final Supplier<Float> ySupplier;

@@ -1,213 +1,185 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.google.gson.JsonElement;
+import com.mojang.datafixers.util.Either;
+import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
+import com.mojang.serialization.Dynamic;
+import com.mojang.serialization.DynamicOps;
+import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
-import com.yesman.akythera.api.data.modularize.ScriptFunction;
-import com.yesman.akythera.api.data.modularize.ScriptType;
-import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.dataholder.EditorReference;
+import com.yesman.akytheralabs.gui.widget.script.node.CachedPoseGetterNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
+import java.util.stream.Stream;
 
 /// The **flattened** persisted form of a node-graph canvas (one blueprint flow entry —
 /// construct / update / pose). Where the runtime [com.yesman.akythera.api.data.modularize.node.ScriptNode]
-/// is a *tree* (a node holds its children inline), the editor file is *flat*: every node is
-/// a row carrying its own id and graph position, and every wire is a row referencing two node
-/// ids. This keeps the on-canvas layout (positions) and the exact wiring round-trippable, which
-/// the tree form cannot express, and lets [com.yesman.akytheralabs.dataholder.animation.AnimatorScriptHolder]
-/// re-derive the tree on demand (its `makeObject` "compile").
+/// is a *tree* (a node holds its children inline), the editor file is *flat*: every node is a row
+/// carrying its own id and graph position, and every wire is a row referencing two node ids. This
+/// keeps the on-canvas layout and the exact wiring round-trippable, which the tree form cannot
+/// express, and lets [AnimatorScriptHolder] re-derive the tree on demand (its `makeObject` "compile").
 ///
-/// Produced by [ScriptNodeGraphWidget#exportGraph] and consumed by
-/// [ScriptNodeGraphWidget#importGraph]; serialized through [#CODEC] inside the holder's editor codec.
-public record ScriptGraphData(List<NodeData> nodes, List<WireData> wires) {
+/// Produced by [ScriptNodeGraphWidget#exportGraph] and consumed by [ScriptNodeGraphWidget#importGraph];
+/// serialized through [#CODEC] inside the holder's editor codec.
+public record ScriptGraphData(List<GraphNode> nodes, List<WireData> wires, List<FailedNode> failedNodes) {
+    /// Convenience form for the (overwhelmingly common) case of a graph with no failed rows —
+    /// every live-editing construction site uses this.
+    public ScriptGraphData(List<GraphNode> nodes, List<WireData> wires) {
+        this(nodes, wires, List.of());
+    }
+
     public static final ScriptGraphData EMPTY = new ScriptGraphData(List.of(), List.of());
 
-    /// Declared before [#CODEC]: that field forces [NodeData]'s static init, whose codec reads this
-    /// one — so it must already be assigned (a later declaration would leave it null at that point).
-    private static final Codec<Kind> KIND_CODEC = Codec.STRING.xmap(
-        s -> Kind.valueOf(s.toUpperCase(Locale.ROOT)),
-        k -> k.name().toLowerCase(Locale.ROOT)
-    );
+    /// One node row that failed to decode (unregistered kind, or a function / type that no longer
+    /// resolves): enough of the row to keep it on canvas (id for wires, x/y for placement —
+    /// best-effort re-read from the raw), the raw JSON re-emitted verbatim on save, and the failure
+    /// message for the red banner / tooltip.
+    public record FailedNode(int id, int x, int y, JsonElement raw, String message) {}
+
+    /// Never-failing per-node codec: a row [GraphNode#CODEC] can't decode becomes a [FailedNode]
+    /// carrying the raw JSON instead of failing the whole graph. Encode re-emits a failed row's raw
+    /// verbatim.
+    private static final Codec<Either<GraphNode, FailedNode>> NODE_ELEMENT_CODEC = new Codec<>() {
+        @Override
+        public <D> DataResult<Pair<Either<GraphNode, FailedNode>, D>> decode(DynamicOps<D> ops, D input) {
+            String message;
+
+            try {
+                DataResult<Pair<GraphNode, D>> result = GraphNode.CODEC.decode(ops, input);
+
+                if (result.result().isPresent()) {
+                    return result.map(p -> p.mapFirst(Either::left));
+                }
+
+                message = result.error().map(DataResult.Error::message).orElse("Unknown node decode error");
+            } catch (Exception e) {
+                message = e.toString();
+            }
+
+            Dynamic<D> d = new Dynamic<>(ops, input);
+            FailedNode failed = new FailedNode(
+                d.get("id").asInt(-1), d.get("x").asInt(0), d.get("y").asInt(0),
+                d.convert(JsonOps.INSTANCE).getValue(), message
+            );
+            AkytheraLabs.LOGGER.warn("Keeping unresolved graph node (id {}): {}", failed.id(), message);
+
+            return DataResult.success(Pair.of(Either.right(failed), ops.empty()));
+        }
+
+        @Override
+        public <D> DataResult<D> encode(Either<GraphNode, FailedNode> input, DynamicOps<D> ops, D prefix) {
+            return input.map(
+                node -> GraphNode.CODEC.encode(node, ops, prefix),
+                failed -> DataResult.success(new Dynamic<>(JsonOps.INSTANCE, failed.raw()).convert(ops).getValue())
+            );
+        }
+    };
 
     public static final Codec<ScriptGraphData> CODEC = RecordCodecBuilder.create(
-        instance -> instance.group(
-            NodeData.CODEC.listOf().optionalFieldOf("nodes", List.of()).forGetter(ScriptGraphData::nodes),
-            WireData.CODEC.listOf().optionalFieldOf("wires", List.of()).forGetter(ScriptGraphData::wires)
-        ).apply(instance, ScriptGraphData::new)
+        instance ->
+            instance.group(
+                NODE_ELEMENT_CODEC.listOf().optionalFieldOf("nodes", List.of())
+                    .forGetter(d ->
+                        Stream.concat(
+                            d.nodes.stream().map(Either::<GraphNode, FailedNode>left),
+                            d.failedNodes.stream().map(Either::<GraphNode, FailedNode>right)
+                        ).toList()
+                    ),
+                WireData.CODEC.listOf().optionalFieldOf("wires", List.of()).forGetter(ScriptGraphData::wires)
+            ).apply(instance, (elements, wires) -> {
+                List<GraphNode> nodes = new ArrayList<>();
+                List<FailedNode> failed = new ArrayList<>();
+
+                for (Either<GraphNode, FailedNode> e : elements) {
+                    e.ifLeft(nodes::add).ifRight(failed::add);
+                }
+
+                return new ScriptGraphData(List.copyOf(nodes), wires, List.copyOf(failed));
+            })
     );
 
     public boolean isEmpty() {
-        return nodes.isEmpty();
+        return nodes.isEmpty() && failedNodes.isEmpty();
     }
 
-    /// A copy with every [Kind#CACHED_POSE_GETTER] node referencing `oldName` retargeted to `newName`,
-    /// keeping the getters in a (closed-tab) sub-graph pointing at a cache renamed on the Anim Graph.
-    /// Returns `this` unchanged when no getter matches.
+    /// Compile gate: any unresolved (failed-decode) node is a hard compile error — the failed row was
+    /// *something*, and compiling without it would produce a script that behaves differently from
+    /// what the file describes. Every graph compiler calls this on entry; the editor screens
+    /// pre-check [#failedNodes] to report the rows individually before this throw is reachable.
+    public void requireNoFailedNodes() {
+        if (!failedNodes.isEmpty()) {
+            throw new IllegalStateException(
+                failedNodes.size() + " unresolved node(s) in the graph — fix or delete them before compiling");
+        }
+    }
+
+    /// The first unresolved (failed-decode) node as a reportable exception, or null when the graph is
+    /// clean. Feeds the aggregate nested-failure signal a root holder surfaces on its content tile: a
+    /// graph the guard salvaged around a broken row leaves the holder structurally valid but corrupt.
+    public @Nullable Exception firstFailure() {
+        if (failedNodes.isEmpty()) return null;
+
+        FailedNode f = failedNodes.getFirst();
+
+        return new IllegalStateException("Unresolved node (id " + f.id() + "): " + f.message());
+    }
+
+    /// The shared rename-tracking instances this canvas' nodes bind, for the owning holder's
+    /// [com.yesman.akytheralabs.dataholder.DataHolder#referencedReferences]. A failed row's references
+    /// stay inside its raw JSON, which is re-emitted verbatim, so it contributes none.
+    public Stream<EditorReference> referencedReferences() {
+        return nodes.stream().flatMap(n -> n.data().referencedReferences());
+    }
+
+    /// The ids this canvas names that resolve to nothing (see [NodeData#missingReferences]).
+    public Stream<Identifier> missingReferences() {
+        return nodes.stream().flatMap(n -> n.data().missingReferences());
+    }
+
+    /// Every row whose payload is of `type`, in row order.
+    public <D extends NodeData> Stream<GraphNode> nodesOf(Class<D> type) {
+        return nodes.stream().filter(n -> type.isInstance(n.data()));
+    }
+
+    /// A copy with every cached-pose getter referencing `oldName` retargeted to `newName`, keeping the
+    /// getters in a (closed-tab) sub-graph pointing at a cache renamed on the Anim Graph. Returns
+    /// `this` unchanged when no getter matches.
     public ScriptGraphData withCachedPoseGettersRenamed(String oldName, String newName) {
         boolean matches = nodes.stream().anyMatch(
-            n -> n.kind() == Kind.CACHED_POSE_GETTER && n.variable().filter(oldName::equals).isPresent());
+            n -> n.data() instanceof CachedPoseGetterNodeData getter && getter.cacheName().equals(oldName));
+
         if (!matches) return this;
 
-        List<NodeData> renamed = nodes.stream()
-            .map(n -> n.kind() == Kind.CACHED_POSE_GETTER && n.variable().filter(oldName::equals).isPresent()
-                ? n.withVariable(newName, null)
+        List<GraphNode> renamed = nodes.stream()
+            .map(n -> n.data() instanceof CachedPoseGetterNodeData getter && getter.cacheName().equals(oldName)
+                ? n.withData(new CachedPoseGetterNodeData(newName))
                 : n)
             .toList();
-        return new ScriptGraphData(renamed, wires);
+
+        return new ScriptGraphData(renamed, wires, failedNodes);
     }
 
-    /// The kinds of node a canvas can hold. The discriminator that decides both how a row is
-    /// rebuilt into a widget ([ScriptNodeGraphWidget#importGraph]) and how it is compiled into an
-    /// engine node ([com.yesman.akytheralabs.dataholder.animation.ScriptGraphCompiler]).
-    ///
-    /// `REROUTE` knots are cosmetic and transparent to evaluation, so they are persisted to keep the
-    /// on-canvas layout round-trippable but spliced through by the compiler (which traces each wire
-    /// back past any chain of knots to the real source feeding it).
-    public enum Kind {
-        ENTRY, SEQUENCE, BRANCH, FLOW_FUNCTION, PURE_FUNCTION,
-        LITERAL, SELF, VARIABLE_GETTER, VARIABLE_SETTER, COMPARATOR, OPERATOR, REROUTE,
-        // Anim Graph (pose data-flow) nodes.
-        OUTPUT_POSE, ANIM_SEQUENCE_PLAYER, BLEND_SPACE_PLAYER, STATE_MACHINE,
-        CACHED_POSE, CACHED_POSE_GETTER, ANIM_LAYER,
-        // Explicit numeric type conversion (its from/to ScriptTypes ride in variableType/literalType).
-        TYPE_CONVERT,
-        // Transition condition graph root + boolean logic.
-        TRANSITION_RESULT, NOT, LOGICAL_OPERATION,
-        // Entity-patch blueprint entry point (onConstruct / onJoinWorld / update); its kind rides in `op`.
-        ENTITY_PATCH_ENTRY
-    }
-
-    /// One persisted node. Only the fields relevant to [#kind] are populated; the rest stay empty.
-    ///
-    /// @param id          stable identity within the graph, referenced by [WireData]. The entry
-    ///                    node is always id 0.
-    /// @param x           graph-space position (preserved so the canvas reopens unchanged).
-    /// @param function    the [ScriptFunction] of a `FLOW_FUNCTION` / `PURE_FUNCTION` node.
-    /// @param variable    the member-variable name of a `VARIABLE_GETTER` / `VARIABLE_SETTER` node.
-    /// @param variableType the member-variable type, kept so the getter/setter widget rebuilds with
-    ///                    the right pin colour/type without consulting the variables list.
-    /// @param literalType the [ScriptType] of a `LITERAL` node.
-    /// @param literalValue the literal's value in its raw text form (see [LiteralNodeWidget]).
-    /// @param op          the operator enum name of a `COMPARATOR` / `OPERATOR` / `LOGICAL_OPERATION` node.
-    /// @param outputs     the dynamic output-pin count of a `SEQUENCE` node (0 for fixed-shape nodes).
-    /// @param exec        whether a `REROUTE` knot threads an execution wire (vs. a data value) — its
-    ///                    one pin mirrors this so the knot reloads with the right shape and color.
-    /// @param outLabels   the output-pin labels of the `ENTRY` node — the runtime context variable
-    ///                    names (`frameTime` / `partialTick` / `layers`) its data outputs map to.
-    /// @param asset       the bound project asset id of an `ANIM_SEQUENCE_PLAYER` (a sequence) or
-    ///                    `BLEND_SPACE_PLAYER` (a blendspace) node — empty for every other kind.
-    public record NodeData(
-        int id,
-        Kind kind,
-        int x,
-        int y,
-        Optional<ScriptFunction> function,
-        Optional<String> variable,
-        Optional<ScriptType> variableType,
-        Optional<ScriptType> literalType,
-        Optional<String> literalValue,
-        Optional<String> op,
-        int outputs,
-        boolean exec,
-        List<String> outLabels,
-        Optional<Identifier> asset
-    ) {
-        public static final Codec<NodeData> CODEC = RecordCodecBuilder.create(
-            instance -> instance.group(
-                Codec.INT.fieldOf("id").forGetter(NodeData::id),
-                KIND_CODEC.fieldOf("kind").forGetter(NodeData::kind),
-                Codec.INT.fieldOf("x").forGetter(NodeData::x),
-                Codec.INT.fieldOf("y").forGetter(NodeData::y),
-                AkytheraRegistries.Frozen.SCRIPT_FUNCTION.byNameCodec().optionalFieldOf("function")
-                    .forGetter(NodeData::function),
-                Codec.STRING.optionalFieldOf("variable").forGetter(NodeData::variable),
-                AkytheraRegistries.Frozen.SCRIPT_TYPE.byNameCodec().optionalFieldOf("variable_type")
-                    .forGetter(NodeData::variableType),
-                AkytheraRegistries.Frozen.SCRIPT_TYPE.byNameCodec().optionalFieldOf("literal_type")
-                    .forGetter(NodeData::literalType),
-                Codec.STRING.optionalFieldOf("literal_value").forGetter(NodeData::literalValue),
-                Codec.STRING.optionalFieldOf("op").forGetter(NodeData::op),
-                Codec.INT.optionalFieldOf("outputs", 0).forGetter(NodeData::outputs),
-                Codec.BOOL.optionalFieldOf("exec", false).forGetter(NodeData::exec),
-                Codec.STRING.listOf().optionalFieldOf("out_labels", List.of()).forGetter(NodeData::outLabels),
-                Identifier.CODEC.optionalFieldOf("asset").forGetter(NodeData::asset)
-            ).apply(instance, NodeData::new)
-        );
-
-        /// A bare node with only id/kind/position set; the kind-specific fields are filled by the
-        /// `with*` builders so [ScriptNodeGraphWidget#exportGraph] reads cleanly.
-        public static NodeData of(int id, Kind kind, int x, int y) {
-            return new NodeData(id, kind, x, y,
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), 0, false, List.of(), Optional.empty());
-        }
-
-        public NodeData withFunction(ScriptFunction f) {
-            return new NodeData(id, kind, x, y, Optional.of(f), variable, variableType,
-                literalType, literalValue, op, outputs, exec, outLabels, asset);
-        }
-
-        public NodeData withVariable(String name, @Nullable ScriptType type) {
-            return new NodeData(id, kind, x, y, function, Optional.of(name), Optional.ofNullable(type),
-                literalType, literalValue, op, outputs, exec, outLabels, asset);
-        }
-
-        public NodeData withLiteral(@Nullable ScriptType type, String value) {
-            return new NodeData(id, kind, x, y, function, variable, variableType,
-                Optional.ofNullable(type), Optional.of(value), op, outputs, exec, outLabels, asset);
-        }
-
-        public NodeData withOp(String operatorName) {
-            return new NodeData(id, kind, x, y, function, variable, variableType,
-                literalType, literalValue, Optional.of(operatorName), outputs, exec, outLabels, asset);
-        }
-
-        public NodeData withOutputs(int count) {
-            return new NodeData(id, kind, x, y, function, variable, variableType,
-                literalType, literalValue, op, count, exec, outLabels, asset);
-        }
-
-        /// Records a `REROUTE` knot's pin shape: `exec` selects an execution vs. data wire, `type`
-        /// the data value type (empty for an exec or wildcard knot) so it reloads with the right color.
-        public NodeData withReroute(boolean exec, @Nullable ScriptType type) {
-            return new NodeData(id, kind, x, y, function, variable, Optional.ofNullable(type),
-                literalType, literalValue, op, outputs, exec, outLabels, asset);
-        }
-
-        public NodeData withOutLabels(List<String> labels) {
-            return new NodeData(id, kind, x, y, function, variable, variableType,
-                literalType, literalValue, op, outputs, exec, List.copyOf(labels), asset);
-        }
-
-        /// Records a `TYPE_CONVERT` node's cast: the `from` source type (in `variableType`) and the
-        /// `to` target type (in `literalType`), so the converter reloads with the right pins and the
-        /// compiler can rebuild the engine `TypeConvertNode`.
-        public NodeData withTypeConvert(@Nullable ScriptType from, @Nullable ScriptType to) {
-            return new NodeData(id, kind, x, y, function, variable, Optional.ofNullable(from),
-                Optional.ofNullable(to), literalValue, op, outputs, exec, outLabels, asset);
-        }
-
-        /// Records the bound project asset id of a pose-player node (`ANIM_SEQUENCE_PLAYER` /
-        /// `BLEND_SPACE_PLAYER`) so it reloads bound to the same sequence / blendspace.
-        public NodeData withAsset(Identifier id) {
-            return new NodeData(this.id, kind, x, y, function, variable, variableType,
-                literalType, literalValue, op, outputs, exec, outLabels, Optional.of(id));
-        }
-    }
-
-    /// One persisted wire: the output pin `fromPin` of node `from` feeds the input pin `toPin`
-    /// of node `to`. Endpoints are node ids, resolved back to live widgets on import.
+    /// One persisted wire: the output pin `fromPin` of node `from` feeds the input pin `toPin` of
+    /// node `to`. Endpoints are node ids, resolved back to live widgets on import.
     public record WireData(int from, int fromPin, int to, int toPin) {
         public static final Codec<WireData> CODEC = RecordCodecBuilder.create(
-            instance -> instance.group(
-                Codec.INT.fieldOf("from").forGetter(WireData::from),
-                Codec.INT.fieldOf("from_pin").forGetter(WireData::fromPin),
-                Codec.INT.fieldOf("to").forGetter(WireData::to),
-                Codec.INT.fieldOf("to_pin").forGetter(WireData::toPin)
-            ).apply(instance, WireData::new)
+            instance ->
+                instance.group(
+                    Codec.INT.fieldOf("from").forGetter(WireData::from),
+                    Codec.INT.fieldOf("from_pin").forGetter(WireData::fromPin),
+                    Codec.INT.fieldOf("to").forGetter(WireData::to),
+                    Codec.INT.fieldOf("to_pin").forGetter(WireData::toPin)
+                ).apply(instance, WireData::new)
         );
     }
 }

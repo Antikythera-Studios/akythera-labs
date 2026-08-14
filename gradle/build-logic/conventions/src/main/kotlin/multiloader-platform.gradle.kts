@@ -14,6 +14,16 @@ plugins {
     id("me.modmuss50.mod-publish-plugin")
 }
 
+// FreeMarker (bundled via Jar-in-Jar) ships shell and script-interpreter gadgets that the CurseForge and Modrinth
+// malware scanners reject on sight, so they are deleted from the nested JAR. Labs can never reach them: templates
+// come only from the classpath, and SourceTemplateEngine forbids the "?new" built-in — the sole way to construct
+// one — outright. JythonRuntime is doubly dead, as its org.python supertype is not shipped either.
+stripFromNestedJars(
+    "freemarker/template/utility/Execute.class",
+    "freemarker/template/utility/JythonRuntime.class",
+    "freemarker/template/utility/JythonRuntime\$1.class",
+)
+
 val commonProject: Project = project(":common")
 
 dependencies {

@@ -2,6 +2,8 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.script.node.LiteralNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.CharacterEvent;
@@ -21,8 +23,6 @@ import org.jspecify.annotations.Nullable;
 /// - **boolean / enum** cycle in place (no typing required);
 /// - **numeric / char / string** type into an edit box embedded in the node body
 ///   (UE-style), committing on Enter or when focus leaves.
-///
-/// The value is editor-side only this stage (no `LiteralNode` is emitted yet).
 public final class LiteralNodeWidget extends AbstractNodeWidget {
     private final Class<?> valueType;
     private Object value;
@@ -190,5 +190,10 @@ public final class LiteralNodeWidget extends AbstractNodeWidget {
         } catch (Exception ignored) {
             // Keep the default value on malformed input.
         }
+    }
+
+    @Override
+    public NodeData toData() {
+        return new LiteralNodeData(scriptTypeOf(valueType), serializedValue());
     }
 }

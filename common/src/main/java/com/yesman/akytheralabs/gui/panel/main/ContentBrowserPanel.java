@@ -4,7 +4,9 @@ import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.datafixers.util.Pair;
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.editor.historytrack.FileDeletion;
@@ -150,10 +152,21 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                             if (query.isEmpty() || name.toLowerCase().contains(query)) {
                                 folders.add(w);
                             }
-                        } else if (Files.isRegularFile(path)) {
-                            ContentWidget<?> w = (selectedNode.processor != null)
-                                ? selectedNode.processor.createContentWidget(font, path)
-                                : null;
+                        } else if (Files.isRegularFile(path) && !name.endsWith(AssetLoader.METADATA_EXTENSION)) {
+                            // A sidecar belongs to the asset next to it, not to the grid — the
+                            // processors parse whatever file they are handed, and a sidecar is not
+                            // an asset of any of their types.
+                            ContentWidget<?> w = null;
+
+                            if (selectedNode.processor != null) {
+                                try {
+                                    w = selectedNode.processor.createContentWidget(font, path);
+                                } catch (NoSuchElementException e) {
+                                    AkytheraLabs.LOGGER.error(
+                                        "Couldn't find registered object parsed from {}. This error means the data file is corrupted",
+                                        path);
+                                }
+                            }
 
                             if (w != null) {
                                 w.setSortCallback(this::sortWidgets);

@@ -62,7 +62,7 @@ public final class DeleteProjectModalGenerator {
 
             AkytheraEditorLayoutManager.getInstance().closeModal();
             deleteProject(project);
-            Minecraft.getInstance().setScreen(new LoadAkytheraProjectScreen());
+            Minecraft.getInstance().gui.setScreen(new LoadAkytheraProjectScreen());
         })
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
             .build();

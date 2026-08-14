@@ -5,10 +5,12 @@ import com.yesman.akythera.core.blueprint.script.AnimatorScript;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.dataholder.entitypatch.component.AnimatorScriptRef;
+import com.yesman.akytheralabs.akythera.entitypatch.component.AnimatorScriptRef;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.FrameResizer;
 import com.yesman.akytheralabs.gui.widget.Modal;
+import com.yesman.akytheralabs.gui.widget.ResizableFrame;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -36,7 +38,9 @@ import java.util.function.Consumer;
 /// split under `Class` / `Data` category header rows (mirroring [ModelSelectModal]) so the tags no
 /// longer overlap long identifiers. Confirm reports the picked [AnimatorScriptRef]. Opens at the
 /// cursor, single-click confirms — mirrors [RegistryLookupModal].
-public final class AnimatorScriptSelectModal extends AbstractContainerWidget implements Modal, AnchoredWidget {
+public final class AnimatorScriptSelectModal extends AbstractContainerWidget
+    implements Modal, AnchoredWidget, ResizableFrame {
+
     private static final int TITLE_H = 18;
     private static final int SEARCH_H = 16;
     private static final int ROW_H = 14;
@@ -50,12 +54,18 @@ public final class AnimatorScriptSelectModal extends AbstractContainerWidget imp
     private final AdvancedEditBox<String> searchBox;
     private final EntryList list;
 
+    /// The page is resizable by dragging its frame; the opening size is its floor, and a
+    /// [com.yesman.akytheralabs.gui.widget.DropdownSizeMemory] anchor keeps the dragged one for the
+    /// next open.
+    private final FrameResizer resizer;
+
     public AnimatorScriptSelectModal(Font font, int width, Consumer<AnimatorScriptRef> onConfirm) {
         super(0, 0, width, MODAL_H,
             Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_ANIM_SCRIPT),
             AbstractScrollArea.defaultSettings(0));
 
         this.modalW = width;
+        this.resizer = new FrameResizer(this, width, MODAL_H);
         this.x2 = AnchoredWidget.pixel(width);
         this.font = font;
         this.onConfirm = onConfirm;
@@ -115,6 +125,12 @@ public final class AnimatorScriptSelectModal extends AbstractContainerWidget imp
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
+        // The frame grip is tested first: it lies just outside the page, where a press would otherwise
+        // dismiss the modal.
+        if (event.button() == 0 && resizer.mousePressed(event.x(), event.y())) {
+            return true;
+        }
+
         boolean overPage = event.x() >= getX() && event.x() < getRight() && event.y() >= getY() && event.y() < getBottom();
 
         if (!overPage) {
@@ -125,6 +141,21 @@ public final class AnimatorScriptSelectModal extends AbstractContainerWidget imp
         super.mouseClicked(event, doubleClick);
 
         return true;
+    }
+
+    @Override
+    public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
+        return resizer.mouseDragged(event.x(), event.y()) || super.mouseDragged(event, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(@NonNull MouseButtonEvent event) {
+        return resizer.mouseReleased() || super.mouseReleased(event);
+    }
+
+    @Override
+    public FrameResizer frameResizer() {
+        return resizer;
     }
 
     @Override
@@ -163,7 +194,7 @@ public final class AnimatorScriptSelectModal extends AbstractContainerWidget imp
 
     @Override
     protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
-        // Page background + 1-px border (no dimmer)
+        // Page background + 1-posX border (no dimmer)
         graphics.fill(getX(), getY(), getRight(), getBottom(), 0xFF1E1E1E);
         graphics.fill(getX(), getY(), getRight(), getY() + 1, 0xFF3A3A3A);
         graphics.fill(getX(), getBottom() - 1, getRight(), getBottom(), 0xFF3A3A3A);
@@ -183,6 +214,8 @@ public final class AnimatorScriptSelectModal extends AbstractContainerWidget imp
 
         searchBox.extractRenderState(graphics, mouseX, mouseY, a);
         list.extractRenderState(graphics, mouseX, mouseY, a);
+
+        resizer.requestCursor(graphics, mouseX, mouseY);
     }
 
     @Override
@@ -353,11 +386,15 @@ public final class AnimatorScriptSelectModal extends AbstractContainerWidget imp
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
 
+    /// The constructor's `width` is only the starting size: the opener may widen the modal to its
+    /// anchor (see [com.yesman.akytheralabs.AkytheraEditorLayoutManager#openModalWidgetUnder]), so the
+    /// list follows the rect the units just produced.
     @Override
     public void relocate(ScreenRectangle screenRectangle) {
         AnchoredWidget.super.relocate(screenRectangle);
 
         searchBox.relocate(getRectangle());
-        list.updateSizeAndPosition(modalW - 2, MODAL_H - TITLE_H - SEARCH_H - 1, getX() + 1, getY() + TITLE_H + SEARCH_H);
+        list.updateSizeAndPosition(
+            getWidth() - 2, getHeight() - TITLE_H - SEARCH_H - 1, getX() + 1, getY() + TITLE_H + SEARCH_H);
     }
 }

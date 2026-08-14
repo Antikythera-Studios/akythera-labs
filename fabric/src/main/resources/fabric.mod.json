@@ -24,6 +24,7 @@
       }
     ]
   },
+  "accessWidener": "akytheralabs.accesswidener",
   "mixins": [
     "akytheralabs.mixins.json",
     "akytheralabs.fabric.mixins.json",

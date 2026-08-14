@@ -9,12 +9,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
-/// Confirm-delete popup shared by [FileCreation#requestUndoConfirmation]
-/// (undoing a create deletes the file) and
-/// [FileDeletion#requestRedoConfirmation] (redoing a delete deletes the
-/// file again). Both directions converge on the same user-facing prompt
-/// — "you are about to lose this from disk" — so the dialog is
-/// centralised here.
+/// The prompt shown before a history entry takes something off disk — undoing a create, or redoing
+/// a delete.
 final class ConfirmDeletePopup {
     private ConfirmDeletePopup() {}
 

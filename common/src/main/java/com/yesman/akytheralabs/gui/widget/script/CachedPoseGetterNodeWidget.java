@@ -2,18 +2,20 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.api.data.modularize.node.animgraph.CachedPoseReferenceNode;
 import com.yesman.akythera.core.animation.keyframe.Pose;
+import com.yesman.akytheralabs.akythera.animation.AnimGraphCompiler;
+import com.yesman.akytheralabs.gui.widget.script.node.CachedPoseGetterNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
-/// Reads a pose cached by a [CachedPoseNodeWidget] (UE's "Use cached pose '<name>'") — a pose source
+/// Reads a pose cached by a [PoseCachingNodeWidget] (UE's "Use cached pose '<name>'") — a pose source
 /// with no inputs and one `Pose` output. If the cache is empty when first read, the provider evaluates
 /// and stores it.
 ///
-/// Compile rule (in [com.yesman.akytheralabs.dataholder.animation.AnimGraphCompiler], not a node
-/// method): lowers to the engine
-/// [CachedPoseReferenceNode] keyed by [#cacheName], which
-/// reads the matching `cachedPoseProviders` entry. A **recursive** reference (a getter reached by its
-/// own cache's evaluation) is not rejected and would loop at runtime — author with care.
+/// Compile rule, owned by [AnimGraphCompiler] rather than a node method: lowers to the engine
+/// [CachedPoseReferenceNode] keyed by [#cacheName], which reads the matching pose cache entry. A
+/// recursive reference — a getter reached by its own cache's evaluation — is accepted here and
+/// loops at runtime.
 public final class CachedPoseGetterNodeWidget extends AbstractNodeWidget {
     private static final int TITLE_COLOR = 0xFF2A2A2A;
 
@@ -30,7 +32,7 @@ public final class CachedPoseGetterNodeWidget extends AbstractNodeWidget {
         relayout();
     }
 
-    /// The cache name this getter reads — matches a [CachedPoseNodeWidget#cacheName] on the same graph.
+    /// The cache name this getter reads — matches a [PoseCachingNodeWidget#cacheName] on the same graph.
     public String cacheName() {
         return cacheName;
     }
@@ -40,5 +42,10 @@ public final class CachedPoseGetterNodeWidget extends AbstractNodeWidget {
         this.cacheName = name;
         setMessage(Component.literal("Use cached pose '" + name + "'"));
         relayout();
+    }
+
+    @Override
+    public NodeData toData() {
+        return new CachedPoseGetterNodeData(cacheName);
     }
 }

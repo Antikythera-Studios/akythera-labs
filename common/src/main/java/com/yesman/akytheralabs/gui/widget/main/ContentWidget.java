@@ -11,32 +11,38 @@ import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
-import com.yesman.akythera.api.world.patch.item.ItemPatch;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
+import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
+import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
+import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
-import com.yesman.akytheralabs.dataholder.datablock.DataBlockHolder;
-import com.yesman.akytheralabs.dataholder.animation.AnimationMontageHolder;
-import com.yesman.akytheralabs.dataholder.animation.AnimationSequenceHolder;
-import com.yesman.akytheralabs.dataholder.animation.AnimatorScriptHolder;
-import com.yesman.akytheralabs.dataholder.animation.BlendSpace2DHolder;
-import com.yesman.akytheralabs.dataholder.entitypatch.EntityPatchBlueprintHolder;
+import com.yesman.akytheralabs.dataholder.DataBlockHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
+import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.editor.historytrack.FileMove;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
+import com.yesman.akytheralabs.gui.screen.AnimationAssetEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimationMontageEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimationSequenceEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimatorScriptEditorScreen;
 import com.yesman.akytheralabs.gui.screen.EntityPatchEditorScreen;
+import com.yesman.akytheralabs.gui.screen.ItemPatchEditorScreen;
 import com.yesman.akytheralabs.gui.screen.BlendSpace2DEditorScreen;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
+import com.yesman.akytheralabs.gui.screen.MeshAssetEditorScreen;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.Grid;
 import net.minecraft.client.Minecraft;
@@ -53,13 +59,14 @@ import net.minecraft.client.sounds.SoundManager;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.util.FormattedCharSequence;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /// A single [ContentBrowserPanel] object button
 ///
@@ -69,6 +76,16 @@ public abstract class ContentWidget<T> extends AbstractWidget {
     private static final int LABEL_VISIBLE_THRESHOLD = 28;
     private static final int LABEL_HEIGHT = 12;
     private static final int ICON_SIZE = 16;
+
+    /// Height of the red strip drawn along the widget's bottom edge when the
+    /// referencing [DataHolder] failed to load.
+    private static final int ERROR_BAR_HEIGHT = 3;
+    private static final int COLOR_ERROR = 0xFFD03A3A;
+    private static final int COLOR_ERROR_BORDER = 0xFF7A1F1F;
+    private static final int COLOR_ERROR_TEXT = 0xFFFF8A8A;
+
+    /// Wrap width of the failure tooltip. The message is never truncated — it only wraps.
+    private static final int ERROR_TOOLTIP_WRAP_WIDTH = 260;
 
     private final Font font;
     private String contentName;
@@ -173,12 +190,15 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         boolean hovered = isHovered();
         boolean showLabel = h >= LABEL_VISIBLE_THRESHOLD;
         boolean highlighted = isFocused() || selected;
+        Exception loadingFailure = getLoadingFailureException();
 
         // Background
         guiGraphics.fill(x, y, x + w, y + h, highlighted ? 0xFF1E4D72 : (hovered ? 0xFF2A2A2A : 0xFF1E1E1E));
 
-        // 1px border on each edge
-        int borderColor = dragHighlighted || highlighted ? 0xFF5A8AAA : 0xFF3A3A3A;
+        // 1px border on each edge — turns red when the holder failed to load
+        int borderColor = loadingFailure != null
+            ? COLOR_ERROR_BORDER
+            : (dragHighlighted || highlighted ? 0xFF5A8AAA : 0xFF3A3A3A);
         guiGraphics.outline(x, y, w, h, borderColor);
 
         renderIcon(guiGraphics, showLabel);
@@ -190,6 +210,65 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             String label = font.plainSubstrByWidth(getContentName(), w - 2);
             int labelX = x + (w - font.width(label)) / 2;
             guiGraphics.text(font, label, labelX, y + h - LABEL_HEIGHT, 0xFF888888, false);
+        }
+
+        if (loadingFailure != null) {
+            // Red strip on the bottom edge, inside the border and below the label baseline.
+            guiGraphics.fill(x + 1, y + h - ERROR_BAR_HEIGHT - 1, x + w - 1, y + h - 1, COLOR_ERROR);
+
+            // The content browser scissors its grid, so the tooltip is deferred to the frame's
+            // tail (drawn outside the clip, above every other widget).
+            if (hovered) {
+                ((GuiGraphicsAccessor) guiGraphics).akythera$setDeferredWidgetRenderer(
+                    () -> drawFailureTooltip(guiGraphics, loadingFailure, mouseX, mouseY)
+                );
+            }
+        }
+    }
+
+    /// The load failure of the referencing object ([DataHolder#getFailureException] — a root decode
+    /// failure, a nested-content failure, or an unbuildable runtime object), or null when it loaded
+    /// fine / isn't a [DataHolder] at all (directories and raw asset accessors never carry one). Any
+    /// of the three red-marks the tile; only a root decode failure gates opening behind the replace
+    /// popup. The nested channel is a live query, so it clears the moment a clean save / compile
+    /// heals and flushes the content.
+    private @Nullable Exception getLoadingFailureException() {
+        if (!(referencingObject instanceof DataHolder<?> dataHolder)) return null;
+
+        return dataHolder.getFailureException();
+    }
+
+    /// Draws the whole exception message next to the cursor — wrapped, never truncated. The box
+    /// is clamped into the scaled window; when the message is taller than the screen it starts at
+    /// the top edge and simply runs long, since the message must stay fully readable.
+    private void drawFailureTooltip(GuiGraphicsExtractor guiGraphics, Exception exception, int mouseX, int mouseY) {
+        List<FormattedCharSequence> lines = new ArrayList<>(
+            font.split(Component.literal(exception.getClass().getSimpleName()), ERROR_TOOLTIP_WRAP_WIDTH));
+        int headerLines = lines.size();
+
+        String message = exception.getMessage();
+        if (message != null && !message.isBlank()) {
+            lines.addAll(font.split(Component.literal(message), ERROR_TOOLTIP_WRAP_WIDTH));
+        }
+
+        int pad = 4;
+        int lineH = font.lineHeight + 1;
+        int textW = lines.stream().mapToInt(font::width).max().orElse(0);
+        int boxW = textW + pad * 2;
+        int boxH = lines.size() * lineH - 1 + pad * 2;
+
+        int screenW = Minecraft.getInstance().getWindow().getGuiScaledWidth();
+        int screenH = Minecraft.getInstance().getWindow().getGuiScaledHeight();
+
+        int boxX = Math.max(2, Math.min(mouseX + 12, screenW - boxW - 2));
+        int boxY = Math.max(2, Math.min(mouseY + 12, screenH - boxH - 2));
+
+        guiGraphics.fill(boxX, boxY, boxX + boxW, boxY + boxH, 0xF0200C0C);
+        guiGraphics.outline(boxX, boxY, boxW, boxH, COLOR_ERROR_BORDER);
+
+        for (int i = 0; i < lines.size(); i++) {
+            guiGraphics.text(font, lines.get(i), boxX + pad, boxY + pad + i * lineH,
+                i < headerLines ? COLOR_ERROR_TEXT : 0xFFE0E0E0);
         }
     }
 
@@ -321,16 +400,13 @@ public abstract class ContentWidget<T> extends AbstractWidget {
     /// accessor re-keying. Returns `false` on failure so callers can
     /// abort the history-push / refresh.
     ///
-    /// Default: no-op return `false` — non-renamable widgets
-    /// (e.g. [ItemPatchContent]) inherit this and the editbox commit
-    /// becomes a no-op as before.
+    /// Default: returns `false`, which leaves a non-renamable widget's editbox commit a no-op.
     protected boolean renameOnDisk(AkytheraProject project, Path from, Path to) {
         return false;
     }
 
-    /// Shared rename helper for asset widgets (mesh / armature / animation).
-    /// File move + `project.renameAsset` — the latter re-keys the accessor
-    /// and fires inbound `ReferenceInfo` redirects.
+    /// Shared rename helper for the asset widgets — mesh, armature and animation. Moves the file,
+    /// then `project.renameAsset` re-keys the shared accessor so every referrer follows.
     protected static boolean assetRenameOnDisk(AkytheraProject project, Path from, Path to) {
         if (!FileSystemHelper.move(from, to)) return false;
         project.renameAsset(from, to);
@@ -370,9 +446,64 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             }
             if (editBox.visible) editBox.mouseClicked(event, doubleClick);
         } else {
-            if (doubleClick) onDoubleClicked();
+            if (doubleClick) {
+                // A decode-failed entry never opens its editor directly — the only way forward is
+                // the gated replace-with-default popup (its data is defaults + retained raw; an
+                // object-creation failure alone opens normally, the data is intact and editable).
+                if (referencingObject instanceof AbstractDataHolder<?> failed
+                    && failed.getDeserializationFailureException() != null
+                    && failed.getOwnResourceKey() != null) {
+                    showReplaceFailedEntryPopup(failed);
+                } else {
+                    onDoubleClicked();
+                }
+            }
             stopEditing();
         }
+    }
+
+    /// The gated recovery affordance for an entry whose file failed to deserialize: replace the
+    /// object with a default one (writing it to disk), or leave the file byte-identical. Same
+    /// [WidgetContainerModal] shape as the content browser's other prompts.
+    private void showReplaceFailedEntryPopup(AbstractDataHolder<?> failedHolder) {
+        ResourceKey<?> key = failedHolder.getOwnResourceKey();
+        if (key == null) return;
+
+        int popupW = 320;
+        int btnW = WidgetContainerModal.evenButtonWidth(popupW, 2);
+
+        Exception failure = failedHolder.getDeserializationFailureException();
+        String failureMessage = failure == null ? "" : String.valueOf(failure.getMessage());
+
+        WidgetContainerModal popup = WidgetContainerModal.builder(
+                font, Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_REPLACE_FAILED_TITLE), popupW)
+            .textLines(Component.literal(failureMessage))
+            .textLines(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_REPLACE_FAILED_BODY, key.identifier().toString()))
+            // Footer buttons render right-to-left in insertion order, so add
+            // Cancel first (rightmost) and Replace last (leftmost).
+            .footerButton(
+                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
+                        _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                    .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+                    .build(),
+                btnW
+            )
+            .footerButton(
+                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_MESSAGE_BUTTON_REPLACE), _ -> {
+                        AkytheraEditorLayoutManager.getInstance().closeModal();
+                        // Clear failure + retained raw: the default holder state becomes
+                        // authoritative, the save writes it, and the tile un-reddens.
+                        failedHolder.markResolved();
+                        AkytheraProject.getCurrentProject().saveEntry(key);
+                        onDoubleClicked();
+                    })
+                    .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+                    .build(),
+                btnW
+            )
+            .build();
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     public void startEditing() {
@@ -466,7 +597,9 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
         @Override
         public void onDoubleClicked() {
+            if (!(getReferencingObject() instanceof AkytheraProject.EditorMeshAccessor<?> mesh)) return;
 
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new MeshAssetEditorScreen(mesh));
         }
 
         @Override
@@ -493,7 +626,9 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
         @Override
         public void onDoubleClicked() {
+            if (!(getReferencingObject() instanceof AkytheraProject.EditorMeshAccessor<?> mesh)) return;
 
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new MeshAssetEditorScreen(mesh));
         }
 
         @Override
@@ -520,12 +655,9 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
         @Override
         public void onDoubleClicked() {
-            AssetAccessor<AnimationClip> clip = getReferencingObject();
-            if (clip == null) return;
+            if (!(getReferencingObject() instanceof AkytheraProject.EditorAnimationAccessor clip)) return;
 
-            AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(
-                new AnimationPreviewerModal(Minecraft.getInstance().font, clip)
-            );
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AnimationAssetEditorScreen(clip));
         }
 
         @Override
@@ -723,32 +855,26 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         }
     }
 
-    public static class ItemPatchContent extends ContentWidget<ItemPatch> {
-        private final ItemStack stack;
+    public static class ItemPatchContent extends DataDrivenObjectContent<ItemPatchBlueprint, ItemPatchBlueprintHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/script");
 
-        public ItemPatchContent(final Font font, final Item item, Path path) {
-            super(font, item.getDefaultInstance().getHoverName().getString(), false, path, null);
-            stack = item.getDefaultInstance();
+        public ItemPatchContent(Font font, ResourceKey<@NonNull ItemPatchBlueprint> resourceKey, Path path, String name) {
+            super(font, name, false, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
         }
 
+        /// The target item is bound at creation (see
+        /// [com.yesman.akytheralabs.gui.panel.main.processors.ItemPatchResourceProcessor#onPressAddButton]),
+        /// so opening just hands the holder to the editor.
         @Override
         public void onDoubleClicked() {
-
+            // Open the live registry holder, not the cached one (a prior "Quit" may have disk-reloaded it).
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(
+                new ItemPatchEditorScreen(resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
         }
 
         @Override
-        protected void renderIcon(@NonNull GuiGraphicsExtractor guiGraphics, boolean showLabel) {
-            int iconX = getX() + (getWidth() - ICON_SIZE) / 2;
-            int iconY = showLabel
-                ? getY() + (getHeight() - ICON_SIZE) / 2 - 4
-                : getY() + (getHeight() - ICON_SIZE) / 2;
-
-            guiGraphics.item(stack, iconX, iconY);
-        }
-
-        @Override
-        public String getContentName() {
-            return stack.getHoverName().getString();
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
         }
     }
 }

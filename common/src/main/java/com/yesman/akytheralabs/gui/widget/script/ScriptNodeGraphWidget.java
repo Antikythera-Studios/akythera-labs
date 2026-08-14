@@ -2,12 +2,21 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.datafixers.util.Pair;
+import com.mojang.serialization.Codec;
+import com.yesman.akythera.api.data.modularize.AkytheraScriptFunctions;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
+import com.yesman.akythera.api.data.modularize.node.CallStack;
+import com.yesman.akythera.api.data.modularize.node.ExecutionRecord;
+import com.yesman.akythera.api.data.modularize.node.ScriptNode;
+import com.yesman.akytheralabs.gui.widget.script.node.FlowFunctionNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeBuildContext;
+import com.yesman.akytheralabs.gui.widget.script.node.PureFunctionNodeData;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -37,7 +46,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -72,6 +83,18 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     private static final int COLOR_PIN_COMPATIBLE = 0xFF59FF8C;
     private static final int COLOR_MARQUEE_FILL = 0x22FFFFFF;
     private static final int COLOR_MARQUEE_BORDER = 0xFFCFCFCF;
+
+    /// Weight multiplier of an execution wire the captured run went down.
+    private static final float EXECUTED_WIRE_WEIGHT = 2.5F;
+
+    /// Written for a recorded pin nothing fed a value into in the captured run.
+    private static final String RECORD_NO_VALUE = "—";
+
+    /// Decimal places a recorded floating-point value keeps.
+    private static final int RECORD_DECIMALS = 4;
+
+    /// How far [#inputSourceFrame] follows a chain of reroute knots before giving up.
+    private static final int REROUTE_HOP_LIMIT = 32;
 
     /// A wire between an output pin of one node and an input pin of another. Pin
     /// indices are resolved against the live nodes each frame, so a connection stays
@@ -115,8 +138,8 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     @Nullable
     private Consumer<AbstractNodeWidget> nodeActivationHandler;
 
-    /// Invoked when the selection settles, with the single selected node (or null when zero / many are
-    /// selected). Lets the host drive a Details panel off the canvas selection. Injected by the screen.
+    /// Invoked when the selection settles, with the single selected node, or null when zero or many
+    /// are selected.
     @Nullable
     private Consumer<AbstractNodeWidget> selectionHandler;
 
@@ -178,6 +201,23 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     private int pendingDropGraphX;
     private int pendingDropGraphY;
 
+    /// Frames of the last captured run, keyed by the row that produced them ([#assignIds] numbering).
+    /// Empty whenever nothing is being debugged. A node that ran more than once in the captured run
+    /// (an uncached pure value read by two consumers) is held by its last frame.
+    private Map<Integer, CallStack> debugFrames = Map.of();
+
+    /// Row ids as they stood when [#debugFrames] was captured — the numbering the capture was checked
+    /// against, so the highlights keep meaning what they meant at that moment even if the graph is
+    /// edited afterwards.
+    private Map<AbstractNodeWidget, Integer> debugIds = Map.of();
+
+    /// Input pins the user asked to show the value of. Keyed by the live widget rather than a row id,
+    /// so a recording survives the edits that renumber the rows.
+    private final Set<RecordedPin> recordedPins = new HashSet<>();
+
+    /// One recorded input pin.
+    private record RecordedPin(AbstractNodeWidget node, int pin) {}
+
     public ScriptNodeGraphWidget(
         Font font,
         Unit x1, Unit x2, Unit y1, Unit y2,
@@ -200,8 +240,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         nodes.add(node);
     }
 
-    /// The entry (event) nodes currently on the canvas, in z-order. Lets the host screen backfill
-    /// missing events — e.g. add a Constructor absent from a save made before that event existed.
+    /// The entry (event) nodes currently on the canvas, in z-order.
     public List<EntryPointNodeWidget> entryNodes() {
         return nodes.stream()
             .filter(EntryPointNodeWidget.class::isInstance)
@@ -209,8 +248,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             .toList();
     }
 
-    /// The unique names of every [StateMachineNodeWidget] on this canvas. Used by the host to keep
-    /// new state-machine names distinct and to find a machine's node.
+    /// The unique names of every [StateMachineNodeWidget] on this canvas.
     public List<String> stateMachineNames() {
         return nodes.stream()
             .filter(StateMachineNodeWidget.class::isInstance)
@@ -219,12 +257,22 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     }
 
     /// The [com.yesman.akythera.core.animation.driver.AnimationLayerSignature] identifiers
-    /// (`identifier().toString()`) of every [AnimLayerNodeWidget] on this canvas. Used by the host to
-    /// offer only the still-unused signatures when suggesting a new layer node (no duplicate layers).
+    /// (`identifier().toString()`) of every [AnimLayerNodeWidget] on this canvas. A signature is used
+    /// at most once per canvas.
     public List<String> animLayerSignatures() {
         return nodes.stream()
             .filter(AnimLayerNodeWidget.class::isInstance)
             .map(n -> ((AnimLayerNodeWidget) n).signatureName())
+            .toList();
+    }
+
+    /// The [com.yesman.akythera.api.animation.animator.AnimationInterfaceKey] identifiers
+    /// (`identifier().toString()`) of every [AnimInterfaceNodeWidget] on this canvas. A key registers
+    /// once per animator, so it is used at most once here.
+    public List<String> animInterfaceKeys() {
+        return nodes.stream()
+            .filter(AnimInterfaceNodeWidget.class::isInstance)
+            .map(n -> ((AnimInterfaceNodeWidget) n).interfaceKeyName())
             .toList();
     }
 
@@ -234,12 +282,12 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         this.suggestionProvider = provider;
     }
 
-    /// The names of every [CachedPoseNodeWidget] on this canvas — the cached poses a
+    /// The names of every [PoseCachingNodeWidget] on this canvas — the cached poses a
     /// [CachedPoseGetterNodeWidget] here may reference.
     public List<String> cachedPoseNames() {
         return nodes.stream()
-            .filter(CachedPoseNodeWidget.class::isInstance)
-            .map(n -> ((CachedPoseNodeWidget) n).cacheName())
+            .filter(PoseCachingNodeWidget.class::isInstance)
+            .map(n -> ((PoseCachingNodeWidget) n).cacheName())
             .toList();
     }
 
@@ -251,6 +299,19 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         for (AbstractNodeWidget node : nodes) node.setScriptOwnerType(ownerType);
     }
 
+    /// Whether `function` is the untyped `akythera:select`, which reloads as the type-detecting
+    /// [SelectNodeWidget] rather than a plain [PureFunctionNodeWidget].
+    public static boolean isSelect(ScriptFunction function) {
+        return function == AkytheraScriptFunctions.SELECT.value();
+    }
+
+    /// Re-types the canvas' result root, see [TransitionResultNodeWidget#setResultType].
+    public void setResultType(Class<?> resultType) {
+        for (AbstractNodeWidget node : nodes) {
+            if (node instanceof TransitionResultNodeWidget result) result.setResultType(resultType);
+        }
+    }
+
     /// Sets the [ScriptFunction.Usage]s this canvas offers in its node-suggestion menus (Event
     /// Graph → `SCRIPT`, Anim Graph / pose graphs → `ANIM_GRAPH, SCRIPT`).
     public void setUsage(ScriptFunction.Usage... usages) {
@@ -259,8 +320,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         this.usage = set;
     }
 
-    /// The [ScriptFunction.Usage]s this canvas offers — lets the host route an asset drop only onto a
-    /// canvas that accepts a pose (`ANIM_GRAPH`) node.
+    /// The [ScriptFunction.Usage]s this canvas offers.
     public Set<ScriptFunction.Usage> usage() {
         return usage;
     }
@@ -270,8 +330,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         this.dataFlowOnly = dataFlowOnly;
     }
 
-    /// Whether this canvas is pure data-flow (no execution flow) — lets the host offer only a Get node
-    /// (never a Set, which is an execution-flow construct) when a variable is dropped here.
+    /// Whether this canvas is pure data-flow, with no execution flow.
     public boolean isDataFlowOnly() {
         return dataFlowOnly;
     }
@@ -307,21 +366,25 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         AbstractNodeWidget create(int graphX, int graphY, List<String> outLabels);
     }
 
-    /// Flattens the live canvas into its persisted form: every node becomes a [ScriptGraphData.NodeData]
-    /// row (id = its index here, so the entry node — always first — is id 0) and every wire a
+    /// Flattens the live canvas into its persisted form: every node becomes a [GraphNode] row (id =
+    /// its index here, so the entry node — always first — is id 0) and every wire a
     /// [ScriptGraphData.WireData] row referencing those ids.
     ///
     /// Reroute knots are persisted like any other node (with their pin shape), so the on-canvas
     /// layout round-trips intact; the compiler is what splices them out when it lowers the graph
-    /// to engine nodes (see [com.yesman.akytheralabs.dataholder.animation.ScriptGraphCompiler]).
+    /// to engine nodes (see [ScriptGraphCompiler]).
     public ScriptGraphData exportGraph() {
-        Map<AbstractNodeWidget, Integer> idOf = new HashMap<>();
-        List<ScriptGraphData.NodeData> out = new ArrayList<>();
+        Map<AbstractNodeWidget, Integer> idOf = assignIds();
+        List<GraphNode> out = new ArrayList<>();
+        List<ScriptGraphData.FailedNode> failed = new ArrayList<>();
 
         for (AbstractNodeWidget node : nodes) {
-            int id = idOf.size();
-            idOf.put(node, id);
-            out.add(describe(node, id));
+            if (node instanceof UnresolvedNodeWidget u) {
+                failed.add(u.data());
+                continue;
+            }
+
+            out.add(new GraphNode(idOf.get(node), node.getX(), node.getY(), node.toData()));
         }
 
         List<ScriptGraphData.WireData> wires = new ArrayList<>();
@@ -334,8 +397,255 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             wires.add(new ScriptGraphData.WireData(fromId, c.fromPin(), toId, c.toPin()));
         }
 
-        return new ScriptGraphData(out, wires);
+        // Wires touching an unresolved placeholder never became live Connections — re-emit them
+        // under the current ids so the wiring survives load/save cycles. A wire whose endpoint
+        // was deleted (or whose placeholder has no usable id) is dropped with its node.
+        for (StashedWire sw : unresolvedWires) {
+            Integer fromId = idOf.get(sw.from());
+            Integer toId = idOf.get(sw.to());
+            if (fromId == null || toId == null || fromId < 0 || toId < 0) continue;
+
+            wires.add(new ScriptGraphData.WireData(fromId, sw.fromPin(), toId, sw.toPin()));
+        }
+
+        return new ScriptGraphData(out, wires, failed);
     }
+
+    /// The row id every live node would be written under — the one numbering
+    /// [#exportGraph] persists and [ScriptNode#nodeId] carries into the pack, so a
+    /// [CallStack] recorded from that pack names a node here.
+    ///
+    /// Unresolved placeholders re-emit their raw rows under their ORIGINAL ids (the raw JSON is
+    /// byte-preserved), so live nodes are numbered around those ids to avoid collisions.
+    private Map<AbstractNodeWidget, Integer> assignIds() {
+        Set<Integer> reservedIds = new HashSet<>();
+        for (AbstractNodeWidget node : nodes) {
+            if (node instanceof UnresolvedNodeWidget u && u.data().id() >= 0) reservedIds.add(u.data().id());
+        }
+
+        Map<AbstractNodeWidget, Integer> idOf = new HashMap<>();
+        int nextId = 0;
+
+        for (AbstractNodeWidget node : nodes) {
+            if (node instanceof UnresolvedNodeWidget u) {
+                idOf.put(node, u.data().id());
+                continue;
+            }
+
+            while (reservedIds.contains(nextId)) nextId++;
+            idOf.put(node, nextId++);
+        }
+
+        return idOf;
+    }
+
+    /// ***************************************************************
+    /// Debugging
+    /// ***************************************************************
+
+    /// Shows `record` on the canvas: the wires it ran thicken and every recorded pin shows the value
+    /// fed into it. Refuses a record whose ids do not describe this graph (see
+    /// [#framesDescribeGraph]) and answers false, which is the host's cue to say the pack is stale.
+    public boolean setDebugRecord(final ExecutionRecord record) {
+        Map<Integer, CallStack> frames = new HashMap<>();
+        for (CallStack root : record.roots()) indexFrames(root, frames);
+
+        Map<AbstractNodeWidget, Integer> idOf = assignIds();
+
+        // A run that entered nodes yet named none of them came from a pack built without row ids, so
+        // there is nothing to map onto this canvas. Caught here because an empty frame map satisfies
+        // framesDescribeGraph, which would otherwise accept it as a complete capture of nothing.
+        if (!record.isEmpty() && frames.isEmpty()) {
+            clearDebugRecord();
+            return false;
+        }
+
+        if (!framesDescribeGraph(frames, idOf)) {
+            clearDebugRecord();
+            return false;
+        }
+
+        debugFrames = frames;
+        debugIds = idOf;
+
+        return true;
+    }
+
+    /// Drops the captured run — nothing thickens and no pin shows a value until the next capture.
+    public void clearDebugRecord() {
+        debugFrames = Map.of();
+        debugIds = Map.of();
+    }
+
+    private static void indexFrames(final CallStack frame, final Map<Integer, CallStack> out) {
+        if (frame.nodeId() != ScriptNode.NO_NODE_ID) out.put(frame.nodeId(), frame);
+
+        for (CallStack child : frame.children()) indexFrames(child, out);
+    }
+
+    /// Whether every frame lands on a row this canvas actually has, and every function call lands on
+    /// the row that calls that function.
+    ///
+    /// Row ids are assigned per export, so a graph edited since the last reload renumbers underneath a
+    /// pack built from it. A canvas that cannot vouch for the ids highlights nothing rather than
+    /// highlighting the wrong rows.
+    private boolean framesDescribeGraph(
+        final Map<Integer, CallStack> frames, final Map<AbstractNodeWidget, Integer> idOf
+    ) {
+        Map<Integer, AbstractNodeWidget> nodeById = new HashMap<>();
+        idOf.forEach((node, id) -> nodeById.put(id, node));
+
+        for (Map.Entry<Integer, CallStack> entry : frames.entrySet()) {
+            AbstractNodeWidget node = nodeById.get(entry.getKey());
+
+            if (node == null || node instanceof UnresolvedNodeWidget) return false;
+
+            ScriptFunction called = rowFunction(node);
+
+            if (called != null && called != entry.getValue().function()) return false;
+        }
+
+        return true;
+    }
+
+    /// The [ScriptFunction] a row calls, or null for a row that is not a plain call — the operators,
+    /// comparators and pose nodes that lower to a call of their own choosing are left unconstrained.
+    private static @Nullable ScriptFunction rowFunction(final AbstractNodeWidget node) {
+        return switch (node.toData()) {
+            case PureFunctionNodeData data -> data.function();
+            case FlowFunctionNodeData data -> data.function();
+            default -> null;
+        };
+    }
+
+    /// Toggles whether input pin `pin` of `node` shows the value fed into it. Dropping a recording
+    /// clears the node's values straight away, so nothing lingers once [#pushRecordedValues] stops
+    /// rebuilding them.
+    private void toggleRecord(final AbstractNodeWidget node, final int pin) {
+        RecordedPin recorded = new RecordedPin(node, pin);
+
+        if (recordedPins.remove(recorded)) {
+            node.setRecordedInputs(Map.of());
+        } else {
+            recordedPins.add(recorded);
+        }
+    }
+
+    /// Hands every recording node the values of its pins for this frame.
+    private void pushRecordedValues() {
+        if (recordedPins.isEmpty()) {
+            return;
+        }
+
+        Map<AbstractNodeWidget, Map<Integer, String>> byNode = new HashMap<>();
+
+        for (RecordedPin recorded : recordedPins) {
+            CallStack frame = inputSourceFrame(recorded.node(), recorded.pin());
+
+            byNode.computeIfAbsent(recorded.node(), _ -> new HashMap<>())
+                .put(recorded.pin(), frame == null ? RECORD_NO_VALUE : formatValue(frame.returnValue()));
+        }
+
+        byNode.forEach(AbstractNodeWidget::setRecordedInputs);
+    }
+
+    /// The captured frame of whatever fed input pin `pin` of `node`, or null when the pin is unwired
+    /// or its source did not run.
+    ///
+    /// A [RerouteNodeWidget] is transparent to evaluation and produces no frame of its own, so the
+    /// search walks through one to the node actually driving the wire. The walk is bounded because a
+    /// hand-edited graph file can wire a reroute chain into a cycle.
+    private @Nullable CallStack inputSourceFrame(final AbstractNodeWidget node, final int pin) {
+        AbstractNodeWidget target = node;
+        int targetPin = pin;
+
+        for (int hop = 0; hop < REROUTE_HOP_LIMIT; hop++) {
+            Connection wire = connectionInto(target, targetPin);
+
+            if (wire == null) {
+                return null;
+            }
+
+            if (!(wire.fromNode() instanceof RerouteNodeWidget)) {
+                Integer id = debugIds.get(wire.fromNode());
+
+                return id == null ? null : debugFrames.get(id);
+            }
+
+            target = wire.fromNode();
+            targetPin = 0;
+        }
+
+        return null;
+    }
+
+    /// The wire ending at input pin `pin` of `node`, or null when that pin is unwired.
+    private @Nullable Connection connectionInto(final AbstractNodeWidget node, final int pin) {
+        for (Connection c : connections) {
+            if (c.toNode() == node && c.toPin() == pin) return c;
+        }
+
+        return null;
+    }
+
+    /// A captured value as the text written after a pin's name: a floating-point value rounded to
+    /// [#RECORD_DECIMALS] places, anything else its `String.valueOf`, shown in full — the node grows
+    /// to whatever it takes to read the value.
+    ///
+    /// Flattened to one line, because a pin row is one line and an embedded newline would run the
+    /// rest of the text through the node's border.
+    private static String formatValue(final @Nullable Object value) {
+        String text = value instanceof Float || value instanceof Double
+            ? formatDecimal(((Number) value).doubleValue())
+            : String.valueOf(value);
+
+        return text.replace('\n', ' ');
+    }
+
+    /// `value` at [#RECORD_DECIMALS] decimal places with the trailing zeros dropped, so 0.30000 reads
+    /// "0.3" and 2.0 reads "2". A value that rounds away to nothing loses its sign with its digits.
+    private static String formatDecimal(final double value) {
+        if (!Double.isFinite(value)) {
+            return String.valueOf(value);
+        }
+
+        String text = String.format(Locale.ROOT, "%." + RECORD_DECIMALS + "f", value);
+
+        // "%.4f" always writes a decimal point, so trimming zeros here can only eat fraction digits.
+        int end = text.length();
+        while (end > 0 && text.charAt(end - 1) == '0') end--;
+        if (end > 0 && text.charAt(end - 1) == '.') end--;
+
+        text = text.substring(0, end);
+
+        return text.equals("-0") ? "0" : text;
+    }
+
+    /// How heavily a committed wire draws: an execution wire whose two ends both ran in the captured
+    /// run is drawn heavy, everything else at its normal weight.
+    ///
+    /// An execution output feeds exactly one input, so "both ends ran" is the whole test — there is no
+    /// other wire that could have carried the flow into the target.
+    private float executedWeight(final Connection connection) {
+        if (debugFrames.isEmpty() || !connection.fromNode().outputPin(connection.fromPin()).exec()) {
+            return 1.0F;
+        }
+
+        Integer fromId = debugIds.get(connection.fromNode());
+        Integer toId = debugIds.get(connection.toNode());
+
+        boolean executed = fromId != null && toId != null
+            && debugFrames.containsKey(fromId) && debugFrames.containsKey(toId);
+
+        return executed ? EXECUTED_WIRE_WEIGHT : 1.0F;
+    }
+
+    /// A wire touching at least one [UnresolvedNodeWidget], stashed at import as live widget
+    /// references (so [#exportGraph] can re-emit it under the then-current ids). It cannot become
+    /// a live [Connection] — placeholders have no pins — but must not be lost across load/save.
+    private record StashedWire(AbstractNodeWidget from, int fromPin, AbstractNodeWidget to, int toPin) {}
+
+    private final List<StashedWire> unresolvedWires = new ArrayList<>();
 
     /// Flattens the current selection into a [ScriptGraphData] for the clipboard — a selection-only
     /// [#exportGraph]. Only **copyable** nodes are taken: a non-deletable structural singleton (an
@@ -344,18 +654,21 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// endpoints are in the copied set (a wire leaving the selection is dropped). Returns null when
     /// nothing copyable is selected.
     public @Nullable ScriptGraphData copySelection() {
+        // Unresolved placeholders are excluded: they have no describable state (toData() refuses)
+        // and duplicating an unreadable raw row would duplicate the failure.
         List<AbstractNodeWidget> copied = selectedNodes.stream()
             .filter(AbstractNodeWidget::isDeletable)
+            .filter(n -> !(n instanceof UnresolvedNodeWidget))
             .toList();
         if (copied.isEmpty()) return null;
 
         Map<AbstractNodeWidget, Integer> idOf = new HashMap<>();
-        List<ScriptGraphData.NodeData> out = new ArrayList<>();
+        List<GraphNode> out = new ArrayList<>();
 
         for (AbstractNodeWidget node : copied) {
             int id = idOf.size();
             idOf.put(node, id);
-            out.add(describe(node, id));
+            out.add(new GraphNode(id, node.getX(), node.getY(), node.toData()));
         }
 
         List<ScriptGraphData.WireData> wires = new ArrayList<>();
@@ -371,92 +684,6 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         return new ScriptGraphData(out, wires);
     }
 
-    /// Captures one live node as a [ScriptGraphData.NodeData], reading the kind-specific state
-    /// (function id, variable, literal, operator, dynamic output count, entry context labels).
-    private ScriptGraphData.NodeData describe(AbstractNodeWidget node, int id) {
-        int x = node.getX();
-        int y = node.getY();
-
-        return switch (node) {
-            case EntryPointNodeWidget e -> {
-                List<String> labels = new ArrayList<>();
-                for (int i = 0; i < e.outputPinCount(); i++) labels.add(e.outputPin(i).label());
-                yield ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.ENTRY, x, y).withOutLabels(labels);
-            }
-            case EntityPatchEntryNodeWidget e ->
-                // The entry kind is param-less, so it can't be recovered from labels — persist it in `op`.
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.ENTITY_PATCH_ENTRY, x, y)
-                    .withOp(e.entryKind().name());
-            case SequenceNodeWidget s ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.SEQUENCE, x, y).withOutputs(s.outputPinCount());
-            case BranchingNodeWidget ignored ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.BRANCH, x, y);
-            case FlowFunctionNodeWidget f ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.FLOW_FUNCTION, x, y).withFunction(f.function());
-            case PureFunctionNodeWidget p ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.PURE_FUNCTION, x, y).withFunction(p.function());
-            case LiteralNodeWidget l ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.LITERAL, x, y)
-                    .withLiteral(scriptTypeOf(l.valueType()), l.serializedValue());
-            case SelfNodeWidget ignored ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.SELF, x, y);
-            case ScriptVariableGetterNodeWidget g ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.VARIABLE_GETTER, x, y)
-                    .withVariable(g.variableName(), scriptTypeOf(g.variableType()));
-            case ScriptVariableSetterNodeWidget s ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.VARIABLE_SETTER, x, y)
-                    .withVariable(s.variableName(), scriptTypeOf(s.variableType()));
-            case ComparatorNodeWidget c ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.COMPARATOR, x, y).withOp(c.operator().name());
-            case OperatorNodeWidget o ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.OPERATOR, x, y).withOp(o.operator().name());
-            case RerouteNodeWidget r -> {
-                AbstractNodeWidget.Pin pin = r.outputPin(0);
-                yield ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.REROUTE, x, y)
-                    .withReroute(pin.exec(), scriptTypeOf(pin.type()));
-            }
-            case OutputPoseNodeWidget ignored ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.OUTPUT_POSE, x, y);
-            case AnimSequencePlayerNodeWidget a ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.ANIM_SEQUENCE_PLAYER, x, y).withAsset(a.sequenceId());
-            case BlendSpacePlayerNodeWidget b ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.BLEND_SPACE_PLAYER, x, y).withAsset(b.blendSpaceId());
-            case StateMachineNodeWidget s ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.STATE_MACHINE, x, y).withVariable(s.machineName(), null);
-            case AnimLayerNodeWidget a ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.ANIM_LAYER, x, y).withVariable(a.signatureName(), null);
-            case TypeConvertNodeWidget t ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.TYPE_CONVERT, x, y)
-                    .withTypeConvert(scriptTypeOf(t.fromType()), scriptTypeOf(t.toType()));
-            case TransitionResultNodeWidget ignored ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.TRANSITION_RESULT, x, y);
-            case CachedPoseNodeWidget c ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.CACHED_POSE, x, y).withVariable(c.cacheName(), null);
-            case CachedPoseGetterNodeWidget c ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.CACHED_POSE_GETTER, x, y).withVariable(c.cacheName(), null);
-            case NotNodeWidget ignored ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.NOT, x, y);
-            case LogicalOperationNodeWidget l ->
-                ScriptGraphData.NodeData.of(id, ScriptGraphData.Kind.LOGICAL_OPERATION, x, y).withOp(l.operator().name());
-            default -> throw new IllegalArgumentException("Unsupported node widget type " + node.getClass().getSimpleName());
-        };
-    }
-
-    /// The registered [ScriptType] whose java type matches `type` (boxing-aware), or null when the
-    /// type is null or not a serializable script type (then a getter/setter falls back to `Object`
-    /// on load, and a reroute to a wildcard pin).
-    private static @Nullable ScriptType scriptTypeOf(@Nullable Class<?> type) {
-        if (type == null) return null;
-        for (ScriptType st : AkytheraRegistries.Frozen.SCRIPT_TYPE) {
-            if (boxedEquals(st.type(), type)) return st;
-        }
-        return null;
-    }
-
-    private static boolean boxedEquals(Class<?> a, Class<?> b) {
-        return wrap(a) == wrap(b);
-    }
-
     private static Class<?> wrap(Class<?> t) {
         if (!t.isPrimitive()) return t;
         if (t == boolean.class) return Boolean.class;
@@ -470,129 +697,49 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         return t;
     }
 
-    /// Rebuilds the canvas from persisted data: clears the live nodes / wires, recreates each
-    /// [ScriptGraphData.NodeData] as its widget (the entry row via `entryFactory`), then re-adds
-    /// every wire whose endpoints resolve to in-range pins. A no-op for [ScriptGraphData#EMPTY].
+    /// Rebuilds the canvas from persisted data: clears the live nodes / wires, lets each
+    /// [GraphNode] build its widget (an entry row through `entryFactory`), then re-adds every wire
+    /// whose endpoints resolve to in-range pins. A no-op for [ScriptGraphData#EMPTY].
     public void importGraph(ScriptGraphData data, EntryNodeFactory entryFactory) {
         nodes.clear();
         connections.clear();
         selectedNodes.clear();
+        unresolvedWires.clear();
 
         Map<Integer, AbstractNodeWidget> byId = new HashMap<>();
-        for (ScriptGraphData.NodeData nd : data.nodes()) {
-            AbstractNodeWidget widget = rebuild(nd, entryFactory);
+        for (GraphNode row : data.nodes()) {
+            AbstractNodeWidget widget = row.data().createWidget(
+                new NodeBuildContext(font, entryFactory, row.x(), row.y()));
             if (widget == null) continue;
             if (scriptOwnerType != null) widget.setScriptOwnerType(scriptOwnerType);
             nodes.add(widget);
-            byId.put(nd.id(), widget);
+            byId.put(row.id(), widget);
+        }
+
+        // Failed rows come back as inert, permanently error-marked placeholders — visible, red,
+        // movable, deletable; registered under their persisted id so their wires can be stashed.
+        for (ScriptGraphData.FailedNode failedNode : data.failedNodes()) {
+            UnresolvedNodeWidget widget = new UnresolvedNodeWidget(font, failedNode);
+            nodes.add(widget);
+            if (failedNode.id() >= 0) byId.putIfAbsent(failedNode.id(), widget);
         }
 
         for (ScriptGraphData.WireData wd : data.wires()) {
             AbstractNodeWidget from = byId.get(wd.from());
             AbstractNodeWidget to = byId.get(wd.to());
             if (from == null || to == null) continue;
+
+            // A wire touching a placeholder can't be a live connection (no pins) — stash it so
+            // exportGraph re-emits it and the wiring survives the round-trip.
+            if (from instanceof UnresolvedNodeWidget || to instanceof UnresolvedNodeWidget) {
+                unresolvedWires.add(new StashedWire(from, wd.fromPin(), to, wd.toPin()));
+                continue;
+            }
+
             if (wd.fromPin() < 0 || wd.fromPin() >= from.outputPinCount()) continue;
             if (wd.toPin() < 0 || wd.toPin() >= to.inputPinCount()) continue;
             connections.add(new Connection(from, wd.fromPin(), to, wd.toPin()));
         }
-    }
-
-    /// Recreates a single node widget from its persisted row, or null for an unrecognised /
-    /// incomplete row (e.g. a function node whose function id no longer resolves).
-    private @Nullable AbstractNodeWidget rebuild(ScriptGraphData.NodeData nd, EntryNodeFactory entryFactory) {
-        int x = nd.x();
-        int y = nd.y();
-
-        return switch (nd.kind()) {
-            case ENTRY -> entryFactory.create(x, y, nd.outLabels());
-            case ENTITY_PATCH_ENTRY -> {
-                EntityPatchEntryNodeWidget.Kind kind;
-                try {
-                    kind = EntityPatchEntryNodeWidget.Kind.valueOf(nd.op().orElse("UPDATE"));
-                } catch (IllegalArgumentException ex) {
-                    kind = EntityPatchEntryNodeWidget.Kind.UPDATE;
-                }
-                yield new EntityPatchEntryNodeWidget(font, kind, x, y);
-            }
-            case SEQUENCE -> {
-                SequenceNodeWidget s = new SequenceNodeWidget(
-                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SEQUENCE), x, y);
-                while (s.outputPinCount() < Math.max(1, nd.outputs())) s.onAddPin();
-                while (s.outputPinCount() > Math.max(1, nd.outputs())) s.removeOutputPin(s.outputPinCount() - 1);
-
-                yield s;
-            }
-            case BRANCH ->
-                new BranchingNodeWidget(
-                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_BRANCH), x, y
-                );
-            case FLOW_FUNCTION -> nd.function()
-                .<AbstractNodeWidget>map(f -> new FlowFunctionNodeWidget(font, f, x, y)).orElse(null);
-            case PURE_FUNCTION -> nd.function()
-                .<AbstractNodeWidget>map(f -> new PureFunctionNodeWidget(font, f, x, y)).orElse(null);
-            case LITERAL -> {
-                ScriptType type = nd.literalType().orElse(null);
-                if (type == null) yield null;
-                LiteralNodeWidget l = new LiteralNodeWidget(font, type.type(), x, y);
-                nd.literalValue().ifPresent(l::applySerializedValue);
-
-                yield l;
-            }
-            case SELF ->
-                new SelfNodeWidget(
-                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SELF), x, y
-                );
-            case VARIABLE_GETTER -> {
-                String name = nd.variable().orElse("");
-                Class<?> type = nd.variableType().map(ScriptType::type).orElse((Class)Object.class);
-
-                yield new ScriptVariableGetterNodeWidget(
-                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_GET_VARIABLE, name),
-                    name, type, x, y
-                );
-            }
-            case VARIABLE_SETTER -> {
-                String name = nd.variable().orElse("");
-                Class<?> type = nd.variableType().map(ScriptType::type).orElse((Class)Object.class);
-
-                yield new ScriptVariableSetterNodeWidget(
-                    font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SET),
-                    name, type, x, y
-                );
-            }
-            case COMPARATOR -> new ComparatorNodeWidget(
-                font, ComparatorNodeWidget.Operator.valueOf(nd.op().orElse("EQUAL")), x, y);
-            case OPERATOR -> new OperatorNodeWidget(
-                font, OperatorNodeWidget.Operator.valueOf(nd.op().orElse("ADD")), x, y);
-            case REROUTE -> {
-                boolean exec = nd.exec();
-                Class<?> type = nd.variableType().map(ScriptType::type).orElse(null);
-                int color = exec ? NodeColors.EXEC : NodeColors.forTypeOrWildcard(type);
-
-                yield new RerouteNodeWidget(font, new AbstractNodeWidget.Pin("", color, exec, type), x, y);
-            }
-            case OUTPUT_POSE -> new OutputPoseNodeWidget(
-                font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_OUTPUT_POSE), x, y);
-            case ANIM_SEQUENCE_PLAYER -> nd.asset()
-                .<AbstractNodeWidget>map(assetId -> new AnimSequencePlayerNodeWidget(font, assetId, x, y)).orElse(null);
-            case BLEND_SPACE_PLAYER -> nd.asset()
-                .<AbstractNodeWidget>map(assetId -> new BlendSpacePlayerNodeWidget(font, assetId, x, y)).orElse(null);
-            case STATE_MACHINE -> new StateMachineNodeWidget(font, nd.variable().orElse(""), x, y);
-            case ANIM_LAYER -> new AnimLayerNodeWidget(font, nd.variable().orElse(""), x, y);
-            case TYPE_CONVERT -> {
-                ScriptType from = nd.variableType().orElse(null);
-                ScriptType to = nd.literalType().orElse(null);
-                if (from == null || to == null) yield null;
-                yield new TypeConvertNodeWidget(font, from.type(), to.type(), x, y);
-            }
-            case TRANSITION_RESULT -> new TransitionResultNodeWidget(
-                font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_TRANSITION_RESULT), x, y);
-            case CACHED_POSE -> new CachedPoseNodeWidget(font, nd.variable().orElse(""), x, y);
-            case CACHED_POSE_GETTER -> new CachedPoseGetterNodeWidget(font, nd.variable().orElse(""), x, y);
-            case NOT -> new NotNodeWidget(font, x, y);
-            case LOGICAL_OPERATION -> new LogicalOperationNodeWidget(
-                font, LogicalOperationNodeWidget.Operator.valueOf(nd.op().orElse("AND")), x, y);
-        };
     }
 
     @Override
@@ -602,8 +749,8 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
     @Override
     public @NonNull List<? extends GuiEventListener> children() {
-        // Nodes are rendered manually and are non-interactive this stage; keep event
-        // handling (pan / zoom) entirely in this widget's overrides.
+        // Nodes are rendered and hit-tested by this widget directly, so none of them takes part in
+        // vanilla's child event dispatch.
         return Collections.emptyList();
     }
 
@@ -626,13 +773,16 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         // so they track moving nodes, tinted by the value the wire carries), then any in-flight
         // / pending wire, then the marquee. The nodes themselves are deferred to the frame's
         // tail (see below) so a spline never paints over a node body — matching UE.
+        pushRecordedValues();
+
         for (Connection c : connections) {
             drawConnection(g,
                 graphToScreenX(c.fromNode().outputPinCenterX(c.fromPin())),
                 graphToScreenY(c.fromNode().outputPinCenterY(c.fromPin())),
                 graphToScreenX(c.toNode().inputPinCenterX(c.toPin())),
                 graphToScreenY(c.toNode().inputPinCenterY(c.toPin())),
-                pinWireColor(c.fromNode().outputPin(c.fromPin())));
+                pinWireColor(c.fromNode().outputPin(c.fromPin())),
+                executedWeight(c));
         }
 
         if (wiring && wireSourceNode != null) {
@@ -852,12 +1002,12 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         if (provided == null || expected == null) return LinkKind.DIRECT;
         if (wrap(expected).isAssignableFrom(wrap(provided))) return LinkKind.DIRECT;
 
-        ScriptType providedType = scriptTypeOf(provided);
+        ScriptType providedType = AbstractNodeWidget.scriptTypeOf(provided);
         if (providedType != null && providedType.explicitCastableTypes().containsKey(wrap(expected))) {
             return LinkKind.CONVERT; // explicit narrowing (e.g. double -> float)
         }
 
-        ScriptType expectedType = scriptTypeOf(expected);
+        ScriptType expectedType = AbstractNodeWidget.scriptTypeOf(expected);
         if (expectedType != null && expectedType.explicitCastableTypes().containsKey(wrap(provided))) {
             return LinkKind.DIRECT; // implicit widening (e.g. float -> double)
         }
@@ -892,12 +1042,16 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// A horizontal-tangent cubic Bézier spline mirroring UE's blueprint wires,
     /// approximated by short filled segments.
     private void drawConnection(GuiGraphicsExtractor g, float x0, float y0, float x1, float y1, int color) {
+        drawConnection(g, x0, y0, x1, y1, color, 1.0F);
+    }
+
+    private void drawConnection(GuiGraphicsExtractor g, float x0, float y0, float x1, float y1, int color, float weight) {
         float handle = wireHandle(x0, x1);
         float cx0 = x0 + handle;
         float cx1 = x1 - handle;
 
         // Wire weight grows with the zoom so it reads the same relative to the nodes at any scale.
-        int thickness = Math.max(1, Math.round(2 * zoom));
+        int thickness = Math.max(1, Math.round(2 * zoom * weight));
 
         int segments = 32;
         float px = x0, py = y0;
@@ -1039,7 +1193,14 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     ///     destination pin (catches a node re-typing its pins after the wire was made).
     ///
     /// Error state is recomputed wholesale: every node is re-flagged or cleared, so fixing a node
-    /// and validating again clears it. Returns the flat issue list (empty = the graph is valid).
+    /// and validating again clears it.
+    ///
+    /// Each node's own [AbstractNodeWidget#intrinsicErrors] — a pose player bound to a missing asset,
+    /// an Animation Interface with no default animation — are **not** pushed through
+    /// [AbstractNodeWidget#setErrors] (the node draws them live, with no compile needed) but are
+    /// collected into the returned list, so they fail a compile like any wiring problem.
+    ///
+    /// Returns the flat issue list (empty = the graph is valid).
     public List<ValidationIssue> validate() {
         // Settle `self` badges / type-detected pins against the current wiring before inspecting
         // them, so validation never races the per-frame connection push.
@@ -1076,6 +1237,18 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         // Apply (and clear) error state across every node.
         for (AbstractNodeWidget node : nodes) {
             node.setErrors(byNode.getOrDefault(node, List.of()));
+        }
+
+        // Errors a node determines about itself — a pose player bound to an asset that resolves
+        // nowhere, an Animation Interface missing its default animation. The node already draws these
+        // live (see [AbstractNodeWidget#intrinsicErrors]), so they are not pushed through setErrors;
+        // collecting them here is what makes them fail a compile too.
+        for (AbstractNodeWidget node : nodes) {
+            if (!node.reportsValidationErrors()) continue;
+
+            for (Component message : node.intrinsicErrors()) {
+                issues.add(new ValidationIssue(node, message));
+            }
         }
 
         return issues;
@@ -1303,7 +1476,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     }
 
     /// Retargets every [CachedPoseGetterNodeWidget] referencing `oldName` to `newName` (updating each
-    /// node's title in place), so the getters track a renamed [CachedPoseNodeWidget]. No history is
+    /// node's title in place), so the getters track a renamed [PoseCachingNodeWidget]. No history is
     /// recorded here — the caller's rename handling re-applies it.
     public void renameCachedPoseGetters(String oldName, String newName) {
         for (AbstractNodeWidget node : nodes) {
@@ -1358,8 +1531,9 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         Map<Integer, AbstractNodeWidget> byId = new HashMap<>();
         List<AbstractNodeWidget> added = new ArrayList<>();
 
-        for (ScriptGraphData.NodeData nd : data.nodes()) {
-            AbstractNodeWidget widget = rebuild(nd, (_, _, _) -> null);
+        for (GraphNode row : data.nodes()) {
+            AbstractNodeWidget widget = row.data().createWidget(
+                new NodeBuildContext(font, (_, _, _) -> null, row.x(), row.y()));
             if (widget == null) continue;
 
             widget.setX(widget.getX() + dx);
@@ -1367,7 +1541,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             if (!canPlace.test(widget)) continue;
 
             if (scriptOwnerType != null) widget.setScriptOwnerType(scriptOwnerType);
-            byId.put(nd.id(), widget);
+            byId.put(row.id(), widget);
             added.add(widget);
         }
 
@@ -1441,6 +1615,23 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             .entry()
                 .message(Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_REMOVE_PIN))
                 .onPress(_ -> removeOutputPin(node, pinIndex))
+                .done()
+            .build();
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, screenX, screenY);
+    }
+
+    /// Right-click context menu for a data input pin: offers "Record this value" / "Stop recording",
+    /// which toggles whether the pin writes the value fed into it after its name.
+    private void openRecordContextMenu(AbstractNodeWidget node, int pinIndex, int screenX, int screenY) {
+        boolean recorded = recordedPins.contains(new RecordedPin(node, pinIndex));
+
+        ContextMenuContainer menu = ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(140)
+            .entry()
+                .message(Component.translatable(recorded
+                    ? LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_STOP_RECORDING
+                    : LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_RECORD_VALUE))
+                .onPress(_ -> toggleRecord(node, pinIndex))
                 .done()
             .build();
 
@@ -2124,8 +2315,9 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     }
 
     /// Opens the right-click context menu under the cursor: a dynamic-output pin row offers
-    /// "Remove Pin", otherwise the node body offers "Delete" for the selection. Right-clicking
-    /// a node outside the selection first makes it the selection so the menu acts on it.
+    /// "Remove Pin", a named data input pin offers "Record this value", otherwise the node body offers
+    /// "Delete" for the selection. Right-clicking a node outside the selection first makes it the
+    /// selection so the menu acts on it.
     private void openContextMenu(MouseButtonEvent event) {
         int gx = screenToGraphX(event.x());
         int gy = screenToGraphY(event.y());
@@ -2144,6 +2336,14 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         if (node.supportsDynamicOutputs() && outPin >= 0) {
             if (!selectedNodes.contains(node)) selectOnly(node);
             openPinContextMenu(node, outPin, (int) event.x(), (int) event.y());
+            return;
+        }
+
+        // A pin with no name has nowhere to write the value, which is what leaves a reroute knot out.
+        int recordPin = node.inputPinLabelAt(gx, gy);
+        if (recordPin >= 0 && !node.inputPin(recordPin).exec() && !node.inputPin(recordPin).label().isEmpty()) {
+            if (!selectedNodes.contains(node)) selectOnly(node);
+            openRecordContextMenu(node, recordPin, (int) event.x(), (int) event.y());
             return;
         }
 

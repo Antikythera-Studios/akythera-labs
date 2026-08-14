@@ -1,9 +1,14 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.RerouteNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
+
+import java.util.Optional;
 
 /// A "reroute" knot (UE-style): a tiny pass-through node with a single input and a single
 /// output of the same value type, used purely to bend a wire so the graph stays tidy. It is
@@ -14,9 +19,11 @@ import org.jspecify.annotations.NonNull;
 /// It carries no title bar and no labels. Like UE, the knot distinguishes its **body** from
 /// its **pin**: the central dot is the single pin (both halves of the wire meet there, and a
 /// drag from it grabs a new wire), while the surrounding pill body is a move handle. UE tints
-/// that body orange while selected; we keep our convention instead — a white outline when the
-/// knot is hovered or selected. This stage emits nothing on its own — a reroute is transparent
-/// to evaluation (its value is just its single input).
+/// that body orange while selected; the editor's own convention applies here instead — a white
+/// outline when the knot is hovered or selected.
+///
+/// A reroute is transparent to evaluation and emits nothing of its own: its value is its single
+/// input.
 public final class RerouteNodeWidget extends AbstractNodeWidget {
     /// Body pill dimensions (a short horizontal capsule, wider than tall like UE's knot).
     private static final int BODY_W = 26;
@@ -32,6 +39,12 @@ public final class RerouteNodeWidget extends AbstractNodeWidget {
     private static final int COLOR_OUTLINE_ACTIVE = 0xFFFFFFFF;
 
     private final int markerColor;
+
+    /// A knot of a recorded shape: `exec` selects an execution or a data pin, `type` the data value
+    /// type (null for an exec or wildcard knot), and the pin colour follows from the two.
+    public RerouteNodeWidget(Font font, boolean exec, @Nullable Class<?> type, int graphX, int graphY) {
+        this(font, new Pin("", exec ? NodeColors.EXEC : NodeColors.forTypeOrWildcard(type), exec, type), graphX, graphY);
+    }
 
     /// @param sample the wire's source output pin — the knot mirrors its exec flag, type and color.
     public RerouteNodeWidget(Font font, Pin sample, int graphX, int graphY) {
@@ -97,5 +110,11 @@ public final class RerouteNodeWidget extends AbstractNodeWidget {
     @Override
     public boolean reportsValidationErrors() {
         return false;
+    }
+
+    @Override
+    public NodeData toData() {
+        Pin pin = outputPin(0);
+        return new RerouteNodeData(pin.exec(), Optional.ofNullable(scriptTypeOf(pin.type())));
     }
 }

@@ -20,10 +20,12 @@ import com.yesman.akythera.api.data.modularize.node.SupplierAdapterNode;
 import com.yesman.akythera.api.data.modularize.node.TypeConvertNode;
 import com.yesman.akythera.api.data.modularize.node.animgraph.AnimationStateMachineNode;
 import com.yesman.akythera.api.data.modularize.node.animgraph.CachedPoseReferenceNode;
+import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
 import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
 import com.yesman.akythera.core.animation.driver.FSMAnimationState;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import freemarker.template.TemplateNotFoundException;
@@ -42,7 +44,7 @@ import java.util.Map;
 import java.util.Set;
 
 /// Lowers a runtime script-node tree (the same [FlowNode]/[PureNode] form the engine executes and
-/// [com.yesman.akytheralabs.dataholder.animation.ScriptGraphCompiler] produces) into **Java source**,
+/// [ScriptGraphCompiler] produces) into **Java source**,
 /// the codegen half of `File > Export > As Source Code` for node-graph scripts.
 ///
 /// Shape rules:
@@ -78,7 +80,7 @@ public final class ScriptNodeSourceCompiler {
     private final Set<String> scopedNames = new HashSet<>();
 
     /// The Java expression a [SelfNode] (an unwired owner/"Target" pin — see
-    /// [com.yesman.akytheralabs.dataholder.animation.ScriptGraphCompiler]) lowers to: the generated
+    /// [ScriptGraphCompiler]) lowers to: the generated
     /// class's own handle on its script owner. An animator script's owner is `this.animator`; an
     /// entity-patch script's is `this.owner`. Threaded in so one compiler serves both script kinds.
     private final String selfExpr;
@@ -320,7 +322,9 @@ public final class ScriptNodeSourceCompiler {
         return valueLiteral(node.literal());
     }
 
-    private static String valueLiteral(@Nullable Object value) {
+    /// A value as a compilable Java literal — shared with [NodeTreeSourceRenderer] for
+    /// [LiteralNode] literals and variable defaults.
+    public static String valueLiteral(@Nullable Object value) {
         return switch (value) {
             case null -> "null";
             case String s -> quote(s);
@@ -336,6 +340,9 @@ public final class ScriptNodeSourceCompiler {
             case AnimationLayerSignature signature ->
                 "AnimationLayerSignature.ENUM_MANAGER.getOrThrow(Identifier.parse("
                     + quote(AnimationLayerSignature.ENUM_MANAGER.derefIdentifier(signature).toString()) + "))";
+            case AnimationInterfaceKey interfaceKey ->
+                "AnimationInterfaceKey.ENUM_MANAGER.getOrThrow(Identifier.parse("
+                    + quote(AnimationInterfaceKey.ENUM_MANAGER.derefIdentifier(interfaceKey).toString()) + "))";
             default -> "null /* TODO: unsupported literal of " + value.getClass().getSimpleName() + " */";
         };
     }

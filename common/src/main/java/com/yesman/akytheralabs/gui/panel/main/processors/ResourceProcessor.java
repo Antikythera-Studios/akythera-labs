@@ -6,7 +6,7 @@ import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.dataholder.datablock.DataBlockRegistries;
+import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
@@ -145,7 +145,7 @@ public interface ResourceProcessor<T> {
         Font font,
         Path path,
         ResourceKey<? extends @NonNull Registry<@NonNull V>> registryKey,
-        DatapackContentConstructor<V> ctor
+        DatapackContentConstructor<V> constructor
     ) {
         // Normalize to '/' up front: Identifier#getPath() always uses '/', but on Windows the
         // OS path uses '\'. Registries whose path has a nested segment (e.g. "script/animator")
@@ -169,7 +169,7 @@ public interface ResourceProcessor<T> {
         int dot = registryLocation.lastIndexOf('.');
         String registryLocationNoExt = dot > 0 ? registryLocation.substring(0, dot) : registryLocation;
 
-        return ctor.construct(
+        return constructor.construct(
             font,
             ResourceKey.create(registryKey, Identifier.fromNamespaceAndPath(namespace, registryLocationNoExt)),
             path,

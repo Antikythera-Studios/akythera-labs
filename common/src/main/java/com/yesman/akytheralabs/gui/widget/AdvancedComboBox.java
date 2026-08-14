@@ -45,6 +45,12 @@ public final class AdvancedComboBox<T> extends AbstractWidget
     @Nullable
     private Function<T, Integer> indicatorColorMapper;
 
+    /// Shown greyed in place of the dropdown — and of an unselected label — while [#items] is empty:
+    /// *why* there is nothing to pick, which a bare "(none)" row cannot say. Null (the default) leaves
+    /// the empty dropdown as it was.
+    @Nullable
+    private Component emptyMessage;
+
     private ComboBoxTheme theme = AkytheraLabsComboBoxTheme.DEFAULT_COMBO_BOX;
 
     @Nullable
@@ -96,16 +102,33 @@ public final class AdvancedComboBox<T> extends AbstractWidget
     public void extractWidgetRenderState(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
         theme.renderBackground(this, g, mouseX, mouseY, a);
 
-        int fontColor = isActive() ? 0xFFFFFFFF : 0xFF404040;
+        String display = displayString();
+        Component placeholder = display.isEmpty() ? emptyMessageIfNothingToPick() : null;
+        int fontColor = !isActive() ? 0xFF404040 : placeholder != null ? 0xFF888888 : 0xFFFFFFFF;
+
         theme.renderText(
             g, font, getX(), getY(), getWidth(), getHeight(),
-            displayString(), indicatorColor(), fontColor, true
+            placeholder != null ? placeholder.getString() : display, indicatorColor(), fontColor, true
         );
     }
 
     /// The label text for the current selection (empty when nothing is selected).
     public String displayString() {
         return selected == null ? "" : displayStringMapper.apply(selected);
+    }
+
+    /// Sets the message shown while there is nothing to pick, see [#emptyMessage]. Returns `this` for
+    /// chaining.
+    public AdvancedComboBox<T> setEmptyMessage(@Nullable Component message) {
+        this.emptyMessage = message;
+        return this;
+    }
+
+    /// [#emptyMessage] while there is genuinely nothing to pick; null when the list has items (an
+    /// unselected combo with candidates is blank, not "nothing to pick").
+    @Nullable
+    Component emptyMessageIfNothingToPick() {
+        return items.isEmpty() ? emptyMessage : null;
     }
 
     /// The type-indicator color for the current selection, or null when no mapper is set
@@ -283,11 +306,20 @@ public final class AdvancedComboBox<T> extends AbstractWidget
 
             this.owner = owner;
 
+            Component emptyMessage = owner.emptyMessageIfNothingToPick();
+
+            // Nothing to pick: one inert line saying why, instead of a lone "(none)" that reads as
+            // "this field has no values" rather than "there is a step still missing".
+            if (emptyMessage != null) {
+                addEntry(new Row(null, emptyMessage));
+                return;
+            }
+
             // Sentinel "(none)" row at the top — selecting it clears the binding.
-            addEntry(new Row(null));
+            addEntry(new Row(null, null));
 
             for (T item : owner.items) {
-                Row row = new Row(item);
+                Row row = new Row(item, null);
                 rowByValue.put(item, row);
                 addEntry(row);
             }
@@ -343,7 +375,7 @@ public final class AdvancedComboBox<T> extends AbstractWidget
             return totalHeight;
         }
 
-        /// Frame: 1-px white outline + black body. Matches the inline
+        /// Frame: 1-posX white outline + black body. Matches the inline
         /// dropdown look from the engine-side `ComboBox`.
         @Override
         protected void extractListBackground(@NonNull GuiGraphicsExtractor g) {
@@ -373,18 +405,27 @@ public final class AdvancedComboBox<T> extends AbstractWidget
             @Nullable
             private final T value;
 
-            Row(@Nullable T value) { this.value = value; }
+            /// Non-null on the "nothing to pick" row, which carries no value and takes no click.
+            @Nullable
+            private final Component message;
+
+            Row(@Nullable T value, @Nullable Component message) {
+                this.value = value;
+                this.message = message;
+            }
 
             @Override
             public void extractContent(@NonNull GuiGraphicsExtractor g, int mx, int my, boolean hovered, float a) {
-                boolean isSelected = value == null ? owner.selected == null : getSelected() == this;
-                int bg = isSelected ? 0xFF1E4D72 : hovered ? 0xFF262626 : 0xFF000000;
+                boolean isSelected = message == null && (value == null ? owner.selected == null : getSelected() == this);
+                int bg = isSelected ? 0xFF1E4D72 : hovered && message == null ? 0xFF262626 : 0xFF000000;
 
                 g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), bg);
 
-                String label = value == null
-                    ? Component.translatable(LangKeys.GUI_WIDGET_ADVANCED_COMBO_BOX_NONE).getString()
-                    : owner.displayStringMapper.apply(value);
+                String label = message != null
+                    ? message.getString()
+                    : value == null
+                        ? Component.translatable(LangKeys.GUI_WIDGET_ADVANCED_COMBO_BOX_NONE).getString()
+                        : owner.displayStringMapper.apply(value);
                 int color = value == null ? 0xFF888888 : 0xFFFFFFFF;
 
                 // Same renderer as the collapsed box (sans arrow), so the type swatch is embedded
@@ -397,7 +438,7 @@ public final class AdvancedComboBox<T> extends AbstractWidget
 
             @Override
             public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
-                if (event.button() != 0) return false;
+                if (event.button() != 0 || message != null) return false;
 
                 DropdownModal.this.setSelected(this);
                 owner.setValue(value);

@@ -12,6 +12,7 @@
 /// Register entity patch provider with this script by `ComponentsFactory#registerEntityPatchProvider`.
 /// Call `new EntityPatch(new ${className}(), owner)` to execute hardcoded script.
 
+<#import "component_map.ftl" as tpl>
 package ${package};
 
 // Import section is empty. Use auto import feature in IDE
@@ -51,15 +52,7 @@ public final class ${className} implements EntityPatchScript {
     }
 
     @Override
-    public List<ComponentBlueprint<?, ?>> componentsToAttach() {
-<#if components?size == 0>
-        return List.of();
-<#else>
-        return List.of(
-<#list components as component>
-            ${component}<#sep>,</#sep>
-</#list>
-        );
-</#if>
+    public Map<String, ComponentBlueprint<?, ?>> componentsToAttach() {
+        return <@tpl.componentMap components "            "/>;
     }
 }

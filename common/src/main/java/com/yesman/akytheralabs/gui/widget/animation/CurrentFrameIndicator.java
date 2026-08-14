@@ -57,7 +57,7 @@ public final class CurrentFrameIndicator extends AbstractWidget {
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
-        if (event.button() != 0) return false;
+        if (event.button() != 0 || parent.isDebugDriven()) return false;
 
         int x = parent.frameToX(parent.currentFrame());
         int boxX = x - ORANGE_BOX_W / 2;

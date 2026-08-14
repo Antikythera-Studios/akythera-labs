@@ -16,9 +16,8 @@ public record FileDeletion(Runnable delete, Runnable create) implements WorkHist
         delete.run();
     }
 
-    /// Redoing a deletion wipes a file the user just restored — gated by
-    /// [ConfirmDeletePopup] for the same reason [FileCreation]
-    /// gates its undo.
+    /// Redoing a deletion wipes a file the user just restored, so it is gated by
+    /// [ConfirmDeletePopup].
     @Override
     public void requestRedoConfirmation(Runnable proceed) {
         ConfirmDeletePopup.open(proceed);

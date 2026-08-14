@@ -5,7 +5,10 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.FrameResizer;
 import com.yesman.akytheralabs.gui.widget.Modal;
+import com.yesman.akytheralabs.gui.widget.PopupBox;
+import com.yesman.akytheralabs.gui.widget.ResizableFrame;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -35,7 +38,14 @@ import java.util.function.Consumer;
 /// Two entry sources: a frozen [Registry] (the value-confirming constructor), or data pack entries
 /// via [#dataPackEntries] — the current project's entries, optionally merged with everything the
 /// loaded world's registry access carries.
-public final class RegistryLookupModal<T> extends AbstractContainerWidget implements Modal, AnchoredWidget {
+///
+/// The page is **resizable** by dragging its frame ([FrameResizer]); [#MODAL_W] / [#MODAL_H] are only
+/// its opening size and its floor. The size the user drags to outlives the modal when it drops from a
+/// [com.yesman.akytheralabs.gui.widget.DropdownSizeMemory] anchor — a [PopupBox] remembers it, so the
+/// next press on the same cell opens at that size.
+public final class RegistryLookupModal<T> extends AbstractContainerWidget
+    implements Modal, AnchoredWidget, ResizableFrame {
+
     private static final int TITLE_H = 18;
     private static final int SEARCH_H = 16;
     private static final int ROW_H = 14;
@@ -47,6 +57,8 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget implem
     private final Consumer<ResourceKey<T>> onConfirm;
     private final AdvancedEditBox<String> searchBox;
     private final EntryList list;
+
+    private final FrameResizer resizer = new FrameResizer(this, MODAL_W, MODAL_H);
 
     /// Frozen-registry source: rows are the registry's keys; confirm reports the registered value.
     public RegistryLookupModal(
@@ -115,6 +127,12 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget implem
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
+        // The frame grip is tested first: it lies just outside the page, where a press would otherwise
+        // dismiss the modal.
+        if (event.button() == 0 && resizer.mousePressed(event.x(), event.y())) {
+            return true;
+        }
+
         boolean overPage = event.x() >= getX() && event.x() < getRight() && event.y() >= getY() && event.y() < getBottom();
 
         if (!overPage) {
@@ -125,6 +143,21 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget implem
         super.mouseClicked(event, doubleClick);
 
         return true;
+    }
+
+    @Override
+    public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
+        return resizer.mouseDragged(event.x(), event.y()) || super.mouseDragged(event, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(@NonNull MouseButtonEvent event) {
+        return resizer.mouseReleased() || super.mouseReleased(event);
+    }
+
+    @Override
+    public FrameResizer frameResizer() {
+        return resizer;
     }
 
     @Override
@@ -163,7 +196,7 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget implem
 
     @Override
     protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
-        // Page background + 1-px border (no dimmer)
+        // Page background + 1-posX border (no dimmer)
         graphics.fill(getX(), getY(), getRight(), getBottom(), 0xFF1E1E1E);
         graphics.fill(getX(), getY(), getRight(), getY() + 1, 0xFF3A3A3A);
         graphics.fill(getX(), getBottom() - 1, getRight(), getBottom(), 0xFF3A3A3A);
@@ -183,6 +216,8 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget implem
 
         searchBox.extractRenderState(graphics, mouseX, mouseY, a);
         list.extractRenderState(graphics, mouseX, mouseY, a);
+
+        resizer.requestCursor(graphics, mouseX, mouseY);
     }
 
     @Override
@@ -322,11 +357,15 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget implem
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
 
+    /// [#MODAL_W] / [#MODAL_H] are only the **defaults**: the opener widens the modal to its anchor
+    /// (see [com.yesman.akytheralabs.AkytheraEditorLayoutManager#openModalWidgetUnder]), so the list
+    /// is laid out against the rect the units just produced, never the constants.
     @Override
     public void relocate(ScreenRectangle screenRectangle) {
         AnchoredWidget.super.relocate(screenRectangle);
 
         searchBox.relocate(getRectangle());
-        list.updateSizeAndPosition(MODAL_W - 2, MODAL_H - TITLE_H - SEARCH_H - 1, getX() + 1, getY() + TITLE_H + SEARCH_H);
+        list.updateSizeAndPosition(
+            getWidth() - 2, getHeight() - TITLE_H - SEARCH_H - 1, getX() + 1, getY() + TITLE_H + SEARCH_H);
     }
 }

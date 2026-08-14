@@ -1,5 +1,10 @@
 {
   "values": [
-    "akythera:armature"
+    "akythera:armature",
+    "akythera:bone_socket",
+    "akythera:collider",
+    "akythera:entity_model",
+    "akythera:equipment",
+    "akythera:mesh"
   ]
 }

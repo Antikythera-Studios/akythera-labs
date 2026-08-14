@@ -6,7 +6,7 @@
   "plugin": "com.yesman.akytheralabs.compat.playeranimlibrary.PALMixinPlugin",
   "client": [
     "MixinAvatarPALAccessor",
-    "MixinWorldviewPanel"
+    "MixinProjectReloader"
   ],
   "mixins": [
   ],

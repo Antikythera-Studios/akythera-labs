@@ -1,9 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
-import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
@@ -18,8 +16,6 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -29,10 +25,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
+import java.util.function.Predicate;
 
 public final class ItemSelectModal extends OverlayingWindowModal {
     private static final int WIDTH  = 200;
@@ -49,7 +43,13 @@ public final class ItemSelectModal extends OverlayingWindowModal {
     private final AdvancedEditBox<String> searchBox;
     private ItemList itemList;
 
+    /// Lists every registered item.
     public ItemSelectModal(Font font, Consumer<Item> onItemSelected) {
+        this(font, _ -> true, onItemSelected);
+    }
+
+    /// Lists the registered items `filter` accepts, in hover-name order.
+    public ItemSelectModal(Font font, Predicate<Item> filter, Consumer<Item> onItemSelected) {
         super(AnchoredWidget.pixel(WIDTH), AnchoredWidget.pixel(HEIGHT), Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_ITEM_SELECT_MODAL));
         this.font = font;
         this.onItemSelected = onItemSelected;
@@ -67,15 +67,8 @@ public final class ItemSelectModal extends OverlayingWindowModal {
         searchBox.setWidth(WIDTH);
         searchBox.setHeight(SEARCH_H);
 
-        Set<Identifier> alreadyRegistered = AkytheraProject.getCurrentProject()
-            .getModifiableEntries(AkytheraRegistries.DataPack.ITEM_PATCH_KEY)
-            .stream().map(e -> e.getKey().identifier()).collect(Collectors.toSet());
-
         List<Item> allItems = BuiltInRegistries.ITEM.stream()
-            .filter(item -> {
-                Optional<ResourceKey<@NonNull Item>> k = BuiltInRegistries.ITEM.getResourceKey(item);
-                return k.isPresent() && !alreadyRegistered.contains(k.get().identifier());
-            })
+            .filter(filter)
             .sorted(Comparator.comparing(item -> item.getDefaultInstance().getHoverName().getString()))
             .toList();
 
@@ -94,7 +87,7 @@ public final class ItemSelectModal extends OverlayingWindowModal {
 
     @Override
     public void setFocused(final @Nullable GuiEventListener focused) {
-        // Manual fix: focusing was released as soon as a widget focused if it's the same one as current focus
+        // Re-focusing the already-focused child clears the focus in vanilla's implementation.
         if (getFocused() == focused) {
             return;
         }

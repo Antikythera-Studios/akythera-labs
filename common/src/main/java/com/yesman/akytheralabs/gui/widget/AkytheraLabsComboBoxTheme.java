@@ -9,7 +9,7 @@ import net.minecraft.network.chat.Component;
 /// with the other [WidgetTheme] enums sharing [WidgetTheme#ENUM_MANAGER] (see
 /// [AkytheraLabsEditBoxTheme]).
 public enum AkytheraLabsComboBoxTheme implements ComboBoxTheme {
-    /// Original look: black fill, state-colored 1-px outline, white label, no type indicator.
+    /// Original look: black fill, state-colored 1-posX outline, white label, no type indicator.
     DEFAULT_COMBO_BOX(
         (widget, g, _, _, _) -> {
             int outlineColor = widget.isMarked()

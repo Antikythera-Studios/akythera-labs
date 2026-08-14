@@ -2,7 +2,7 @@ package com.yesman.akytheralabs.gui.panel.animation;
 
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akytheralabs.dataholder.animation.AnimationMontageHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.gui.widget.AdvancedComboBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import net.minecraft.client.gui.Font;

@@ -8,6 +8,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 public enum AkytheraLabsEditBoxTheme implements EditBoxTheme {
     /// Vanilla [net.minecraft.client.gui.components.EditBox] style:
     /// 1px border (white when focused, gray otherwise), black fill.
+    /// Border color priority: warned (red) > focused > editable.
     DEFAULT_EDIT_BOX(
         (widget, graphics, _, _, _) -> {
             int x = widget.getX();
@@ -15,11 +16,13 @@ public enum AkytheraLabsEditBoxTheme implements EditBoxTheme {
             int w = widget.getWidth();
             int h = widget.getHeight();
             boolean focused = widget.isFocused();
-            int borderColor = focused
-                ? 0xFFFFFFFF
-                : widget.isEditable()
-                    ? 0xFFA0A0A0
-                    : 0xFF6F6F6F;
+            int borderColor = widget.isWarned()
+                ? 0xFFAA2222
+                : focused
+                    ? 0xFFFFFFFF
+                    : widget.isEditable()
+                        ? 0xFFA0A0A0
+                        : 0xFF6F6F6F;
             graphics.fill(x, y, x + w, y + h, 0xFF000000);
             graphics.outline(x, y, w, h, borderColor);
         }

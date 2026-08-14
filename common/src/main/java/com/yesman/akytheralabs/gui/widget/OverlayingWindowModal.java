@@ -29,10 +29,10 @@ public abstract class OverlayingWindowModal extends AbstractContainerWidget impl
             0, 0,
             AkytheraEditorLayoutManager.getInstance().isActive()
                 ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen().width
-                : Minecraft.getInstance().screen.width,
+                : Minecraft.getInstance().gui.screen().width,
             AkytheraEditorLayoutManager.getInstance().isActive()
                 ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen().height
-                : Minecraft.getInstance().screen.height,
+                : Minecraft.getInstance().gui.screen().height,
             message,
             AbstractScrollArea.defaultSettings(0)
         );
@@ -135,10 +135,10 @@ public abstract class OverlayingWindowModal extends AbstractContainerWidget impl
             0, 0,
             AkytheraEditorLayoutManager.getInstance().isActive()
                 ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen().width
-                : Minecraft.getInstance().screen.width,
+                : Minecraft.getInstance().gui.screen().width,
             AkytheraEditorLayoutManager.getInstance().isActive()
                 ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen().height
-                : Minecraft.getInstance().screen.height,
+                : Minecraft.getInstance().gui.screen().height,
             0x88000000
         );
     }

@@ -4,15 +4,12 @@ import com.yesman.akythera.client.gui.widget.common.DataBoundWidget;
 
 import java.util.function.Consumer;
 
-/// A history for changing [DataBoundWidget].
+/// A history entry for a value change on a [DataBoundWidget]. It touches no file; the user saves
+/// manually.
 ///
-/// This task doesn't touch any file system side change. Users needs to manually
-/// call `Save` option.
-///
-/// `setData` should write through to the bound holder AND refresh the widget
-/// (typically via [DataBoundWidget#valueSetter]). The manager wraps the call
-/// with a re-entry guard so it's safe to use a setter that itself fires the
-/// change callback.
+/// `setData` writes through to the bound holder and refreshes the widget, typically through
+/// [DataBoundWidget#valueSetter]. The manager wraps the call in a re-entry guard, so a setter that
+/// fires the change callback itself is safe here.
 public record DataChange<T>(T oldValue, T newValue, Consumer<T> setData) implements WorkHistory {
     @Override
     public void undo() {

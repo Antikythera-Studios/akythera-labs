@@ -1,5 +1,8 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
+import com.yesman.akytheralabs.gui.widget.script.node.EntityPatchEntryNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
@@ -12,8 +15,8 @@ import net.minecraft.network.chat.Component;
 /// animator script's Constructor / Update entries are (see [EntryPointNodeWidget]). Instead the kind
 /// is persisted explicitly in the node's `op` field (see
 /// [com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget]'s `describe` / `rebuild`), and
-/// [com.yesman.akytheralabs.dataholder.entitypatch.EntityPatchBlueprintHolder] roots each flow at the
-/// matching entry via a predicate over that marker. Visual only.
+/// [EntityPatchBlueprintHolder] roots each flow at the
+/// matching entry via a predicate over that marker.
 public final class EntityPatchEntryNodeWidget extends AbstractNodeWidget {
     private static final int EXEC_COLOR = 0xFFEEEEEE;
     private static final int TITLE_COLOR = 0xFF1F3A5A;
@@ -59,5 +62,10 @@ public final class EntityPatchEntryNodeWidget extends AbstractNodeWidget {
     @Override
     public boolean isDeletable() {
         return false;
+    }
+
+    @Override
+    public NodeData toData() {
+        return new EntityPatchEntryNodeData(kind);
     }
 }

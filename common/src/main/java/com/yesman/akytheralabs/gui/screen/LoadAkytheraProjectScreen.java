@@ -190,7 +190,7 @@ public final class LoadAkytheraProjectScreen extends Screen {
     private void openSelectedProject() {
         if (projectGrid.getFocused() instanceof ProjectCell projectCell) {
             AkytheraProject.loadProject(projectCell.projectPath);
-            minecraft.setScreen(null);
+            minecraft.gui.setScreen(null);
             AkytheraEditorLayoutManager.getInstance().openEditorLayout();
         }
     }
@@ -324,7 +324,7 @@ public final class LoadAkytheraProjectScreen extends Screen {
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
-        AkytheraEditorLayoutManager.blurFocusChainLeaf(this);
+        AkytheraEditorLayoutManager.blurFocusChainLeaf(this, event.x(), event.y());
 
         if (modal != null) {
             modal.mouseClicked(event, doubleClick);
