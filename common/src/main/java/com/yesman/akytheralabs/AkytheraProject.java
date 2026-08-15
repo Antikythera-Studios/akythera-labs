@@ -5,10 +5,6 @@ import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DynamicOps;
 import com.mojang.serialization.JsonOps;
-import com.yesman.akythera.core.asset.loader.binary.BinaryAssetLoader;
-import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
-import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
-import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
 import com.yesman.akythera.api.asset.armature.ArmatureManager;
@@ -29,25 +25,23 @@ import com.yesman.akythera.core.asset.loader.ArmatureLoader;
 import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
 import com.yesman.akythera.core.asset.loader.json.JsonAssetLoader;
+import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
+import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
+import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.StaticRegistryAccess;
 import com.yesman.akythera.core.util.helper.ParseUtils;
-import com.yesman.akytheralabs.dataholder.DanglingHolder;
-import com.yesman.akytheralabs.dataholder.DataHolder;
-import com.yesman.akytheralabs.dataholder.EditorReference;
-import com.yesman.akytheralabs.dataholder.ProjectObjectRegistry;
-import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
-import com.yesman.akytheralabs.akythera.asset.MeshMetadataHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
+import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
+import com.yesman.akytheralabs.akythera.asset.MeshMetadataHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
-import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
-import com.yesman.akytheralabs.dataholder.DataBlockHolder;
-import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
+import com.yesman.akytheralabs.dataholder.*;
 import com.yesman.akytheralabs.editor.historytrack.FileCreation;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
@@ -122,7 +116,7 @@ public final class AkytheraProject {
             .resolve(assetId.getPath() + AssetLoader.METADATA_EXTENSION);
     }
 
-    /// `.../walk.efasset` → `.../walk.akmeta`. The path-side twin of [#getMetadataFileOf], for
+    /// `.../walk.akasset` → `.../walk.akmeta`. The path-side twin of [#getMetadataFileOf], for
     /// the file operations that hold a path rather than an identifier.
     private static Path getMetadataFileBeside(Path assetFile) {
         return assetFile.resolveSibling(
@@ -321,7 +315,7 @@ public final class AkytheraProject {
         Path dir = projectRoot.resolve("assets").resolve(directory);
         FileSystemHelper.forEachFile(dir, p -> {
             String s = p.toString();
-            return s.endsWith(".efasset") || s.endsWith(".json");
+            return s.endsWith("." + AssetLoader.BINARY_EXTENSION) || s.endsWith(".json");
         }, handler);
     }
 
@@ -1348,7 +1342,7 @@ public final class AkytheraProject {
 
     private void unregisterAssetFile(Path assetsRoot, Path file) {
         String rel = FileSystemHelper.relativeIdPath(assetsRoot, file);
-        String pathNoExt = ParseUtils.trimExtensions(rel, BinaryAssetLoader.EXTENSION, "json");
+        String pathNoExt = ParseUtils.trimExtensions(rel, AssetLoader.BINARY_EXTENSION, "json");
         Identifier id = Identifier.fromNamespaceAndPath(projectName, pathNoExt);
 
         if (rel.startsWith(MeshManager.DIRECTORY)) {
@@ -1454,7 +1448,7 @@ public final class AkytheraProject {
 
     private @Nullable AssetCapture captureAsset(Path assetsRoot, Path file) {
         String rel = FileSystemHelper.relativeIdPath(assetsRoot, file);
-        String pathNoExt = ParseUtils.trimExtensions(rel, BinaryAssetLoader.EXTENSION, "json");
+        String pathNoExt = ParseUtils.trimExtensions(rel, AssetLoader.BINARY_EXTENSION, "json");
         Identifier id = Identifier.fromNamespaceAndPath(projectName, pathNoExt);
 
         if (rel.startsWith(MeshManager.DIRECTORY)) {
@@ -1525,8 +1519,8 @@ public final class AkytheraProject {
         Map<Identifier, A> issued,
         String oldRel, String newRel
     ) {
-        Identifier oldId = Identifier.fromNamespaceAndPath(projectName, ParseUtils.trimExtensions(oldRel, BinaryAssetLoader.EXTENSION, "json"));
-        Identifier newId = Identifier.fromNamespaceAndPath(projectName, ParseUtils.trimExtensions(newRel, BinaryAssetLoader.EXTENSION, "json"));
+        Identifier oldId = Identifier.fromNamespaceAndPath(projectName, ParseUtils.trimExtensions(oldRel, AssetLoader.BINARY_EXTENSION, "json"));
+        Identifier newId = Identifier.fromNamespaceAndPath(projectName, ParseUtils.trimExtensions(newRel, AssetLoader.BINARY_EXTENSION, "json"));
 
         if (oldId.equals(newId)) return;
 
@@ -1908,7 +1902,7 @@ public final class AkytheraProject {
                 path.toString().substring(
                     path.toString().indexOf(fileSystemDirectory)
                 ).replaceAll("\\\\", "/"),
-                BinaryAssetLoader.EXTENSION, "json"
+                AssetLoader.BINARY_EXTENSION, "json"
             )
         );
     }

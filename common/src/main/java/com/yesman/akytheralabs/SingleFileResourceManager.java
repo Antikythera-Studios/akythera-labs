@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs;
 
+import com.yesman.akythera.core.asset.loader.AssetLoader;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.PackLocationInfo;
 import net.minecraft.server.packs.PackResources;
@@ -43,14 +44,15 @@ public record SingleFileResourceManager(Path filePath) implements ResourceManage
     }
 
     /// Only respond to requests whose path suffix matches the held file's extension.
-    /// `AnimationLoader.getLoader` probes `<base>.efasset` first, then `<base>.json` —
-    /// without this gate, a dropped `.json` file would be returned for the `.efasset`
+    /// `AnimationLoader.getLoader` probes `<base>.akasset` first, then `<base>.json` —
+    /// without this gate, a dropped `.json` file would be returned for the `.akasset`
     /// probe and the binary loader would try to parse JSON bytes.
     private boolean matchesHeldFile(Identifier id) {
         String heldName = filePath.getFileName().toString().toLowerCase();
         String requested = id.getPath().toLowerCase();
+        String assetExtension = "." + AssetLoader.BINARY_EXTENSION;
 
-        if (heldName.endsWith(".efasset")) return requested.endsWith(".efasset");
+        if (heldName.endsWith(assetExtension)) return requested.endsWith(assetExtension);
         if (heldName.endsWith(".json")) return requested.endsWith(".json");
         return false;
     }

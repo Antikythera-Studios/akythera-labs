@@ -163,7 +163,7 @@ public final class MeshAssetEditorScreen extends Screen implements ModalAccessib
         model3DViewer.frameCamera(holder.getWidth(), holder.getHeight());
     }
 
-    /// `walk.efasset` → `walk.akmeta`, next to it. Resolved from the accessor's identifier on
+    /// `walk.akasset` → `walk.akmeta`, next to it. Resolved from the accessor's identifier on
     /// every call, so a rename while this screen is open writes next to the new name.
     private Path metadataFile() {
         return AkytheraProject.getMetadataFileOf(holder.getAccessor().identifier());

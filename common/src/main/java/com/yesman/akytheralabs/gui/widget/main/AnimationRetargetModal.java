@@ -12,6 +12,7 @@ import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.asset.loader.ArmatureLoader;
+import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
@@ -670,7 +671,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             }, Minecraft.getInstance());
     }
 
-    /// Export every entry as a `.efasset` into the user-selected directory. Partial
+    /// Export every entry as a `.akasset` into the user-selected directory. Partial
     /// mappings are valid — `remap` drops unmapped clip-bones safely. Per-entry I/O or
     /// encoding failures red-mark the affected row; other entries still export.
     private void onPressExportAll() {
@@ -729,7 +730,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     private void handleDrops(List<Path> paths) {
         for (Path src : paths) {
             String name = src.getFileName().toString();
-            if (!name.endsWith(".json") && !name.endsWith(".efasset")) continue;
+            if (!name.endsWith(".json") && !name.endsWith("." + AssetLoader.BINARY_EXTENSION)) continue;
 
             Identifier id = synthIdFromDropPath(src);
             SingleFileResourceManager rm = new SingleFileResourceManager(src);
@@ -790,7 +791,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     /// identifier for the loader.
     private static Identifier synthIdFromDropPath(Path src) {
         String safe = src.getFileName().toString()
-            .replaceFirst("\\.(json|efasset)$", "")
+            .replaceFirst("\\.(json|" + AssetLoader.BINARY_EXTENSION + ")$", "")
             .toLowerCase().replaceAll("[^a-z0-9_/.-]", "_");
         return AkytheraLabs.identifier("retarget_drop/" + safe);
     }

@@ -10,6 +10,7 @@ import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.BoneAnimationTrack;
 import com.yesman.akythera.core.animation.keyframe.Keyframe;
 import com.yesman.akythera.core.asset.armature.Armature;
+import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
 import com.yesman.akythera.core.asset.loader.binary.BinaryAssetLoader;
 import com.yesman.akythera.core.math.Transform;
@@ -102,7 +103,7 @@ public final class AnimationRetargetManager {
     }
 
     /// Iterate `entries`, remap each via `template`, optionally synthesise a root-bone
-    /// track, encode as `.efasset` and write into `destDir`. One-bad-file-doesn't-kill-
+    /// track, encode as `.akasset` and write into `destDir`. One-bad-file-doesn't-kill-
     /// the-batch: each per-entry failure becomes an [ExportResult.Failure]; other entries
     /// still export.
     public List<ExportResult> exportAll(
@@ -132,7 +133,7 @@ public final class AnimationRetargetManager {
                 remapped.visitBoneTracks(writer::addAnimBoneTrack);
 
                 Files.createDirectories(destDir);
-                Path dest = destDir.resolve(FileSystemHelper.stem(e.source.getFileName().toString()) + ".efasset");
+                Path dest = destDir.resolve(FileSystemHelper.stem(e.source.getFileName().toString()) + "." + AssetLoader.BINARY_EXTENSION);
                 Files.write(dest, writer.toBytes());
 
                 results.add(new ExportResult.Success(e, dest));
@@ -196,7 +197,7 @@ public final class AnimationRetargetManager {
         record Failure(RetargetEntry entry, String reason) implements ExportResult {}
     }
 
-    /// Encodes an `.efasset` byte stream: `EFAS` magic plus zlib-deflated bone-track blocks. A block
+    /// Encodes an `.akasset` byte stream: `EFAS` magic plus zlib-deflated bone-track blocks. A block
     /// header is 16 bytes — depth, payloadStartOffset, payloadEndOffset, typeId.
     private static final class AkAssetWriter {
         /// `BinaryAssetLoader.DataType.ANIM_BONE_TRACK.typeId` — mirrored as a constant

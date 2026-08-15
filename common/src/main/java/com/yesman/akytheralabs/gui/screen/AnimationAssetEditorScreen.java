@@ -166,7 +166,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
         if (component != null) component.setSimplePlayingAnimation(holder.getAccessor());
     }
 
-    /// `walk.efasset` → `walk.akmeta`, next to it. Resolved from the accessor's identifier on
+    /// `walk.akasset` → `walk.akmeta`, next to it. Resolved from the accessor's identifier on
     /// every call, so a rename while this screen is open writes next to the new name.
     private Path metadataFile() {
         return AkytheraProject.getMetadataFileOf(holder.getAccessor().identifier());

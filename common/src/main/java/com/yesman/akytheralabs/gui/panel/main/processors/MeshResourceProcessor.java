@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.panel.main.processors;
 
+import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
@@ -36,7 +37,7 @@ public final class MeshResourceProcessor implements ResourceProcessor<Identifier
         CompletableFuture
             .supplyAsync(() ->
                 TinyFileDialogs.tinyfd_openFileDialog(
-                    "Select Mesh File", "", null, "Mesh Files (*.efasset *.json)", false
+                    "Select Mesh File", "", null, "Mesh Files (*." + AssetLoader.BINARY_EXTENSION + " *.json)", false
                 )
             )
             .thenAcceptAsync(result -> {

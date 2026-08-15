@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.panel.main.processors;
 
+import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
@@ -33,7 +34,7 @@ public final class ArmatureResourceProcessor implements ResourceProcessor<Identi
 
         CompletableFuture
             .supplyAsync(() -> TinyFileDialogs.tinyfd_openFileDialog(
-                "Select Armature File", "", null, "Armature Files (*.efasset *.json)", false))
+                "Select Armature File", "", null, "Armature Files (*." + AssetLoader.BINARY_EXTENSION + " *.json)", false))
             .thenAcceptAsync(result -> {
                 if (result == null) return;
                 browser.importExternalAssets(List.of(Path.of(result)), targetDir, INSTANCE);

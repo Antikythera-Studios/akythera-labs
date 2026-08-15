@@ -391,7 +391,7 @@ public abstract class ContentWidget<T> extends AbstractWidget {
     /// Compute the new on-disk path for the given user-supplied stem.
     /// Default preserves the current file extension (or absence thereof —
     /// covers folders with no extension, `.json` for datapack entries,
-    /// `.efasset` for assets).
+    /// `.akasset` for assets).
     protected Path computeNewPath(String newStem) {
         return FileSystemHelper.withNewStem(path, newStem);
     }

@@ -48,7 +48,7 @@ public final class AnimationAssetResourceProcessor implements ResourceProcessor<
         CompletableFuture
             .supplyAsync(
                 () -> TinyFileDialogs.tinyfd_openFileDialog(
-                    "Select Animation File", "", null, "Animation Files (*.efasset *.json)", false
+                    "Select Animation File", "", null, "Animation Files (*.akasset *.json)", false
                 )
             )
             .thenAcceptAsync(result -> {

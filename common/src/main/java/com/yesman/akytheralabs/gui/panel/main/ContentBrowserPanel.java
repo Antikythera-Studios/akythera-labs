@@ -656,7 +656,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         List<Path> valid = sources.stream()
             .filter(p -> {
                 String name = p.getFileName().toString();
-                return name.endsWith(".efasset") || name.endsWith(".json");
+                return name.endsWith("." + AssetLoader.BINARY_EXTENSION) || name.endsWith(".json");
             })
             .toList();
 
