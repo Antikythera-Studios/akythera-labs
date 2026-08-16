@@ -9,6 +9,7 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
+import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.editor.historytrack.FileDeletion;
 import com.yesman.akytheralabs.editor.historytrack.FileMove;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -23,6 +24,7 @@ import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.*;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
+import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
@@ -620,6 +622,8 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         private final Path targetDir;
         private final AssetImporter importer;
         private final boolean allowOverwriteAll;
+        /// The animations this batch landed, in import order.
+        private final List<AkytheraProject.EditorAnimationAccessor> importedAnimations = new ArrayList<>();
         private int index;
         private boolean overwriteAll;
         private boolean anyImported;
@@ -690,14 +694,35 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             showLoadErrorPopup(result.error(), () -> importNext(session));
         } else {
             session.anyImported = true;
+
+            if (result.accessor() instanceof AkytheraProject.EditorAnimationAccessor animation) {
+                session.importedAnimations.add(animation);
+            }
+
             importNext(session);
         }
     }
 
     private void finishImport(ImportSession session) {
-        if (session.anyImported) {
-            refreshExplorerAndBrowser(session.targetDir);
-        }
+        if (!session.anyImported) return;
+
+        refreshExplorerAndBrowser(session.targetDir);
+
+        if (!session.importedAnimations.isEmpty()) askPreviewModelFor(session.importedAnimations);
+    }
+
+    /// Asks which model an animation asset screen previews `animations` on, and writes the pick
+    /// into every one of their sidecars. Dismissing the modal leaves them without a preview model.
+    private void askPreviewModelFor(List<AkytheraProject.EditorAnimationAccessor> animations) {
+        ModelSelectModal modal = new ModelSelectModal(font, null, previewModel -> {
+            for (AkytheraProject.EditorAnimationAccessor animation : animations) {
+                AnimationMetadataHolder metadata = animation.metadata();
+                metadata.setPreviewModel(previewModel);
+                metadata.save();
+            }
+        });
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     private void showDuplicatePopup(ImportSession session, Path source, Path destination) {

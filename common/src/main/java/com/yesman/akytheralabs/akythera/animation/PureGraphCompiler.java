@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.akythera.animation;
 
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
+import com.yesman.akythera.api.data.modularize.node.ScriptNode;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeInputs;
@@ -28,14 +29,27 @@ abstract class PureGraphCompiler implements PureCompileContext {
     /// (toId,toPin) → the single (fromId,fromPin) feeding it (data inputs hold one source).
     protected final Map<Long, long[]> incoming = new HashMap<>();
 
+    private final String canvasKey;
+
+    /// A canvas that defers nothing past its entry point, so its rows need no canvas of their own.
     protected PureGraphCompiler(ScriptGraphData data, Class<?> ownerType) {
+        this(data, ownerType, ScriptNode.NO_CANVAS);
+    }
+
+    protected PureGraphCompiler(ScriptGraphData data, Class<?> ownerType, String canvasKey) {
         data.requireNoFailedNodes();
 
         this.ownerType = ownerType;
+        this.canvasKey = canvasKey;
         for (GraphNode n : data.nodes()) byId.put(n.id(), n);
         for (ScriptGraphData.WireData w : data.wires()) {
             incoming.putIfAbsent(key(w.to(), w.toPin()), new long[]{w.from(), w.fromPin()});
         }
+    }
+
+    @Override
+    public final String canvasKey() {
+        return canvasKey;
     }
 
     @Override

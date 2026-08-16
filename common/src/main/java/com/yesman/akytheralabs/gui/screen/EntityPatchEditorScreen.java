@@ -51,6 +51,7 @@ import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
+import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -145,22 +146,14 @@ public final class EntityPatchEditorScreen extends Screen
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             _ -> handleQuitRequest(),
-            fillParentOptions(
-                TopMenuBar.menuBuilder()
-                    .newList(Component.translatable(LangKeys.GUI_MENU_BAR_FILE))
-                        .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_SAVE), this::save)
-                        .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_COMPILE), this::compile)
-                        .newSubList(Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MENU_CHANGE_PARENT)))
-                    .done()
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_LANGUAGE), () -> LanguageSelectionModal.open(minecraft.font))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_EDITOR_PREFERENCES), () -> EditorPreferencesModalGenerator.open(minecraft.font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_ISSUE_REPORT), () -> {})
-                .done()
+            TopMenuBar.actions()
+                .on(TopMenuOption.SAVE, this::save)
+                .on(TopMenuOption.COMPILE, this::compile)
+                .onChoices(TopMenuOption.CHANGE_PARENT, parentChoices())
+                .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
+                .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
+                .on(TopMenuOption.DOCS, () -> {})
+                .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
 
         // Preview — shows the entity picked when the blueprint was created (stored on the holder).
@@ -279,17 +272,17 @@ public final class EntityPatchEditorScreen extends Screen
     // Parent (the patch's constructor)
     // ***************************************************************
 
-    /// Fills `menu` with one option per [ScriptFunction.Usage#ENTITY_PATCH_CTOR] function, and hands
-    /// the builder back for the rest of the chain.
-    private TopMenuBar.SubListBuilder<TopMenuBar.MenuListBuilder> fillParentOptions(
-        TopMenuBar.SubListBuilder<TopMenuBar.MenuListBuilder> menu
-    ) {
+    /// One choice per [ScriptFunction.Usage#ENTITY_PATCH_CTOR] function, filling the top menu's
+    /// `Change Parent` sub-list.
+    private List<TopMenuBar.Choice> parentChoices() {
+        List<TopMenuBar.Choice> choices = new ArrayList<>();
+
         for (ScriptFunction function : AkytheraRegistries.Frozen.SCRIPT_FUNCTION) {
             if (function.metadata().usage() != ScriptFunction.Usage.ENTITY_PATCH_CTOR) continue;
-            menu.newOption(Component.literal(function.metadata().label()), () -> changeParent(function));
+            choices.add(new TopMenuBar.Choice(Component.literal(function.metadata().label()), () -> changeParent(function)));
         }
 
-        return menu;
+        return choices;
     }
 
     /// Re-parents the blueprint. The Event Graph's owner type follows, so its `self` badges and its

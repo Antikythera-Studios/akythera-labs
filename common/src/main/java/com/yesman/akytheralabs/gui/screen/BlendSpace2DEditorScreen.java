@@ -44,6 +44,7 @@ import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
+import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.mixin.BlendSpace2DDriverAccessor;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -131,22 +132,12 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             _ -> handleQuitRequest(),
-            TopMenuBar.menuBuilder()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_FILE))
-                    .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_SAVE), this::save)
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_EDITOR_PREFERENCES), () -> EditorPreferencesModalGenerator.open(font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW))
-                .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW_SELECT_PREVIEW_MODEL), this::openPreviewModelSelectModal)
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS_DEBUG), () -> DebuggableScreen.openDebugSelector(font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
-                .done()
+            TopMenuBar.actions()
+                .on(TopMenuOption.SAVE, this::save)
+                .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
+                .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
+                .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.DOCS, () -> {})
         );
 
         graphWidget = new BlendSpaceNodeGraphWidget(

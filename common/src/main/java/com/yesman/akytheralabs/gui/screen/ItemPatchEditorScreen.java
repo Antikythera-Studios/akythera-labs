@@ -31,6 +31,7 @@ import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
+import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -110,19 +111,13 @@ public final class ItemPatchEditorScreen extends Screen
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             _ -> handleQuitRequest(),
-            TopMenuBar.menuBuilder()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_FILE))
-                    .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_SAVE), this::save)
-                    .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_COMPILE), this::compile)
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_LANGUAGE), () -> LanguageSelectionModal.open(minecraft.font))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_EDITOR_PREFERENCES), () -> EditorPreferencesModalGenerator.open(minecraft.font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_ISSUE_REPORT), () -> {})
-                .done()
+            TopMenuBar.actions()
+                .on(TopMenuOption.SAVE, this::save)
+                .on(TopMenuOption.COMPILE, this::compile)
+                .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
+                .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
+                .on(TopMenuOption.DOCS, () -> {})
+                .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
 
         // The engine previewer has no item or static-mesh component, so the preview carries only

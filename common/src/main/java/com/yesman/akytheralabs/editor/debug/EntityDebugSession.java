@@ -92,6 +92,14 @@ public final class EntityDebugSession {
             return;
         }
 
+        Entity possessed = getPossessedEntity();
+        EntityPatch<?> possessedPatch =
+            possessed == null ? null : ((EntityAccessor)possessed).akythera$getEntityPatch();
+
+        if (possessedPatch != null) {
+            clearLiveRecords(possessedPatch);
+        }
+
         possessedEntityId = -1;
 
         if (!drivesEntity) {
@@ -189,6 +197,18 @@ public final class EntityDebugSession {
         if (AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof DebuggableScreen debuggable) {
             debuggable.onDebugTick(patch);
         }
+
+        clearLiveRecords(patch);
+    }
+
+    /// Drops the script's per-canvas records. They fill across the render frames between two ticks, so
+    /// a canvas nothing sampled reads empty instead of holding what it last showed.
+    private static void clearLiveRecords(final EntityPatch<?> entityPatch) {
+        DataDrivenAnimatorScript script = AnimatorProbe.dataDrivenScript(entityPatch);
+
+        if (script != null) {
+            ((ScriptExecutionRecords)(Object)script).akytheralabs$clearLiveRecords();
+        }
     }
 
     /// Writes the entity's recorded animator-script runs to the log.
@@ -205,6 +225,8 @@ public final class EntityDebugSession {
         logRecord("construct", records.akytheralabs$getConstructRecord());
         logRecord("update", records.akytheralabs$getUpdateRecord());
         logRecord("getFinalPose", records.akytheralabs$getPoseRecord());
+
+        records.akytheralabs$getLiveRecords().forEach((canvasKey, record) -> logRecord("canvas " + canvasKey, record));
     }
 
     private static void logRecord(final String entryPoint, final @Nullable ExecutionRecord record) {

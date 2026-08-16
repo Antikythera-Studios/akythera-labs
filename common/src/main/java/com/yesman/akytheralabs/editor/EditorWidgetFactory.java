@@ -1508,7 +1508,9 @@ public final class EditorWidgetFactory {
 
         switch (current.type()) {
             case ANIMATION -> {
-                AnimationSelectModal modal = new AnimationSelectModal(font, getPreviewModelField(slot.owner()), (animClip, previewModel) -> {
+                AnimationSelectModal modal = new AnimationSelectModal(font, getPreviewModelField(slot.owner()), (animClips, previewModel) -> {
+                    var animClip = animClips.getFirst();
+
                     // Preview model first: the holder's clip-change listener (fired by the write
                     // below) reads it to refresh the editor previewer.
                     if (previewModel != null) setPreviewModelField(slot.owner(), previewModel);

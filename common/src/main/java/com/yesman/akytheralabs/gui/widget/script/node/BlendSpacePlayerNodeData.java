@@ -53,8 +53,8 @@ public record BlendSpacePlayerNodeData(Holder<BlendSpace2D> blendSpace) implemen
             AnimGraphFunctions.func("play_blend_space_2d"),
             List.of(
                 AnimGraphFunctions.stringLiteral(blendSpaceId().toString()),
-                new SupplierAdapterNode(in.valueOr(0, float.class)),
-                new SupplierAdapterNode(in.valueOr(1, float.class))),
+                new SupplierAdapterNode(in.valueOr(0, float.class), in.canvasKey()),
+                new SupplierAdapterNode(in.valueOr(1, float.class), in.canvasKey())),
             in.id());
     }
 

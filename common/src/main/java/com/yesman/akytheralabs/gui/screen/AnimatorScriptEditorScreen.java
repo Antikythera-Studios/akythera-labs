@@ -8,6 +8,7 @@ import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.editor.debug.ScriptExecutionRecords;
+import net.minecraft.client.gui.Gui;
 import net.minecraft.world.entity.Entity;
 import com.yesman.akythera.client.gui.widget.viewer.*;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
@@ -27,6 +28,7 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
+import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.akythera.animation.AnimGraphCompiler;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
@@ -46,6 +48,7 @@ import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.RegistryLookupModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
+import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.gui.widget.script.node.AnimInterfaceNodeData;
@@ -189,22 +192,14 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             _ -> handleQuitRequest(),
-            TopMenuBar.menuBuilder()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_FILE))
-                    .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_SAVE), this::save)
-                    .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_COMPILE), this::compile)
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_LANGUAGE), () -> LanguageSelectionModal.open(font))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_EDITOR_PREFERENCES), () -> EditorPreferencesModalGenerator.open(font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS_DEBUG), () -> DebuggableScreen.openDebugSelector(font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_ISSUE_REPORT), () -> {})
-                .done()
+            TopMenuBar.actions()
+                .on(TopMenuOption.SAVE, this::save)
+                .on(TopMenuOption.COMPILE, this::compile)
+                .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(font))
+                .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
+                .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.DOCS, () -> {})
+                .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
 
         // Shows the model picked before this screen opened.
@@ -1117,7 +1112,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Opens (or re-focuses) the closeable `{state}` sub-tab: a pose data-flow graph terminating at an
     /// Output Pose node, bound to that state's pose sub-graph.
     private void openStatePoseTab(String machineName, StateMachineGraphWidget machine, String stateName) {
-        String key = machineName + "/state/" + stateName;
+        String key = ScriptCanvasKeys.statePose(machineName, stateName);
         ScriptNodeGraphWidget existing = openSubGraphs.get(key);
         if (existing != null) {
             blueprintEditor.setActiveIndex(blueprintEditor.indexOfContent(existing));
@@ -1141,7 +1136,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Opens (or re-focuses) the closeable `{from} to {to}` sub-tab: a boolean data-flow graph
     /// terminating at a "Can Enter Transition" result, bound to that transition's condition sub-graph.
     private void openTransitionConditionTab(String machineName, StateMachineGraphWidget machine, String from, String to) {
-        String key = machineName + "/trans/" + from + ">" + to;
+        String key = ScriptCanvasKeys.transition(machineName, from, to);
         ScriptNodeGraphWidget existing = openSubGraphs.get(key);
         if (existing != null) {
             blueprintEditor.setActiveIndex(blueprintEditor.indexOfContent(existing));
@@ -1842,7 +1837,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     }
 
     /// Pops a toast reporting the compile outcome — a success / failure icon plus, on failure, the
-    /// `page` the error came from — via [net.minecraft.client.Minecraft#getToastManager].
+    /// `page` the error came from — via [Gui#toastManager()].
     private void showCompileToast(boolean success, @Nullable Component page) {
         Identifier icon = AkytheraLabs.identifier(success ? "widget/compile_success" : "widget/compile_fail");
         Component title = Component.literal(success ? "Compile Succeeded" : "Compile Failed");
@@ -1937,11 +1932,15 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     }
 
     /// Mirrors the possessed entity onto the open canvases every tick: the state outline from live
-    /// driver state, the Event Graph's highlighting and recorded values from the recorded run.
+    /// driver state, and each canvas' highlighting and recorded values from the run captured for it.
     ///
-    /// Only the **update** record is used. A row id is assigned per canvas, so the ids in the construct
-    /// record — which covers the Event Graph's Constructor chain *and* the Anim Graph's layer stores —
-    /// come from two different numberings and cannot be told apart.
+    /// The Event Graph reads the **update** record, the entry point its rows run under. A pose canvas
+    /// reads the record of the sub-trees the Anim Graph deferred past `construct` — a blendspace's
+    /// coordinate inputs, a transition's condition — because the rest of it runs once while the
+    /// animator is built, before there is a session to record it.
+    ///
+    /// The construct record is used by neither: it covers the Event Graph's Constructor chain *and*
+    /// the Anim Graph's layer stores, whose row ids come from two different numberings.
     @Override
     public void onDebugTick(final EntityPatch<?> entityPatch) {
         Set<String> activeStates = AnimatorProbe.activeStateIds(entityPatch);
@@ -1951,17 +1950,42 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
 
         DataDrivenAnimatorScript script = AnimatorProbe.dataDrivenScript(entityPatch);
-        ExecutionRecord update = script == null
-            ? null
-            : ((ScriptExecutionRecords)(Object)script).akytheralabs$getUpdateRecord();
 
-        if (update == null) {
-            updateGraph.clearDebugRecord();
+        if (script == null) {
+            clearDebugRecords();
             debugSnapshotStale = false;
             return;
         }
 
-        debugSnapshotStale = !updateGraph.setDebugRecord(update);
+        ScriptExecutionRecords records = (ScriptExecutionRecords)(Object)script;
+        ExecutionRecord update = records.akytheralabs$getUpdateRecord();
+
+        if (update == null) {
+            updateGraph.clearDebugRecord();
+            debugSnapshotStale = false;
+        } else {
+            debugSnapshotStale = !updateGraph.setDebugRecord(update);
+        }
+
+        Map<String, ExecutionRecord> live = records.akytheralabs$getLiveRecords();
+
+        showCanvasRecord(poseGraph, live.get(ScriptCanvasKeys.ANIM_GRAPH));
+
+        for (Map.Entry<String, ScriptNodeGraphWidget> open : openSubGraphs.entrySet()) {
+            showCanvasRecord(open.getValue(), live.get(open.getKey()));
+        }
+    }
+
+    /// Shows what a pose canvas produced the last time its deferred sub-trees were sampled. No record
+    /// means nothing on it was sampled — an inactive state, or a canvas that defers nothing — so it
+    /// shows no values at all.
+    private static void showCanvasRecord(final ScriptNodeGraphWidget graph, final @Nullable ExecutionRecord record) {
+        if (record == null) {
+            graph.clearDebugRecord();
+            return;
+        }
+
+        graph.setDebugRecord(record);
     }
 
     /// Drops every debug highlight once nothing is possessed, so a finished session does not leave the
@@ -1971,12 +1995,20 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             return;
         }
 
-        updateGraph.clearDebugRecord();
+        clearDebugRecords();
         debugSnapshotStale = false;
 
         for (StateMachineGraphWidget machine : openStateMachines.values()) {
             machine.setActiveStateIds(Set.of());
         }
+    }
+
+    /// Drops the captured run on every canvas this screen holds.
+    private void clearDebugRecords() {
+        updateGraph.clearDebugRecord();
+        poseGraph.clearDebugRecord();
+
+        for (ScriptNodeGraphWidget open : openSubGraphs.values()) open.clearDebugRecord();
     }
 
     /// Says the captured run cannot be mapped onto this canvas, in place of the highlights it replaces.

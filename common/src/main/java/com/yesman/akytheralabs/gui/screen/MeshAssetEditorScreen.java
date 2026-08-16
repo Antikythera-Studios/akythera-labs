@@ -24,6 +24,7 @@ import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
+import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.viewer.WireframeCuboidComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -68,19 +69,11 @@ public final class MeshAssetEditorScreen extends Screen implements ModalAccessib
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             _ -> handleQuitRequest(),
-            TopMenuBar.menuBuilder()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_FILE))
-                    .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_SAVE), this::save)
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_EDITOR_PREFERENCES), () -> EditorPreferencesModalGenerator.open(font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW))
-                    .newOption(Component.translatable(LangKeys.GUI_MESH_ASSET_SCREEN_MENU_BAR_VIEW_FRAME_CAMERA), this::frameCamera)
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
-                .done()
+            TopMenuBar.actions()
+                .on(TopMenuOption.SAVE, this::save)
+                .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
+                .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
+                .on(TopMenuOption.DOCS, () -> {})
         );
 
         model3DViewer = new Model3DViewer(

@@ -3,12 +3,15 @@ package com.yesman.akytheralabs;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -137,6 +140,21 @@ public final class FileSystemHelper {
         }
     }
 
+    /// Decodes the json at `file` through `codec`, falling back to `orElse` when the file is
+    /// absent, unreadable, or malformed.
+    public static <T> T readJson(Path file, Codec<T> codec, T orElse) {
+        if (!Files.isRegularFile(file)) return orElse;
+
+        try (BufferedReader reader = Files.newBufferedReader(file)) {
+            return codec.parse(JsonOps.INSTANCE, JsonParser.parseReader(reader))
+                .resultOrPartial(error -> AkytheraLabs.LOGGER.error("Failed at decoding {}: {}", file, error))
+                .orElse(orElse);
+        } catch (IOException | JsonParseException e) {
+            AkytheraLabs.LOGGER.error("Failed to read {}", file, e);
+            return orElse;
+        }
+    }
+
     public static byte @Nullable [] readBytes(Path file) {
         try {
             return Files.readAllBytes(file);
@@ -255,6 +273,17 @@ public final class FileSystemHelper {
         Map<String, byte[]> literalEntries,
         List<Pair<String, Path>> trees
     ) {
+        return zip(zipFile, literalEntries, trees, _ -> true);
+    }
+
+    /// [#zip] where `treeFilter` decides which of the walked files become entries. Literal entries
+    /// are not offered to it — they have no file to test.
+    public static boolean zip(
+        Path zipFile,
+        Map<String, byte[]> literalEntries,
+        List<Pair<String, Path>> trees,
+        Predicate<Path> treeFilter
+    ) {
         try {
             Path parent = zipFile.getParent();
             if (parent != null) Files.createDirectories(parent);
@@ -273,7 +302,7 @@ public final class FileSystemHelper {
 
                     List<Path> files;
                     try (Stream<Path> walk = Files.walk(dir)) {
-                        files = walk.filter(Files::isRegularFile).toList();
+                        files = walk.filter(Files::isRegularFile).filter(treeFilter).toList();
                     }
 
                     for (Path file : files) {

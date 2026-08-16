@@ -42,8 +42,10 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -52,11 +54,17 @@ import java.util.stream.Stream;
 /// model the previewer renders the animation on; the animation list in the
 /// middle lets the user single-click to play the animation, or double-click
 /// to confirm and close the modal.
+///
+/// In multi-select mode the animation list accumulates rows the way the content browser's grid
+/// does — ctrl toggles one, shift takes the range from the last anchor — and `OK` reports the
+/// whole set.
 public final class AnimationSelectModal extends OverlayingWindowModal
     implements ResizeCompleteCallbackListener, CloseableWidget
 {
     private static final int TITLE_H = 20;
     private static final int SEARCH_H = 18;
+    private static final int FOOTER_H = 26;
+    private static final int BUTTON_W = 60;
     private static final int ROW_H = 18;
     private static final int SCROLLBAR_W = 5;
     private static final int DIMMER_COLOR = 0x88000000;
@@ -64,35 +72,55 @@ public final class AnimationSelectModal extends OverlayingWindowModal
     private static final int ANIM_LIST_PCT = 40;
 
     private final Font font;
-    private final OnConfirmed onAnimationConfirmed;
+    private final OnConfirmed onAnimationsConfirmed;
+    /// Whether the animation list accumulates rows or keeps only the clicked one.
+    private final boolean multiSelect;
     private final AdvancedEditBox<String> modelSearchBox;
     private final AdvancedEditBox<String> animationSearchBox;
     private final ModelList modelList;
     private final AnimList animList;
     private final Model3DViewer preview;
     private final AnchoredButton closeScreenButton;
+    private final AnchoredButton confirmButton;
+
+    /// The animations `OK` reports, in click order.
+    private final Set<AssetAccessor<AnimationClip>> selectedAnimations = new LinkedHashSet<>();
+
+    /// Row a shift-click measures its range from.
+    private AnimList.@Nullable AnimEntry rangeAnchor;
 
     /// Currently-highlighted model in the left list — reported alongside the animation on confirm so
     /// callers can persist it as the new entry's preview model. Null until the user picks a model.
     @Nullable private EntityPreviewModel selectedModel;
 
-    /// Confirm callback: the chosen animation plus the preview model the user had selected (null if
-    /// they never picked one).
+    /// Confirm callback: the chosen animations in click order, plus the preview model the user had
+    /// selected (null if they never picked one).
     @FunctionalInterface
     public interface OnConfirmed {
-        void accept(AssetAccessor<AnimationClip> animClip, @Nullable EntityPreviewModel previewModel);
+        void accept(List<AssetAccessor<AnimationClip>> animClips, @Nullable EntityPreviewModel previewModel);
     }
 
     /// `initialModel` (nullable): pre-selects that model in the left list — so the previewer shows
     /// the caller's current preview model on open — instead of starting with nothing selected.
-    public AnimationSelectModal(Font font, @Nullable EntityPreviewModel initialModel, OnConfirmed onAnimationConfirmed) {
+    public AnimationSelectModal(Font font, @Nullable EntityPreviewModel initialModel, OnConfirmed onAnimationsConfirmed) {
+        this(font, initialModel, false, onAnimationsConfirmed);
+    }
+
+    /// `multiSelect` lets the animation list hold more than one row, so one confirm reports a batch.
+    public AnimationSelectModal(
+        Font font,
+        @Nullable EntityPreviewModel initialModel,
+        boolean multiSelect,
+        OnConfirmed onAnimationsConfirmed
+    ) {
         super(
             AnchoredWidget.fraction(90), AnchoredWidget.fraction(80),
             Component.translatable(LangKeys.GUI_ANIMATION_SELECT_MODAL_TITLE)
         );
 
         this.font = font;
-        this.onAnimationConfirmed = onAnimationConfirmed;
+        this.onAnimationsConfirmed = onAnimationsConfirmed;
+        this.multiSelect = multiSelect;
 
         this.modelList = new ModelList();
         this.modelList.rebuild("");
@@ -122,7 +150,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
 
         this.preview = new Model3DViewer(
             AnchoredWidget.fraction(MODEL_LIST_PCT + ANIM_LIST_PCT), AnchoredWidget.fraction(0),
-            AnchoredWidget.pixel(TITLE_H + SEARCH_H), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(TITLE_H + SEARCH_H), AnchoredWidget.pixel(FOOTER_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
             AkytheraEditorLayoutManager.getInstance()::getLayoutGuiScale
@@ -139,6 +167,15 @@ public final class AnimationSelectModal extends OverlayingWindowModal
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
             .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
             .theme(AkytheraLabsButtonTheme.TOP_MENU_BUTTON)
+            .build();
+
+        this.confirmButton = AnchoredButton
+            .buttonBuilder(font, Component.translatable(LangKeys.GUI_OK), _ -> confirm())
+            .xUnits(AnchoredWidget.pixel(6), AnchoredWidget.pixel(BUTTON_W))
+            .yUnits(AnchoredWidget.pixel(4), AnchoredWidget.pixel(FOOTER_H - 10))
+            .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
+            .verticalAnchorType(AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT)
+            .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
             .build();
 
         // After the previewer exists — selecting a row displays the model on it.
@@ -159,7 +196,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
 
     @Override
     public @NonNull List<AbstractWidget> children() {
-        return List.of(modelSearchBox, animationSearchBox, modelList, animList, preview, closeScreenButton);
+        return List.of(modelSearchBox, animationSearchBox, modelList, animList, preview, closeScreenButton, confirmButton);
     }
 
     @Override
@@ -265,6 +302,46 @@ public final class AnimationSelectModal extends OverlayingWindowModal
 
         EntityModelComponent c = preview.getComponent(EntityModelComponent.class);
         if (c != null) c.setSimplePlayingAnimation(ae.accessor());
+    }
+
+    /// Takes `clicked` into [#selectedAnimations] the way the modifiers ask: ctrl toggles that one
+    /// row, shift takes the range from [#rangeAnchor], a bare click keeps only that row. A
+    /// single-select modal always keeps only that row.
+    private void selectAnimation(AnimList.AnimEntry clicked, MouseButtonEvent event) {
+        if (multiSelect && event.hasControlDown()) {
+            if (!selectedAnimations.remove(clicked.accessor())) selectedAnimations.add(clicked.accessor());
+            rangeAnchor = clicked;
+            return;
+        }
+
+        if (multiSelect && event.hasShiftDown() && rangeAnchor != null) {
+            List<AnimList.Entry> rows = animList.children();
+            int from = rows.indexOf(rangeAnchor);
+            int to = rows.indexOf(clicked);
+
+            if (from >= 0 && to >= 0) {
+                selectedAnimations.clear();
+
+                for (int i = Math.min(from, to); i <= Math.max(from, to); i++) {
+                    if (rows.get(i) instanceof AnimList.AnimEntry row) selectedAnimations.add(row.accessor());
+                }
+            }
+
+            return;
+        }
+
+        selectedAnimations.clear();
+        selectedAnimations.add(clicked.accessor());
+        rangeAnchor = clicked;
+    }
+
+    /// Reports the selection and closes. Selecting nothing is not a confirmable state — the modal
+    /// has no way back once it reports.
+    private void confirm() {
+        if (selectedAnimations.isEmpty()) return;
+
+        onAnimationsConfirmed.accept(List.copyOf(selectedAnimations), selectedModel);
+        AkytheraEditorLayoutManager.getInstance().closeModal();
     }
 
     /// ---------------- Model rows ----------------
@@ -525,7 +602,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         private Unit x1 = AnchoredWidget.pixel(0);
         private Unit x2 = AnchoredWidget.fraction(MODEL_LIST_PCT);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);
-        private Unit y2 = AnchoredWidget.fraction(0);
+        private Unit y2 = AnchoredWidget.pixel(FOOTER_H);
         private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
         private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
@@ -663,29 +740,29 @@ public final class AnimationSelectModal extends OverlayingWindowModal
 
             @Override
             public void extractContent(@NonNull GuiGraphicsExtractor g, int mx, int my, boolean hovered, float a) {
-                if (getSelected() != this && hovered) {
-                    g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), 0xFF262626);
+                boolean picked = selectedAnimations.contains(accessor);
+
+                if (getSelected() != this && (picked || hovered)) {
+                    g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), picked ? 0xFF0A2833 : 0xFF262626);
                 }
 
                 g.text(
                     font, Component.literal(accessor.identifier().toString().replace(AnimationManager.DIRECTORY, "")),
                     getX() + 6, getY() + (getHeight() - 8) / 2,
-                    getSelected() == this ? 0xFFFFFFFF : 0xFFCCCCCC, false
+                    getSelected() == this || picked ? 0xFFFFFFFF : 0xFFCCCCCC, false
                 );
             }
 
             @Override
             public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClicked) {
                 setSelected(this);
+                selectAnimation(this, event);
 
                 // Single click → play the animation in the previewer.
                 EntityModelComponent c = preview.getComponent(EntityModelComponent.class);
                 if (c != null) c.setSimplePlayingAnimation(accessor);
 
-                if (doubleClicked) {
-                    onAnimationConfirmed.accept(accessor, selectedModel);
-                    AkytheraEditorLayoutManager.getInstance().closeModal();
-                }
+                if (doubleClicked) confirm();
 
                 return true;
             }
@@ -697,7 +774,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         private Unit x1 = AnchoredWidget.fraction(MODEL_LIST_PCT);
         private Unit x2 = AnchoredWidget.fraction(ANIM_LIST_PCT);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);
-        private Unit y2 = AnchoredWidget.fraction(0);
+        private Unit y2 = AnchoredWidget.pixel(FOOTER_H);
         private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
         private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 

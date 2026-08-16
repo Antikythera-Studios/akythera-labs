@@ -36,6 +36,10 @@ import java.util.*;
 /// wrapped in [SupplierAdapterNode], and a State Machine node assembles an
 /// [AnimationStateMachineNode] from its [StateMachineData]. Machine references are guarded against
 /// cycles.
+///
+/// Each canvas lowers under its [ScriptCanvasKeys] key, which the deferred sub-trees — a blendspace's
+/// inputs, a transition's condition — carry into the pack so their samples can be recorded against
+/// the canvas they came from.
 public final class AnimGraphCompiler {
     private final Map<String, StateMachineData> stateMachines;
     private final Class<?> ownerType;
@@ -58,7 +62,7 @@ public final class AnimGraphCompiler {
     }
 
     private Result run(ScriptGraphData poseGraph) {
-        GraphCtx ctx = new GraphCtx(poseGraph);
+        GraphCtx ctx = new GraphCtx(poseGraph, ScriptCanvasKeys.ANIM_GRAPH);
 
         // The construct-time steps that fill the animator's layer map and pose cache.
         List<FlowNode> stores = new ArrayList<>();
@@ -152,7 +156,8 @@ public final class AnimGraphCompiler {
         if (data == null || !machineStack.add(name)) return AnimGraphFunctions.emptyDriver();
 
         try {
-            List<TransitionEntry> entryTransitions = compileTransitions(data.entryTransitions());
+            List<TransitionEntry> entryTransitions =
+                compileTransitions(data.entryTransitions(), name, ScriptCanvasKeys.ENTRY);
             List<StateEntry> states = new ArrayList<>();
             for (StateMachineData.StateData s : data.states()) {
                 // A dangling state signature drops the state and keeps the rest of the machine.
@@ -160,8 +165,10 @@ public final class AnimGraphCompiler {
                     AkytheraLabs.LOGGER.warn("Skipping unresolved state {} in state machine {}", idOf(s.state()), name);
                     continue;
                 }
-                PureNode driver = compilePoseGraph(s.poseGraph());
-                states.add(new StateEntry(s.state().value(), driver, compileTransitions(s.transitions())));
+                String stateName = ScriptCanvasKeys.stateName(s.state());
+                PureNode driver = compilePoseGraph(s.poseGraph(), ScriptCanvasKeys.statePose(name, stateName));
+                states.add(new StateEntry(
+                    s.state().value(), driver, compileTransitions(s.transitions(), name, stateName)));
             }
             return new AnimationStateMachineNode(entryTransitions, states);
         } finally {
@@ -169,21 +176,26 @@ public final class AnimGraphCompiler {
         }
     }
 
-    private List<TransitionEntry> compileTransitions(List<StateMachineData.TransitionData> transitions) {
+    private List<TransitionEntry> compileTransitions(
+        List<StateMachineData.TransitionData> transitions, String machineName, String fromName
+    ) {
         List<TransitionEntry> out = new ArrayList<>(transitions.size());
         for (StateMachineData.TransitionData t : transitions) {
             if (!t.to().isBound()) {
                 AkytheraLabs.LOGGER.warn("Skipping transition to unresolved state {}", idOf(t.to()));
                 continue;
             }
-            out.add(new TransitionEntry(t.to().value(), compileConditionGraph(t.conditionGraph())));
+            String canvasKey =
+                ScriptCanvasKeys.transition(machineName, fromName, ScriptCanvasKeys.stateName(t.to()));
+            out.add(new TransitionEntry(
+                t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey), canvasKey));
         }
         return out;
     }
 
     /// A state's `{state}` pose sub-graph → an [AnimationDriver] [PureNode] (empty driver if unwired).
-    private PureNode compilePoseGraph(ScriptGraphData graph) {
-        GraphCtx ctx = new GraphCtx(graph);
+    private PureNode compilePoseGraph(ScriptGraphData graph, String canvasKey) {
+        GraphCtx ctx = new GraphCtx(graph, canvasKey);
         GraphNode root = ctx.findOne(OutputPoseNodeData.class);
         if (root == null) return AnimGraphFunctions.emptyDriver();
         PureNode driver = ctx.compileInput(root.id(), 0);
@@ -192,8 +204,8 @@ public final class AnimGraphCompiler {
 
     /// A transition's `{from} to {to}` condition sub-graph → a boolean [PureNode]. An unwired / absent
     /// result reads as an unconditional (always-true) transition.
-    private PureNode compileConditionGraph(ScriptGraphData graph) {
-        GraphCtx ctx = new GraphCtx(graph);
+    private PureNode compileConditionGraph(ScriptGraphData graph, String canvasKey) {
+        GraphCtx ctx = new GraphCtx(graph, canvasKey);
         GraphNode root = ctx.findOne(TransitionResultNodeData.class);
         if (root == null) return AnimGraphFunctions.literalTrue();
         PureNode cond = ctx.compileInput(root.id(), 0);
@@ -207,8 +219,8 @@ public final class AnimGraphCompiler {
     /// The pure-data lowering of one pose / condition sub-graph. The nodes lower themselves; this
     /// canvas adds the state machines and the pose-typed defaults for unwired inputs.
     private final class GraphCtx extends PureGraphCompiler {
-        GraphCtx(ScriptGraphData data) {
-            super(data, AnimGraphCompiler.this.ownerType);
+        GraphCtx(ScriptGraphData data, String canvasKey) {
+            super(data, AnimGraphCompiler.this.ownerType, canvasKey);
         }
 
         /// The first row carrying `type`, or null.

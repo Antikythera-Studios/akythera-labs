@@ -13,8 +13,10 @@ import com.yesman.akytheralabs.gui.panel.main.WorldviewPanel;
 import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
 import com.yesman.akytheralabs.gui.widget.main.*;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.events.AbstractContainerEventHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
@@ -29,7 +31,7 @@ import java.util.Optional;
 
 /// A main editor screen layout
 ///
-/// This screen doesn't register at [Minecraft#screen] to allow running
+/// This screen doesn't register at [Gui#screen()] to allow running
 /// games with the editor screen opened and don't be overridden by
 /// in-game screens like inventory or chest container.
 ///
@@ -61,31 +63,18 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             _ -> handleQuitRequest(),
-            TopMenuBar.menuBuilder()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_FILE))
-                    .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_SAVE), this::saveProject)
-                    .newSubList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_FILE_EXPORT))
-                        .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_FILE_EXPORT_AS_PACK), () -> ExportModalGenerator.openAsPack(font))
-                        .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_FILE_EXPORT_AS_SOURCE_CODE), () -> ExportModalGenerator.openAsSourceCode(font))
-                    .done()
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_FILE_DELETE), () -> DeleteProjectModalGenerator.open(font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_LANGUAGE), () -> LanguageSelectionModal.open(font))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_PROJECT_SETTINGS), () -> ProjectSetupModalGenerator.open(font))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_EDITOR_PREFERENCES), () -> EditorPreferencesModalGenerator.open(font))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_MODEL_ARMATURE_MAPPING), () -> ModelArmatureMappingModal.open(font))
-                .done()
-                //.newList(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW))
-                //.done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS_ANIMATION_RETARGET), () -> AnimationRetargetModal.open(font))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_TOOLS_DEBUG), () -> DebuggableScreen.openDebugSelector(font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_ISSUE_REPORT), () -> {})
-                .done()
+            TopMenuBar.actions()
+                .on(TopMenuOption.SAVE, this::saveProject)
+                .on(TopMenuOption.EXPORT_AS_PACK, () -> ExportModalGenerator.openAsPack(font))
+                .on(TopMenuOption.EXPORT_AS_SOURCE_CODE, () -> ExportModalGenerator.openAsSourceCode(font))
+                .on(TopMenuOption.DELETE_PROJECT, () -> DeleteProjectModalGenerator.open(font))
+                .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(font))
+                .on(TopMenuOption.PROJECT_SETTINGS, () -> ProjectSetupModalGenerator.open(font))
+                .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
+                .on(TopMenuOption.MODEL_ARMATURE_MAPPING, () -> ModelArmatureMappingModal.open(font))
+                .on(TopMenuOption.ANIMATION_RETARGET, () -> AnimationRetargetModal.open(font))
+                .on(TopMenuOption.DOCS, () -> {})
+                .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
 
         // Top right panel widgets
@@ -213,7 +202,7 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
         }
     }
 
-    /// Instead of assigning `modal` directly into [#focused], check and return opened modal via
+    /// Instead of assigning `modal` directly into [AbstractContainerEventHandler#focused], check and return opened modal via
     /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
     @Nullable
     public GuiEventListener getFocused() {

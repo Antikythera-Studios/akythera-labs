@@ -1,6 +1,8 @@
 package com.yesman.akytheralabs.gui.panel.main.processors;
 
+import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
+import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
@@ -37,25 +39,30 @@ public final class AnimSequenceResourceProcessor implements ResourceProcessor<An
         ExplorerPanel.TreeNode regRoot = ResourceProcessor.regRootOf(selected);
         if (regRoot == null) return;
 
-        AnimationSelectModal modal = new AnimationSelectModal(browser.getFont(), null, (animClip, previewModel) -> {
+        AnimationSelectModal modal = new AnimationSelectModal(browser.getFont(), null, true, (animClips, previewModel) -> {
             String subPath = ResourceProcessor.buildSubPath(regRoot, selected);
             AkytheraProject project = AkytheraProject.getCurrentProject();
+            String lastIdPath = "";
 
-            // Only the leaf — user already chose the target dir via focus.
-            String animPath = animClip.identifier().getPath().replace(AnimationManager.DIRECTORY, "");
-            int animLastSlash = animPath.lastIndexOf('/');
-            String baseName = animLastSlash >= 0 ? animPath.substring(animLastSlash + 1) : animPath;
+            for (AssetAccessor<AnimationClip> animClip : animClips) {
+                // Only the leaf — user already chose the target dir via focus.
+                String animPath = animClip.identifier().getPath().replace(AnimationManager.DIRECTORY, "");
+                int animLastSlash = animPath.lastIndexOf('/');
+                String baseName = animLastSlash >= 0 ? animPath.substring(animLastSlash + 1) : animPath;
 
-            String entryName = project.findNextFreeName(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, baseName, subPath);
-            String idPath = subPath.isEmpty() ? entryName : subPath + "/" + entryName;
-            ResourceKey<@NonNull AnimationSequence> key = project.createEntry(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, idPath, true);
-            AnimationSequenceHolder holder = project.getDataHolderOrThrow(key);
-            holder.setAnimClip(animClip);
-            holder.setPreviewModel(previewModel);
-            project.saveEntry(key);
+                String entryName = project.findNextFreeName(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, baseName, subPath);
+                String idPath = subPath.isEmpty() ? entryName : subPath + "/" + entryName;
+                ResourceKey<@NonNull AnimationSequence> key = project.createEntry(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, idPath, true);
+                AnimationSequenceHolder holder = project.getDataHolderOrThrow(key);
+                holder.setAnimClip(animClip);
+                holder.setPreviewModel(previewModel);
+                project.saveEntry(key);
 
-            int lastSlash = idPath.lastIndexOf('/');
-            String parentSubdir = lastSlash >= 0 ? idPath.substring(0, lastSlash) : "";
+                lastIdPath = idPath;
+            }
+
+            int lastSlash = lastIdPath.lastIndexOf('/');
+            String parentSubdir = lastSlash >= 0 ? lastIdPath.substring(0, lastSlash) : "";
             Path focusDir = project.getProjectRoot()
                 .resolve("data")
                 .resolve(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY.identifier().getPath())
@@ -65,8 +72,6 @@ public final class AnimSequenceResourceProcessor implements ResourceProcessor<An
                 mainScreen.explorerPanel.rebuildTree();
                 mainScreen.explorerPanel.focusNodeByPath(focusDir);
             });
-
-            AkytheraEditorLayoutManager.getInstance().closeModal();
         });
 
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);

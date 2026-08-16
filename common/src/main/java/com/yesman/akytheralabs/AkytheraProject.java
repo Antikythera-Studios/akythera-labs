@@ -1649,7 +1649,8 @@ public final class AkytheraProject {
         FileSystemHelper.zip(
             resourcePackDir.resolve(resourcePackName),
             resourceEntries,
-            List.of(Pair.of("assets/" + projectName, projectRoot.resolve("assets")))
+            List.of(Pair.of("assets/" + projectName, projectRoot.resolve("assets"))),
+            this::isExportedAssetFile
         );
 
         return resourcePackName;
@@ -1691,7 +1692,24 @@ public final class AkytheraProject {
             dataEntries,
             includeAssets
                 ? List.of(Pair.of("data/" + projectName + "/assets", projectRoot.resolve("assets")))
-                : List.of()
+                : List.of(),
+            this::isExportedAssetFile
+        );
+    }
+
+    /// Whether `file`, somewhere under the project's `assets` tree, belongs in an export.
+    ///
+    /// Everything does except an animation sidecar whose engine-visible fields are all default:
+    /// such a file is there to carry the editor's preview model, which no pack reads.
+    private boolean isExportedAssetFile(Path file) {
+        String relative = FileSystemHelper.relativeIdPath(projectRoot.resolve("assets"), file);
+
+        if (!relative.startsWith(AnimationManager.DIRECTORY) || !relative.endsWith(AssetLoader.METADATA_EXTENSION)) {
+            return true;
+        }
+
+        return !AnimationLoader.Metadata.DEFAULT.equals(
+            FileSystemHelper.readJson(file, AnimationLoader.Metadata.CODEC, AnimationLoader.Metadata.DEFAULT)
         );
     }
 
@@ -1705,7 +1723,7 @@ public final class AkytheraProject {
         if (!Files.isDirectory(assetsSrc)) return;
 
         Path assetsDst = targetRoot.resolve("assets").resolve(projectName);
-        FileSystemHelper.forEachFile(assetsSrc, file ->
+        FileSystemHelper.forEachFile(assetsSrc, this::isExportedAssetFile, file ->
             FileSystemHelper.copyReplace(file, assetsDst.resolve(assetsSrc.relativize(file)))
         );
     }

@@ -1,11 +1,13 @@
 package com.yesman.akytheralabs.gui.panel.main.processors;
 
 import com.yesman.akythera.api.asset.animation.AnimationManager;
+import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
@@ -13,13 +15,14 @@ import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
-import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 import java.nio.file.Path;
@@ -78,13 +81,11 @@ public final class AnimationAssetResourceProcessor implements ResourceProcessor<
                 .subpage()
                     .entry()
                         .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_CREATE_ANIM_SEQUENCE))
-                        .onPress(_ -> openPreviewModelSelectThenCreateAnimSequences(new ArrayList<>(browser.getSelectedWidgets())))
+                        .onPress(_ -> createAnimSequences(new ArrayList<>(browser.getSelectedWidgets())))
                         .done()
                     .entry()
                         .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_CREATE_ANIM_MONTAGE))
-                        .onPress(_ -> {
-                            // TODO: anim montage flow — no AnimMontage editor screen yet
-                        })
+                        .onPress(_ -> createAnimMontages(new ArrayList<>(browser.getSelectedWidgets())))
                         .done()
                     .done()
             .entry()
@@ -94,53 +95,98 @@ public final class AnimationAssetResourceProcessor implements ResourceProcessor<
             .build();
     }
 
-    private static void openPreviewModelSelectThenCreateAnimSequences(List<ContentWidget<?>> selectedWidgets) {
-        if (selectedWidgets.removeIf(w -> !(w instanceof ContentWidget.AnimationAssetContent animWidget) || animWidget.getReferencingObject() == null)) {
-            AkytheraLabs.LOGGER.error("Invalid assets were selected for creating Animation Sequence");
-            return;
+    /// One [AnimationSequence] per selected animation, mirroring the animation's own path under the
+    /// registry root and taking its preview model from the animation's sidecar.
+    private static void createAnimSequences(List<ContentWidget<?>> selectedWidgets) {
+        List<AkytheraProject.EditorAnimationAccessor> animations = animationsOf(selectedWidgets);
+        if (animations.isEmpty()) return;
+
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        String commonAncestor = null;
+
+        for (AkytheraProject.EditorAnimationAccessor animation : animations) {
+            String baseName = animation.identifier().getPath().replace(AnimationManager.DIRECTORY, "");
+            commonAncestor = commonAncestor == null
+                ? parentDirOf(baseName)
+                : longestCommonDirPrefix(commonAncestor, parentDirOf(baseName));
+
+            String entryName = project.findNextFreeName(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, baseName, "");
+            ResourceKey<@NonNull AnimationSequence> key = project.createEntry(
+                AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, entryName, true);
+            AnimationSequenceHolder holder = project.getDataHolderOrThrow(key);
+            holder.setAnimClip(animation);
+            holder.setPreviewModel(animation.metadata().getPreviewModel());
+            project.saveEntry(key);
         }
 
-        ModelSelectModal modal = new ModelSelectModal(
-            Minecraft.getInstance().font,
-            null,
-            previewModel -> {
-                AkytheraProject project = AkytheraProject.getCurrentProject();
-                String commonAncestor = null;
+        focusRegistryDirectory(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, commonAncestor);
+    }
 
-                for (ContentWidget<?> w : selectedWidgets) {
-                    ContentWidget.AnimationAssetContent animWidget = (ContentWidget.AnimationAssetContent)w;
-                    String baseName = animWidget.getReferencingObject().identifier().getPath().replace(AnimationManager.DIRECTORY, "");
+    /// One [AnimationMontage] per selected animation, holding it as the montage's single segment.
+    private static void createAnimMontages(List<ContentWidget<?>> selectedWidgets) {
+        List<AkytheraProject.EditorAnimationAccessor> animations = animationsOf(selectedWidgets);
+        if (animations.isEmpty()) return;
 
-                    int lastSlash = baseName.lastIndexOf('/');
-                    String parentDir = lastSlash >= 0 ? baseName.substring(0, lastSlash) : "";
-                    commonAncestor = commonAncestor == null ? parentDir : longestCommonDirPrefix(commonAncestor, parentDir);
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        String commonAncestor = null;
 
-                    String entryName = project.findNextFreeName(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, baseName, "");
-                    ResourceKey<@NonNull AnimationSequence> key = project.createEntry(
-                        AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, entryName, true);
-                    AnimationSequenceHolder holder = project.getDataHolderOrThrow(key);
-                    holder.setAnimClip(animWidget.getReferencingObject());
-                    holder.setPreviewModel(previewModel);
-                    project.saveEntry(key);
-                }
+        for (AkytheraProject.EditorAnimationAccessor animation : animations) {
+            String baseName = animation.identifier().getPath().replace(AnimationManager.DIRECTORY, "");
+            commonAncestor = commonAncestor == null
+                ? parentDirOf(baseName)
+                : longestCommonDirPrefix(commonAncestor, parentDirOf(baseName));
 
-                String focusSuffix = commonAncestor == null ? "" : commonAncestor;
+            String entryName = project.findNextFreeName(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, baseName, "");
+            ResourceKey<@NonNull AnimationMontage> key = project.createEntry(
+                AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, entryName, true);
+            AnimationMontageHolder holder = project.getDataHolderOrThrow(key);
+            holder.addSegment(animation);
+            holder.setPreviewModel(animation.metadata().getPreviewModel());
+            project.saveEntry(key);
+        }
 
-                AkytheraEditorLayoutManager.getInstance().<MainEditorScreen>ifLastScreen(mainScreen -> {
-                    mainScreen.explorerPanel.rebuildTree();
-                    Path animSeqDir = project.getProjectRoot()
-                        .resolve("data")
-                        .resolve(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY.identifier().getPath())
-                        .resolve(focusSuffix);
+        focusRegistryDirectory(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, commonAncestor);
+    }
 
-                    mainScreen.explorerPanel.focusNodeByPath(animSeqDir);
-                });
+    /// The animation accessors behind `selectedWidgets`, or an empty list when the selection holds
+    /// anything else — the callers create one entry per animation and have nothing to fall back on.
+    private static List<AkytheraProject.EditorAnimationAccessor> animationsOf(List<ContentWidget<?>> selectedWidgets) {
+        List<AkytheraProject.EditorAnimationAccessor> animations = new ArrayList<>(selectedWidgets.size());
 
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+        for (ContentWidget<?> widget : selectedWidgets) {
+            if (!(widget.getReferencingObject() instanceof AkytheraProject.EditorAnimationAccessor animation)) {
+                AkytheraLabs.LOGGER.error("Invalid assets were selected for creating animation data");
+                return List.of();
             }
-        );
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+            animations.add(animation);
+        }
+
+        return animations;
+    }
+
+    /// Everything before the last `/` of `idPath`, or `""` when it has none.
+    private static String parentDirOf(String idPath) {
+        int lastSlash = idPath.lastIndexOf('/');
+        return lastSlash >= 0 ? idPath.substring(0, lastSlash) : "";
+    }
+
+    /// Rebuilds the explorer tree and focuses `<registry root>/<subdirectory>`, where the new
+    /// entries landed.
+    private static void focusRegistryDirectory(
+        ResourceKey<? extends @NonNull Registry<?>> registryKey,
+        @Nullable String subdirectory
+    ) {
+        AkytheraEditorLayoutManager.getInstance().<MainEditorScreen>ifLastScreen(mainScreen -> {
+            mainScreen.explorerPanel.rebuildTree();
+
+            Path directory = AkytheraProject.getCurrentProject().getProjectRoot()
+                .resolve("data")
+                .resolve(registryKey.identifier().getPath())
+                .resolve(subdirectory == null ? "" : subdirectory);
+
+            mainScreen.explorerPanel.focusNodeByPath(directory);
+        });
     }
 
     private static String longestCommonDirPrefix(String a, String b) {

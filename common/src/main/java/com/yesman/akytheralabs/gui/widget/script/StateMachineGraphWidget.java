@@ -8,6 +8,7 @@ import com.yesman.akythera.api.animation.impl.AkytheraAnimationState;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.Holder;
@@ -91,7 +92,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private static final int ACTIVE_STATE_RING = 2;
 
     /// The sentinel "from" name of an Entry transition (Entry has no [StateNode] name of its own).
-    private static final String ENTRY = "";
+    private static final String ENTRY = ScriptCanvasKeys.ENTRY;
 
     private final Font font;
 
@@ -285,8 +286,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     /// Display/identity name of a state holder — its key id, which exists even for a dangling
     /// (unresolved) holder; only a keyless engine direct holder reads the live value.
     private static String nameOf(Holder<FSMAnimationState> holder) {
-        return holder.unwrapKey().map(k -> k.identifier().toString())
-            .orElseGet(() -> holder.value().identifier().toString());
+        return ScriptCanvasKeys.stateName(holder);
     }
 
     /// Flattens the live topology — and each state's pose sub-graph / each transition's condition

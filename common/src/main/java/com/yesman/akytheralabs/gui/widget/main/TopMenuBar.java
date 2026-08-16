@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.gui.widget.main;
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import net.minecraft.client.Minecraft;
@@ -14,18 +15,16 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.network.chat.Component;
-import org.apache.commons.lang3.mutable.MutableInt;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 
-/// Top menu bar with File/Edit/View/Help menus and dropdown support.
+/// Top menu bar with File/Edit/View/Tools/Help menus and dropdown support.
 ///
 /// Extends [AbstractContainerWidget] so [AnchoredButton] children are dispatched
 /// through Minecraft's standard [ContainerEventHandler] input routing.
@@ -34,15 +33,48 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     private static final int TITLE_PAD = 6;
     private static final int DROPDOWN_W = 120;
 
+    /// The menu bar every screen shows, with every option at a fixed position. A screen differs only
+    /// in which [TopMenuOption]s its [Actions] wires up — the rest stay in place, greyed out and
+    /// unpressable.
+    private static final List<Menu> MENUS = List.of(
+        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_FILE), List.of(
+            new OptionRow(TopMenuOption.SAVE),
+            new OptionRow(TopMenuOption.COMPILE),
+            new GroupRow(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_EXPORT), List.of(
+                new OptionRow(TopMenuOption.EXPORT_AS_PACK),
+                new OptionRow(TopMenuOption.EXPORT_AS_SOURCE_CODE)
+            )),
+            new ChoiceListRow(TopMenuOption.CHANGE_PARENT),
+            new OptionRow(TopMenuOption.DELETE_PROJECT)
+        )),
+        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT), List.of(
+            new OptionRow(TopMenuOption.LANGUAGE),
+            new OptionRow(TopMenuOption.PROJECT_SETTINGS),
+            new OptionRow(TopMenuOption.EDITOR_PREFERENCES),
+            new OptionRow(TopMenuOption.MODEL_ARMATURE_MAPPING)
+        )),
+        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW), List.of(
+            new OptionRow(TopMenuOption.SELECT_PREVIEW_MODEL),
+            new OptionRow(TopMenuOption.FRAME_CAMERA)
+        )),
+        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_TOOLS), List.of(
+            new OptionRow(TopMenuOption.ANIMATION_RETARGET),
+            new OptionRow(TopMenuOption.DEBUG)
+        )),
+        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_HELP), List.of(
+            new OptionRow(TopMenuOption.DOCS),
+            new OptionRow(TopMenuOption.ISSUE_REPORT)
+        ))
+    );
+
     private final Font font;
     private final AnchoredButton closeScreenButton;
     private final List<AnchoredButton> menuButtonList;
     private final AnchoredButton[] menuButtons;
 
-    /// One dropdown per top-level menu, built from the menu's option tree. A menu whose
-    /// list is empty leaves its slot `null` (the button still renders but does nothing).
-    /// Each dropdown is a [ContextMenuContainer] so options can nest into sub-lists
-    /// (`Export > As Pack` / `As Source Code`) the same way right-click context menus do.
+    /// One dropdown per [#MENUS] entry, in the same order. Each is a [ContextMenuContainer] so
+    /// options can nest into sub-lists (`Export > As Pack` / `As Source Code`) the same way
+    /// right-click context menus do.
     private final ContextMenuContainer[] dropdowns;
 
     /// Optional unsaved-changes probe. When it returns `true` a `*` is drawn in front of the title.
@@ -60,7 +92,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         AnchoredWidget.HorizontalAnchorType horizontalAnchorType,
         AnchoredWidget.VerticalAnchorType verticalAnchorType,
         Button.OnPress onClose,
-        MenuBuilder menuBuilder
+        Actions actions
     ) {
         super(0, 0, 0, 0, title, AbstractScrollArea.defaultSettings(0));
 
@@ -72,17 +104,16 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         this.horizontalAnchorType = horizontalAnchorType;
         this.verticalAnchorType = verticalAnchorType;
 
-        int menuCount = menuBuilder.menus.size();
-        MutableInt idx = new MutableInt();
         Minecraft minecraft = Minecraft.getInstance();
 
-        menuButtons = new AnchoredButton[menuCount];
-        dropdowns = new ContextMenuContainer[menuCount];
+        menuButtons = new AnchoredButton[MENUS.size()];
+        dropdowns = new ContextMenuContainer[MENUS.size()];
 
-        for (Map.Entry<Component, TopMenuBar.MenuListBuilder> entry : menuBuilder.menus.entrySet()) {
-            final int i = idx.intValue();
+        for (int index = 0; index < MENUS.size(); index++) {
+            final int i = index;
+            Menu menu = MENUS.get(i);
 
-            menuButtons[i] = AnchoredButton.buttonBuilder(font, entry.getKey(), _ -> onMenuClick(i))
+            menuButtons[i] = AnchoredButton.buttonBuilder(font, menu.name(), _ -> onMenuClick(i))
                 .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
                 .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
                 .theme(AkytheraLabsButtonTheme.TOP_MENU_BUTTON)
@@ -92,11 +123,9 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
                 })
                 .build();
 
-            if (!entry.getValue().nodes.isEmpty()) {
-                dropdowns[i] = buildDropdown(minecraft, entry.getValue().nodes);
-            }
-
-            idx.increment();
+            ContextMenuContainer.PageBuilder page = ContextMenuContainer.builder(minecraft).pageWidth(DROPDOWN_W);
+            populatePage(page, menu.rows(), actions);
+            dropdowns[i] = page.build();
         }
 
         closeScreenButton = AnchoredButton
@@ -124,36 +153,51 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
             return;
         }
 
-        if (dropdowns[i] != null) {
-            // Switching menus: pop whatever dropdown was up so they don't stack.
-            if (manager.getModal() != null) {
-                manager.closeModal();
-            }
-
-            int x = menuButtons[i].getX();
-            int y = getY() + getHeight();
-            // openModalWidget repositions the container (and closes any open sub-pages).
-            manager.openModalWidget(dropdowns[i], x, y);
+        // Switching menus: pop whatever dropdown was up so they don't stack.
+        if (manager.getModal() != null) {
+            manager.closeModal();
         }
+
+        // openModalWidget repositions the container (and closes any open sub-pages).
+        manager.openModalWidget(dropdowns[i], menuButtons[i].getX(), getY() + getHeight());
     }
 
-    /// Translates a top-level menu's option tree into a [ContextMenuContainer]. Sub-lists
-    /// become sub-pages that unfold to the right on hover, mirroring the right-click menus.
-    private static ContextMenuContainer buildDropdown(Minecraft minecraft, List<MenuNode> nodes) {
-        ContextMenuContainer.PageBuilder page = ContextMenuContainer.builder(minecraft).pageWidth(DROPDOWN_W);
-        populatePage(page, nodes);
-        return page.build();
-    }
+    /// Lays `rows` onto `page`, binding each option to `actions`. Sub-lists become sub-pages that
+    /// unfold to the right on hover, mirroring the right-click menus.
+    private static void populatePage(ContextMenuContainer.PageBuilder page, List<MenuRow> rows, Actions actions) {
+        for (MenuRow row : rows) {
+            switch (row) {
+                case OptionRow(TopMenuOption option) -> {
+                    Runnable action = actions.actions.get(option);
+                    var entry = page.entry().message(option.displayName()).predicate(() -> action != null);
 
-    private static void populatePage(ContextMenuContainer.PageBuilder page, List<MenuNode> nodes) {
-        for (MenuNode node : nodes) {
-            var entry = page.entry().message(node.name());
+                    if (action != null) {
+                        entry.onPress(_ -> action.run());
+                    }
+                }
+                case ChoiceListRow(TopMenuOption option) -> {
+                    List<Choice> choices = actions.choiceLists.getOrDefault(option, List.of());
+                    ContextMenuContainer.PageBuilder subpage = page.entry()
+                        .message(option.displayName())
+                        .predicate(() -> !choices.isEmpty())
+                        .subpage()
+                        .pageWidth(DROPDOWN_W);
 
-            if (node.subList() != null) {
-                populatePage(entry.subpage().pageWidth(DROPDOWN_W), node.subList());
-            } else {
-                Runnable action = node.onPress();
-                entry.onPress(_ -> action.run());
+                    for (Choice choice : choices) {
+                        Runnable action = choice.action();
+                        subpage.entry().message(choice.name()).onPress(_ -> action.run());
+                    }
+                }
+                case GroupRow(Component name, List<MenuRow> children) -> {
+                    boolean anyHandled = children.stream().anyMatch(actions::handles);
+                    ContextMenuContainer.PageBuilder subpage = page.entry()
+                        .message(name)
+                        .predicate(() -> anyHandled)
+                        .subpage()
+                        .pageWidth(DROPDOWN_W);
+
+                    populatePage(subpage, children, actions);
+                }
             }
         }
     }
@@ -217,85 +261,55 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         layoutButtons();
     }
 
-    public static MenuBuilder menuBuilder() {
-        return new MenuBuilder();
+    public static Actions actions() {
+        return new Actions();
     }
 
-    public static final class MenuBuilder {
-        private final Map<Component, MenuListBuilder> menus = new LinkedHashMap<>();
+    /// One top-level menu of [#MENUS] — the bar button plus the rows of its dropdown.
+    private record Menu(Component name, List<MenuRow> rows) {}
 
-        public MenuListBuilder newList(final Component name) {
-            MenuListBuilder builder = new MenuListBuilder(this);
-            menus.put(name, builder);
+    /// A single row of a dropdown page.
+    private sealed interface MenuRow {}
 
-            return builder;
-        }
-    }
+    /// A row that runs the screen's action for @param `option`.
+    private record OptionRow(TopMenuOption option) implements MenuRow {}
 
-    /// A single node of a menu's option tree: either a leaf option (carries [#onPress]) or a
-    /// sub-list (carries [#subList]). Exactly one of the two is non-null.
-    private record MenuNode(Component name, @Nullable Runnable onPress, @Nullable List<MenuNode> subList) {
-        static MenuNode option(Component name, Runnable onPress) {
-            return new MenuNode(name, onPress, null);
-        }
+    /// A row that unfolds into the sub-list the screen registered for @param `option`
+    /// (see [Actions#onChoices]).
+    private record ChoiceListRow(TopMenuOption option) implements MenuRow {}
 
-        static MenuNode subList(Component name, List<MenuNode> subList) {
-            return new MenuNode(name, null, subList);
-        }
-    }
+    /// A row that unfolds into a fixed sub-list of further rows.
+    private record GroupRow(Component name, List<MenuRow> children) implements MenuRow {}
 
-    /// Top-level option list of a menu. [#done] walks back to the [MenuBuilder] so the next
-    /// `.newList(...)` chains naturally, matching the previous flat API.
-    public static final class MenuListBuilder {
-        private final MenuBuilder owner;
-        private final List<MenuNode> nodes = new ArrayList<>();
+    /// One row of a screen-supplied sub-list. See [Actions#onChoices].
+    public record Choice(Component name, Runnable action) {}
 
-        private MenuListBuilder(final MenuBuilder owner) {
-            this.owner = owner;
-        }
+    /// A screen's wiring of the universal menu: the [TopMenuOption]s it handles, and what each does.
+    /// Options left out of it render greyed out and reject clicks.
+    public static final class Actions {
+        private final Map<TopMenuOption, Runnable> actions = new EnumMap<>(TopMenuOption.class);
+        private final Map<TopMenuOption, List<Choice>> choiceLists = new EnumMap<>(TopMenuOption.class);
 
-        public MenuListBuilder newOption(final Component name, final Runnable onPress) {
-            nodes.add(MenuNode.option(name, onPress));
+        private Actions() {}
+
+        public Actions on(final TopMenuOption option, final Runnable action) {
+            actions.put(option, action);
             return this;
         }
 
-        /// Opens a nested sub-list under @param `name`. Add options to it, then [SubListBuilder#done]
-        /// to return here. The sub-list renders as a flyout to the right of its parent row.
-        public SubListBuilder<MenuListBuilder> newSubList(final Component name) {
-            SubListBuilder<MenuListBuilder> sub = new SubListBuilder<>(this);
-            nodes.add(MenuNode.subList(name, sub.nodes));
-            return sub;
-        }
-
-        public MenuBuilder done() {
-            return owner;
-        }
-    }
-
-    /// A nested option list. Generic over the parent builder type @param `<P>` so [#done] returns
-    /// the exact builder that opened it (a [MenuListBuilder] or an outer [SubListBuilder]),
-    /// keeping the fluent chain type-safe at any nesting depth.
-    public static final class SubListBuilder<P> {
-        private final P parent;
-        private final List<MenuNode> nodes = new ArrayList<>();
-
-        private SubListBuilder(final P parent) {
-            this.parent = parent;
-        }
-
-        public SubListBuilder<P> newOption(final Component name, final Runnable onPress) {
-            nodes.add(MenuNode.option(name, onPress));
+        /// Fills the sub-list of @param `option` with the choices this screen offers. An empty list
+        /// leaves the row greyed out.
+        public Actions onChoices(final TopMenuOption option, final List<Choice> choices) {
+            choiceLists.put(option, choices);
             return this;
         }
 
-        public SubListBuilder<SubListBuilder<P>> newSubList(final Component name) {
-            SubListBuilder<SubListBuilder<P>> sub = new SubListBuilder<>(this);
-            nodes.add(MenuNode.subList(name, sub.nodes));
-            return sub;
-        }
-
-        public P done() {
-            return parent;
+        private boolean handles(final MenuRow row) {
+            return switch (row) {
+                case OptionRow(TopMenuOption option) -> actions.containsKey(option);
+                case ChoiceListRow(TopMenuOption option) -> !choiceLists.getOrDefault(option, List.of()).isEmpty();
+                case GroupRow group -> group.children().stream().anyMatch(this::handles);
+            };
         }
     }
 

@@ -49,8 +49,8 @@ public record BlendSpaceInterfaceNodeData(
     @Override
     public PureNode compilePure(NodeInputs in, int fromPin, @Nullable Class<?> expectedType) {
         return lower(in.id(), "play_blend_space_2d_interface", List.of(
-            new SupplierAdapterNode(in.valueOr(0, float.class)),
-            new SupplierAdapterNode(in.valueOr(1, float.class))));
+            new SupplierAdapterNode(in.valueOr(0, float.class), in.canvasKey()),
+            new SupplierAdapterNode(in.valueOr(1, float.class), in.canvasKey())));
     }
 
     @Override

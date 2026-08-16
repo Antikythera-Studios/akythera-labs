@@ -28,4 +28,10 @@ public record NodeInputs(PureCompileContext ctx, int id) {
     public @Nullable GraphNode source(int pin) {
         return ctx.sourceNode(id, pin);
     }
+
+    /// The key of the canvas this row is being lowered from, for a sub-tree whose evaluation is
+    /// deferred past the entry point that builds it.
+    public String canvasKey() {
+        return ctx.canvasKey();
+    }
 }

@@ -9,9 +9,7 @@ import com.yesman.akythera.client.gui.widget.viewer.GridFloorComponent;
 import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
-import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
@@ -24,6 +22,7 @@ import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
+import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -34,7 +33,6 @@ import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,6 +53,10 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
     private @Nullable WorkHistory savePoint;
 
+    /// Set when the View menu picks a preview model. That write lands on the holder rather than on
+    /// [HistoryManager], so it carries its own unsaved-changes bit.
+    private boolean previewModelDirty;
+
     public AnimationAssetEditorScreen(AkytheraProject.EditorAnimationAccessor accessor) {
         super(Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_TITLE));
 
@@ -68,19 +70,11 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             _ -> handleQuitRequest(),
-            TopMenuBar.menuBuilder()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_FILE))
-                    .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_SAVE), this::save)
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_EDIT_EDITOR_PREFERENCES), () -> EditorPreferencesModalGenerator.open(font))
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW))
-                    .newOption(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW_SELECT_PREVIEW_MODEL), this::openPreviewModelSelectModal)
-                .done()
-                .newList(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP))
-                    .newOption(Component.translatable(LangKeys.GUI_MAIN_SCREEN_MENU_BAR_HELP_DOCS), () -> {})
-                .done()
+            TopMenuBar.actions()
+                .on(TopMenuOption.SAVE, this::save)
+                .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
+                .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
+                .on(TopMenuOption.DOCS, () -> {})
         );
 
         model3DViewer = new Model3DViewer(
@@ -151,6 +145,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
     private void openPreviewModelSelectModal() {
         ModelSelectModal modal = new ModelSelectModal(font, holder.getPreviewModel(), newModel -> {
             holder.setPreviewModel(newModel);
+            previewModelDirty = true;
             EntityPreviewModel.display(model3DViewer, newModel, true, true);
             refreshPreviewAnimation();
         });
@@ -166,27 +161,16 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
         if (component != null) component.setSimplePlayingAnimation(holder.getAccessor());
     }
 
-    /// `walk.akasset` → `walk.akmeta`, next to it. Resolved from the accessor's identifier on
-    /// every call, so a rename while this screen is open writes next to the new name.
-    private Path metadataFile() {
-        return AkytheraProject.getMetadataFileOf(holder.getAccessor().identifier());
-    }
-
-    /// Writes the sidecar, then drops the parsed clip: the metadata decides whether the file reads
-    /// raw or additive, so the previewer must re-read it.
     private void save() {
-        if (!FileSystemHelper.writeJson(metadataFile(), AnimationLoader.Metadata.CODEC, holder.makeMetadata())) {
-            AkytheraLabs.LOGGER.error("Failed to save animation metadata '{}'", metadataFile());
-            return;
-        }
+        if (!holder.save()) return;
 
-        AkytheraProject.getCurrentProject().invalidateEditorAnimation(holder.getAccessor().identifier());
+        previewModelDirty = false;
         refreshPreviewAnimation();
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
     private boolean hasUnsavedChanges() {
-        return HistoryManager.getInstance().currentSavePoint() != savePoint;
+        return previewModelDirty || HistoryManager.getInstance().currentSavePoint() != savePoint;
     }
 
     @Override

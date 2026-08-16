@@ -1,5 +1,8 @@
 package com.yesman.akytheralabs.gui.panel.main.processors;
 
+import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.api.asset.animation.AnimationManager;
+import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
@@ -10,8 +13,8 @@ import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.main.AnimationSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
-import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
@@ -36,21 +39,31 @@ public final class AnimMontageResourceProcessor implements ResourceProcessor<Ani
         ExplorerPanel.TreeNode regRoot = ResourceProcessor.regRootOf(selected);
         if (regRoot == null) return;
 
-        // Pick a preview model
-        ModelSelectModal modal = new ModelSelectModal(browser.getFont(), null, previewModel -> {
+        AnimationSelectModal modal = new AnimationSelectModal(browser.getFont(), null, true, (animClips, previewModel) -> {
             String subPath = ResourceProcessor.buildSubPath(regRoot, selected);
             AkytheraProject project = AkytheraProject.getCurrentProject();
+            String lastIdPath = "";
 
-            String entryName = project.findNextFreeName(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, "new_entry", subPath);
-            String idPath = subPath.isEmpty() ? entryName : subPath + "/" + entryName;
-            ResourceKey<@NonNull AnimationMontage> key = project.createEntry(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, idPath, true);
+            for (AssetAccessor<AnimationClip> animClip : animClips) {
+                // Only the leaf — user already chose the target dir via focus.
+                String animPath = animClip.identifier().getPath().replace(AnimationManager.DIRECTORY, "");
+                int animLastSlash = animPath.lastIndexOf('/');
+                String baseName = animLastSlash >= 0 ? animPath.substring(animLastSlash + 1) : animPath;
 
-            AnimationMontageHolder holder = project.getDataHolderOrThrow(key);
-            holder.setPreviewModel(previewModel);
-            project.saveEntry(key);
+                String entryName = project.findNextFreeName(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, baseName, subPath);
+                String idPath = subPath.isEmpty() ? entryName : subPath + "/" + entryName;
+                ResourceKey<@NonNull AnimationMontage> key = project.createEntry(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, idPath, true);
 
-            int lastSlash = idPath.lastIndexOf('/');
-            String parentSubdir = lastSlash >= 0 ? idPath.substring(0, lastSlash) : "";
+                AnimationMontageHolder holder = project.getDataHolderOrThrow(key);
+                holder.addSegment(animClip);
+                holder.setPreviewModel(previewModel);
+                project.saveEntry(key);
+
+                lastIdPath = idPath;
+            }
+
+            int lastSlash = lastIdPath.lastIndexOf('/');
+            String parentSubdir = lastSlash >= 0 ? lastIdPath.substring(0, lastSlash) : "";
             Path focusDir = project.getProjectRoot()
                 .resolve("data")
                 .resolve(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY.identifier().getPath())
@@ -60,8 +73,6 @@ public final class AnimMontageResourceProcessor implements ResourceProcessor<Ani
                 mainScreen.explorerPanel.rebuildTree();
                 mainScreen.explorerPanel.focusNodeByPath(focusDir);
             });
-
-            AkytheraEditorLayoutManager.getInstance().closeModal();
         });
 
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);

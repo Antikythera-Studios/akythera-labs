@@ -11,6 +11,7 @@
     "CachedPoseReferenceAccessor",
     "MixinAbstractWidget",
     "MixinAnimationManager",
+    "MixinAnimationStateMachineNode",
     "MixinArmatureManager",
     "MixinDataDrivenAnimatorScript",
     "MixinGameRenderer",
@@ -24,7 +25,8 @@
     "MixinMob",
     "MixinMouseHandler",
     "MixinPauseScreen",
-    "MixinPlayer"
+    "MixinPlayer",
+    "MixinSupplierAdapterNode"
   ],
   "mixins": [
     "MappedRegistryAccessor"
