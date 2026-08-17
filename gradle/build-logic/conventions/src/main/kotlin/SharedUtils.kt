@@ -235,6 +235,9 @@ fun Project.configureModPublish(
             minecraftVersions.add(mcVersion)
             projectSlug.set("akytheralabs")
 
+            client.set(true);
+            server.set(false);
+
             requiredDependencies.forEach { requires(it) }
             optionalDependencies.forEach { optional(it) }
         }

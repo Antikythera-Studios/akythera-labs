@@ -29,7 +29,7 @@ forgeconfigapiport = "26.2.1"
 
 # Helper Gradle-plugins
 mcSafeResources = "0.0.2"
-modPublish = "1.1.0"
+modPublish = "2.2.0"
 
 # Freemarker library for generating code
 freemarker = "2.3.34"
