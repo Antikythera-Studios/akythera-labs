@@ -350,9 +350,9 @@ public final class LanguageSelectionModal extends OverlayingWindowModal {
             }
         }
 
-        /// ***************************************************************
-        /// [AnchoredWidget] implementations                              *
-        /// ***************************************************************
+        // ***************************************************************
+        // [AnchoredWidget] implementations
+        // ***************************************************************
         private Unit x1 = AnchoredWidget.pixel(PAD);
         private Unit x2 = AnchoredWidget.pixel(PAD);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + PAD);

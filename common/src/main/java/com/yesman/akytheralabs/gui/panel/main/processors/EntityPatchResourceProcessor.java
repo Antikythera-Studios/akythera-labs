@@ -5,6 +5,7 @@ import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.dataholder.ProjectObjectRegistry;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -13,10 +14,11 @@ import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.EntityPatchEditorScreen;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
+import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
+import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
@@ -117,16 +119,30 @@ public final class EntityPatchResourceProcessor implements ResourceProcessor<Ent
     }
 
     @Override
-    public ContextMenuContainer createContextMenuOnWidget(ContentBrowserPanel browser, ContentWidget<?> rightPressed) {
-        return ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(140)
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_OPEN))
-                .onPress(_ -> rightPressed.onDoubleClicked())
-                .done()
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_DELETE_SELECTED))
-                .onPress(_ -> browser.triggerDeleteSelected())
-                .done()
-            .build();
+    public ExportModalGenerator.Compile categoryCompile() {
+        return new ExportModalGenerator.Compile(
+            key -> key.registryKey().equals(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY),
+            (project, sourceRoot, packageName) -> FreemarkerExporter.exportRegistryProvider(
+                project, AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, sourceRoot, packageName)
+        );
+    }
+
+    /// The per-entry `…PatchScript.java`, next to the provider class [#categoryCompile] emits: an
+    /// entity patch generates both, and the two menus pick between them.
+    @Override
+    public ExportModalGenerator.Compile entryCompile(List<ResourceKey<?>> entryKeys) {
+        return new ExportModalGenerator.Compile(
+            entryKeys::contains,
+            (project, sourceRoot, packageName) -> {
+                for (ResourceKey<?> entryKey : entryKeys) {
+                    FreemarkerExporter.exportEntityPatchScript(
+                        project,
+                        ResourceKey.create(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, entryKey.identifier()),
+                        sourceRoot,
+                        packageName
+                    );
+                }
+            }
+        );
     }
 }

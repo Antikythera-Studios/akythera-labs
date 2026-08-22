@@ -8,11 +8,10 @@ import net.minecraft.network.chat.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-/// The origin node of a standalone condition canvas: **data outputs only** (one per
-/// [ContextParam]), no execution pin — condition graphs are pure data-flow.
-/// Persists as an [com.yesman.akytheralabs.gui.widget.script.node.EntryPointNodeData] row (labels =
-/// param names) and rebuilds through the
-/// screen-supplied `EntryNodeFactory`, which re-types the pins from the field's declared params.
+/// The origin node of a standalone condition canvas: **data outputs only** (one per [ContextParam]), no
+/// execution pin — condition graphs are pure data-flow. Persists as an [EntryPointNodeData] row (labels =
+/// param names) and rebuilds through the screen-supplied `EntryNodeFactory`, which re-types the pins from the
+/// field's declared params.
 public final class ContextEntryNodeWidget extends AbstractNodeWidget {
     private static final int TITLE_COLOR = 0xFF5A1F1F;
 

@@ -2,7 +2,7 @@ package com.yesman.akytheralabs.akythera.dataholder.datablock;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
-import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
+import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akytheralabs.dataholder.DataBlockHolder;
 import net.minecraft.resources.Identifier;
 

@@ -59,9 +59,9 @@ public final class PlaceholderContent extends AbstractWidget implements Anchored
     protected void updateWidgetNarration(@NonNull NarrationElementOutput narrationElementOutput) {
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

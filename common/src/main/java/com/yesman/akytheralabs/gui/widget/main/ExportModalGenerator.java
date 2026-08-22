@@ -8,6 +8,7 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
@@ -16,6 +17,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
@@ -23,12 +25,13 @@ import org.lwjgl.util.tinyfd.TinyFileDialogs;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
-/// Builds the two `File > Export` modals: "Export as Pack" (writes the loadable resource/data
-/// packs into a chosen folder) and "Export as Source Code" (runs [FreemarkerExporter] against a
-/// chosen source root + package). Mirrors the layout style of [ProjectSetupModalGenerator] /
-/// [EditorPreferencesModalGenerator]: a [WidgetContainerModal] of labelled rows plus Export /
-/// Cancel footer buttons.
+/// Builds the two `File > Export` modals — "Export as Pack" (writes the loadable resource/data packs
+/// into a chosen folder) and "Export as Source Code" (runs [FreemarkerExporter] against a chosen
+/// source root + package) — and the per-category / per-selection `Compile` modal ([#openCompile]).
+/// Mirrors the layout style of [ProjectSetupModalGenerator] / [EditorPreferencesModalGenerator]: a
+/// [WidgetContainerModal] of labelled rows plus Export / Cancel footer buttons.
 public final class ExportModalGenerator {
     private static final int POPUP_W = 450;
     private static final int LABEL_W = 100;
@@ -195,6 +198,73 @@ public final class ExportModalGenerator {
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
+    /// `Compile` on one data category, or on a content-browser selection: the `As Source Code` layout
+    /// without its Resource Path row, since a compile only writes generated `.java`. The folder picked
+    /// is the same export root the whole-project export uses, so each kind still lands under the
+    /// sub-directory it owns (`<root>\scripts\animator\MyAnimatorScript.java`), and it is remembered in
+    /// `project_settings.akproject` alongside the `As Source Code` path.
+    ///
+    /// Gated behind [BrokenEntriesModalGenerator] over `compile`'s own entries only.
+    public static void openCompile(Font font, Component title, Compile compile) {
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        BrokenEntriesModalGenerator.confirmProceed(
+            font,
+            project,
+            project.findBrokenEntries(compile.scope()),
+            () -> openCompileModal(font, project, title, compile)
+        );
+    }
+
+    private static void openCompileModal(Font font, AkytheraProject project, Component title, Compile compile) {
+        PackageRow packageRow = new PackageRow(font, derivePackageName(project.getLastSourceDataPath()));
+
+        PathRow sourcePathRow = new PathRow(
+            font,
+            Component.translatable(LangKeys.GUI_EXPORT_MODAL_SOURCE_CODE_PATH),
+            project.getLastSourceDataPath(),
+            chosen -> packageRow.setPackageName(derivePackageName(chosen))
+        );
+
+        AnchoredButton compileBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_COMPILE), _ -> {
+            String sourceDir = sourcePathRow.getPath();
+            if (sourceDir.isBlank()) return;
+
+            // The Resource Path this modal doesn't offer keeps whatever the last full source export left.
+            project.saveSourceExportPaths(sourceDir, project.getLastSourceResourcePath());
+
+            Path sourceRoot = Path.of(sourceDir);
+            compile.work().run(project, sourceRoot, packageRow.getPackageName());
+
+            AkytheraEditorLayoutManager.getInstance().closeModal();
+            Util.getPlatform().openFile(sourceRoot.toFile());
+        }).build();
+
+        AnchoredButton cancelBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ ->
+            AkytheraEditorLayoutManager.getInstance().closeModal()
+        ).build();
+
+        int btnW = WidgetContainerModal.evenButtonWidth(POPUP_W, 2);
+
+        WidgetContainerModal popup = WidgetContainerModal.builder(font, title, POPUP_W)
+            .widgetContainerRow(PathRow.ROW_H, sourcePathRow)
+            .widgetContainerRow(PackageRow.ROW_H, packageRow)
+            .footerButton(cancelBtn, btnW)
+            .footerButton(compileBtn, btnW)
+            .build();
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+    }
+
+    /// One compile the editor can run: which project entries it covers — its [BrokenEntriesModalGenerator]
+    /// gate — and the writer emitting their generated `.java` into the chosen source root. Produced by
+    /// [ResourceProcessor#categoryCompile] and [ResourceProcessor#entryCompile].
+    public record Compile(Predicate<ResourceKey<?>> scope, Work work) {
+        @FunctionalInterface
+        public interface Work {
+            void run(AkytheraProject project, Path sourceRoot, String packageName);
+        }
+    }
+
     /// Mirrors java's package rule: take the path segment after `src/main/java/` and dot-join it.
     /// e.g. `common\src\main\java\com\yesman\epicfight\data\` -> `com.yesman.epicfight.data`.
     /// Returns `""` when the marker isn't present (caller leaves the package field blank).
@@ -211,7 +281,7 @@ public final class ExportModalGenerator {
     }
 
     /// A read-only path display ([AdvancedEditBox] in non-editable mode) plus a folder-picker
-    /// button. Picking a folder updates the box and notifies [#onPathChosen] (used by the
+    /// button. Picking a folder updates the box and notifies `onPathChosen` (used by the
     /// source-code modal to refresh the derived package name).
     private static final class PathRow extends WidgetContainerModal.WidgetsContainerRow {
         static final int ROW_H = 38;

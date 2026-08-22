@@ -1,14 +1,14 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.node.LiteralNode;
 import org.jspecify.annotations.Nullable;
 
 import java.util.function.Predicate;
 
-/// Inline-literal rules for [LiteralNodeWidget], mirroring the engine's
-/// [com.yesman.akythera.api.data.modularize.node.LiteralNode] which can only carry a
-/// directly-encodable value. A literal is editable only when its type is a primitive /
-/// wrapper, [String], or an `enum`; everything else (object references, data blocks
-/// without a simple constant set) must come from another pure node instead.
+/// Inline-literal rules for [LiteralNodeWidget], mirroring the engine's [LiteralNode] which can only carry a
+/// directly-encodable value. A literal is editable only when its type is a primitive / wrapper, [String], or
+/// an `enum`; everything else (object references, data blocks without a simple constant set) must come from
+/// another pure node instead.
 public final class LiteralValueSupport {
     private LiteralValueSupport() {}
 

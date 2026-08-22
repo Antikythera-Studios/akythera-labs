@@ -23,7 +23,7 @@ import java.util.function.Predicate;
 /// A **shared output** — a shareable pin feeding more than one consumer — is computed once into a
 /// `ScriptVariableSetterNode("cse_<id>_<pin>", …)` and read back at every use through a
 /// [ContextVariableAccessNode]. Its setter sits just before the lowest common ancestor of all its
-/// uses in the flow tree, so the value is available on every arm of a [BranchNode] it straddles.
+/// uses in the flow tree.
 ///
 /// Statement shapes come from the nodes ([FlowNodeData]); this class owns the walk, the placement
 /// and the emission order.
@@ -42,7 +42,7 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
     /// (fromId,fromPin) → list of (toId,toPin) it feeds.
     private final Map<Long, List<long[]>> outgoing = new HashMap<>();
 
-    /// All flow statements in build order (pass 1), used to attribute shared-output uses.
+    /// All flow statements in build order (pass 1).
     private final List<FlowStatement> allStmts = new ArrayList<>();
     /// Shared output pin `(id,pin)` → the statement before which its cache setter is emitted.
     private final Map<Long, FlowStatement> placement = new HashMap<>();
@@ -69,10 +69,10 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
         return compile(data, ownerType, EntrySelector.UPDATE);
     }
 
-    /// Compiles the flow of `data` rooted at the `entrySelector` entry into a flow root, or an empty
-    /// [SequenceNode] when the canvas is empty or has no matching entry. An *incomplete* graph
-    /// degrades to best-effort placeholder nodes; a graph carrying **unresolved (failed-decode)
-    /// nodes** is a hard compile error (the [PureGraphCompiler] gate throws).
+    /// Compiles the flow of `data` rooted at the `entrySelector` entry, or an empty [SequenceNode]
+    /// when the canvas is empty or has no matching entry. An *incomplete* graph degrades to
+    /// best-effort placeholder nodes; a graph carrying **unresolved (failed-decode) nodes** throws
+    /// at the [PureGraphCompiler] gate.
     public static FlowNode compile(ScriptGraphData data, Class<?> ownerType, EntrySelector entrySelector) {
         if (data == null || data.isEmpty()) return new SequenceNode(List.of());
 
@@ -99,9 +99,8 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
         return emit(root);
     }
 
-    /// The entry row to root the flow at, chosen by [#entrySelector]: the Update entry exposes event
-    /// parameters, the Constructor entry does not. UPDATE falls back to the first entry of any kind,
-    /// CONSTRUCT to null.
+    /// The entry row to root the flow at: [#entryMatch] when set, else the [#entrySelector] entry —
+    /// UPDATE falling back to the first entry of any kind, CONSTRUCT to null.
     private @Nullable GraphNode findEntry() {
         if (entryMatch != null) {
             for (GraphNode n : data.nodes()) {
@@ -171,9 +170,9 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
         return s;
     }
 
-    /// ***************************************************************
-    /// Placement — attribute uses, LCA, producer-first ordering
-    /// ***************************************************************
+    // ***************************************************************
+    // Placement — attribute uses, LCA, producer-first ordering
+    // ***************************************************************
 
     private void computePlacements() {
         // 1. Attribute every shared output to each statement that (transitively) reads it.
@@ -214,8 +213,8 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
         }
     }
 
-    /// Shared outputs reachable from data input `(toId,toPin)`, descending **through** shared outputs
-    /// so a value nested under another shared value is still attributed to this use site.
+    /// Shared outputs reachable from data input `(toId,toPin)`, descending **through** shared
+    /// outputs.
     private void collectReachableShared(int toId, int toPin, Set<Long> out, Set<Integer> visited) {
         long[] source = resolveReroute(incoming.get(key(toId, toPin)));
         if (source == null) return;
@@ -250,7 +249,7 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
     }
 
     /// A producer-first index (smaller = computed earlier) over the shared outputs, from a DFS
-    /// topo-sort of producer→consumer edges. Acyclic by construction (pure data is a DAG).
+    /// topo-sort of producer→consumer edges.
     private Map<Long, Integer> topoOrder(Set<Long> nodes, Map<Long, List<Long>> consumersOf) {
         List<Long> postOrder = new ArrayList<>();
         Set<Long> visited = new HashSet<>();
@@ -297,9 +296,9 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
         return n != null && n.data().shareableOutput() && consumerCount(fromId, fromPin) > 1;
     }
 
-    /// ***************************************************************
-    /// [FlowEmitter] — pass 2
-    /// ***************************************************************
+    // ***************************************************************
+    // [FlowEmitter] — pass 2
+    // ***************************************************************
 
     @Override
     public FlowNode emit(FlowStatement s) {
@@ -336,9 +335,9 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
         return blocks.size() == 1 ? blocks.getFirst() : new SequenceNode(blocks);
     }
 
-    /// ***************************************************************
-    /// Pure data
-    /// ***************************************************************
+    // ***************************************************************
+    // Pure data
+    // ***************************************************************
 
     /// Shared outputs read their hoisted `cse_<id>_<pin>` local; everything else lowers plainly.
     @Override
@@ -376,9 +375,9 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
         return SelfNode.INSTANCE;
     }
 
-    /// ***************************************************************
-    /// Helpers
-    /// ***************************************************************
+    // ***************************************************************
+    // Helpers
+    // ***************************************************************
 
     private boolean ownerSatisfies(@Nullable Class<?> expectedType) {
         return expectedType != null && expectedType != Object.class && expectedType.isAssignableFrom(ownerType);

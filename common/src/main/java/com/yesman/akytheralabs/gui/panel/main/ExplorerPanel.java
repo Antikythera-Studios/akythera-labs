@@ -19,7 +19,9 @@ import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.UniversalMenu;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
+import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -55,6 +57,16 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
     private static final int BTN_H = 14;
     private static final int BTN_PAD = 2;
     private static final int BTN_RIGHT = 8;
+    private static final int CONTEXT_MENU_W = 140;
+
+    /// The tree's right-click menu, with every option at a fixed position. The pressed node differs
+    /// only in which of them it answers; the rest stay in place, greyed out and unpressable.
+    private static final List<UniversalMenu.Row<ExplorerContextOption>> CONTEXT_MENU_ROWS = List.of(
+        new UniversalMenu.OptionRow<>(ExplorerContextOption.OPEN_IN_FILE_EXPLORER),
+        new UniversalMenu.OptionRow<>(ExplorerContextOption.ADD_SUBDIR),
+        new UniversalMenu.OptionRow<>(ExplorerContextOption.REMOVE_DIR),
+        new UniversalMenu.OptionRow<>(ExplorerContextOption.COMPILE)
+    );
 
     private final Font font;
     private final List<TreeNode> roots;
@@ -99,7 +111,9 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             .build();
         this.removeButton.active = false;
 
-        this.treeList = new TreeList(font, roots, searchBox, this::onSelectionChanged, this::onAddPressed, this::showRemoveDirectoryPopup);
+        this.treeList = new TreeList(
+            font, roots, searchBox, this::onSelectionChanged,
+            this::onAddPressed, this::showRemoveDirectoryPopup, this::compileSelectedCategory);
 
         addWidget(searchBox);
         addWidget(treeList);
@@ -468,6 +482,22 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             && (treeList.getSelected() == null || target != treeList.getSelected().node);
     }
 
+    /// `Compile Objects` on the tree: opens the source-code compile modal for the selected node's
+    /// asset type, so only that type's generated `.java` is written into the chosen export root.
+    private void compileSelectedCategory() {
+        TreeNode selected = getSelected();
+        if (selected == null || selected.processor == null) return;
+
+        ExportModalGenerator.Compile compile = selected.processor.categoryCompile();
+        if (compile == null) return;
+
+        ExportModalGenerator.openCompile(
+            font,
+            Component.translatable(LangKeys.GUI_EXPORT_MODAL_COMPILE_CATEGORY_TITLE, selected.name),
+            compile
+        );
+    }
+
     private void showRemoveDirectoryPopup() {
         TreeNode selected = getSelected();
         if (selected == null || !selected.modifiable) return;
@@ -597,29 +627,54 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             AdvancedEditBox<String> searchBox,
             Consumer<@Nullable TreeNode> onSelectionChanged,
             Runnable onAddSubdirectory,
-            Runnable onRemoveDirectory
+            Runnable onRemoveDirectory,
+            Runnable onCompileCategory
         ) {
             super(Minecraft.getInstance(), 0, 0, 0, ROW_H);
 
-            this.contextMenu = ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(140)
-                .entry()
-                    .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_EXPLORER_CONTEXT_ADD_SUBDIR))
-                    .predicate(() -> {
+            // Built once and reopened per right-click; every row's availability is re-read from the
+            // live selection as the page renders.
+            UniversalMenu.Actions<ExplorerContextOption> actions = UniversalMenu.<ExplorerContextOption>actions()
+                .on(
+                    ExplorerContextOption.OPEN_IN_FILE_EXPLORER,
+                    () -> {
+                        TreeEntry sel = getSelected();
+                        return sel != null && sel.node.directoryPath != null;
+                    },
+                    () -> {
+                        TreeEntry sel = getSelected();
+                        if (sel != null && sel.node.directoryPath != null) {
+                            FileSystemHelper.openInFileExplorer(sel.node.directoryPath);
+                        }
+                    }
+                )
+                .on(
+                    ExplorerContextOption.COMPILE,
+                    () -> {
+                        TreeEntry sel = getSelected();
+                        return sel != null && sel.node.processor != null && sel.node.processor.categoryCompile() != null;
+                    },
+                    onCompileCategory
+                )
+                .on(
+                    ExplorerContextOption.ADD_SUBDIR,
+                    () -> {
                         TreeEntry sel = getSelected();
                         return sel == null
                             || (sel.node.processor != null && sel.node.processor.canCreateSubDirectories());
-                    })
-                    .onPress(_ -> onAddSubdirectory.run())
-                    .done()
-                .entry()
-                    .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_EXPLORER_CONTEXT_REMOVE_DIR))
-                    .predicate(() -> {
+                    },
+                    onAddSubdirectory
+                )
+                .on(
+                    ExplorerContextOption.REMOVE_DIR,
+                    () -> {
                         TreeEntry sel = getSelected();
                         return sel != null && sel.node.modifiable;
-                    })
-                    .onPress(_ -> onRemoveDirectory.run())
-                    .done()
-                .build();
+                    },
+                    onRemoveDirectory
+                );
+
+            this.contextMenu = UniversalMenu.buildPage(CONTEXT_MENU_ROWS, actions, CONTEXT_MENU_W);
 
             this.font = font;
             this.roots = roots;
@@ -649,12 +704,25 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             for (TreeList.TreeEntry e : children()) {
                 if (node.equals(e.node)) {
                     setSelected(e);
-                    setScrollAmount((double) idx * ROW_H);
+                    scrollRowIntoView(idx);
 
                     return;
                 }
 
                 idx++;
+            }
+        }
+
+        /// Scrolls the row at `index` just far enough to sit inside the visible window, and not at
+        /// all while it already does.
+        private void scrollRowIntoView(int index) {
+            int rowTop = getRowTop(index);
+            int rowBottom = getRowBottom(index);
+
+            if (rowTop < getY()) {
+                setScrollAmount(scrollAmount() - (getY() - rowTop));
+            } else if (rowBottom > getBottom()) {
+                setScrollAmount(scrollAmount() + (rowBottom - getBottom()));
             }
         }
 

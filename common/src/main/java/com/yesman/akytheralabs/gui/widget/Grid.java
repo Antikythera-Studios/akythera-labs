@@ -218,9 +218,9 @@ public final class Grid<T extends AbstractWidget> extends AbstractContainerWidge
 
     /// For the common anchor implementation, you can copy and paste this code
     /// at the bottom of the class
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

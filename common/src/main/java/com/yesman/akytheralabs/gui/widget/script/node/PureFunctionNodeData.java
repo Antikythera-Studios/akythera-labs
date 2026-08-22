@@ -6,6 +6,7 @@ import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.node.PureFunctionNode;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.PureFunctionNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
@@ -18,8 +19,8 @@ import java.util.stream.IntStream;
 /// The untyped `akythera:select` rebuilds as the type-detecting [SelectNodeWidget]; every other
 /// function as a plain [PureFunctionNodeWidget].
 ///
-/// This is the only shareable node type: a result read by more than one consumer is computed once
-/// into a `cse_<id>_<pin>` local (see [com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler]).
+/// This is the only shareable node type: a result read by more than one consumer is computed once into a
+/// `cse_<id>_<pin>` local (see [ScriptGraphCompiler]).
 public record PureFunctionNodeData(ScriptFunction function) implements NodeData {
     public static final MapCodec<PureFunctionNodeData> CODEC = RecordCodecBuilder.mapCodec(
         instance ->

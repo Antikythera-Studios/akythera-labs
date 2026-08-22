@@ -12,6 +12,7 @@ import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.compat.CompatibleMod;
 import com.yesman.akythera.platform.ModPlatformProvider;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
+import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.ConditionGraphCompiler;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
@@ -33,10 +34,9 @@ import java.util.stream.Stream;
 /// A [RootAttachableComponent], attached directly on the patch. It hosts no children.
 ///
 /// [#meshGetter] is a raw [ScriptGraphData] canvas edited in a center tab, stored the way
-/// [com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder] stores its canvases. Its
-/// [MeshGetter#OWNER_PARAM] entry pin carries the owning patch, typed by the patch's parent, so a
-/// player-parented patch can pick its mesh off the skin's model type; its result root takes an
-/// [AssetAccessor].
+/// [AnimatorScriptHolder] stores its canvases. Its [MeshGetter#OWNER_PARAM] entry pin carries the owning
+/// patch, typed by the patch's parent, so a player-parented patch can pick its mesh off the skin's model
+/// type; its result root takes an [AssetAccessor].
 public final class EntityModelComponentHolder extends ComponentDataHolder<EntityModelComponent>
     implements RootAttachableComponent
 {
@@ -141,9 +141,9 @@ public final class EntityModelComponentHolder extends ComponentDataHolder<Entity
         return meshGetter.firstFailure();
     }
 
-    /// ***************************************************************
-    /// Source export (File > Export > As Source Code)
-    /// ***************************************************************
+    // ***************************************************************
+    // Source export (File > Export > As Source Code)
+    // ***************************************************************
 
     @Override
     public String sourceTemplate() {

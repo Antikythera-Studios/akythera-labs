@@ -3,12 +3,12 @@ package com.yesman.akytheralabs.gui.widget;
 import com.yesman.akythera.client.gui.widget.BuiltInButtonTheme;
 import com.yesman.akythera.client.gui.widget.common.WidgetTheme;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.EditBox;
 
 /// Names are suffixed by '_EDIT_BOX' to avoid crash with [BuiltInButtonTheme]
 public enum AkytheraLabsEditBoxTheme implements EditBoxTheme {
-    /// Vanilla [net.minecraft.client.gui.components.EditBox] style:
-    /// 1px border (white when focused, gray otherwise), black fill.
-    /// Border color priority: warned (red) > focused > editable.
+    /// Vanilla [EditBox] style: 1px border (white when focused, gray otherwise), black fill. Border color
+    /// priority: warned (red) > focused > editable.
     DEFAULT_EDIT_BOX(
         (widget, graphics, _, _, _) -> {
             int x = widget.getX();

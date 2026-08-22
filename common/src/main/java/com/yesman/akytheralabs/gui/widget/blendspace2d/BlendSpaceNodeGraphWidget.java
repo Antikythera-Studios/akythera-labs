@@ -509,10 +509,8 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
         if (selectedNodeWidget == nodeWidget) setSelectedNode(null);
     }
 
-    /// Refresh `children` from the holder's current node list. Called by
-    /// [ListInsert] / [ListRemove] rebuild callbacks on undo/redo so the
-    /// widget tree stays in sync with the holder. Also re-runs the Delaunay
-    /// triangulation that [ListInsert] / [ListRemove] don't trigger directly.
+    /// Refresh `children` from the holder's current node list, re-running the Delaunay
+    /// triangulation with it.
     private void syncNodeWidgets() {
         blendSpace2DHolder.rebuildDelaunay();
         // Undo/redo of node add/remove flows only through here (it edits the node list directly),
@@ -648,9 +646,9 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
         }
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

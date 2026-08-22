@@ -8,6 +8,7 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.dev.ProjectReloader;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
+import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.FloatingModal;
@@ -42,8 +43,8 @@ import java.util.List;
 /// only way out.
 ///
 /// Pointer handling comes for free: while the cursor is inside the viewport
-/// [AkytheraEditorLayoutManager#snatchInputs] answers false, so the click reaches the game, which grabs
-/// the pointer. [com.yesman.akytheralabs.editor.keybind.EditorKeyMappings#UNGRAB] gives it back.
+/// [AkytheraEditorLayoutManager#snatchInputs] answers false, so the click reaches the game, which grabs the
+/// pointer. [EditorKeyMappings#UNGRAB] gives it back.
 public final class EntityDebugModal extends AbstractContainerWidget
     implements AnchoredWidget, FloatingModal, ResizableFrame, ResizeCompleteCallbackListener, CloseableWidget, WorldViewportHost {
 
@@ -307,9 +308,9 @@ public final class EntityDebugModal extends AbstractContainerWidget
         relocate(screen.getRectangle());
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1 = AnchoredWidget.pixel(0);
     private Unit x2 = AnchoredWidget.pixel(DEFAULT_WIDTH);
     private Unit y1 = AnchoredWidget.pixel(0);

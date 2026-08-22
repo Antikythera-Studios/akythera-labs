@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.panel;
 
+import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -19,10 +20,10 @@ import java.util.function.Supplier;
 /// "Asset Browser" tab page: a scrolling list of draggable assets. Pressing a row begins a drag whose
 /// drop is handled by the owning screen.
 ///
-/// Generic over the drag payload `T`. The panel itself knows nothing about where the rows come from or
-/// what they are — the owner passes a `source` supplier of [Asset]s (label + payload) and an
-/// `onBeginDrag` callback. The montage editor feeds it [com.yesman.akythera.api.asset.AssetAccessor]s
-/// of clips; the blendspace editor feeds it sequence holders.
+/// Generic over the drag payload `T`. The panel itself knows nothing about where the rows come from or what
+/// they are — the owner passes a `source` supplier of [Asset]s (label + payload) and an `onBeginDrag`
+/// callback. The montage editor feeds it [AssetAccessor]s of clips; the blendspace editor feeds it sequence
+/// holders.
 public final class AssetBrowserPanel<T> extends AbstractSelectionList<AssetBrowserPanel<T>.@NonNull Entry>
     implements AnchoredWidget {
     private static final int ROW_H = 18;
@@ -145,9 +146,9 @@ public final class AssetBrowserPanel<T> extends AbstractSelectionList<AssetBrows
         }
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

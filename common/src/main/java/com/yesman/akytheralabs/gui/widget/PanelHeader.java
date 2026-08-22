@@ -53,9 +53,9 @@ public final class PanelHeader extends AbstractWidget implements AnchoredWidget 
         return false;
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

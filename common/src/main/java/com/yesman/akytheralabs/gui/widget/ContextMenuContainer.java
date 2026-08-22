@@ -79,8 +79,7 @@ public final class ContextMenuContainer extends AbstractContainerWidget implemen
         return Minecraft.getInstance().getWindow().getScreenHeight() / AkytheraLabsConfig.getEditorGuiScale();
     }
 
-    /// Opens a subpage to the right of @param `parent`'s row. Called by
-    /// [ContextMenu.Entry] when its builder has a child [ContextMenu.EntryBuilder].
+    /// Opens a subpage to the right of `parent`'s row.
     void openSubpage(ContextMenu.Entry parent, ContextMenu childPage) {
         ContextMenu parentPage = parent.getOwner();
         int idx = openedPages.indexOf(parentPage);

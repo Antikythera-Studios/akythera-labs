@@ -273,9 +273,9 @@ public final class ItemSelectModal extends OverlayingWindowModal {
             }
         }
 
-        /// ***************************************************************
-        /// [AnchoredWidget] implementations                              *
-        /// ***************************************************************
+        // ***************************************************************
+        // [AnchoredWidget] implementations
+        // ***************************************************************
         private Unit x1 = AnchoredWidget.pixel(0);
         private Unit x2 = AnchoredWidget.pixel(0);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);

@@ -111,9 +111,9 @@ public final class ReplaceAnimationsHolder extends ComponentDataHolder<ReplaceAn
         return ReplaceAnimations.class;
     }
 
-    /// ***************************************************************
-    /// Source export (File > Export > As Source Code)
-    /// ***************************************************************
+    // ***************************************************************
+    // Source export (File > Export > As Source Code)
+    // ***************************************************************
 
     @Override
     public String sourceTemplate() {

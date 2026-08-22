@@ -7,6 +7,7 @@ import com.yesman.akythera.client.gui.widget.viewer.*;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
@@ -135,10 +136,9 @@ public final class ModelArmatureMappingModal extends OverlayingWindowModal
         return BuiltInRegistries.ENTITY_TYPE.getKey(type).toString();
     }
 
-    /// The same armature-selecting workload as
-    /// [com.yesman.akytheralabs.editor.EditorWidgetFactory]'s armature PopupBox: the picker
-    /// stacks over this modal and pops itself on confirm, landing back here. Confirming the
-    /// `<none>` row passes a null accessor through — removing the mapping.
+    /// The same armature-selecting workload as [EditorWidgetFactory]'s armature PopupBox: the picker stacks
+    /// over this modal and pops itself on confirm, landing back here. Confirming the `<none>` row passes a
+    /// null accessor through — removing the mapping.
     private void openArmaturePicker(EntityType<?> type, PopupBox<AssetAccessor<? extends Armature>> box) {
         AccessorSelectionModal modal = new AccessorSelectionModal(font, AssetAccessor.Type.ARMATURE, true, accessor -> {
             @SuppressWarnings("unchecked")
@@ -343,9 +343,9 @@ public final class ModelArmatureMappingModal extends OverlayingWindowModal
         public void updateWidgetNarration(@NonNull NarrationElementOutput n) {
         }
 
-        /// ***************************************************************
-        /// [AnchoredWidget] implementations                              *
-        /// ***************************************************************
+        // ***************************************************************
+        // [AnchoredWidget] implementations
+        // ***************************************************************
         private Unit x1 = AnchoredWidget.pixel(0);
         private Unit x2 = AnchoredWidget.fraction(PREVIEW_PCT);   // right inset — previewer column
         private Unit y1 = AnchoredWidget.pixel(LIST_TOP);

@@ -1,31 +1,19 @@
 package com.yesman.akytheralabs;
 
+import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.impl.NumericComparators;
-import com.yesman.akythera.api.data.modularize.node.BranchNode;
-import com.yesman.akythera.api.data.modularize.node.ContextVariableAccessNode;
-import com.yesman.akythera.api.data.modularize.node.FlowFunctionNode;
-import com.yesman.akythera.api.data.modularize.node.FlowNode;
-import com.yesman.akythera.api.data.modularize.node.InvertBooleanNode;
-import com.yesman.akythera.api.data.modularize.node.LiteralNode;
-import com.yesman.akythera.api.data.modularize.node.LogicalOperationNode;
-import com.yesman.akythera.api.data.modularize.node.NumericOperatorNode;
-import com.yesman.akythera.api.data.modularize.node.PureFunctionNode;
-import com.yesman.akythera.api.data.modularize.node.PureNode;
-import com.yesman.akythera.api.data.modularize.node.ScriptVariableGetterNode;
-import com.yesman.akythera.api.data.modularize.node.ScriptVariableSetterNode;
-import com.yesman.akythera.api.data.modularize.node.SelfNode;
-import com.yesman.akythera.api.data.modularize.node.SequenceNode;
-import com.yesman.akythera.api.data.modularize.node.SupplierAdapterNode;
-import com.yesman.akythera.api.data.modularize.node.TypeConvertNode;
+import com.yesman.akythera.api.data.modularize.node.*;
 import com.yesman.akythera.api.data.modularize.node.animgraph.AnimationStateMachineNode;
 import com.yesman.akythera.api.data.modularize.node.animgraph.CachedPoseReferenceNode;
-import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
-import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
-import com.yesman.akythera.core.animation.driver.FSMAnimationState;
+import com.yesman.akythera.api.data.modularize.node.animgraph.SourceDriverNode;
+import com.yesman.akythera.core.animation.AnimationLayerSignature;
+import com.yesman.akythera.core.blueprint.script.ScriptVariables;
+import com.yesman.akythera.core.animation.FSMAnimationState;
+import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.helper.ParseUtils;
-import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import freemarker.template.TemplateNotFoundException;
@@ -36,39 +24,23 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.StringWriter;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
-/// Lowers a runtime script-node tree (the same [FlowNode]/[PureNode] form the engine executes and
-/// [ScriptGraphCompiler] produces) into **Java source**,
-/// the codegen half of `File > Export > As Source Code` for node-graph scripts.
+/// Lowers a runtime [FlowNode]/[PureNode] tree into **Java source** for
+/// `File > Export > As Source Code`.
 ///
 /// Shape rules:
 /// - every [FlowNode] becomes one statement (terminated by `;`, or an `if` block for [BranchNode]);
 /// - every [PureNode] is inlined as an expression inside its consuming statement;
 /// - a [FlowFunctionNode] / [PureFunctionNode] renders through the per-function FreeMarker template
 ///   `source_templates/script_node/<namespace>/<path>.ftl`, addressed by the function's
-///   [AkytheraRegistries.Frozen#SCRIPT_FUNCTION] id. The template receives `params` — the argument
-///   expressions, index-aligned with the function's signature — and splices them into a Java
-///   expression. A member function without a template falls back to `params[0].method(params[1..])`
-///   (the method name recovered from the id path); a static/custom function without a template
-///   renders a `/* TODO */` marker instead of failing the export.
-///
-/// **Local variables** (the [ContextVariableAccessNode] singularity): a context read has no
-/// `flowNode(pureNode…)` shape — it must name a Java identifier that *exists* at that point. Two
-/// producers create those identifiers: the flow's context parameters (`frameTime`, `animLayerMap`, …
-/// — seeded per method by the caller and emitted as the generated method's parameter names), and
-/// [ScriptVariableSetterNode]s whose name is **not** a member variable (the graph compiler's CSE
-/// hoists, `cse_<id>_<pin>`). The first such assignment in a method declares the local
-/// (`var name = <expr>;`); later assignments and every [ContextVariableAccessNode] simply reference
-/// the name. Member-variable setters assign the generated `@ScriptField` field instead. Hoist
-/// placement is inherited from the graph compiler (setters precede the LCA of all uses), so a
-/// declared local always dominates its reads; block scoping holds because a `var` declared inside a
-/// branch arm is only ever read inside that arm.
+///   [AkytheraRegistries.Frozen#SCRIPT_FUNCTION] id and receiving `params` — the argument
+///   expressions, index-aligned with the function's signature. Without a template, a member function
+///   falls back to `params[0].method(params[1..])` and anything else renders a `/* TODO */` marker;
+/// - a [ContextVariableAccessNode] renders as a bare Java identifier, so it must name one in scope:
+///   either a context parameter, or a local declared by the first [ScriptVariableSetterNode]
+///   assigning a non-member name (`var name = <expr>;`). Member-variable setters assign the
+///   generated `@ScriptField` field instead.
 @NullMarked
 public final class ScriptNodeSourceCompiler {
     private static final String INDENT = "    ";
@@ -79,10 +51,12 @@ public final class ScriptNodeSourceCompiler {
     /// Java identifiers in scope: the method's context parameters plus every local declared so far.
     private final Set<String> scopedNames = new HashSet<>();
 
-    /// The Java expression a [SelfNode] (an unwired owner/"Target" pin — see
-    /// [ScriptGraphCompiler]) lowers to: the generated
-    /// class's own handle on its script owner. An animator script's owner is `this.animator`; an
-    /// entity-patch script's is `this.owner`. Threaded in so one compiler serves both script kinds.
+    /// The Java expression a [SourceDriverNode] renders as while a transition lambda is being
+    /// written; null elsewhere.
+    private @Nullable String sourceDriverExpr;
+
+    /// The Java expression a [SelfNode] lowers to: the generated class's own handle on its script
+    /// owner, `this.animator` for an animator script and `this.owner` for an entity-patch one.
     private final String selfExpr;
 
     private ScriptNodeSourceCompiler(Collection<String> memberVariables, Collection<String> contextParams, String selfExpr) {
@@ -91,10 +65,9 @@ public final class ScriptNodeSourceCompiler {
         this.selfExpr = selfExpr;
     }
 
-    /// Compile `flow` into method-body statement lines (relative indent baked in, no base indent).
-    /// `contextParams` are the generated method's parameter names — the identifiers
-    /// [ContextVariableAccessNode]s may reference besides declared locals. `selfExpr` is the owner
-    /// handle a [SelfNode] resolves to (e.g. `this.animator`, `this.owner`).
+    /// Compiles `flow` into method-body statement lines (relative indent baked in, no base indent).
+    /// `contextParams` are the generated method's parameter names, `selfExpr` the owner handle a
+    /// [SelfNode] resolves to.
     public static List<String> compileFlow(FlowNode flow, Collection<String> memberVariables, Collection<String> contextParams, String selfExpr) {
         ScriptNodeSourceCompiler compiler = new ScriptNodeSourceCompiler(memberVariables, contextParams, selfExpr);
         List<String> out = new ArrayList<>();
@@ -117,9 +90,9 @@ public final class ScriptNodeSourceCompiler {
         return out;
     }
 
-    /// ***************************************************************
-    /// Flow nodes — one statement per node
-    /// ***************************************************************
+    // ***************************************************************
+    // Flow nodes — one statement per node
+    // ***************************************************************
 
     private void statements(FlowNode node, List<String> out, int indent) {
         switch (node) {
@@ -146,8 +119,8 @@ public final class ScriptNodeSourceCompiler {
         }
     }
 
-    /// Emits `node` with its last flow-function expression as `return <expr>;`. Returns whether a
-    /// `return` was actually emitted (a trailing branch/setter can't be returned from).
+    /// Emits `node` with its last flow-function expression as `return <expr>;`, returning whether a
+    /// `return` was emitted.
     private boolean returningStatements(FlowNode node, List<String> out, int indent) {
         switch (node) {
             case SequenceNode seq -> {
@@ -181,9 +154,9 @@ public final class ScriptNodeSourceCompiler {
         return scopedNames.add(name) ? "var " + name + " = " + value + ";" : name + " = " + value + ";";
     }
 
-    /// ***************************************************************
-    /// Pure nodes — inline expressions
-    /// ***************************************************************
+    // ***************************************************************
+    // Pure nodes — inline expressions
+    // ***************************************************************
 
     private String expr(PureNode node) {
         return switch (node) {
@@ -191,13 +164,16 @@ public final class ScriptNodeSourceCompiler {
             case LiteralNode<?> literal -> literal(literal);
             case ContextVariableAccessNode access -> access.localVariableName();
             case ScriptVariableGetterNode getter -> getter.variableName();
+            case SourceDriverNode _ -> sourceDriverExpr != null ? sourceDriverExpr
+                : "null /* TODO: Source State Driver outside a transition */";
             case PureFunctionNode fn -> functionExpr(fn.function(), argsOf(fn.params()));
             case NumericOperatorNode op -> "(" + expr(op.a()) + " " + operatorSign(op.operator()) + " " + expr(op.b()) + ")";
             case LogicalOperationNode op -> logicalExpr(op);
             case InvertBooleanNode invert -> "!(" + expr(invert.child()) + ")";
             case SupplierAdapterNode supplier -> "() -> " + expr(supplier.child());
             case TypeConvertNode convert -> "(" + primitiveName(convert.to().type()) + ") (" + expr(convert.input()) + ")";
-            case CachedPoseReferenceNode pose -> "new CachedPoseReference(" + quote(pose.poseCacheName()) + ", " + selfExpr + ")";
+            case CachedPoseReferenceNode pose -> "new CachedPoseReference(" + quote(pose.poseCacheName())
+                + ", " + selfExpr + ", " + valueLiteral(pose.controlReferenceDriver()) + ")";
             case AnimationStateMachineNode machine -> stateMachineExpr(machine);
             default -> "null /* TODO: unsupported pure node " + node.getClass().getSimpleName() + " */";
         };
@@ -209,9 +185,9 @@ public final class ScriptNodeSourceCompiler {
         return args;
     }
 
-    /// ***************************************************************
-    /// Function nodes — per-id templates
-    /// ***************************************************************
+    // ***************************************************************
+    // Function nodes — per-id templates
+    // ***************************************************************
 
     /// The Java expression invoking `function` with `args`: its `script_node/<ns>/<path>.ftl`
     /// template when one exists, else the member-call fallback, else a `/* TODO */` marker.
@@ -228,8 +204,7 @@ public final class ScriptNodeSourceCompiler {
     }
 
     /// Renders `script_node/<ns>/<path>.ftl` with `params` = the argument expressions, or null when
-    /// the template doesn't exist (the caller falls back). Other failures abort the export loudly —
-    /// a broken template is an authoring error, not a graph error.
+    /// the template doesn't exist.
     private static @Nullable String renderNodeTemplate(Identifier id, List<String> args) {
         String templateName = "script_node/" + id.getNamespace() + "/" + id.getPath() + ".ftl";
 
@@ -244,11 +219,9 @@ public final class ScriptNodeSourceCompiler {
         }
     }
 
-    /// Fallback for scanned **member** functions (no template): `receiver.method(rest…)`. The method
-    /// name is recovered from the registry id — [com.yesman.akythera.core.reflection.ScriptModularizeHelper]
-    /// registers instance methods as `<class_snake>_<method_snake>` with the receiver folded in as
-    /// the first signature parameter, so stripping the receiver type's snake prefix leaves the
-    /// method's snake name.
+    /// Fallback for scanned **member** functions with no template: `receiver.method(rest…)`.
+    /// [ScriptModularizeHelper] registers instance methods as `<class_snake>_<method_snake>`, so
+    /// stripping the receiver type's snake prefix off the id path leaves the method's snake name.
     private String memberCall(ScriptFunction function, Identifier id, List<String> args) {
         Class<?> receiverType = function.functionSignature().parameters().getFirst();
         String prefix = ParseUtils.camelToSnake(receiverType.getSimpleName()) + "_";
@@ -262,16 +235,12 @@ public final class ScriptNodeSourceCompiler {
         return args.getFirst() + "." + method + "(" + String.join(", ", args.subList(1, args.size())) + ")";
     }
 
-    /// ***************************************************************
-    /// Anim-graph nodes
-    /// ***************************************************************
+    // ***************************************************************
+    // Anim-graph nodes
+    // ***************************************************************
 
-    /// The state-machine builder chain, mirroring both the runtime
-    /// [AnimationStateMachineNode#execute] and the handwritten `PlayerAnimatorScript#construct`:
-    /// entry transitions first (the builder cursor starts on the entry state), then each state with
-    /// its pose driver and outgoing transitions. States resolve through the
-    /// [FSMAnimationState#ENUM_MANAGER] by identifier, so project-defined (data block) states work
-    /// without a Java constant to reference.
+    /// The state-machine builder chain: entry transitions first (the builder cursor starts on the
+    /// entry state), then each state with its pose driver and outgoing transitions.
     private String stateMachineExpr(AnimationStateMachineNode machine) {
         StringBuilder chain = new StringBuilder("AnimationStateMachine.stateModelBuilder()");
 
@@ -297,24 +266,54 @@ public final class ScriptNodeSourceCompiler {
             + ")";
     }
 
+    /// The transition lambda's first parameter — the state instance being left.
+    private static final String TRANSITION_FROM = "from";
+
     private void appendTransition(StringBuilder chain, AnimationStateMachineNode.TransitionEntry transition) {
-        chain.append("\n").append(INDENT.repeat(2))
-            .append(".transitTo(").append(fsmState(transition.to()))
-            .append(", (_, _) -> ").append(expr(transition.condition())).append(")");
+        String outer = sourceDriverExpr;
+        sourceDriverExpr = "AnimationStateMachine.driverOf(" + TRANSITION_FROM + ")";
+
+        try {
+            chain.append("\n").append(INDENT.repeat(2))
+                .append(".transitTo(new AnimationStateTransition<>(").append(fsmState(transition.to()))
+                .append(", (").append(TRANSITION_FROM).append(", _) -> ")
+                .append(expr(transition.condition()))
+                .append(", null, 0, ").append(SourceTemplateEngine.floatLiteral(transition.blendTime()))
+                .append(", ").append(valueLiteral(transition.transferElapsedTime()))
+                .append(", ").append(valueLiteral(transition.transitionPriority()))
+                .append("))");
+        } finally {
+            sourceDriverExpr = outer;
+        }
     }
 
     private static String fsmState(FSMAnimationState state) {
-        Identifier id = FSMAnimationState.ENUM_MANAGER.derefIdentifier(state);
-        return "FSMAnimationState.ENUM_MANAGER.getOrThrow(Identifier.parse(" + quote(id.toString()) + "))";
+        return dataBlockLookup("FSMAnimationState", state);
     }
 
-    /// ***************************************************************
-    /// Literals & leaves
-    /// ***************************************************************
+    /// The expression naming a data block: the constant of the enum the project exports for its type
+    /// ([SourceNames#dataBlockReference]), the engine `ENUM_MANAGER.getOrThrow(...)` lookup by id for
+    /// a block the project does not own, or a `TODO` marker for a block that carries no id.
+    ///
+    /// `type` is the enum interface the block belongs to, e.g. `FSMAnimationState`.
+    static String dataBlockLookup(String type, EnumerableDataBlock block) {
+        String projectConstant = SourceNames.dataBlockReference(block);
+        if (projectConstant != null) return projectConstant;
+
+        Identifier id = block.identifier();
+
+        return id == null
+            ? "null /* TODO: unregistered " + type + " */"
+            : type + ".ENUM_MANAGER.getOrThrow(Identifier.parse(" + quote(id.toString()) + "))";
+    }
+
+    // ***************************************************************
+    // Literals & leaves
+    // ***************************************************************
 
     /// A member variable's default value as a Java field-initializer literal, or null when the
-    /// variable has no default (reference types) — the field is then left to Java's default.
-    public static @Nullable String defaultValueLiteral(com.yesman.akythera.core.blueprint.script.ScriptVariables.VariableInfo variable) {
+    /// variable has no default.
+    public static @Nullable String defaultValueLiteral(ScriptVariables.VariableInfo variable) {
         return variable.defaultVal() == null ? null : valueLiteral(variable.defaultVal());
     }
 
@@ -322,8 +321,7 @@ public final class ScriptNodeSourceCompiler {
         return valueLiteral(node.literal());
     }
 
-    /// A value as a compilable Java literal — shared with [NodeTreeSourceRenderer] for
-    /// [LiteralNode] literals and variable defaults.
+    /// A value as a compilable Java literal.
     public static String valueLiteral(@Nullable Object value) {
         return switch (value) {
             case null -> "null";
@@ -335,14 +333,10 @@ public final class ScriptNodeSourceCompiler {
             case Integer _, Short _, Byte _ -> value.toString();
             case Character c -> "'" + (c == '\'' ? "\\'" : c == '\\' ? "\\\\" : c) + "'";
             case Vec3 vec3 -> "new Vec3(" + vec3.x() + ", " + vec3.y() + ", " + vec3.z() + ")";
-            // The graph compiler's comparator constants (a comparator node's first param).
+            // A comparator node's first param.
             case java.util.Comparator<?> comparator -> comparatorConstant(comparator);
-            case AnimationLayerSignature signature ->
-                "AnimationLayerSignature.ENUM_MANAGER.getOrThrow(Identifier.parse("
-                    + quote(AnimationLayerSignature.ENUM_MANAGER.derefIdentifier(signature).toString()) + "))";
-            case AnimationInterfaceKey interfaceKey ->
-                "AnimationInterfaceKey.ENUM_MANAGER.getOrThrow(Identifier.parse("
-                    + quote(AnimationInterfaceKey.ENUM_MANAGER.derefIdentifier(interfaceKey).toString()) + "))";
+            case AnimationLayerSignature signature -> dataBlockLookup("AnimationLayerSignature", signature);
+            case AnimationInterfaceKey interfaceKey -> dataBlockLookup("AnimationInterfaceKey", interfaceKey);
             default -> "null /* TODO: unsupported literal of " + value.getClass().getSimpleName() + " */";
         };
     }
@@ -381,8 +375,8 @@ public final class ScriptNodeSourceCompiler {
         };
     }
 
-    /// The Java cast target for a [TypeConvertNode]: primitive name for primitives/wrappers
-    /// (a `(float)` cast unboxes-and-narrows), the simple name otherwise.
+    /// The Java cast target for a [TypeConvertNode]: the primitive name for primitives and
+    /// wrappers, the simple name otherwise.
     private static String primitiveName(Class<?> type) {
         if (type.isPrimitive()) return type.getName();
         if (type == Boolean.class) return "boolean";
@@ -396,12 +390,12 @@ public final class ScriptNodeSourceCompiler {
         return type.getSimpleName();
     }
 
-    /// ***************************************************************
-    /// Helpers
-    /// ***************************************************************
+    // ***************************************************************
+    // Helpers
+    // ***************************************************************
 
-    /// One output line at `indent` levels; multi-line expressions (the state-machine chain) have
-    /// their continuation lines re-indented to stay aligned inside the statement.
+    /// One output line at `indent` levels, with the continuation lines of a multi-line expression
+    /// re-indented to match.
     private static String line(int indent, String content) {
         String pad = INDENT.repeat(indent);
         return pad + content.replace("\n", "\n" + pad);

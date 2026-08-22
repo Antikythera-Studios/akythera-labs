@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.TransitionResultNodeData;
 import net.minecraft.client.gui.Font;
@@ -12,8 +13,7 @@ import net.minecraft.network.chat.Component;
 /// A result graph is pure data-flow (no execution), so like [OutputPoseNodeWidget] this is the root
 /// and cannot be deleted.
 ///
-/// Compile rule (see the graph compilers): the graph lowers to the
-/// [com.yesman.akythera.api.data.modularize.node.PureNode] wired into the input.
+/// Compile rule (see the graph compilers): the graph lowers to the [PureNode] wired into the input.
 public final class TransitionResultNodeWidget extends AbstractNodeWidget {
     private static final int TITLE_COLOR = 0xFF3A2020;
     private static final String CAN_ENTER_LABEL = "Can Enter Transition";

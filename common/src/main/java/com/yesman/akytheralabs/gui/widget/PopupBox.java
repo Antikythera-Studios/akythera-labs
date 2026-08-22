@@ -1,6 +1,8 @@
 package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
+import com.yesman.akythera.client.gui.widget.ClampedNumberBox;
+import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.client.gui.widget.common.WarningMarkableWidget;
 import net.minecraft.client.gui.Font;
@@ -21,18 +23,17 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-/// A search-and-pick editor cell (modeled on [com.yesman.akythera.client.gui.widget.ClampedNumberBox]'s
-/// composite layout): a **read-only** [AdvancedEditBox] showing the bound value's display name, plus a
-/// magnifier [AnchoredButton] on the right whose press action is an injected callback — so any modal
-/// (animation picker, model picker, registry lookup, ...) can be popped up by the owner.
+/// A search-and-pick editor cell (modeled on [ClampedNumberBox]'s composite layout): a **read-only**
+/// [AdvancedEditBox] showing the bound value's display name, plus a magnifier [AnchoredButton] on the right
+/// whose press action is an injected callback — so any modal (animation picker, model picker, registry
+/// lookup, ...) can be popped up by the owner.
 ///
 /// The box never mutates the bound value itself; the modal opened by `onSearchPressed` is expected to
 /// write the value and push [#valueSetter] to refresh the displayed name.
 ///
-/// As a [WarningMarkableWidget], an optional [#withValidator] predicate flags an invalid bound
-/// value (a dangling holder, a stale key) with a red border on the display box — re-evaluated on
-/// every [#setValue], i.e. at screen build ([com.yesman.akythera.client.gui.widget.WidgetTable])
-/// and on every modal pick.
+/// As a [WarningMarkableWidget], an optional [#withValidator] predicate flags an invalid bound value (a
+/// dangling holder, a stale key) with a red border on the display box — re-evaluated on every [#setValue],
+/// i.e. at screen build ([WidgetTable]) and on every modal pick.
 public final class PopupBox<T> extends AbstractContainerWidget
     implements AnchoredWidget, WarningMarkableWidget<T>, DropdownSizeMemory {
 
@@ -203,9 +204,9 @@ public final class PopupBox<T> extends AbstractContainerWidget
         defaultButtonNarrationText(narrationElementOutput);
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;
@@ -224,9 +225,9 @@ public final class PopupBox<T> extends AbstractContainerWidget
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
 
-    /*******************************************************************
-     * {@link DataBoundWidget} implementations                         *
-     *******************************************************************/
+    // ***************************************************************
+    // [DataBoundWidget] implementations
+    // ***************************************************************
     private final Callable<T> dataProvider;
     private final Consumer<T> onWidgetChanged;
 

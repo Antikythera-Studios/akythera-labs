@@ -9,6 +9,7 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.AdvancedComboBox;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsEditBoxTheme;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import net.minecraft.client.Minecraft;
@@ -32,13 +33,12 @@ import java.util.Map;
 /// [WidgetTable] listing one row per variable as `name | type combo`, styled after
 /// Unreal's variable list.
 ///
-/// The variable name shows as plain text (its edit box uses
-/// [com.yesman.akytheralabs.gui.widget.AkytheraLabsEditBoxTheme#TRANSPARENT_EDIT_BOX], so the box
-/// only appears while renaming); the type combo carries a type-color indicator. A single click
+/// The variable name shows as plain text (its edit box uses [AkytheraLabsEditBoxTheme#TRANSPARENT_EDIT_BOX],
+/// so the box only appears while renaming); the type combo carries a type-color indicator. A single click
 /// selects the row (drives the Details panel); a double-click renames inline; a right-click opens a
-/// [ContextMenuContainer] with "Rename" / "Remove". Pressing a row and dragging onto the node graph
-/// drags the variable out — a type-colored ghost follows the cursor and the drop is handed to the
-/// host screen via [DropTarget]. All edits route through the shared [VariableEditController].
+/// [ContextMenuContainer] with "Rename" / "Remove". Pressing a row and dragging onto the node graph drags the
+/// variable out — a type-colored ghost follows the cursor and the drop is handed to the host screen via
+/// [DropTarget]. All edits route through the shared [VariableEditController].
 public final class VariablePanel extends AdjustablePanelManager.PanelArea {
     private static final int ADD_BTN = 16;
     /// Screen-pixel slop a press may move before it becomes a drag instead of a click.

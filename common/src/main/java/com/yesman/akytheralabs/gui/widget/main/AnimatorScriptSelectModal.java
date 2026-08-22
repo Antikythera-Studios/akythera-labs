@@ -8,8 +8,10 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.entitypatch.component.AnimatorScriptRef;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.DropdownSizeMemory;
 import com.yesman.akytheralabs.gui.widget.FrameResizer;
 import com.yesman.akytheralabs.gui.widget.Modal;
+import com.yesman.akytheralabs.gui.widget.PopupBox;
 import com.yesman.akytheralabs.gui.widget.ResizableFrame;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -47,16 +49,15 @@ public final class AnimatorScriptSelectModal extends AbstractContainerWidget
     private static final int SCROLLBAR_W = 5;
     private static final int MODAL_H = 200;
 
-    /// Width of the popped-up page, matched to the [com.yesman.akytheralabs.gui.widget.PopupBox] it drops from.
+    /// Width of the popped-up page, matched to the [PopupBox] it drops from.
     private final int modalW;
     private final Font font;
     private final Consumer<AnimatorScriptRef> onConfirm;
     private final AdvancedEditBox<String> searchBox;
     private final EntryList list;
 
-    /// The page is resizable by dragging its frame; the opening size is its floor, and a
-    /// [com.yesman.akytheralabs.gui.widget.DropdownSizeMemory] anchor keeps the dragged one for the
-    /// next open.
+    /// The page is resizable by dragging its frame; the opening size is its floor, and a [DropdownSizeMemory]
+    /// anchor keeps the dragged one for the next open.
     private final FrameResizer resizer;
 
     public AnimatorScriptSelectModal(Font font, int width, Consumer<AnimatorScriptRef> onConfirm) {
@@ -365,9 +366,9 @@ public final class AnimatorScriptSelectModal extends AbstractContainerWidget
         }
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;
@@ -386,9 +387,9 @@ public final class AnimatorScriptSelectModal extends AbstractContainerWidget
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
 
-    /// The constructor's `width` is only the starting size: the opener may widen the modal to its
-    /// anchor (see [com.yesman.akytheralabs.AkytheraEditorLayoutManager#openModalWidgetUnder]), so the
-    /// list follows the rect the units just produced.
+    /// The constructor's `width` is only the starting size: the opener may widen the modal to its anchor (see
+    /// [AkytheraEditorLayoutManager#openModalWidgetUnder]), so the list follows the rect the units just
+    /// produced.
     @Override
     public void relocate(ScreenRectangle screenRectangle) {
         AnchoredWidget.super.relocate(screenRectangle);

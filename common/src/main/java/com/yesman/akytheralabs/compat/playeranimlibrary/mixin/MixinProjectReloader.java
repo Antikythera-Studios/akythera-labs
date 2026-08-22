@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.compat.playeranimlibrary.mixin;
 
+import com.yesman.akytheralabs.compat.playeranimlibrary.PALMixinPlugin;
 import com.yesman.akytheralabs.dev.ProjectReloader;
 import net.minecraft.world.entity.Avatar;
 import net.minecraft.world.entity.Entity;
@@ -13,9 +14,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /// rebuild that stack too, so PAL layers registered from patch data (the engine's factory in
 /// `PlayerAnimationLibraryCompatibility`) pick up the renewed entries.
 ///
-/// Targets our own [ProjectReloader] rather than living in it because PAL is an optional
-/// dependency: this class only loads when [com.yesman.akytheralabs.compat.playeranimlibrary.PALMixinPlugin]
-/// confirms PAL is installed, keeping PAL types off the reloader's classpath.
+/// Targets our own [ProjectReloader] rather than living in it because PAL is an optional dependency: this
+/// class only loads when [PALMixinPlugin] confirms PAL is installed, keeping PAL types off the reloader's
+/// classpath.
 @Mixin(ProjectReloader.class)
 public abstract class MixinProjectReloader {
     /// `HEAD`, not `TAIL`: [ProjectReloader#renewEntityPatch] returns early for entities without

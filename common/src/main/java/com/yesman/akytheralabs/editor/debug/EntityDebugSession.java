@@ -8,6 +8,8 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.gui.screen.DebuggableScreen;
+import com.yesman.akytheralabs.mixin.MixinMob;
+import com.yesman.akytheralabs.mixin.MixinPlayer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.player.LocalPlayer;
@@ -33,8 +35,7 @@ import java.util.UUID;
 /// Possessing the local player only feeds the patch — the player already drives itself, so its game
 /// mode and camera stay untouched.
 ///
-/// [#possessedEntityId] and [#possessorId] are read on the server thread by
-/// [com.yesman.akytheralabs.mixin.MixinMob] and [com.yesman.akytheralabs.mixin.MixinPlayer].
+/// [#possessedEntityId] and [#possessorId] are read on the server thread by [MixinMob] and [MixinPlayer].
 public final class EntityDebugSession {
     private static final EntityDebugSession INSTANCE = new EntityDebugSession();
 

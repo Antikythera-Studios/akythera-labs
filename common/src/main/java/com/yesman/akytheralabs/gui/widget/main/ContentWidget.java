@@ -32,6 +32,9 @@ import com.yesman.akytheralabs.editor.historytrack.FileMove;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
+import com.yesman.akytheralabs.gui.panel.main.processors.AnimatorScriptResourceProcessor;
+import com.yesman.akytheralabs.gui.panel.main.processors.EntityPatchResourceProcessor;
+import com.yesman.akytheralabs.gui.panel.main.processors.ItemPatchResourceProcessor;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.screen.AnimationAssetEditorScreen;
@@ -168,6 +171,18 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
     public boolean isEditable() {
         return editable;
+    }
+
+    /// Whether double-click opens something for this content. False for the kinds whose
+    /// [#onDoubleClicked] is empty, so the menus offering `Open` grey the row instead of carrying a
+    /// row that does nothing.
+    public boolean isOpenable() {
+        return true;
+    }
+
+    /// True while the rename box is open over this widget's label.
+    public boolean isEditing() {
+        return editable && editBox.visible;
     }
 
     public void setSelected(boolean selected) {
@@ -506,11 +521,18 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
+    /// Opens the rename box over the label with the whole name selected, so the first typed
+    /// character replaces it.
     public void startEditing() {
         if (!editable) return;
 
         editBox.visible = true;
         editBox.setValue(getContentName());
+
+        // Re-focus: a previous rename committed with Enter left the box unfocused, and an unfocused
+        // box drops every key and character it is handed.
+        editBox.setFocused(true);
+        editBox.selectAll();
     }
 
     public void stopEditing() {
@@ -571,6 +593,11 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         @Override
         public void onDoubleClicked() {
 
+        }
+
+        @Override
+        public boolean isOpenable() {
+            return false;
         }
 
         @Override
@@ -683,6 +710,11 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             this.resourceKey = resourceKey;
         }
 
+        /// The project registry entry this widget stands for. Re-read after a rename, which re-keys it.
+        public ResourceKey<@NonNull T> getResourceKey() {
+            return resourceKey;
+        }
+
         @Override
         protected boolean renameOnDisk(AkytheraProject project, Path from, Path to) {
             if (!FileSystemHelper.move(from, to)) return false;
@@ -763,8 +795,8 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         }
 
         /// The preview model is bound when the script is created (see
-        /// [com.yesman.akytheralabs.gui.panel.main.processors.AnimatorScriptResourceProcessor#onPressAddButton]),
-        /// so opening just hands the holder to the editor.
+        /// [AnimatorScriptResourceProcessor#onPressAddButton]), so opening just hands the holder to the
+        /// editor.
         @Override
         public void onDoubleClicked() {
             // Open the live registry holder, not the cached one (a prior "Quit" may have disk-reloaded it).
@@ -786,8 +818,7 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         }
 
         /// The target entity is bound when the patch is created (see
-        /// [com.yesman.akytheralabs.gui.panel.main.processors.EntityPatchResourceProcessor#onPressAddButton]),
-        /// so opening just hands the holder to the editor.
+        /// [EntityPatchResourceProcessor#onPressAddButton]), so opening just hands the holder to the editor.
         @Override
         public void onDoubleClicked() {
             // Open the live registry holder, not the cached one (a prior "Quit" may have disk-reloaded it).
@@ -801,11 +832,10 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         }
     }
 
-    /// A single editable [com.yesman.akythera.core.util.EnumerableDataBlock] entry. Reuses
-    /// the data-driven rename machinery ([DataDrivenObjectContent#renameOnDisk] → `moveEntry`,
-    /// which re-keys the project's data block registry), but double-click opens nothing — data
-    /// blocks are property-less. The "object" is the real engine enum value, wrapped by a
-    /// per-type [DataBlockHolder].
+    /// A single editable [EnumerableDataBlock] entry. Reuses the data-driven rename machinery
+    /// ([DataDrivenObjectContent#renameOnDisk] → `moveEntry`, which re-keys the project's data block
+    /// registry), but double-click opens nothing — data blocks are property-less. The "object" is the real
+    /// engine enum value, wrapped by a per-type [DataBlockHolder].
     public static class DataBlockContent<T extends EnumerableDataBlock> extends DataDrivenObjectContent<T, DataBlockHolder<T>> {
         private static final Identifier ICON = AkytheraLabs.identifier("widget/data_block");
 
@@ -819,6 +849,11 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         }
 
         @Override
+        public boolean isOpenable() {
+            return false;
+        }
+
+        @Override
         protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
             blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
         }
@@ -827,11 +862,11 @@ public abstract class ContentWidget<T> extends AbstractWidget {
     public static class FolderContent extends ContentWidget<Void> {
         private static final Identifier ICON = AkytheraLabs.identifier("widget/folder");
 
-        public FolderContent(Font font, String name, Path path) {
+        public FolderContent(Font font, String name, Path path, boolean editable) {
             super(
                 font,
                 name,
-                true,
+                editable,
                 path,
                 null
             );
@@ -862,9 +897,8 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             super(font, name, false, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
         }
 
-        /// The target item is bound at creation (see
-        /// [com.yesman.akytheralabs.gui.panel.main.processors.ItemPatchResourceProcessor#onPressAddButton]),
-        /// so opening just hands the holder to the editor.
+        /// The target item is bound at creation (see [ItemPatchResourceProcessor#onPressAddButton]), so
+        /// opening just hands the holder to the editor.
         @Override
         public void onDoubleClicked() {
             // Open the live registry holder, not the cached one (a prior "Quit" may have disk-reloaded it).

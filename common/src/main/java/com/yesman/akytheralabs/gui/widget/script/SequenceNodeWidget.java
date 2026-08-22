@@ -1,15 +1,15 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.node.SequenceNode;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.SequenceNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
-/// Widget for a [com.yesman.akythera.api.data.modularize.node.SequenceNode]: one
-/// execution input that fans out to ordered execution outputs ("Then 0", "Then 1", …).
-/// Since `SequenceNode` holds its next nodes as a list, the output count is dynamic —
-/// the "Add pin" button appends a `Then N`, and the host graph's right-click "Remove Pin"
-/// removes one. Outputs are relabeled to stay contiguous.
+/// Widget for a [SequenceNode]: one execution input that fans out to ordered execution outputs ("Then 0",
+/// "Then 1", …). Since `SequenceNode` holds its next nodes as a list, the output count is dynamic — the "Add
+/// pin" button appends a `Then N`, and the host graph's right-click "Remove Pin" removes one. Outputs are
+/// relabeled to stay contiguous.
 public final class SequenceNodeWidget extends AbstractNodeWidget {
     private static final int TITLE_COLOR = 0xFF3A3A3A;
     private static final int INITIAL_OUTPUTS = 2;

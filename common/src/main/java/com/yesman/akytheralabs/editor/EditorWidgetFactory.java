@@ -11,11 +11,13 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.AnimationRef;
+import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.ReferencePose;
 import com.yesman.akytheralabs.akythera.entitypatch.component.AnimatorScriptRef;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
+import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorFieldScanner.EditorField;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -504,7 +506,7 @@ public final class EditorWidgetFactory {
     }
 
     // ***************************************************************
-    // List rows                                                     *
+    // List rows
     // ***************************************************************
 
     /// One [List] field: a header row carrying the field's label and a `+` button, then one block
@@ -733,7 +735,7 @@ public final class EditorWidgetFactory {
     }
 
     // ***************************************************************
-    // Column anchor units                                           *
+    // Column anchor units
     // ***************************************************************
 
     /// The label column width for one row rectangle: proportional ([#LABEL_RATIO] of the row
@@ -796,7 +798,7 @@ public final class EditorWidgetFactory {
     }
 
     // ***************************************************************
-    // Built-in producers                                            *
+    // Built-in producers
     // ***************************************************************
 
     private static List<? extends AbstractWidget> floatBox(EditorWidgetFactory factory, ValueSlot slot) {
@@ -1003,8 +1005,8 @@ public final class EditorWidgetFactory {
         };
     }
 
-    /// Four per-component boxes over one [Quaterniond] slot — the [#vec3Boxes] treatment for the
-    /// rotation half of a [com.yesman.akytheralabs.dataholder.TransformHolder].
+    /// Four per-component boxes over one [Quaterniond] slot — the [#vec3Boxes] treatment for the rotation
+    /// half of a [TransformHolder].
     ///
     /// A [Quaterniond] is mutable, but each setter writes a whole new quaternion through the slot.
     /// An undo entry has to hold a value later edits cannot reach back into, and the holder shares
@@ -1313,12 +1315,11 @@ public final class EditorWidgetFactory {
         return List.of(box);
     }
 
-    /// An "Edit Node Graph" button for a raw [ScriptGraphData] slot — the same storage convention
-    /// as [com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder]'s flow graphs. Opens
-    /// the slot's canvas as a closeable center tab of the hosting [NodeGraphTabHost] screen, shaped
-    /// by the declaring field's [EditorNodeGraph] annotation (context pins, result type).
-    /// The tab's flush writes the exported graph back through the slot (no history entry — the canvas
-    /// manages its own edit history). Key: owner identity + the slot's field name (its `#n` label for
+    /// An "Edit Node Graph" button for a raw [ScriptGraphData] slot — the same storage convention as
+    /// [AnimatorScriptHolder]'s flow graphs. Opens the slot's canvas as a closeable center tab of the hosting
+    /// [NodeGraphTabHost] screen, shaped by the declaring field's [EditorNodeGraph] annotation (context pins,
+    /// result type). The tab's flush writes the exported graph back through the slot (no history entry — the
+    /// canvas manages its own edit history). Key: owner identity + the slot's field name (its `#n` label for
     /// a list element), so re-clicking refocuses the already-open tab.
     private static List<? extends AbstractWidget> nodeGraphButton(EditorWidgetFactory factory, ValueSlot slot) {
         Field f = slot.field();
@@ -1495,7 +1496,7 @@ public final class EditorWidgetFactory {
     }
 
     // ***************************************************************
-    // Select modals of built-in producers                           *
+    // Select modals of built-in producers
     // ***************************************************************
 
     /// Opens the pick modal for an [AssetAccessor] slot, routed by the accessor's runtime
@@ -1691,9 +1692,9 @@ public final class EditorWidgetFactory {
         );
     }
 
-    /// ***************************************************************
-    /// Value access + history — shared with external [WidgetProducer]s
-    /// ***************************************************************
+    // ***************************************************************
+    // Value access + history — shared with external [WidgetProducer]s
+    // ***************************************************************
 
     public static Object tryGet(Field f, Object inst) {
         try {

@@ -119,7 +119,7 @@ public interface DataHolder<T> {
     /// of an entry it (transitively) references. This is the single definition of "broken": the
     /// content browser tile red-marks on it — so a blendspace with an unassigned node marks itself
     /// **and** every script playing it — and the export skips these entries (see
-    /// [com.yesman.akytheralabs.AkytheraProject#findBrokenEntries]), since emitting a referrer whose
+    /// [AkytheraProject#findBrokenEntries]), since emitting a referrer whose
     /// dependency was left out would ship a dangling reference.
     default @Nullable Exception getFailureException() {
         Exception own = getOwnFailureException();

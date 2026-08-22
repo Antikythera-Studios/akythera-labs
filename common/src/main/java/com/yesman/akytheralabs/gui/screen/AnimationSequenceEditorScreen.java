@@ -310,9 +310,9 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
-    /// ***************************************************************
-    /// [DebuggableScreen]                                            *
-    /// ***************************************************************
+    // ***************************************************************
+    // [DebuggableScreen]
+    // ***************************************************************
 
     @Override
     public Predicate<Entity> debugTargetFilter() {
@@ -421,8 +421,8 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         }
     }
 
-    /// Instead of assigning `modal` directly into [#getFocused()], check and return opened modal via
-    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
+    /// The modal owning focus, through [ModalAccessibleScreen#getFocusOwningModal], so focus is
+    /// released when it closes.
     @Nullable
     public GuiEventListener getFocused() {
         AbstractWidget modal = getFocusOwningModal();

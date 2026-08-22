@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
+import com.yesman.akythera.api.animation.animator.BlendSpace2DInterface;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
@@ -14,9 +15,9 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Optional;
 
-/// The [com.yesman.akythera.api.animation.animator.BlendSpace2DInterface] node: a replaceable
-/// 2D-blendspace slot. Two `float` inputs drive the blend coordinate and one [Pose] output yields
-/// the blended pose; the Details-picked default animation is a [BlendSpace2D].
+/// The [BlendSpace2DInterface] node: a replaceable 2D-blendspace slot. Two `float` inputs drive the blend
+/// coordinate and one [Pose] output yields the blended pose; the Details-picked default animation is a
+/// [BlendSpace2D].
 ///
 /// Unlike the fixed Blendspace Player — bound to one asset whose axis names it can show — the
 /// interface's animation is replaceable at runtime, so the axis names are not inferrable and the

@@ -3,7 +3,10 @@ package com.yesman.akytheralabs.akythera.entitypatch.component;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.yesman.akythera.api.component.ComponentAttachable;
+import com.yesman.akythera.core.asset.armature.BoneSocket;
 import com.yesman.akythera.core.blueprint.ComponentBlueprint;
+import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
+import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.ComponentHolderRegistry;
 import com.yesman.akytheralabs.dataholder.FailedComponentHolder;
@@ -125,12 +128,10 @@ public interface ComponentAttachableHolder {
     }
 
     /// One host's children lowered to their runtime blueprints, keyed by the same names — the shape
-    /// [com.yesman.akythera.core.blueprint.EntityPatchBlueprint] and
-    /// [com.yesman.akythera.core.blueprint.ItemPatchBlueprint] take.
+    /// [EntityPatchBlueprint] and [ItemPatchBlueprint] take.
     ///
-    /// Covers this host's own level only. A component that hosts children lowers them itself, in
-    /// whatever shape its runtime counterpart takes — an armature turns its sockets into a typed
-    /// [com.yesman.akythera.core.asset.armature.BoneSocket] map.
+    /// Covers this host's own level only. A component that hosts children lowers them itself, in whatever
+    /// shape its runtime counterpart takes — an armature turns its sockets into a typed [BoneSocket] map.
     ///
     /// Skips [FailedComponentHolder]s, the only components with no runtime object. A defaults-fallback
     /// component — known type, marked failed — is a real component and lowers.

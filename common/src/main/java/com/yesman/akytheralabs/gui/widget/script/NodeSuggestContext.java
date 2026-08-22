@@ -2,14 +2,15 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.core.reflection.FunctionSignature;
+import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Set;
 import java.util.function.Predicate;
 
-/// Describes what kind of node a dropped wire (or an empty-canvas right-click) is asking
-/// for, so the host screen can tailor the [com.yesman.akytheralabs.gui.widget.NodeSuggestModal]
-/// entries to the gesture (UE hides incompatible nodes the same way).
+/// Describes what kind of node a dropped wire (or an empty-canvas right-click) is asking for, so the host
+/// screen can tailor the [NodeSuggestModal] entries to the gesture (UE hides incompatible nodes the same
+/// way).
 ///
 /// The three category flags select *which families* of suggestions appear, and are not
 /// mutually exclusive (a right-click on empty canvas shows flow nodes **and** pure

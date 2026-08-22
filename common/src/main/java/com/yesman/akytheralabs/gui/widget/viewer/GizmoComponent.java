@@ -18,6 +18,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -183,9 +184,9 @@ public final class GizmoComponent implements Model3DViewerComponent {
         return mode == Mode.SCALE ? Orientation.LOCAL : orientation;
     }
 
-    /// ***************************************************************
-    /// Rendering
-    /// ***************************************************************
+    // ***************************************************************
+    // Rendering
+    // ***************************************************************
 
     @Override
     public void extractComponent(
@@ -478,9 +479,9 @@ public final class GizmoComponent implements Model3DViewerComponent {
         for (Vector3f corner : corners) builder.addVertex(pose, corner.x, corner.y, corner.z).setColor(color);
     }
 
-    /// ***************************************************************
-    /// Hit testing — everything in widget pixels
-    /// ***************************************************************
+    // ***************************************************************
+    // Hit testing — everything in widget pixels
+    // ***************************************************************
 
     private @Nullable Handle hitTest(Model3DViewer viewer, Frame frame, double mouseX, double mouseY) {
         // Plane / cap handles sit on top of the shafts they share a corner with, so they answer first.
@@ -577,9 +578,9 @@ public final class GizmoComponent implements Model3DViewerComponent {
         return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
     }
 
-    /// ***************************************************************
-    /// Dragging
-    /// ***************************************************************
+    // ***************************************************************
+    // Dragging
+    // ***************************************************************
 
     @Override
     public boolean onMouseDown(final Model3DViewer viewer, final MouseButtonEvent event) {
@@ -820,18 +821,17 @@ public final class GizmoComponent implements Model3DViewerComponent {
         );
     }
 
-    /// ***************************************************************
-    /// Keyed transforms
-    /// ***************************************************************
+    // ***************************************************************
+    // Keyed transforms
+    // ***************************************************************
 
     /// Starts a transform the bare cursor drives, or flips the basis. The mode's screen-space handle
     /// is anchored where the cursor last sat and the next mouse button ends it: [Handle#CENTER] for
     /// [Mode#TRANSLATE] — the camera-facing plane — and [Handle#VIEW] for the other two, view-axis
     /// rotation and uniform scale.
     ///
-    /// Only taken while the cursor is over the viewer: an editor key reaches every panel, these
-    /// bindings are unmodified, and `Tab` is what [net.minecraft.client.gui.screens.Screen] navigates
-    /// focus with.
+    /// Only taken while the cursor is over the viewer: an editor key reaches every panel, these bindings are
+    /// unmodified, and `Tab` is what [Screen] navigates focus with.
     @Override
     public boolean onKeyPressed(final Model3DViewer viewer, final KeyEvent event) {
         if (target == null || !viewer.isMouseOver(lastMouseX, lastMouseY)) return false;
@@ -939,9 +939,9 @@ public final class GizmoComponent implements Model3DViewerComponent {
         active = null;
     }
 
-    /// ***************************************************************
-    /// Mode buttons
-    /// ***************************************************************
+    // ***************************************************************
+    // Mode buttons
+    // ***************************************************************
 
     /// Installs the Translate / Rotate / Scale buttons and the orientation toggle along the viewer's
     /// top edge.

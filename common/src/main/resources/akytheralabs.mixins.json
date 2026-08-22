@@ -29,7 +29,8 @@
     "MixinSupplierAdapterNode"
   ],
   "mixins": [
-    "MappedRegistryAccessor"
+    "MappedRegistryAccessor",
+    "MixinEnumerableDataBlockManager"
   ],
   "injectors": {
     "defaultRequire": 1

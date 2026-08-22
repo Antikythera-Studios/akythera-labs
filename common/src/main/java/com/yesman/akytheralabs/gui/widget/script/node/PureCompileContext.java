@@ -4,6 +4,7 @@ import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.api.data.modularize.node.ScriptNode;
 import com.yesman.akythera.api.data.modularize.node.SelfNode;
+import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -28,9 +29,9 @@ public interface PureCompileContext {
     /// The stand-in for an unwired (or unlowerable) data input of `expectedType`.
     PureNode defaultValue(@Nullable Class<?> expectedType);
 
-    /// The [com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys] key of the canvas being
-    /// lowered, stamped onto the sub-trees whose evaluation is deferred past the entry point that
-    /// builds them. [ScriptNode#NO_CANVAS] on a canvas that defers nothing.
+    /// The [ScriptCanvasKeys] key of the canvas being lowered, stamped onto the sub-trees whose evaluation is
+    /// deferred past the entry point that builds them. [ScriptNode#NO_CANVAS] on a canvas that defers
+    /// nothing.
     default String canvasKey() {
         return ScriptNode.NO_CANVAS;
     }

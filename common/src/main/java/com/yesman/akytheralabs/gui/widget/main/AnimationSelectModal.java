@@ -596,9 +596,9 @@ public final class AnimationSelectModal extends OverlayingWindowModal
             }
         }
 
-        /// ***************************************************************
-        /// [AnchoredWidget] implementations                              *
-        /// ***************************************************************
+        // ***************************************************************
+        // [AnchoredWidget] implementations
+        // ***************************************************************
         private Unit x1 = AnchoredWidget.pixel(0);
         private Unit x2 = AnchoredWidget.fraction(MODEL_LIST_PCT);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);
@@ -768,9 +768,9 @@ public final class AnimationSelectModal extends OverlayingWindowModal
             }
         }
 
-        /// ***************************************************************
-        /// [AnchoredWidget] implementations                              *
-        /// ***************************************************************
+        // ***************************************************************
+        // [AnchoredWidget] implementations
+        // ***************************************************************
         private Unit x1 = AnchoredWidget.fraction(MODEL_LIST_PCT);
         private Unit x2 = AnchoredWidget.fraction(ANIM_LIST_PCT);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);

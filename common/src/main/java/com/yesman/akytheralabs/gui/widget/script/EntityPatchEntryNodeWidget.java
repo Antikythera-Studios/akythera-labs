@@ -12,11 +12,9 @@ import net.minecraft.network.chat.Component;
 /// origin (a single exec output).
 ///
 /// Because all three are parameter-less, they cannot be told apart by their output labels the way the
-/// animator script's Constructor / Update entries are (see [EntryPointNodeWidget]). Instead the kind
-/// is persisted explicitly in the node's `op` field (see
-/// [com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget]'s `describe` / `rebuild`), and
-/// [EntityPatchBlueprintHolder] roots each flow at the
-/// matching entry via a predicate over that marker.
+/// animator script's Constructor / Update entries are (see [EntryPointNodeWidget]). Instead the kind is
+/// persisted explicitly in the node's `op` field (see [ScriptNodeGraphWidget]'s `describe` / `rebuild`), and
+/// [EntityPatchBlueprintHolder] roots each flow at the matching entry via a predicate over that marker.
 public final class EntityPatchEntryNodeWidget extends AbstractNodeWidget {
     private static final int EXEC_COLOR = 0xFFEEEEEE;
     private static final int TITLE_COLOR = 0xFF1F3A5A;

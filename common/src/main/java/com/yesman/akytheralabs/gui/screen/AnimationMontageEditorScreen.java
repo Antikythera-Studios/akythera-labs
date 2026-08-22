@@ -8,7 +8,7 @@ import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akythera.core.animation.driver.AnimationMontagePlayer;
-import com.yesman.akythera.core.animation.driver.SectionInfo;
+import com.yesman.akythera.core.animation.playable.SectionInfo;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
@@ -40,7 +40,6 @@ import com.yesman.akytheralabs.gui.widget.animation.AnimationTrackEditorPanel;
 import com.yesman.akytheralabs.gui.widget.animation.NotifyRow;
 import com.yesman.akytheralabs.gui.widget.animation.SectionRow;
 import com.yesman.akytheralabs.gui.widget.animation.SegmentRow;
-import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
@@ -514,9 +513,9 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
-    /// ***************************************************************
-    /// [DebuggableScreen]                                            *
-    /// ***************************************************************
+    // ***************************************************************
+    // [DebuggableScreen]
+    // ***************************************************************
 
     @Override
     public Predicate<Entity> debugTargetFilter() {
@@ -642,8 +641,8 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         }
     }
 
-    /// Instead of assigning `modal` directly into [#getFocused()], check and return opened modal via
-    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
+    /// The modal owning focus, through [ModalAccessibleScreen#getFocusOwningModal], so focus is
+    /// released when it closes.
     @Nullable
     public GuiEventListener getFocused() {
         AbstractWidget modal = getFocusOwningModal();

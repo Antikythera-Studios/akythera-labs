@@ -5,6 +5,8 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.DropdownSizeMemory;
 import com.yesman.akytheralabs.gui.widget.FrameResizer;
 import com.yesman.akytheralabs.gui.widget.Modal;
 import com.yesman.akytheralabs.gui.widget.PopupBox;
@@ -31,18 +33,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
-/// Search-and-pick modal over registry entries, managed as [ResourceKey]s. Opens at the cursor (no
-/// dimmer, no centering — behaves like [com.yesman.akytheralabs.gui.widget.ContextMenuContainer]).
-/// Single-click on a list row confirms.
+/// Search-and-pick modal over registry entries, managed as [ResourceKey]s. Opens at the cursor (no dimmer, no
+/// centering — behaves like [ContextMenuContainer]). Single-click on a list row confirms.
 ///
 /// Two entry sources: a frozen [Registry] (the value-confirming constructor), or data pack entries
 /// via [#dataPackEntries] — the current project's entries, optionally merged with everything the
 /// loaded world's registry access carries.
 ///
-/// The page is **resizable** by dragging its frame ([FrameResizer]); [#MODAL_W] / [#MODAL_H] are only
-/// its opening size and its floor. The size the user drags to outlives the modal when it drops from a
-/// [com.yesman.akytheralabs.gui.widget.DropdownSizeMemory] anchor — a [PopupBox] remembers it, so the
-/// next press on the same cell opens at that size.
+/// The page is **resizable** by dragging its frame ([FrameResizer]); [#MODAL_W] / [#MODAL_H] are only its
+/// opening size and its floor. The size the user drags to outlives the modal when it drops from a
+/// [DropdownSizeMemory] anchor — a [PopupBox] remembers it, so the next press on the same cell opens at that
+/// size.
 public final class RegistryLookupModal<T> extends AbstractContainerWidget
     implements Modal, AnchoredWidget, ResizableFrame {
 
@@ -336,9 +337,9 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
         }
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2 = AnchoredWidget.pixel(MODAL_W);
     private Unit y1;
@@ -357,9 +358,9 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
 
-    /// [#MODAL_W] / [#MODAL_H] are only the **defaults**: the opener widens the modal to its anchor
-    /// (see [com.yesman.akytheralabs.AkytheraEditorLayoutManager#openModalWidgetUnder]), so the list
-    /// is laid out against the rect the units just produced, never the constants.
+    /// [#MODAL_W] / [#MODAL_H] are only the **defaults**: the opener widens the modal to its anchor (see
+    /// [AkytheraEditorLayoutManager#openModalWidgetUnder]), so the list is laid out against the rect the
+    /// units just produced, never the constants.
     @Override
     public void relocate(ScreenRectangle screenRectangle) {
         AnchoredWidget.super.relocate(screenRectangle);

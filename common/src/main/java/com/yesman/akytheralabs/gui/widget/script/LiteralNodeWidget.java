@@ -1,5 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.ScriptType;
+import com.yesman.akythera.api.data.modularize.node.LiteralNode;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.script.node.LiteralNodeData;
@@ -12,13 +14,12 @@ import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-/// Widget for a [com.yesman.akythera.api.data.modularize.node.LiteralNode]: a pure node
-/// that holds a constant value, embeddable into any data input pin. No execution pins
-/// and no inputs — a single typed output whose label shows the current value.
+/// Widget for a [LiteralNode]: a pure node that holds a constant value, embeddable into any data input pin.
+/// No execution pins and no inputs — a single typed output whose label shows the current value.
 ///
 /// Only literal-encodable types are offered (see [LiteralValueSupport]): primitives /
 /// wrappers, [String], and `enum`s, matching the engine's `LiteralNode` which serializes
-/// the value directly through its [com.yesman.akythera.api.data.modularize.ScriptType]
+/// the value directly through its [ScriptType]
 /// codec. Editing happens on a body click:
 /// - **boolean / enum** cycle in place (no typing required);
 /// - **numeric / char / string** type into an edit box embedded in the node body

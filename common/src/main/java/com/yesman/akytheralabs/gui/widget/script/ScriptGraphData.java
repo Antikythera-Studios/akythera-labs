@@ -9,8 +9,10 @@ import com.mojang.serialization.Dynamic;
 import com.mojang.serialization.DynamicOps;
 import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.yesman.akythera.api.data.modularize.node.ScriptNode;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.gui.widget.script.node.CachedPoseGetterNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
@@ -22,12 +24,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
-/// The **flattened** persisted form of a node-graph canvas (one blueprint flow entry —
-/// construct / update / pose). Where the runtime [com.yesman.akythera.api.data.modularize.node.ScriptNode]
-/// is a *tree* (a node holds its children inline), the editor file is *flat*: every node is a row
-/// carrying its own id and graph position, and every wire is a row referencing two node ids. This
-/// keeps the on-canvas layout and the exact wiring round-trippable, which the tree form cannot
-/// express, and lets [AnimatorScriptHolder] re-derive the tree on demand (its `makeObject` "compile").
+/// The **flattened** persisted form of a node-graph canvas (one blueprint flow entry — construct / update /
+/// pose). Where the runtime [ScriptNode] is a *tree* (a node holds its children inline), the editor file is
+/// *flat*: every node is a row carrying its own id and graph position, and every wire is a row referencing
+/// two node ids. This keeps the on-canvas layout and the exact wiring round-trippable, which the tree form
+/// cannot express, and lets [AnimatorScriptHolder] re-derive the tree on demand (its `makeObject` "compile").
 ///
 /// Produced by [ScriptNodeGraphWidget#exportGraph] and consumed by [ScriptNodeGraphWidget#importGraph];
 /// serialized through [#CODEC] inside the holder's editor codec.
@@ -135,8 +136,8 @@ public record ScriptGraphData(List<GraphNode> nodes, List<WireData> wires, List<
     }
 
     /// The shared rename-tracking instances this canvas' nodes bind, for the owning holder's
-    /// [com.yesman.akytheralabs.dataholder.DataHolder#referencedReferences]. A failed row's references
-    /// stay inside its raw JSON, which is re-emitted verbatim, so it contributes none.
+    /// [DataHolder#referencedReferences]. A failed row's references stay inside its raw JSON, which is
+    /// re-emitted verbatim, so it contributes none.
     public Stream<EditorReference> referencedReferences() {
         return nodes.stream().flatMap(n -> n.data().referencedReferences());
     }
@@ -162,7 +163,7 @@ public record ScriptGraphData(List<GraphNode> nodes, List<WireData> wires, List<
 
         List<GraphNode> renamed = nodes.stream()
             .map(n -> n.data() instanceof CachedPoseGetterNodeData getter && getter.cacheName().equals(oldName)
-                ? n.withData(new CachedPoseGetterNodeData(newName))
+                ? n.withData(new CachedPoseGetterNodeData(newName, getter.controlReferenceDriver()))
                 : n)
             .toList();
 

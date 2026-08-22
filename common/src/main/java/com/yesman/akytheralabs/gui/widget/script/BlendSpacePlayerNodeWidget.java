@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.blueprint.script.AnimatorScript;
@@ -19,16 +20,14 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 
-/// An Anim Graph pose source bound to a project [com.yesman.akythera.core.animation.playable.BlendSpace2D]
-/// (UE's "Blendspace Player"). Two `float` value inputs (`X` / `Y`) drive the blend coordinate, and a
-/// single [Pose] output yields the blended pose. The blendspace is chosen by dragging it from the
-/// Asset Browser onto the canvas, which spawns this node already bound to that asset's [Identifier].
+/// An Anim Graph pose source bound to a project [BlendSpace2D] (UE's "Blendspace Player"). Two `float` value
+/// inputs (`X` / `Y`) drive the blend coordinate, and a single [Pose] output yields the blended pose. The
+/// blendspace is chosen by dragging it from the Asset Browser onto the canvas, which spawns this node already
+/// bound to that asset's [Identifier].
 ///
-/// Compile rule (see the graph compilers): emit the `ANIM_GRAPH`
-/// [com.yesman.akythera.api.data.modularize.ScriptFunction] that wraps
-/// [AnimatorScript#instantiateBlendSpace2D] for
-/// `blendSpaceId`, supplying the `X` / `Y` inputs as the two `Supplier<Float>` updaters, and
-/// returning the driver's [Pose].
+/// Compile rule (see the graph compilers): emit the `ANIM_GRAPH` [ScriptFunction] that wraps
+/// [AnimatorScript#instantiateBlendSpace2D] for `blendSpaceId`, supplying the `X` / `Y` inputs as the two
+/// `Supplier<Float>` updaters, and returning the driver's [Pose].
 public final class BlendSpacePlayerNodeWidget extends AbstractNodeWidget {
     /// Green title, matching UE's Blendspace Player tint.
     private static final int TITLE_COLOR = 0xFF2A4A2A;

@@ -330,9 +330,9 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
         @Nullable AbstractWidget remove;
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

@@ -444,9 +444,9 @@ public final class WidgetContainerModal extends OverlayingWindowModal {
         protected void updateWidgetNarration(@NonNull NarrationElementOutput n) {
         }
 
-        /// ***************************************************************
-        /// [AnchoredWidget] implementations                              *
-        /// ***************************************************************
+        // ***************************************************************
+        // [AnchoredWidget] implementations
+        // ***************************************************************
         private Unit x1 = AnchoredWidget.pixel(0);
         private Unit x2 = AnchoredWidget.pixel(0);
         private Unit y1 = AnchoredWidget.pixel(0);

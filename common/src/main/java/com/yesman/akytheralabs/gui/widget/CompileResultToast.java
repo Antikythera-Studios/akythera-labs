@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.toasts.Toast;
@@ -10,9 +11,9 @@ import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-/// A toast popped when the editor's "Compile" action finishes: a success / failure icon, a title, and
-/// (on failure) a second line naming the page the error came from, e.g. "Compile Failed" / "Event
-/// Graph". Shown via [net.minecraft.client.Minecraft#getToastManager].
+/// A toast popped when the editor's "Compile" action finishes: a success / failure icon, a title, and (on
+/// failure) a second line naming the page the error came from, e.g. "Compile Failed" / "Event Graph". Shown
+/// via [Minecraft#getToastManager].
 public final class CompileResultToast implements Toast {
     private static final int WIDTH = 160;
     private static final int HEIGHT = 32;

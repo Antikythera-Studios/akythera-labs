@@ -13,10 +13,9 @@ import net.minecraft.resources.ResourceKey;
 /// `EnumerableDataBlockSync#LISTENERS` — currently `FSMAnimationState` and
 /// `AnimationLayerSignature`).
 ///
-/// A data block is property-less: its identity *is* its [Identifier]. [#makeObject] builds the
-/// real engine object **once**; that object reads its id **live** from this holder's own registry
-/// key (see [#currentId]), so a rename (which only re-keys the holder via
-/// [com.yesman.akytheralabs.dataholder.ProjectObjectRegistry#rekey]) is reflected by the *same*
+/// A data block is property-less: its identity *is* its [Identifier]. [#makeObject] builds the real engine
+/// object **once**; that object reads its id **live** from this holder's own registry key (see [#currentId]),
+/// so a rename (which only re-keys the holder via [ProjectObjectRegistry#rekey]) is reflected by the *same*
 /// instance — a pure name change, no object regeneration.
 ///
 /// These holders live only inside the project's `ProjectObjectRegistry` while the editor is open —

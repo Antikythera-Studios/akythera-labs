@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
+import com.yesman.akythera.api.animation.animator.AnimationSequenceInterface;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
@@ -14,9 +15,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Optional;
 
-/// The [com.yesman.akythera.api.animation.animator.AnimationSequenceInterface] node: a replaceable
-/// sequence slot. Like the fixed Sequence Player it has no inputs and one [Pose] output; the
-/// Details-picked default animation is an [AnimationSequence].
+/// The [AnimationSequenceInterface] node: a replaceable sequence slot. Like the fixed Sequence Player it has
+/// no inputs and one [Pose] output; the Details-picked default animation is an [AnimationSequence].
 ///
 /// Compile rule: `play_anim_sequence_interface(animator, interfaceKey, sequenceId)`.
 public final class AnimSequenceInterfaceNodeWidget extends AnimInterfaceNodeWidget {

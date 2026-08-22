@@ -6,6 +6,7 @@ import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.MouseHandler;
+import net.minecraft.client.gui.components.events.ContainerEventHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Overlay;
 import net.minecraft.client.gui.screens.Screen;
@@ -97,12 +98,11 @@ public abstract class MixinMouseHandler {
         return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : gui.screen();
     }
 
-    /// Vanilla [net.minecraft.client.gui.components.events.ContainerEventHandler] only latches
-    /// dragging / forwards drag + release for the left button (button 0), so a right-press never
-    /// starts a drag. These three redirects keep the stock left-button behaviour and, when the
-    /// editor is active, extend it to the right button (button 1) — gated on [MouseButtonEvent]
-    /// so vanilla and non-editor screens are untouched. This lets editor canvases (e.g. the node
-    /// graph) pan on a right-drag.
+    /// Vanilla [ContainerEventHandler] only latches dragging / forwards drag + release for the left button
+    /// (button 0), so a right-press never starts a drag. These three redirects keep the stock left-button
+    /// behaviour and, when the editor is active, extend it to the right button (button 1) — gated on
+    /// [MouseButtonEvent] so vanilla and non-editor screens are untouched. This lets editor canvases (e.g.
+    /// the node graph) pan on a right-drag.
 
     @Redirect(
         at = @At(

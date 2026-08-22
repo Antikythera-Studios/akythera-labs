@@ -47,6 +47,7 @@ import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
+import com.yesman.akytheralabs.gui.widget.main.ProjectSetupModalGenerator;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -76,6 +77,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -267,10 +269,9 @@ public final class AkytheraProject {
         loadDatapackRegistry(AkytheraRegistries.DataPack.ITEM_PATCH_KEY);
     }
 
-    /// Loads every editor-editable [com.yesman.akythera.core.util.EnumerableDataBlock]
-    /// type's entries from `data/<registryPath>/*.json`. Designed after
-    /// [#loadDatapackRegistry] — data block files are property-less `{}` JSON, so the
-    /// same generic loader applies. Each type's registry was created in the constructor.
+    /// Loads every editor-editable [EnumerableDataBlock] type's entries from `data/<registryPath>/*.json`.
+    /// Designed after [#loadDatapackRegistry] — data block files are property-less `{}` JSON, so the same
+    /// generic loader applies. Each type's registry was created in the constructor.
     void loadDataBlocks() {
         for (DataBlockRegistries.Entry<?, ?> entry : DataBlockRegistries.all()) {
             loadDatapackRegistry(entry.registryKey());
@@ -729,11 +730,9 @@ public final class AkytheraProject {
     /// to come back into the registry after [#deletePathRecursive] removed
     /// it.
     ///
-    /// Safe to call when the holder is already registered (the by-key /
-    /// by-id maps just get rewritten with the same value).
-    /// [com.yesman.akytheralabs.dataholder.AbstractDataHolder#setOwnResourceKey]
-    /// only fires `onOwnResourceKeyAssigned` on first assignment, so
-    /// re-insert doesn't double-bind outbound references.
+    /// Safe to call when the holder is already registered (the by-key / by-id maps just get rewritten with
+    /// the same value). [AbstractDataHolder#setOwnResourceKey] only fires `onOwnResourceKeyAssigned` on first
+    /// assignment, so re-insert doesn't double-bind outbound references.
     @SuppressWarnings("unchecked")
     public <T, H extends DataHolder<T>> void reinsertEntry(ResourceKey<T> key, H holder) {
         ProjectObjectRegistry<T, H> registry = (ProjectObjectRegistry<T, H>) modifiableRegistries.get(key.registryKey());
@@ -768,11 +767,17 @@ public final class AkytheraProject {
     /// the editor could not read, or throw mid-export inside `makeObject` / `getDTO`. The user
     /// confirms them before any export or world reload.
     public List<ResourceKey<?>> findBrokenEntries() {
+        return findBrokenEntries(_ -> true);
+    }
+
+    /// The broken entries whose key passes `filter` — the gate a per-category or per-selection
+    /// compile runs, so one category's broken file can't block another's.
+    public List<ResourceKey<?>> findBrokenEntries(Predicate<ResourceKey<?>> filter) {
         List<ResourceKey<?>> broken = new ArrayList<>();
 
         for (ProjectObjectRegistry<?, ?> registry : modifiableRegistries.values()) {
             for (Map.Entry<? extends ResourceKey<?>, ? extends DataHolder<?>> e : registry.dataHolderEntrySet()) {
-                if (e.getValue().getFailureException() != null) broken.add(e.getKey());
+                if (e.getValue().getFailureException() != null && filter.test(e.getKey())) broken.add(e.getKey());
             }
         }
 
@@ -789,10 +794,10 @@ public final class AkytheraProject {
     /// Minimum on-screen time of the save await modal, in milliseconds. See [#saveEntryAsync].
     private static final long MIN_AWAIT_MILLIS = 100;
 
-    /// Asynchronous counterpart to [#saveEntry]. Resolves the holder, codec and path on the calling
-    /// (render) thread, then encodes and writes the JSON on a background thread so a slow disk write
-    /// doesn't stall the editor's render loop. Callers pair this with an await modal (see
-    /// [com.yesman.akytheralabs.gui.widget.AwaitIconModal]) and close it on completion.
+    /// Asynchronous counterpart to [#saveEntry]. Resolves the holder, codec and path on the calling (render)
+    /// thread, then encodes and writes the JSON on a background thread so a slow disk write doesn't stall the
+    /// editor's render loop. Callers pair this with an await modal (see [AwaitIconModal]) and close it on
+    /// completion.
     ///
     /// Safe to encode off-thread because the await modal blocks input — the holder can't be mutated
     /// while the write is in flight. Returns a future that completes once the file is written, or an
@@ -1729,10 +1734,9 @@ public final class AkytheraProject {
     }
 
     /// Adds the project icon — `<projectRoot>/icon.png`, set via the Project Settings modal
-    /// ([com.yesman.akytheralabs.gui.widget.main.ProjectSetupModalGenerator]) — to `entries`
-    /// as the pack's root `pack.png`, so the exported pack shows it in the pack-selection list.
-    /// No-op when the project has no icon file; a read failure is logged and skipped so it can't
-    /// abort the export.
+    /// ([ProjectSetupModalGenerator]) — to `entries` as the pack's root `pack.png`, so the exported pack
+    /// shows it in the pack-selection list. No-op when the project has no icon file; a read failure is logged
+    /// and skipped so it can't abort the export.
     private void addPackIcon(Map<String, byte[]> entries) {
         Path icon = projectRoot.resolve(PROJECT_ICON_FILE);
         if (!Files.isRegularFile(icon)) return;
@@ -2316,6 +2320,10 @@ public final class AkytheraProject {
     private final Map<Identifier, AnimationClip> editorAnimations = new HashMap<>();
     private final Map<Identifier, AssetAccessor<AnimationClip>> issuedEditorAnimationAccessors = new HashMap<>();
 
+    /// Identifiers whose clip is being read right now. An additive clip reads its reference pose
+    /// mid-load, so [#editorAnimations] is re-entered while one entry is still being produced.
+    private final Set<Identifier> loadingEditorAnimations = new HashSet<>();
+
     /// Copies the dropped file into the current project, then parses the copy into an
     /// [AnimationClip]. The accessor identifier is derived from the destination path (the
     /// source may live anywhere on disk, e.g. the user's desktop), so the copy must happen
@@ -2409,16 +2417,41 @@ public final class AkytheraProject {
             return metadata;
         }
 
-        @Override public Identifier identifier() { return identifier; }
-        @Override void setIdentifier(Identifier identifier) { this.identifier = identifier; }
+        @Override
+        public Identifier identifier() {
+            return identifier;
+        }
+
+        @Override
+        void setIdentifier(Identifier identifier) {
+            this.identifier = identifier;
+        }
 
         @Override
         public AnimationClip get() {
-            return getCurrentProject().editorAnimations.computeIfAbsent(identifier, id ->
-                AnimationLoader
-                    .getLoader(id, PROJECT_RESOURCE_MANAGER)
-                    .loadAnimationClip(null)
-            );
+            AkytheraProject project = getCurrentProject();
+            AnimationClip cached = project.editorAnimations.get(identifier);
+
+            if (cached != null) {
+                return cached;
+            }
+
+            if (!project.loadingEditorAnimations.add(identifier)) {
+                throw new ResourceLoadingFailureException(
+                    identifier, "Reference pose cycle: this animation reaches itself through 'ref_pose_provider'.");
+            }
+
+            try {
+                AnimationClip clip = AnimationLoader
+                    .getLoader(identifier, PROJECT_RESOURCE_MANAGER)
+                    .loadAnimationClip(null);
+
+                project.editorAnimations.put(identifier, clip);
+
+                return clip;
+            } finally {
+                project.loadingEditorAnimations.remove(identifier);
+            }
         }
 
         @Override

@@ -29,10 +29,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
-/// Search-and-pick modal over an arbitrary list of suggestions. Opens at the cursor
-/// (no dimmer, no centering — like [com.yesman.akytheralabs.gui.widget.ContextMenuContainer])
-/// and confirms on a single-click of a row. Generic over the picked value so it is
-/// reusable for any kind of suggestion, not just script nodes.
+/// Search-and-pick modal over an arbitrary list of suggestions. Opens at the cursor (no dimmer, no centering
+/// — like [ContextMenuContainer]) and confirms on a single-click of a row. Generic over the picked value so
+/// it is reusable for any kind of suggestion, not just script nodes.
 ///
 /// `onCancel` (when supplied) fires if the modal closes without a pick — via Escape,
 /// an outside click, or the editor tearing the modal layer down — letting callers
@@ -432,9 +431,9 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
         }
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2 = AnchoredWidget.pixel(MODAL_W);
     private Unit y1;

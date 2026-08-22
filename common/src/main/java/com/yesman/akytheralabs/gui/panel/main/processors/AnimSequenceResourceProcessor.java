@@ -7,17 +7,15 @@ import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
-import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import com.yesman.akytheralabs.gui.widget.main.AnimationSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
-import net.minecraft.client.Minecraft;
+import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
 import net.minecraft.client.gui.Font;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -85,20 +83,11 @@ public final class AnimSequenceResourceProcessor implements ResourceProcessor<An
     }
 
     @Override
-    public ContextMenuContainer createContextMenuOnWidget(ContentBrowserPanel browser, ContentWidget<?> rightPressed) {
-        return ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(140)
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_OPEN))
-                .onPress(_ -> rightPressed.onDoubleClicked())
-                .done()
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_RENAME))
-                .onPress(_ -> rightPressed.startEditing())
-                .done()
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_DELETE_SELECTED))
-                .onPress(_ -> browser.triggerDeleteSelected())
-                .done()
-            .build();
+    public ExportModalGenerator.Compile categoryCompile() {
+        return new ExportModalGenerator.Compile(
+            key -> key.registryKey().equals(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY),
+            (project, sourceRoot, packageName) -> FreemarkerExporter.exportRegistryProvider(
+                project, AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, sourceRoot, packageName)
+        );
     }
 }

@@ -45,7 +45,10 @@ import java.util.function.Function;
 /// is routed through here so it goes onto the [HistoryManager] undo stack and
 /// triggers a rebuild of the views. Nothing is written to the holder until "Save".
 public final class VariableEditController {
-    static final int LABEL_W = 88;
+    /// Width of the property-name column every Details row is laid out against — its label spans
+    /// `LABEL_W - INDENT` and its editor starts at `LABEL_W + 2`. Wide enough for the longest label the
+    /// panel shows, "Control Reference Driver"; [Static] clips a label that overruns its width.
+    static final int LABEL_W = 144;
     static final int INDENT = 8;
     static final int ROW_H = 20;
 
@@ -112,9 +115,9 @@ public final class VariableEditController {
         return id == null ? "?" : id.getPath();
     }
 
-    /// *****************************************************************
-    /// Structural edits (add / remove)                                *
-    /// *****************************************************************
+    // *****************************************************************
+    // Structural edits (add / remove)
+    // *****************************************************************
     public void addVariable() {
         if (codecTypes.isEmpty()) return;
 
@@ -185,9 +188,9 @@ public final class VariableEditController {
         }
     }
 
-    /// *****************************************************************
-    /// Widget factory: name box + type combo (used by both panels)    *
-    /// *****************************************************************
+    // *****************************************************************
+    // Widget factory: name box + type combo (used by both panels)
+    // *****************************************************************
     public AdvancedEditBox<String> nameBox(
         VariableDraft draft, Unit x1, Unit x2, Unit y1, Unit y2,
         HorizontalAnchorType h, VerticalAnchorType v
@@ -311,9 +314,9 @@ public final class VariableEditController {
         draft.setDefaultVal(state.getSecond());
     }
 
-    /// *****************************************************************
-    /// Widget factory: per-type default value editor (Details only)   *
-    /// *****************************************************************
+    // *****************************************************************
+    // Widget factory: per-type default value editor (Details only)
+    // *****************************************************************
     public void addDefaultValueRow(WidgetTable table, VariableDraft draft) {
         table.newRow().addWidget(label(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VARIABLE_DEFAULT));
 

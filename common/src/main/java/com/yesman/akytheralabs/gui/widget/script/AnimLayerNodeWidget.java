@@ -1,7 +1,11 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.animation.animator.AnimationLayer;
+import com.yesman.akythera.core.animation.driver.AnimationDriver;
+import com.yesman.akythera.core.animation.driver.AnimationMontagePlayer;
+import com.yesman.akythera.core.animation.driver.AnimationPlayer;
 import com.yesman.akythera.core.animation.keyframe.Pose;
-import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
+import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akytheralabs.akythera.animation.AnimGraphCompiler;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import net.minecraft.core.Holder;
@@ -10,18 +14,13 @@ import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
-/// An Anim Graph node that registers an [com.yesman.akythera.api.animation.animator.AnimationLayer]
-/// (UE's "Slot"): the [Pose] wired into `Source` becomes the layer's base
-/// [com.yesman.akythera.core.animation.driver.AnimationDriver], and the `Pose` output yields the
-/// layer's blended pose — the base [com.yesman.akythera.core.animation.driver.AnimationPlayer] blended
-/// with the layer's [com.yesman.akythera.core.animation.driver.AnimationMontagePlayer] (see
-/// [com.yesman.akythera.api.animation.animator.AnimationLayer#getPose]).
+/// An Anim Graph node that registers an [AnimationLayer] (UE's "Slot"): the [Pose] wired into `Source`
+/// becomes the layer's base [AnimationDriver], and the `Pose` output yields the layer's blended pose — the
+/// base [AnimationPlayer] blended with the layer's [AnimationMontagePlayer] (see [AnimationLayer#getPose]).
 ///
-/// The layer is keyed by an [com.yesman.akythera.core.animation.driver.AnimationLayerSignature]; this
-/// node's [#signatureName] is that signature's `identifier().toString()`, picked from the
-/// node-suggestion menu and unique among the Anim Graph's layer nodes (the same no-duplicate rule the
-/// State Machine applies to its [com.yesman.akythera.core.animation.driver.FSMAnimationState] states).
-/// A signature is its own identity, so — like a state — it is never renamed in place.
+/// The layer is keyed by an [AnimationLayerSignature],
+/// picked from the node-suggestion menu. One signature registers one layer per animator, so a second
+/// node carrying it fails the compile. A signature is its own identity, so it is never renamed in place.
 ///
 /// Compile rule (in [AnimGraphCompiler], not a node
 /// method): every layer node `map_put`s `animation_layer_create(source)` under its signature into the
@@ -49,16 +48,17 @@ public final class AnimLayerNodeWidget extends AbstractNodeWidget {
         relayout();
     }
 
-    /// The layer's [com.yesman.akythera.core.animation.driver.AnimationLayerSignature] identifier
-    /// (`identifier().toString()`) — its persistence key (stored in the node's `variable` field) and
-    /// what the compiler stores / reads the layer under.
-    public String signatureName() {
-        return EditorHolderCodecs.blockId(signature).toString();
-    }
-
     /// The bound signature, for the row this widget describes.
     public Holder<AnimationLayerSignature> signature() {
         return signature;
+    }
+
+    /// One [AnimationLayerSignature] registers one layer per
+    /// Anim Graph, and a signature is picked from the registry rather than minted, so a copy of this
+    /// node has no name to land under.
+    @Override
+    public boolean isCopyable() {
+        return false;
     }
 
     @Override

@@ -4,6 +4,7 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.gui.widget.FloatingModal;
 import com.yesman.akytheralabs.gui.widget.Modal;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.events.ContainerEventHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import org.jspecify.annotations.Nullable;
@@ -46,11 +47,10 @@ public interface ModalAccessibleScreen {
 
     /// Check whether the pressed widget is modal. Modal shouldn't be focused
     ///
-    /// A [FloatingModal] is the exception: it shares the screen, so it takes focus like any other
-    /// widget — but only while it is up. A modal that closes itself from its own click handler is
-    /// handed the focus again on the way back out of
-    /// [net.minecraft.client.gui.components.events.ContainerEventHandler#mouseClicked], and the screen
-    /// would keep pointing at it.
+    /// A [FloatingModal] is the exception: it shares the screen, so it takes focus like any other widget —
+    /// but only while it is up. A modal that closes itself from its own click handler is handed the focus
+    /// again on the way back out of [ContainerEventHandler#mouseClicked], and the screen would keep pointing
+    /// at it.
     default boolean isModal(GuiEventListener g) {
         if (g instanceof FloatingModal) {
             return g instanceof AbstractWidget widget && !widget.isActive();

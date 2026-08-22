@@ -229,9 +229,9 @@ public final class FrameScrollBar extends AbstractWidget implements AnchoredWidg
         NONE, LEFT_EDGE, RIGHT_EDGE, BODY
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

@@ -14,6 +14,7 @@ import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.mixin.MappedRegistryAccessor;
+import net.minecraft.core.Holder;
 import net.minecraft.core.RegistrationInfo;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
@@ -127,8 +128,8 @@ public final class DataPackRegistryReloader {
         refill(target, entries);
     }
 
-    /// Unfreeze -> clear the lookup maps (but keep `byKey`, so existing [net.minecraft.core.Holder.Reference]s
-    /// rebind to the new values instead of dangling) -> re-register -> refreeze.
+    /// Unfreeze -> clear the lookup maps (but keep `byKey`, so existing [Holder.Reference]s rebind to the new
+    /// values instead of dangling) -> re-register -> refreeze.
     ///
     /// The `frozen` flag is toggled directly: vanilla's `freeze()` throws when tags are already
     /// bound while the NeoForge variant short-circuits, and the flag behaves identically on both

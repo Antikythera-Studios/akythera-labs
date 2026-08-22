@@ -10,6 +10,7 @@ import com.yesman.akythera.client.api.component.impl.MeshComponent;
 import com.yesman.akythera.client.api.component.impl.MeshComponentBlueprint;
 import com.yesman.akythera.client.api.component.impl.MeshGetter;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
+import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.ConditionGraphCompiler;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
@@ -29,9 +30,9 @@ import java.util.stream.Stream;
 /// reachable through the attach menu of a [BoneSocketHolder].
 ///
 /// [#meshGetter] is a raw [ScriptGraphData] canvas edited in a center tab, stored the way
-/// [com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder] stores its canvases. Its
-/// [MeshGetter#OWNER_PARAM] entry pin carries the owning patch, typed by the patch's parent, so a
-/// player-parented patch can read the skin off it; its result root takes an [AssetAccessor].
+/// [AnimatorScriptHolder] stores its canvases. Its [MeshGetter#OWNER_PARAM] entry pin carries the owning
+/// patch, typed by the patch's parent, so a player-parented patch can read the skin off it; its result root
+/// takes an [AssetAccessor].
 public final class MeshComponentHolder extends ComponentDataHolder<MeshComponentBlueprint> {
     public static final MapCodec<MeshComponentHolder> EDITOR_CODEC = RecordCodecBuilder.mapCodec(
         instance -> instance.group(
@@ -100,9 +101,9 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
         return meshGetter.firstFailure();
     }
 
-    /// ***************************************************************
-    /// Source export (File > Export > As Source Code)
-    /// ***************************************************************
+    // ***************************************************************
+    // Source export (File > Export > As Source Code)
+    // ***************************************************************
 
     @Override
     public String sourceTemplate() {

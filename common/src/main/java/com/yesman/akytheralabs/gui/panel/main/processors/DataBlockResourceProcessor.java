@@ -4,17 +4,15 @@ import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
-import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
-import net.minecraft.client.Minecraft;
+import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
 import net.minecraft.client.gui.Font;
 import net.minecraft.core.Registry;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
 
@@ -84,16 +82,11 @@ public final class DataBlockResourceProcessor<T extends EnumerableDataBlock> imp
     }
 
     @Override
-    public ContextMenuContainer createContextMenuOnWidget(ContentBrowserPanel browser, ContentWidget<?> rightPressed) {
-        return ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(140)
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_RENAME))
-                .onPress(_ -> rightPressed.startEditing())
-                .done()
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_DELETE_SELECTED))
-                .onPress(_ -> browser.triggerDeleteSelected())
-                .done()
-            .build();
+    public ExportModalGenerator.Compile categoryCompile() {
+        return new ExportModalGenerator.Compile(
+            key -> key.registryKey().equals(registryKey),
+            (project, sourceRoot, packageName) -> FreemarkerExporter.exportDataBlockEnum(
+                project, registryKey, sourceRoot, packageName)
+        );
     }
 }

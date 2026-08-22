@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.panel.components;
 
 import com.mojang.serialization.MapCodec;
+import com.yesman.akythera.api.component.ComponentAttachable;
 import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.blueprint.ComponentBlueprint;
@@ -8,6 +9,7 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.RootAttachableComponent;
 import com.yesman.akytheralabs.dataholder.ComponentHolderRegistry;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -41,17 +43,15 @@ import java.util.function.BiConsumer;
 /// [WidgetTable] listing the patch's component **tree** — one row per component, indented under the
 /// component it is attached to.
 ///
-/// Since the engine keys a [com.yesman.akythera.api.component.ComponentAttachable]'s components by
-/// name, a row's name *is* the component's identity: it shows as an editable box (transparent until
-/// focused, like the Variables panel) and a commit re-keys it in its parent's map. Sibling names are
-/// kept unique by [ComponentAttachableHolder#uniqueName], which suffixes `_1`, `_2`, ... rather than
-/// rejecting the author's typing.
+/// Since the engine keys a [ComponentAttachable]'s components by name, a row's name *is* the component's
+/// identity: it shows as an editable box (transparent until focused, like the Variables panel) and a commit
+/// re-keys it in its parent's map. Sibling names are kept unique by [ComponentAttachableHolder#uniqueName],
+/// which suffixes `_1`, `_2`, ... rather than rejecting the author's typing.
 ///
-/// The `+` button attaches to the patch itself; a right-click on a row offers "Attach Component" for
-/// that row's own children, plus "Rename" / "Remove". Both menus offer only what the host in question
-/// accepts — [com.yesman.akytheralabs.akythera.entitypatch.component.RootAttachableComponent] at the
-/// root, the host's [ComponentAttachableHolder#attachableTypes] under a component — which is what
-/// keeps a bone socket out of the root list and inside an armature's.
+/// The `+` button attaches to the patch itself; a right-click on a row offers "Attach Component" for that
+/// row's own children, plus "Rename" / "Remove". Both menus offer only what the host in question accepts —
+/// [RootAttachableComponent] at the root, the host's [ComponentAttachableHolder#attachableTypes] under a
+/// component — which is what keeps a bone socket out of the root list and inside an armature's.
 ///
 /// Every edit goes onto the [HistoryManager] undo stack, so the title's unsaved-changes `*` tracks
 /// it, and calls [#onChanged]. Edits land on the holder tree directly, as the Details panel's value
@@ -352,9 +352,8 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
         onComponentFocused.accept(selected, selected == null ? null : hostOf(selected));
     }
 
-    /// Focuses a component, reporting the host it hangs off with it. `host` is passed rather than
-    /// looked up because a freshly attached component isn't in [#rows] yet — the list rebuilds after
-    /// the focus, not before it.
+    /// Focuses a component, reporting the host it hangs off with it. `host` is given rather than
+    /// looked up: a freshly attached component is not in [#rows] yet.
     private void select(@Nullable ComponentDataHolder<?> holder, @Nullable ComponentAttachableHolder host) {
         if (selected == holder) return;
         selected = holder;
@@ -380,9 +379,9 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
         return -1;
     }
 
-    /// ***************************************************************
-    /// Menus
-    /// ***************************************************************
+    // ***************************************************************
+    // Menus
+    // ***************************************************************
 
     /// The component types `host` accepts and this patch kind offers, that also have an editor
     /// holder registered — the menu can only create what it can build a holder for.
@@ -463,9 +462,9 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
         AkytheraEditorLayoutManager.getInstance().openModalWidget(builder.build(), x, y);
     }
 
-    /// ***************************************************************
-    /// Structural edits
-    /// ***************************************************************
+    // ***************************************************************
+    // Structural edits
+    // ***************************************************************
 
     private void attachComponent(ComponentAttachableHolder host, Identifier typeId) {
         ComponentDataHolder<?> holder = registry.createDefault(typeId);

@@ -9,11 +9,13 @@ import com.yesman.akythera.client.gui.widget.ResizeCompleteCallbackListener;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.historytrack.ScreenSavePoint;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.gui.screen.LoadAkytheraProjectScreen;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.DropdownSizeMemory;
 import com.yesman.akytheralabs.gui.widget.FloatingModal;
+import com.yesman.akytheralabs.gui.widget.PopupBox;
 import com.yesman.akytheralabs.gui.widget.ResizableFrame;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
@@ -203,14 +205,12 @@ public final class AkytheraEditorLayoutManager {
     /// is non-empty, all inputs intercept to the topmost modal. Lower layers stay
     /// visible behind it.
     ///
-    /// If the modal is a [WidgetContainerModal] built with [WidgetContainerModal.Builder#saveHistory()],
-    /// the layout manager requests a [com.yesman.akytheralabs.editor.historytrack.ScreenSavePoint]
-    /// at open and pops the modal's bracket at close. Otherwise (pickers /
-    /// context menus / confirmations), no save point — callback pushes land
-    /// on the parent screen's history.
+    /// If the modal is a [WidgetContainerModal] built with [WidgetContainerModal.Builder#saveHistory()], the
+    /// layout manager requests a [ScreenSavePoint] at open and pops the modal's bracket at close. Otherwise
+    /// (pickers / context menus / confirmations), no save point — callback pushes land on the parent screen's
+    /// history.
     ///
-    /// Callers that need the existing topmost modal to be replaced (e.g. the
-    /// `TopMenuBar` switching between dropdowns) must call [#closeModal] first.
+    /// Callers that need the existing topmost modal replaced must call [#closeModal] first.
     public void openModalWidget(final @NonNull AbstractWidget modal, final int x, final int y) {
         if (!isActive()) {
             throw new IllegalStateException("Tried to open a modal before project opened");
@@ -232,10 +232,9 @@ public final class AkytheraEditorLayoutManager {
         resizeWorldViewportIfHost(modal);
     }
 
-    /// Push `modal` as a dropdown of `anchor` — a [com.yesman.akytheralabs.gui.widget.PopupBox]'s
-    /// picker. Default placement is the anchor's bottom-left, as wide as the anchor but never narrower
-    /// than the modal's own width (so a narrow editor cell still gets a readable list); the height is
-    /// the modal's own.
+    /// Push `modal` as a dropdown of `anchor` — a [PopupBox]'s picker. Default placement is the anchor's
+    /// bottom-left, as wide as the anchor but never narrower than the modal's own width (so a narrow editor
+    /// cell still gets a readable list); the height is the modal's own.
     ///
     /// The placement then adapts, once per axis, to keep the modal inside the editor viewport:
     ///

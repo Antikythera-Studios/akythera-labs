@@ -4,6 +4,7 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
+import com.yesman.akythera.api.world.patch.entity.PlayerPatch;
 import com.yesman.akythera.client.core.renderer.RenderUtils;
 import com.yesman.akythera.client.gui.widget.viewer.BackgroundComponent;
 import com.yesman.akythera.client.gui.widget.viewer.CameraComponent;
@@ -37,6 +38,7 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.panel.components.ComponentDetailsPanel;
 import com.yesman.akytheralabs.gui.panel.components.ComponentEditorPanel;
+import com.yesman.akytheralabs.gui.panel.main.processors.EntityPatchResourceProcessor;
 import com.yesman.akytheralabs.gui.panel.script.VariableDraft;
 import com.yesman.akytheralabs.gui.panel.script.VariableEditController;
 import com.yesman.akytheralabs.gui.panel.script.VariablePanel;
@@ -50,6 +52,7 @@ import com.yesman.akytheralabs.gui.widget.viewer.BoneSocketPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
+import com.yesman.akytheralabs.gui.widget.UniversalMenu;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
@@ -274,12 +277,12 @@ public final class EntityPatchEditorScreen extends Screen
 
     /// One choice per [ScriptFunction.Usage#ENTITY_PATCH_CTOR] function, filling the top menu's
     /// `Change Parent` sub-list.
-    private List<TopMenuBar.Choice> parentChoices() {
-        List<TopMenuBar.Choice> choices = new ArrayList<>();
+    private List<UniversalMenu.Choice> parentChoices() {
+        List<UniversalMenu.Choice> choices = new ArrayList<>();
 
         for (ScriptFunction function : AkytheraRegistries.Frozen.SCRIPT_FUNCTION) {
             if (function.metadata().usage() != ScriptFunction.Usage.ENTITY_PATCH_CTOR) continue;
-            choices.add(new TopMenuBar.Choice(Component.literal(function.metadata().label()), () -> changeParent(function)));
+            choices.add(new UniversalMenu.Choice(Component.literal(function.metadata().label()), () -> changeParent(function)));
         }
 
         return choices;
@@ -303,8 +306,8 @@ public final class EntityPatchEditorScreen extends Screen
     }
 
     /// The entity type this patch is keyed by: its registry id's path re-read as an entity type id
-    /// (`myproject:minecraft/player` → `minecraft:player`), matching how
-    /// [com.yesman.akytheralabs.gui.panel.main.processors.EntityPatchResourceProcessor] builds it.
+    /// (`myproject:minecraft/player` → `minecraft:player`), matching how [EntityPatchResourceProcessor]
+    /// builds it.
     private Identifier patchedEntityTypeId() {
         String path = resourceKey.identifier().getPath();
         int split = path.indexOf('/');
@@ -620,9 +623,8 @@ public final class EntityPatchEditorScreen extends Screen
         return function.functionSignature().parameters().stream().anyMatch(Comparator.class::isAssignableFrom);
     }
 
-    /// Whether `function` can be called on this patch: a member function's receiver slot (parameter 0)
-    /// has to accept the parent type, so [com.yesman.akythera.api.world.patch.entity.PlayerPatch]'s
-    /// methods are offered only to a patch parented on it.
+    /// Whether `function` can be called on this patch: a member function's receiver slot (parameter 0) has to
+    /// accept the parent type, so [PlayerPatch]'s methods are offered only to a patch parented on it.
     private boolean ownerAccepts(ScriptFunction function) {
         if (!function.isMember()) return true;
 
@@ -696,9 +698,9 @@ public final class EntityPatchEditorScreen extends Screen
         return true;
     }
 
-    /// ***************************************************************
-    /// Widget registration / layout
-    /// ***************************************************************
+    // ***************************************************************
+    // Widget registration / layout
+    // ***************************************************************
     @Override
     protected void init() {
         super.init();
@@ -715,9 +717,9 @@ public final class EntityPatchEditorScreen extends Screen
         panelManager.relocate(rect);
     }
 
-    /// ***************************************************************
-    /// Save / compile
-    /// ***************************************************************
+    // ***************************************************************
+    // Save / compile
+    // ***************************************************************
 
     /// Flattens the working state onto the holder and writes it to disk asynchronously.
     private java.util.concurrent.CompletableFuture<Void> save() {
@@ -745,8 +747,8 @@ public final class EntityPatchEditorScreen extends Screen
     private void compile() {
         flushToHolder();
 
-        if (!eventGraph.validate().isEmpty()) {
-            AkytheraLabs.LOGGER.warn("Compile of entity patch '{}' failed on the Event Graph", resourceKey.identifier());
+        if (validateLiveCanvases()) {
+            AkytheraLabs.LOGGER.warn("Compile of entity patch '{}' failed validation", resourceKey.identifier());
             return;
         }
 
@@ -766,6 +768,20 @@ public final class EntityPatchEditorScreen extends Screen
         } catch (RuntimeException e) {
             AkytheraLabs.LOGGER.error("Failed to compile entity patch '{}'", resourceKey.identifier(), e);
         }
+    }
+
+    /// Validates every canvas with widgets on screen — the Event Graph plus each open result /
+    /// condition sub-tab — and returns whether any failed. Every canvas is validated even once one has
+    /// failed: [ScriptNodeGraphWidget#validate] is what paints a node's red "ERROR!" banner, so
+    /// stopping early would leave the offending node on a later tab unmarked.
+    private boolean validateLiveCanvases() {
+        boolean failed = !eventGraph.validate().isEmpty();
+
+        for (ScriptNodeGraphWidget open : openGraphs.values()) {
+            if (!open.validate().isEmpty()) failed = true;
+        }
+
+        return failed;
     }
 
     /// Writes the Event Graph, the variables and any open canvas tab back onto the holder. Components
@@ -900,9 +916,9 @@ public final class EntityPatchEditorScreen extends Screen
         return HistoryManager.getInstance().currentSavePoint() != savePoint;
     }
 
-    /// ***************************************************************
-    /// Screen lifecycle / input
-    /// ***************************************************************
+    // ***************************************************************
+    // Screen lifecycle / input
+    // ***************************************************************
     @Override
     public void handleQuitRequest() {
         SafeCloseScreen.openQuiteScreen(

@@ -2,6 +2,8 @@ package com.yesman.akytheralabs.gui.widget.script.node;
 
 import com.mojang.serialization.MapCodec;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
+import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
+import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
 import net.minecraft.resources.Identifier;
@@ -50,8 +52,8 @@ public interface NodeData {
         return false;
     }
 
-    /// Whether an output pin of this node may be hoisted into a `cse_<id>_<pin>` local when more than
-    /// one consumer reads it (see [com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler]).
+    /// Whether an output pin of this node may be hoisted into a `cse_<id>_<pin>` local when more than one
+    /// consumer reads it (see [ScriptGraphCompiler]).
     default boolean shareableOutput() {
         return false;
     }
@@ -61,8 +63,7 @@ public interface NodeData {
         return IntStream.empty();
     }
 
-    /// The shared rename-tracking instances this node binds
-    /// (see [com.yesman.akytheralabs.dataholder.DataHolder#referencedReferences]).
+    /// The shared rename-tracking instances this node binds (see [DataHolder#referencedReferences]).
     default Stream<EditorReference> referencedReferences() {
         return Stream.empty();
     }

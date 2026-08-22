@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.api.data.modularize.node.animgraph.CachedPoseReferenceNode;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akytheralabs.akythera.animation.AnimGraphCompiler;
@@ -12,11 +13,10 @@ import net.minecraft.network.chat.Component;
 /// [CachedPoseGetterNodeWidget] elsewhere on the same Anim Graph can reuse it without re-evaluating
 /// the sub-tree. A pose sink: one `Pose` input, no output.
 ///
-/// Compile rule (in [AnimGraphCompiler], not a node
-/// method): the wired pose lowers to a [com.yesman.akythera.api.data.modularize.node.PureNode]
-/// registered under [#cacheName] in the blueprint's `cachedPoseProviders` map. The engine
-/// [CachedPoseReferenceNode] evaluates it lazily on first
-/// reference and caches the result in the script locals for the rest of the frame.
+/// Compile rule (in [AnimGraphCompiler], not a node method): the wired pose lowers to a [PureNode] registered
+/// under [#cacheName] in the blueprint's `cachedPoseProviders` map. The engine [CachedPoseReferenceNode]
+/// evaluates it lazily on first reference and caches the result in the script locals for the rest of the
+/// frame.
 public final class PoseCachingNodeWidget extends AbstractNodeWidget {
     private static final int TITLE_COLOR = 0xFF2A2A2A;
 
@@ -46,6 +46,13 @@ public final class PoseCachingNodeWidget extends AbstractNodeWidget {
         this.cacheName = name;
         setMessage(Component.literal("Cache: " + name));
         relayout();
+    }
+
+    /// A pose is cached once and read back by name from every getter on the script, so a second
+    /// definition would split the readers between them.
+    @Override
+    public boolean isCopyable() {
+        return false;
     }
 
     @Override

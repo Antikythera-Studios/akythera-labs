@@ -5,13 +5,12 @@ import com.yesman.akythera.core.util.LogicalSide;
 import com.yesman.akytheralabs.SourceTemplateEngine;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.editor.EditorEditable;
 import org.jspecify.annotations.Nullable;
 
-/// Editor-side mirror for an immutable [AnimationNotify]. Subclasses expose
-/// mutable fields annotated with
-/// [com.yesman.akytheralabs.editor.EditorEditable] so the notify-details
-/// panel can render the right widgets, then [#makeObject] reconstructs the
-/// engine instance for export.
+/// Editor-side mirror for an immutable [AnimationNotify]. Subclasses expose mutable fields annotated with
+/// [EditorEditable] so the notify-details panel can render the right widgets, then [#makeObject] reconstructs
+/// the engine instance for export.
 ///
 /// As a [DTOProvider] each subclass also maps to a `notify/<type>.ftl` fragment
 /// (returned by [#sourceTemplate]); [#toSourceCode] renders that fragment against

@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
+import com.yesman.akythera.api.data.modularize.node.PureFunctionNode;
 import com.yesman.akythera.core.reflection.FunctionSignature;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.PureFunctionNodeData;
@@ -11,12 +12,11 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-/// Widget for a [com.yesman.akythera.api.data.modularize.node.PureFunctionNode]:
-/// evaluates a single pure [ScriptFunction] with no side effects, so it carries **no
-/// execution pins**. The left side has one data input per parameter, labeled from
-/// [FunctionSignature#parameterNames] (the owner slot of a member function shows as
-/// "Target"); the right side has the single return-value output. Hovering the title
-/// shows the function's description plus its parameter names.
+/// Widget for a [PureFunctionNode]: evaluates a single pure [ScriptFunction] with no side effects, so it
+/// carries **no execution pins**. The left side has one data input per parameter, labeled from
+/// [FunctionSignature#parameterNames] (the owner slot of a member function shows as "Target"); the right side
+/// has the single return-value output. Hovering the title shows the function's description plus its parameter
+/// names.
 public final class PureFunctionNodeWidget extends AbstractNodeWidget {
     private final ScriptFunction function;
     @Nullable

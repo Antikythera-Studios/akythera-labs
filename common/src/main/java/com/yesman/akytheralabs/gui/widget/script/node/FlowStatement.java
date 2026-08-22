@@ -1,12 +1,13 @@
 package com.yesman.akytheralabs.gui.widget.script.node;
 
+import com.yesman.akythera.api.data.modularize.node.FlowNode;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/// One node in the structured flow tree the flow compiler builds before it emits; it mirrors the
-/// emitted [com.yesman.akythera.api.data.modularize.node.FlowNode] shape.
+/// One node in the structured flow tree the flow compiler builds before it emits; it mirrors the emitted
+/// [FlowNode] shape.
 ///
 /// A statement with `data == null` is a **synthetic sequence slot** — a chain, a branch arm or a
 /// `next` body — which exists so a hoisted shared value has somewhere to be placed.

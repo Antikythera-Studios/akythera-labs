@@ -8,6 +8,8 @@ import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.ProjectObjectHolder;
+import com.yesman.akytheralabs.gui.widget.PopupBox;
 import net.minecraft.core.Holder;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -16,9 +18,8 @@ import net.minecraft.resources.ResourceKey;
 /// `ArmatureComponentBlueprint.AnimatorScriptFactory` union: a class-based script backed by a frozen
 /// `SCRIPT_TYPE` entry ([ClassScript]), or a data pack script blueprint ([DataPackScript]).
 ///
-/// The data pack variant holds a live [Holder] — the shared
-/// [com.yesman.akytheralabs.dataholder.ProjectObjectHolder] for project entries — so the reference
-/// follows a rename in place. The class variant is a frozen engine type and never renames.
+/// The data pack variant holds a live [Holder] — the shared [ProjectObjectHolder] for project entries — so
+/// the reference follows a rename in place. The class variant is a frozen engine type and never renames.
 public sealed interface AnimatorScriptRef {
     /// Editor persistence dispatch, `{ "type": "class"|"datapack", "animator_type": ... }` — the
     /// shape the engine factory serializes. On decode a data pack key resolves back to the shared
@@ -35,7 +36,7 @@ public sealed interface AnimatorScriptRef {
         }
     );
 
-    /// Id shown in the editor [com.yesman.akytheralabs.gui.widget.PopupBox] (`<none>` when unbound).
+    /// Id shown in the editor [PopupBox] (`<none>` when unbound).
     String displayLabel();
 
     /// A data pack script ref over `key`, resolved through [AkytheraProject#getEntryHolderOrDangling]

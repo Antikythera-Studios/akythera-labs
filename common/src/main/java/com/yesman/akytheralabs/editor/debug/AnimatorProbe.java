@@ -7,7 +7,7 @@ import com.yesman.akythera.core.animation.animator.BlendingAnimator;
 import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.core.animation.driver.AnimationStateMachine;
 import com.yesman.akythera.core.animation.driver.CachedPoseReference;
-import com.yesman.akythera.core.animation.driver.FSMAnimationState;
+import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.animation.playable.PlayableAnimation;
 import com.yesman.akythera.core.blueprint.script.AnimatorScript;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
@@ -16,6 +16,7 @@ import com.yesman.akytheralabs.mixin.AnimationStateMachineAccessor;
 import com.yesman.akytheralabs.mixin.BlendingAnimatorAccessor;
 import com.yesman.akytheralabs.mixin.CachedPoseReferenceAccessor;
 import net.minecraft.core.Holder;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
 
@@ -104,6 +105,9 @@ public final class AnimatorProbe {
         return ids;
     }
 
+    /// A state with no identifier is skipped rather than named: the entity keeps running the machine it
+    /// was built with until its patch is renewed, so between a reload dropping a state and that rebuild
+    /// the machine holds a block the registry no longer knows. Nothing on a canvas can match it either.
     private static void collectActiveStates(final AnimationDriver driver, final Set<String> ids) {
         if (driver instanceof CachedPoseReference poseReference) {
             collectActiveStates(((CachedPoseReferenceAccessor)(Object)poseReference).akytheralabs$ref(), ids);
@@ -111,7 +115,10 @@ public final class AnimatorProbe {
         }
 
         if (driver instanceof AnimationStateMachine<?> stateMachine) {
-            ids.add(stateMachine.getState().identifier().toString());
+            Identifier state = stateMachine.getState().identifier();
+
+            if (state != null) ids.add(state.toString());
+
             collectActiveStates(
                 ((AnimationStateMachineAccessor)(Object)stateMachine).akytheralabs$getCurrentStateDriver(), ids);
         }

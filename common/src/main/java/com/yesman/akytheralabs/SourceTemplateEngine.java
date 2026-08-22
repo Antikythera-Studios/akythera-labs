@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs;
 
+import com.yesman.akytheralabs.dataholder.DTOProvider;
 import freemarker.cache.ClassTemplateLoader;
 import freemarker.cache.MultiTemplateLoader;
 import freemarker.cache.TemplateLoader;
@@ -17,11 +18,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/// Shared FreeMarker entry point for source-code generation. Owns the one
-/// [Configuration] (template loader rooted at [#TEMPLATE_ROOT]) used by both the
-/// top-level [FreemarkerExporter] and by [com.yesman.akytheralabs.dataholder.DTOProvider]
-/// implementations that render per-type fragment templates (`notify/log.ftl`,
-/// `notify/play_sound.ftl`, …) into Java source strings.
+/// Shared FreeMarker entry point for source-code generation. Owns the one [Configuration] (template loader
+/// rooted at [#TEMPLATE_ROOT]) used by both the top-level [FreemarkerExporter] and by [DTOProvider]
+/// implementations that render per-type fragment templates (`notify/log.ftl`, `notify/play_sound.ftl`, …)
+/// into Java source strings.
 @NullMarked
 public final class SourceTemplateEngine {
     private SourceTemplateEngine() {}

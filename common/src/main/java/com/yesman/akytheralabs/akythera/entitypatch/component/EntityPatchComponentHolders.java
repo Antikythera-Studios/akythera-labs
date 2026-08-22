@@ -1,12 +1,13 @@
 package com.yesman.akytheralabs.akythera.entitypatch.component;
 
 import com.yesman.akythera.core.Akythera;
+import com.yesman.akythera.core.blueprint.ComponentBlueprint;
 import com.yesman.akytheralabs.dataholder.ComponentHolderRegistry;
 import net.minecraft.resources.Identifier;
 
 /// The entity-patch [ComponentHolderRegistry] — the editor holders for the component types tagged
-/// [com.yesman.akythera.core.blueprint.ComponentBlueprint#ENTITY_PATCH_COMPONENT_TAG]. Register
-/// through [#REGISTRY] directly; compat plugins do so during client init.
+/// [ComponentBlueprint#ENTITY_PATCH_COMPONENT_TAG]. Register through [#REGISTRY] directly; compat plugins do
+/// so during client init.
 ///
 /// A tagged type is not automatically offerable at the root of a patch; only holders implementing
 /// [RootAttachableComponent] are. `akythera:bone_socket` is the standing example — an entity-patch

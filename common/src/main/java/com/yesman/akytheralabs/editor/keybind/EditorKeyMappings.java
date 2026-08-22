@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.editor.keybind;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.network.chat.Component;
 
@@ -28,7 +29,7 @@ public final class EditorKeyMappings {
     public static final EditorKeyMapping RENAME = reg("rename", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_RENAME, InputConstants.KEY_F2, 0);
 
     // Gives the pointer back once the world viewport has grabbed it. Handled straight from
-    // `KeyboardHandler#keyPress` (see [com.yesman.akytheralabs.AkytheraEditorLayoutManager#tryUngrabMouse]),
+    // `KeyboardHandler#keyPress` (see [AkytheraEditorLayoutManager#tryUngrabMouse]),
     // because a grabbed pointer stops the editor screens from receiving key presses at all.
     public static final EditorKeyMapping UNGRAB = reg("ungrab", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_UNGRAB, InputConstants.KEY_F1, InputConstants.MOD_SHIFT);
 

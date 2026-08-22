@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.akythera.entitypatch;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.yesman.akythera.api.component.ComponentAttachable;
 import com.yesman.akythera.api.data.modularize.AkytheraScriptFunctions;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
@@ -39,8 +40,8 @@ import java.util.Optional;
 import java.util.SequencedMap;
 import java.util.stream.Stream;
 
-/// Modifiable data holder for an [EntityPatchBlueprint]
-/// (registry [com.yesman.akythera.core.registry.AkytheraRegistries.DataPack#ENTITY_PATCH_KEY]).
+/// Modifiable data holder for an [EntityPatchBlueprint] (registry
+/// [AkytheraRegistries.DataPack#ENTITY_PATCH_KEY]).
 ///
 /// As on [AnimatorScriptHolder], the editor keeps the blueprint's flows as one flat
 /// [ScriptGraphData] canvas — the "Event Graph" — hosting all three entry points, `onConstruct` /
@@ -48,12 +49,11 @@ import java.util.stream.Stream;
 /// compile step: it lowers the sub-flow rooted at each entry back into a tree [FlowNode] through
 /// [ScriptGraphCompiler] and assembles the runtime [EntityPatchBlueprint].
 ///
-/// Components are editor holders such as [ArmatureComponentHolder], keyed by the author-chosen name
-/// the engine attaches them under. The patch itself is the root [ComponentAttachableHolder], as
-/// [EntityPatch] is the root [com.yesman.akythera.api.component.ComponentAttachable]. Their
-/// properties are edited in the Details panel; [#EDITOR_CODEC] persists the whole tree through
-/// [ComponentAttachableHolder#componentsField], and [#makeObject] lowers each holder into its
-/// runtime [ComponentBlueprint].
+/// Components are editor holders such as [ArmatureComponentHolder], keyed by the author-chosen name the
+/// engine attaches them under. The patch itself is the root [ComponentAttachableHolder], as [EntityPatch] is
+/// the root [ComponentAttachable]. Their properties are edited in the Details panel; [#EDITOR_CODEC] persists
+/// the whole tree through [ComponentAttachableHolder#componentsField], and [#makeObject] lowers each holder
+/// into its runtime [ComponentBlueprint].
 ///
 /// [#ctor] is the patch's parent — the [EntityPatch] subclass the engine instantiates — and its
 /// return type is [#ownerType], the script owner every canvas on this blueprint is typed against.
@@ -195,9 +195,9 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
         return dto;
     }
 
-    /// ***************************************************************
-    /// Components (editor holders keyed by attachment name)
-    /// ***************************************************************
+    // ***************************************************************
+    // Components (editor holders keyed by attachment name)
+    // ***************************************************************
     /// The component map minus unknown-type placeholders. A [FailedComponentHolder] has no source
     /// form and round-trips only through its raw JSON.
     private SequencedMap<String, ComponentDataHolder<?>> healthyComponents() {
@@ -217,9 +217,9 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
         this.components = new LinkedHashMap<>(components);
     }
 
-    /// ***************************************************************
-    /// Event Graph (flat editor form)
-    /// ***************************************************************
+    // ***************************************************************
+    // Event Graph (flat editor form)
+    // ***************************************************************
     public ScriptGraphData getEventGraph() {
         return eventGraph;
     }
@@ -228,9 +228,9 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
         this.eventGraph = eventGraph;
     }
 
-    /// ***************************************************************
-    /// Variables
-    /// ***************************************************************
+    // ***************************************************************
+    // Variables
+    // ***************************************************************
     public List<ScriptVariables.VariableInfo> getVariables() {
         return variables;
     }
@@ -239,9 +239,9 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
         this.variables = new ArrayList<>(variables);
     }
 
-    /// ***************************************************************
-    /// Preview model (editor-only)
-    /// ***************************************************************
+    // ***************************************************************
+    // Preview model (editor-only)
+    // ***************************************************************
     public @Nullable EntityPreviewModel getPreviewModel() {
         return previewModel;
     }

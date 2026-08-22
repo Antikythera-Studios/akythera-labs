@@ -1,15 +1,15 @@
 package com.yesman.akytheralabs.editor;
 
+import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/// Companion of [EditorEditable] for
-/// [com.yesman.akytheralabs.gui.widget.script.ScriptGraphData]-typed holder fields: declares the
-/// shape of the field's node-graph canvas so the Details panel's "Edit Node Graph" button can open
-/// a correctly seeded tab. Mirrors the Anim Graph convention (raw `ScriptGraphData` field on the
-/// holder, root node seeded by the screen, compile in the holder's `makeObject`).
+/// Companion of [EditorEditable] for [ScriptGraphData]-typed holder fields: declares the shape of the field's
+/// node-graph canvas so the Details panel's "Edit Node Graph" button can open a correctly seeded tab. Mirrors
+/// the Anim Graph convention (raw `ScriptGraphData` field on the holder, root node seeded by the screen,
+/// compile in the holder's `makeObject`).
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)
 public @interface EditorNodeGraph {

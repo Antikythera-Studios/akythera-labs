@@ -206,14 +206,23 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         return connectedInputs.containsKey(index);
     }
 
-    /// ***************************************************************
-    /// Validation
-    /// ***************************************************************
+    // ***************************************************************
+    // Validation
+    // ***************************************************************
 
     /// Replaces this node's validation errors (UE-style red "ERROR!" banner + outline + hover
     /// tooltip). Passing an empty list clears the flag. Driven by [ScriptNodeGraphWidget#validate].
     public void setErrors(@Nullable List<Component> errors) {
         this.errors = (errors == null || errors.isEmpty()) ? List.of() : List.copyOf(errors);
+    }
+
+    /// Appends one more validation error, keeping the ones already flagged — the hook for a problem
+    /// the owning canvas cannot see on its own, such as a name duplicated across the script's canvases.
+    /// The next [#setErrors] (every [ScriptNodeGraphWidget#validate]) clears it again.
+    public void addError(Component error) {
+        List<Component> all = new ArrayList<>(errors);
+        all.add(error);
+        this.errors = List.copyOf(all);
     }
 
     public boolean hasErrors() {
@@ -267,6 +276,12 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     /// Whether the user may delete this node from the graph. The flow's entry-point
     /// node (e.g. "Update") overrides this to false so it can never be removed.
     public boolean isDeletable() { return true; }
+
+    /// Whether the user may copy this node. A node whose identity is a registered signature that must
+    /// be unique per animator, or a definition the rest of the graph reads back by name, overrides
+    /// this to false: the editor cannot mint it a name of its own, so a second one is incoherent
+    /// wherever it is pasted. A node that cannot be deleted cannot be copied either.
+    public boolean isCopyable() { return isDeletable(); }
 
     /// Whether double-clicking this node opens its own editor (e.g. a
     /// [StateMachineNodeWidget] opening its state-machine sub-tab). The host graph fires
@@ -735,9 +750,9 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     protected void updateWidgetNarration(@NonNull NarrationElementOutput narrationElementOutput) {
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

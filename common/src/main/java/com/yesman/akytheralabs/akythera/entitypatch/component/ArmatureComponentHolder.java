@@ -18,6 +18,7 @@ import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
+import net.minecraft.core.Holder;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
@@ -41,9 +42,9 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
     /// [ArmatureManager#CODEC] decodes through a plain map lookup, which yields null at project-load
     /// time for an accessor nothing has issued yet.
     ///
-    /// The script is an [AnimatorScriptRef] union — a class type, or a live data pack
-    /// [net.minecraft.core.Holder]. The data pack variant serializes its key but resolves to a shared
-    /// holder, so the path always reflects the referenced entry's current id.
+    /// The script is an [AnimatorScriptRef] union — a class type, or a live data pack [Holder]. The data pack
+    /// variant serializes its key but resolves to a shared holder, so the path always reflects the referenced
+    /// entry's current id.
     ///
     /// The attached sockets ride [ComponentAttachableHolder#componentsField], which dispatches back
     /// through the same registry this codec is registered in. [Codec#lazyInitialized] breaks that
@@ -89,10 +90,10 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
         this.useRootMotion = useRootMotion;
     }
 
-    /// A freshly added, unconfigured armature component. The armature is the
-    /// [com.yesman.akytheralabs.dataholder.DataHolder#EMPTY_REFERENCE] placeholder and the script a
-    /// dangling data pack ref; both are non-null and display as `<none>`, so the editor widgets can
-    /// still read the accessor's `type()` and the ref's union kind to route their pick modals.
+    /// A freshly added, unconfigured armature component. The armature is the [DataHolder#EMPTY_REFERENCE]
+    /// placeholder and the script a dangling data pack ref; both are non-null and display as `<none>`, so the
+    /// editor widgets can still read the accessor's `type()` and the ref's union kind to route their pick
+    /// modals.
     public static ArmatureComponentHolder createDefault() {
         return new ArmatureComponentHolder(
             resolveArmature(EMPTY_REFERENCE),
@@ -227,9 +228,9 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
         return ArmatureComponent.class;
     }
 
-    /// ***************************************************************
-    /// Source export (File > Export > As Source Code)
-    /// ***************************************************************
+    // ***************************************************************
+    // Source export (File > Export > As Source Code)
+    // ***************************************************************
 
     @Override
     public String sourceTemplate() {

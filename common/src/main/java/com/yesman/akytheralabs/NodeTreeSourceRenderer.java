@@ -24,7 +24,8 @@ import com.yesman.akythera.api.data.modularize.node.animgraph.AnimationStateMach
 import com.yesman.akythera.api.data.modularize.node.animgraph.CachedPoseReferenceNode;
 import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.Mesh;
-import com.yesman.akythera.core.animation.driver.FSMAnimationState;
+import com.yesman.akythera.core.animation.FSMAnimationState;
+import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import net.minecraft.resources.Identifier;
@@ -33,12 +34,11 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 
-/// Renders a runtime script-node tree as **Java constructor expressions** — the data-literal
-/// counterpart of [ScriptNodeSourceCompiler], which lowers the same tree into executable
-/// statements. The blueprint provider export (`entity_patch_blueprint_template.ftl`) uses this to
-/// reproduce an [com.yesman.akythera.core.blueprint.EntityPatchBlueprint]'s flows and variables in
-/// generated datagen source. Covers the full editor-producible node vocabulary — animgraph nodes
-/// included — so it renders animator-script trees too, not only entity patch flows.
+/// Renders a runtime script-node tree as **Java constructor expressions** — the data-literal counterpart of
+/// [ScriptNodeSourceCompiler], which lowers the same tree into executable statements. The blueprint provider
+/// export (`entity_patch_blueprint_template.ftl`) uses this to reproduce an [EntityPatchBlueprint]'s flows
+/// and variables in generated datagen source. Covers the full editor-producible node vocabulary — animgraph
+/// nodes included — so it renders animator-script trees too, not only entity patch flows.
 ///
 /// Leaves that name engine objects lower to the same registry-lookup idiom the component fragments
 /// generate: [AkytheraRegistries.Frozen#SCRIPT_FUNCTION]/[AkytheraRegistries.Frozen#SCRIPT_TYPE]
@@ -54,9 +54,9 @@ public final class NodeTreeSourceRenderer {
 
     private NodeTreeSourceRenderer() {}
 
-    /// ***************************************************************
-    /// Flow nodes
-    /// ***************************************************************
+    // ***************************************************************
+    // Flow nodes
+    // ***************************************************************
 
     /// `node` as a `FlowNode` constructor expression; `null` (an absent
     /// [FlowFunctionNode#nextNode]) renders as the `null` literal.
@@ -80,9 +80,9 @@ public final class NodeTreeSourceRenderer {
         };
     }
 
-    /// ***************************************************************
-    /// Pure nodes
-    /// ***************************************************************
+    // ***************************************************************
+    // Pure nodes
+    // ***************************************************************
 
     /// `node` as a `PureNode` constructor expression. The `default` marker only fires for node
     /// types added to the engine after this renderer.
@@ -114,7 +114,8 @@ public final class NodeTreeSourceRenderer {
                 pure(convert.input(), indent + 1));
             case MeshAccessorNode mesh -> "new MeshAccessorNode(" + meshAccessor(mesh.mesh()) + ")";
             case CachedPoseReferenceNode pose ->
-                "new CachedPoseReferenceNode(" + quote(pose.poseCacheName()) + ")";
+                "new CachedPoseReferenceNode(" + quote(pose.poseCacheName())
+                    + ", " + ScriptNodeSourceCompiler.valueLiteral(pose.controlReferenceDriver()) + ")";
             case AnimationStateMachineNode machine -> ctor("AnimationStateMachineNode", indent,
                 transitionList(machine.entryTransitions(), indent + 1),
                 stateList(machine.states(), indent + 1));
@@ -122,9 +123,9 @@ public final class NodeTreeSourceRenderer {
         };
     }
 
-    /// ***************************************************************
-    /// Variables
-    /// ***************************************************************
+    // ***************************************************************
+    // Variables
+    // ***************************************************************
 
     /// A member variable row as its `ScriptVariables.VariableInfo` constructor; the default value
     /// renders through [ScriptNodeSourceCompiler#valueLiteral] (`null` when the type carries none).
@@ -135,14 +136,17 @@ public final class NodeTreeSourceRenderer {
             ScriptNodeSourceCompiler.valueLiteral(variable.defaultVal()));
     }
 
-    /// ***************************************************************
-    /// Anim-graph nodes (animator-script trees; never in blueprint flows)
-    /// ***************************************************************
+    // ***************************************************************
+    // Anim-graph nodes (animator-script trees; never in blueprint flows)
+    // ***************************************************************
 
     private static String transitionEntry(AnimationStateMachineNode.TransitionEntry transition, int indent) {
         return ctor("AnimationStateMachineNode.TransitionEntry", indent,
             fsmState(transition.to()),
-            pure(transition.condition(), indent + 1));
+            pure(transition.condition(), indent + 1),
+            SourceTemplateEngine.floatLiteral(transition.blendTime()),
+            ScriptNodeSourceCompiler.valueLiteral(transition.transferElapsedTime()),
+            ScriptNodeSourceCompiler.valueLiteral(transition.transitionPriority()));
     }
 
     private static String stateEntry(AnimationStateMachineNode.StateEntry state, int indent) {
@@ -160,22 +164,15 @@ public final class NodeTreeSourceRenderer {
         return listOf(states.stream().map(s -> stateEntry(s, indent + 1)).toList(), indent);
     }
 
-    /// States resolve through the data-block manager by id — the same idiom
-    /// [ScriptNodeSourceCompiler]'s `fsmState` generates — so project-defined states render
-    /// without needing a Java constant.
     private static String fsmState(FSMAnimationState state) {
-        Identifier id = FSMAnimationState.ENUM_MANAGER.derefIdentifier(state);
-        return id == null
-            ? "null /* TODO: unregistered FSM animation state */"
-            : "FSMAnimationState.ENUM_MANAGER.getOrThrow(Identifier.parse(" + quote(id.toString()) + "))";
+        return ScriptNodeSourceCompiler.dataBlockLookup("FSMAnimationState", state);
     }
 
-    /// ***************************************************************
-    /// Leaves & helpers
-    /// ***************************************************************
+    // ***************************************************************
+    // Leaves & helpers
+    // ***************************************************************
 
-    /// A mesh accessor as the [com.yesman.akythera.client.api.mesh.MeshManager] call that reissues
-    /// it, from the asset's trimmed id.
+    /// A mesh accessor as the [MeshManager] call that reissues it, from the asset's trimmed id.
     private static String meshAccessor(AssetAccessor<? extends Mesh<?>> mesh) {
         Identifier id = mesh.identifier();
         Identifier trimmed = Identifier.fromNamespaceAndPath(

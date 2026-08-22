@@ -3,7 +3,9 @@ package com.yesman.akytheralabs.gui.widget.main;
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.panel.main.WorldviewPanel;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import net.minecraft.client.gui.Font;
@@ -13,15 +15,13 @@ import net.minecraft.resources.ResourceKey;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/// The pre-export gate every "apply this project outside the editor" action shares: `File > Export`
-/// (both flavors, see [ExportModalGenerator]) and the Worldview reload button
-/// ([com.yesman.akytheralabs.gui.panel.main.WorldviewPanel]).
+/// The pre-export gate every "apply this project outside the editor" action shares: `File > Export` (both
+/// flavors, see [ExportModalGenerator]) and the Worldview reload button ([WorldviewPanel]).
 ///
-/// A broken entry ([com.yesman.akytheralabs.dataholder.DataHolder#getFailureException] — a file that
-/// failed to load, one carrying salvaged nested content such as a dangling animation id in an Anim
-/// Graph, or one whose runtime object can't be built) is **excluded** from the export rather than
-/// emitted as defaults. That is a silent omission, so it is confirmed first: the modal names every
-/// affected file and only the OK button proceeds.
+/// A broken entry ([DataHolder#getFailureException] — a file that failed to load, one carrying salvaged
+/// nested content such as a dangling animation id in an Anim Graph, or one whose runtime object can't be
+/// built) is **excluded** from the export rather than emitted as defaults. That is a silent omission, so it
+/// is confirmed first: the modal names every affected file and only the OK button proceeds.
 public final class BrokenEntriesModalGenerator {
     private static final int POPUP_W = 420;
 
@@ -32,8 +32,12 @@ public final class BrokenEntriesModalGenerator {
     /// the broken entries' files ([AkytheraProject#findBrokenEntries]) and runs it only if the user
     /// confirms. Cancel just closes.
     public static void confirmProceed(Font font, AkytheraProject project, Runnable onProceed) {
-        List<ResourceKey<?>> broken = project.findBrokenEntries();
+        confirmProceed(font, project, project.findBrokenEntries(), onProceed);
+    }
 
+    /// [#confirmProceed(Font, AkytheraProject, Runnable)] over an already-narrowed entry set — a
+    /// per-category or per-selection compile lists only the broken files it would have emitted.
+    public static void confirmProceed(Font font, AkytheraProject project, List<ResourceKey<?>> broken, Runnable onProceed) {
         if (broken.isEmpty()) {
             onProceed.run();
             return;

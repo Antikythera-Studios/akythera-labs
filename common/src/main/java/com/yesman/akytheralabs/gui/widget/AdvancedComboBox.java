@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget;
 
+import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.client.gui.widget.common.PressableWidget;
 import com.yesman.akythera.client.gui.widget.common.ThemeApplicableWidget;
@@ -39,9 +40,9 @@ public final class AdvancedComboBox<T> extends AbstractWidget
     private final List<T> items;
     private final Function<T, String> displayStringMapper;
 
-    /// Optional ARGB color for the type-indicator swatch a [ComboBoxTheme] may draw in front of an
-    /// item's label (e.g. the Variables type combo paints each [com.yesman.akythera.api.data.modularize.ScriptType]
-    /// in its node-pin color). Null — the default — means no indicator.
+    /// Optional ARGB color for the type-indicator swatch a [ComboBoxTheme] may draw in front of an item's
+    /// label (e.g. the Variables type combo paints each [ScriptType] in its node-pin color). Null — the
+    /// default — means no indicator.
     @Nullable
     private Function<T, Integer> indicatorColorMapper;
 
@@ -218,9 +219,9 @@ public final class AdvancedComboBox<T> extends AbstractWidget
     protected void updateWidgetNarration(@NonNull NarrationElementOutput n) {
     }
 
-    /// *****************************************************************
-    /// [DataBoundWidget] implementations                               *
-    /// *****************************************************************
+    // *****************************************************************
+    // [DataBoundWidget] implementations
+    // *****************************************************************
     private final Callable<T> dataProvider;
     private final Consumer<T> onWidgetChanged;
 
@@ -244,9 +245,9 @@ public final class AdvancedComboBox<T> extends AbstractWidget
         this.selected = null;
     }
 
-    /// ***************************************************************
-    /// [ThemeApplicableWidget] implementations                       *
-    /// ***************************************************************
+    // ***************************************************************
+    // [ThemeApplicableWidget] implementations
+    // ***************************************************************
     @Override
     public boolean isSupportedTheme(WidgetTheme theme) {
         return ComboBoxTheme.class.isAssignableFrom(theme.getClass());
@@ -262,9 +263,9 @@ public final class AdvancedComboBox<T> extends AbstractWidget
         this.theme = theme;
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

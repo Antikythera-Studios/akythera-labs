@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.mixin;
 
+import com.yesman.akytheralabs.dev.DataPackRegistryReloader;
 import it.unimi.dsi.fastutil.objects.ObjectList;
 import it.unimi.dsi.fastutil.objects.Reference2IntMap;
 import net.minecraft.core.Holder;
@@ -12,8 +13,8 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 
 import java.util.Map;
 
-/// Exposes [MappedRegistry]'s private lookup state, so a dev-time reload can refill a frozen
-/// datapack registry in place — see [com.yesman.akytheralabs.dev.DataPackRegistryReloader].
+/// Exposes [MappedRegistry]'s private lookup state, so a dev-time reload can refill a frozen datapack
+/// registry in place — see [DataPackRegistryReloader].
 ///
 /// `byKey` stays unexposed. A refill keeps it, which is what lets the existing [Holder.Reference]s
 /// rebind to the new values instead of dangling.

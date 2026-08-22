@@ -3,14 +3,14 @@ package com.yesman.akytheralabs.gui.widget.script.node;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.EntityPatchEntryNodeWidget;
 
 /// An entity-patch flow origin. All three entry points (`onConstruct` / `onJoinWorld` / `update`) are
-/// parameter-less, so they cannot be told apart by their outputs the way the animator script's
-/// entries are — [#entryKind] is the explicit marker, persisted under the legacy `op` key, and
-/// [com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder] roots each flow at the
-/// matching entry through it.
+/// parameter-less, so they cannot be told apart by their outputs the way the animator script's entries are —
+/// [#entryKind] is the explicit marker, persisted under the legacy `op` key, and [EntityPatchBlueprintHolder]
+/// roots each flow at the matching entry through it.
 public record EntityPatchEntryNodeData(EntityPatchEntryNodeWidget.Kind entryKind) implements EntryNodeData {
     public static final MapCodec<EntityPatchEntryNodeData> CODEC = RecordCodecBuilder.mapCodec(
         instance ->

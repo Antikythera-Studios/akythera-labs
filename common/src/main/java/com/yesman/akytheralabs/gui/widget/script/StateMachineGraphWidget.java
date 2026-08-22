@@ -3,12 +3,14 @@ package com.yesman.akytheralabs.gui.widget.script;
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.datafixers.util.Pair;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.core.animation.driver.FSMAnimationState;
+import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.api.animation.impl.AkytheraAnimationState;
+import com.yesman.akythera.core.animation.driver.AnimationStateTransition;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
+import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.Holder;
@@ -28,27 +30,36 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /// The canvas of one animation state machine (UE's state-machine tab): a hardcoded **Entry** node
-/// plus user-added **state** nodes, joined by directed **transition** arrows.
+/// plus user-added **state** nodes, joined by directed **transition** arrows, with **groups** boxing
+/// states that leave on the same transitions.
 ///
-/// Interaction mirrors UE: a left-drag starting on a node's **inner** body moves it; a left-drag
-/// starting on its **outer** edge band draws a transition to whatever node it is released over (a
+/// Interaction mirrors UE: a left-drag starting on a box's **inner** body moves it; a left-drag
+/// starting on its **outer** edge band draws a transition to whatever state it is released over (a
 /// new transition is created only if that exact `from → to` direction does not already exist, and
-/// never onto itself). Right-click empty canvas adds a state; right-drag pans; `Delete` removes the
-/// selected state (and the transitions touching it). The Entry node can never be deleted.
+/// never onto itself). Right-click empty canvas adds a state or groups the selection; right-drag
+/// pans; `Delete` removes the selected state / group / transition. The Entry node can never be
+/// deleted.
 ///
-/// This widget owns the topology — the positions, the names and the transition set — and
-/// round-trips it through [StateMachineData]. The state pose and transition condition sub-graphs
-/// are authored in their own `{state}` / `{from} to {to}` sub-tabs.
+/// A group is a source only — a machine occupies one state at a time, so there is nothing for a
+/// transition *into* a group to mean. It carries no geometry either: its box is the bounding box of
+/// its members, so moving the group is moving them, and a group with no member is dropped.
+///
+/// This widget owns the topology — the positions, the names, the group membership and the transition
+/// set — and round-trips it through [StateMachineData]. The state pose and transition condition
+/// sub-graphs are authored in their own `{state}` / `{from} to {to}` sub-tabs.
 public final class StateMachineGraphWidget extends AbstractContainerWidget implements AnchoredWidget {
     private static final int GRID = 24;
     private static final int MAJOR_EVERY = 4;
-    /// Outer edge band (graph posX) of a node where a press starts a transition instead of a move.
+    /// Outer edge band (graph posX) of a box where a press starts a transition instead of a move.
     private static final int EDGE_BAND = 6;
     private static final int NODE_H = 28;
     private static final int NODE_PAD_X = 14;
@@ -59,6 +70,12 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private static final float MIN_ZOOM = 0.30F;
     private static final float MAX_ZOOM = 2.50F;
     private static final float ZOOM_STEP = 1.10F;
+
+    /// Slack (graph posX) between a group's members and its box on every side, and the height of the
+    /// title bar its name sits in. Both are multiples of [#DRAG_SNAP] so snapping the box origin while
+    /// it is dragged leaves its members on the grid.
+    private static final int GROUP_PAD = 15;
+    private static final int GROUP_TITLE_H = 20;
 
     private static final int COLOR_BG = 0xFF161616;
     private static final int COLOR_GRID_MINOR = 0xFF222222;
@@ -74,6 +91,10 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private static final int COLOR_STATE_BODY = 0xFF5A5A5A;
     private static final int COLOR_OUTLINE = 0xFF101010;
     private static final int COLOR_LABEL = 0xFFE0E0E0;
+    /// A group's frame band at rest — lighter than a state's, so the box reads as a container.
+    private static final int COLOR_GROUP_FRAME = 0xFF6E6E6E;
+    /// A group's interior: a translucent wash, so the grid and the states keep showing through it.
+    private static final int COLOR_GROUP_BODY = 0x1AFFFFFF;
     private static final int COLOR_TRANSITION = 0xFFBFBFBF;
     /// The transition line / arrow brightened while the cursor hovers it.
     private static final int COLOR_TRANSITION_HOVER = 0xFFFFFFFF;
@@ -100,39 +121,51 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     /// source of the Entry transitions (the machine's candidate initial states).
     private final StateNode entry;
     private final List<StateNode> states = new ArrayList<>();
+    private final List<GroupNode> groups = new ArrayList<>();
     private final List<Transition> transitions = new ArrayList<>();
 
     /// The selected states (drawn with the orange frame), subjects of group move / delete. A plain
     /// click selects just one; Shift+click toggles one; a marquee selects everything it covers.
     private final List<StateNode> selectedNodes = new ArrayList<>();
 
+    /// The selected group (drawn with the orange frame; `Delete` removes it, leaving its members).
+    /// Mutually exclusive with [#selectedNodes] and [#selectedTransition].
+    @Nullable
+    private GroupNode selectedGroup;
+
     /// The selected transition (its line drawn highlighted; `Delete` removes it). Mutually exclusive
     /// with [#selectedNodes].
     @Nullable
     private Transition selectedTransition;
 
-    /// Fired when a state node is double-clicked (open its `{state}` pose sub-tab) — wired in 3b.
+    /// Fired when a state node is double-clicked (open its `{state}` pose sub-tab).
     @Nullable
     private Consumer<StateNode> onStateActivated;
 
-    /// Fired when a transition is double-clicked (open its `{from} to {to}` condition sub-tab) — 3b.
+    /// Fired when a state / Entry transition is double-clicked, with its source name ([#ENTRY] for
+    /// Entry) and its target state (open the `{from} to {to}` condition sub-tab).
     @Nullable
     private BiConsumer<String, String> onTransitionActivated;
 
-    /// Fired when the single-state selection changes, with the newly selected state — or null when
-    /// the selection is empty, is Entry, or covers several states.
+    /// Fired when a group transition is double-clicked, with the group's name and the target state
+    /// (open the `{group} to {to}` condition sub-tab).
     @Nullable
-    private Consumer<StateNode> onStateSelected;
+    private BiConsumer<String, String> onGroupTransitionActivated;
 
-    /// The state last handed to [#onStateSelected], so repeated notifications for an unchanged
+    /// Fired when the single selection changes, with the newly selected state, group or transition —
+    /// or null when the selection is empty, is Entry, or covers several states.
+    @Nullable
+    private Consumer<Selection> onSelectionChanged;
+
+    /// The selection last handed to [#onSelectionChanged], so repeated notifications for an unchanged
     /// selection are swallowed (the handler rebuilds the Details panel, so it must only fire on a
     /// genuine change).
     @Nullable
-    private StateNode lastNotifiedSelection;
+    private Selection lastNotifiedSelection;
 
     private float panX = 40.0F;
     private float panY = 40.0F;
-    /// Scroll-wheel zoom; nodes / transitions are drawn under a `translate(pan) + scale(zoom)` pose.
+    /// Scroll-wheel zoom; boxes / transitions are drawn under a `translate(pan) + scale(zoom)` pose.
     private float zoom = 1.0F;
 
     // Pan (right-drag) tracking.
@@ -140,9 +173,9 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private double rightPressX;
     private double rightPressY;
 
-    // Node move tracking. `dragging` is the grabbed anchor; the whole selection moves with it, each
-    // node offset from its own captured start position so the relative layout is preserved.
-    @Nullable private StateNode dragging;
+    // Box move tracking. `dragging` is the grabbed anchor; the states it carries move with it, each
+    // offset from its own captured start position so the relative layout is preserved.
+    @Nullable private Box dragging;
     private int grabDx;
     private int grabDy;
     private int dragAnchorStartX;
@@ -160,14 +193,14 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private int marqueeEndGy;
 
     // Transition-drag tracking.
-    @Nullable private StateNode transitionFrom;
+    @Nullable private Box transitionFrom;
     private double transitionEndX;
     private double transitionEndY;
 
     // Pending-transition tracking: after a transition is dropped on empty canvas, the arrow stays
     // pinned to the drop point while the target-state menu is open (mirrors the Event Graph's pending
     // wire). Cleared once that menu leaves the modal stack — whether by a pick or a dismiss.
-    @Nullable private StateNode transitionPendingSource;
+    @Nullable private Box transitionPendingSource;
     private double transitionPendingX;
     private double transitionPendingY;
     @Nullable private ContextMenuContainer pendingMenu;
@@ -193,9 +226,8 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         importData(data);
     }
 
-    /// Ids of the states the possessed entity's machines are in, as
-    /// [com.yesman.akytheralabs.editor.debug.AnimatorProbe#activeStateIds] reports them. A state node
-    /// named by one of these draws the debug ring. Empty when nothing is being debugged.
+    /// Ids of the states the possessed entity's machines are in, as [AnimatorProbe#activeStateIds] reports
+    /// them. A state node named by one of these draws the debug ring. Empty when nothing is being debugged.
     private Set<String> activeStateIds = Set.of();
 
     public void setActiveStateIds(final Set<String> activeStateIds) {
@@ -210,35 +242,41 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         this.onTransitionActivated = handler;
     }
 
-    public void setOnStateSelected(@Nullable Consumer<StateNode> handler) {
-        this.onStateSelected = handler;
+    public void setOnGroupTransitionActivated(@Nullable BiConsumer<String, String> handler) {
+        this.onGroupTransitionActivated = handler;
     }
 
-    /// Fires [#onStateSelected] when — and only when — the single-state selection has actually changed
-    /// since the last notification. The reported state is the sole selected node (never Entry); any
-    /// other selection shape (empty, multi, a transition) reports null. Called after every gesture that
-    /// can move the selection.
+    public void setOnSelectionChanged(@Nullable Consumer<Selection> handler) {
+        this.onSelectionChanged = handler;
+    }
+
+    /// Fires [#onSelectionChanged] when — and only when — the single selection has actually changed
+    /// since the last notification. The reported selection is the selected transition, the selected
+    /// group, or the sole selected state (never Entry); any other shape (empty, multi) reports null.
+    /// Called after every gesture that can move the selection.
     private void notifySelection() {
-        StateNode single = selectedNodes.size() == 1 && selectedNodes.get(0) != entry
-            ? selectedNodes.get(0) : null;
+        Selection single = selectedTransition != null ? selectedTransition
+            : selectedGroup != null ? selectedGroup
+            : (selectedNodes.size() == 1 && selectedNodes.get(0) != entry ? selectedNodes.get(0) : null);
         if (single == lastNotifiedSelection) return;
         lastNotifiedSelection = single;
-        if (onStateSelected != null) onStateSelected.accept(single);
+        if (onSelectionChanged != null) onSelectionChanged.accept(single);
     }
 
     /// The [FSMAnimationState] signature (id string) of every state currently on this machine — the
     /// set the host's Details combo strips from its options so a state can never be re-signed to a
     /// signature another state already carries (no duplicate states on one machine).
     public Set<String> stateNames() {
-        Set<String> names = new java.util.HashSet<>();
+        Set<String> names = new HashSet<>();
         for (StateNode s : states) names.add(s.name);
         return names;
     }
 
-    /// Re-signs `node` to the [FSMAnimationState] `newName`, retargeting every transition that touched
-    /// its old signature so the topology (and each transition's condition sub-graph) survives the
-    /// change; the state's own pose sub-graph travels with the node. Returns false — rejecting the edit
-    /// — when `newName` is blank or already carried by another state on this machine.
+    /// Re-signs `node` to the [FSMAnimationState] `newName`, retargeting every transition that pointed
+    /// at its old signature so the topology (and each transition's condition sub-graph) survives the
+    /// change; the state's own pose sub-graph travels with the node, and a transition *leaving* it
+    /// holds the node itself so it needs no retargeting. Returns false — rejecting the edit — when
+    /// `newName` is blank or already carried by another state on this machine.
     public boolean changeStateSignature(StateNode node, String newName) {
         String oldName = node.name;
         if (newName.equals(oldName)) return true;
@@ -246,7 +284,6 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         if (findState(newName) != null) return false; // already on this machine — no duplicates
 
         for (Transition t : transitions) {
-            if (t.from.equals(oldName)) t.from = newName;
             if (t.to.equals(oldName)) t.to = newName;
         }
         node.name = newName;
@@ -254,33 +291,69 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         return true;
     }
 
-    /// ***************************************************************
-    /// Persistence
-    /// ***************************************************************
+    /// Renames a group. The name is editor-only — the compile expands a group into per-member
+    /// transitions and never emits it — but it keys the group's condition sub-tabs, so it has to stay
+    /// unique on the machine. Returns false — rejecting the edit — when blank or already taken.
+    public boolean changeGroupName(GroupNode group, String newName) {
+        if (newName.equals(group.name)) return true;
+        if (newName.isEmpty()) return false;
+        if (findGroup(newName) != null) return false;
+
+        group.name = newName;
+        if (group == lastNotifiedSelection) lastNotifiedSelection = null; // force a fresh Details rebuild
+        return true;
+    }
+
+    // ***************************************************************
+    // Persistence
+    // ***************************************************************
     private void importData(StateMachineData data) {
         states.clear();
+        groups.clear();
         transitions.clear();
         selectedNodes.clear();
+        selectedGroup = null;
         selectedTransition = null;
 
+        Map<String, GroupNode> byName = new HashMap<>();
+        for (StateMachineData.GroupData g : data.groups()) {
+            GroupNode group = new GroupNode(g.name());
+            groups.add(group);
+            byName.put(g.name(), group);
+        }
+
         for (StateMachineData.StateData s : data.states()) {
-            String name = nameOf(s.state());
-            StateNode node = new StateNode(name, s.x(), s.y());
+            StateNode node = new StateNode(nameOf(s.state()), s.x(), s.y());
             node.poseGraph = s.poseGraph();
+            node.group = byName.get(s.group());
             states.add(node);
-
-            for (StateMachineData.TransitionData t : s.transitions()) {
-                Transition transition = new Transition(name, nameOf(t.to()));
-                transition.conditionGraph = t.conditionGraph();
-                transitions.add(transition);
-            }
         }
 
-        for (StateMachineData.TransitionData t : data.entryTransitions()) {
-            Transition transition = new Transition(ENTRY, nameOf(t.to()));
-            transition.conditionGraph = t.conditionGraph();
-            transitions.add(transition);
+        // A transition points at the box it leaves, so every state and group has to exist first.
+        for (StateMachineData.StateData s : data.states()) {
+            StateNode from = findState(nameOf(s.state()));
+            if (from == null) continue;
+            for (StateMachineData.TransitionData t : s.transitions()) addImported(from, t);
         }
+
+        for (StateMachineData.GroupData g : data.groups()) {
+            GroupNode from = byName.get(g.name());
+            if (from == null) continue;
+            for (StateMachineData.TransitionData t : g.transitions()) addImported(from, t);
+        }
+
+        for (StateMachineData.TransitionData t : data.entryTransitions()) addImported(entry, t);
+
+        pruneEmptyGroups();
+    }
+
+    private void addImported(Box from, StateMachineData.TransitionData data) {
+        Transition transition = new Transition(from, nameOf(data.to()));
+        transition.conditionGraph = data.conditionGraph();
+        transition.blendTime = data.blendTime();
+        transition.transferElapsedTime = data.transferElapsedTime();
+        transition.transitionPriority = data.transitionPriority();
+        transitions.add(transition);
     }
 
     /// Display/identity name of a state holder — its key id, which exists even for a dangling
@@ -289,11 +362,11 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         return ScriptCanvasKeys.stateName(holder);
     }
 
-    /// Flattens the live topology — and each state's pose sub-graph / each transition's condition
-    /// sub-graph — back to a builder-shaped [StateMachineData]: each transition nested under the state
-    /// it leaves, Entry's outgoing edges collected into `entryTransitions`. State names round-trip
-    /// through their [FSMAnimationState] signature; an unresolved signature persists as a dangling
-    /// holder (the red MISSING state round-trips instead of being silently deleted) — only an
+    /// Flattens the live topology — each state's pose sub-graph, each transition's condition sub-graph
+    /// and the group membership — back to a builder-shaped [StateMachineData]: each transition nested
+    /// under the box it leaves, Entry's outgoing edges collected into `entryTransitions`. State names
+    /// round-trip through their [FSMAnimationState] signature; an unresolved signature persists as a
+    /// dangling holder (the red MISSING state round-trips instead of being silently deleted) — only an
     /// unparseable name (cannot happen for names created from ids) is dropped.
     public StateMachineData exportData() {
         List<StateMachineData.StateData> stateData = new ArrayList<>();
@@ -301,23 +374,149 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
             Holder<FSMAnimationState> signature = holderOf(s.name);
             if (signature == null) continue;
 
+            stateData.add(new StateMachineData.StateData(
+                signature, s.x, s.y, s.poseGraph, outgoingData(s), s.group == null ? "" : s.group.name));
+        }
+
+        List<StateMachineData.GroupData> groupData = new ArrayList<>();
+        for (GroupNode g : groups) {
+            groupData.add(new StateMachineData.GroupData(g.name, outgoingData(g)));
+        }
+
+        return new StateMachineData(entry.x, entry.y, outgoingData(entry), stateData, groupData);
+    }
+
+    /// The persisted transitions leaving `from`, their targets resolved back to [FSMAnimationState]
+    /// holders (an unresolved signature persists as a dangling holder; only an unparseable name is
+    /// dropped).
+    private List<StateMachineData.TransitionData> outgoingData(Box from) {
+        List<StateMachineData.TransitionData> out = new ArrayList<>();
+
+        for (Transition t : transitions) {
+            if (t.from != from) continue;
+            Holder<FSMAnimationState> to = holderOf(t.to);
+            if (to != null) {
+                out.add(new StateMachineData.TransitionData(
+                    to, t.conditionGraph, t.blendTime, t.transferElapsedTime, t.transitionPriority));
+            }
+        }
+
+        return out;
+    }
+
+    // ***************************************************************
+    // Copy / paste
+    // ***************************************************************
+
+    /// Snapshots the selected states for the clipboard in the same builder shape the machine persists:
+    /// each state keeps its position, its group name and its pose sub-graph — the animation driver
+    /// authored under it — and carries the transitions leaving it **to another selected state**, so a
+    /// paste never lands an edge with no source or target. Entry is skipped: a machine has exactly one
+    /// and it is hardcoded. Returns null when no state is selected.
+    public @Nullable List<StateMachineData.StateData> copySelection() {
+        List<StateNode> copied = selectedNodes.stream().filter(n -> n != entry).toList();
+        if (copied.isEmpty()) return null;
+
+        Set<String> names = new HashSet<>();
+        for (StateNode node : copied) names.add(node.name);
+
+        List<StateMachineData.StateData> out = new ArrayList<>();
+
+        for (StateNode node : copied) {
+            Holder<FSMAnimationState> signature = holderOf(node.name);
+            if (signature == null) continue;
+
             List<StateMachineData.TransitionData> outgoing = new ArrayList<>();
             for (Transition t : transitions) {
-                if (!t.from.equals(s.name)) continue;
+                if (t.from != node || !names.contains(t.to)) continue;
                 Holder<FSMAnimationState> to = holderOf(t.to);
-                if (to != null) outgoing.add(new StateMachineData.TransitionData(to, t.conditionGraph));
+                if (to != null) {
+                    outgoing.add(new StateMachineData.TransitionData(
+                        to, t.conditionGraph, t.blendTime, t.transferElapsedTime, t.transitionPriority));
+                }
             }
-            stateData.add(new StateMachineData.StateData(signature, s.x, s.y, s.poseGraph, outgoing));
+
+            out.add(new StateMachineData.StateData(
+                signature, node.x, node.y, node.poseGraph, outgoing, node.group == null ? "" : node.group.name));
         }
 
-        List<StateMachineData.TransitionData> entryTransitions = new ArrayList<>();
-        for (Transition t : transitions) {
-            if (!t.from.equals(ENTRY)) continue;
-            Holder<FSMAnimationState> to = holderOf(t.to);
-            if (to != null) entryTransitions.add(new StateMachineData.TransitionData(to, t.conditionGraph));
+        return out.isEmpty() ? null : out;
+    }
+
+    /// Places clipboard states on this machine, offset by `dx` / `dy` so the paste doesn't sit exactly
+    /// on the originals. A state whose [FSMAnimationState] signature this machine already carries is
+    /// dropped — a signature is the state's identity and a machine holds it once — and so is a
+    /// transition whose direction already exists. A transition onto a dropped state still lands, on the
+    /// state already carrying that signature: it is the same state. A carried group name lands only
+    /// when this machine already has that group; groups themselves are not on the clipboard. The placed
+    /// states become the selection. Returns the states actually placed.
+    public List<StateMachineData.StateData> pasteStates(List<StateMachineData.StateData> pasted, int dx, int dy) {
+        List<StateMachineData.StateData> placed = new ArrayList<>();
+        List<StateNode> created = new ArrayList<>();
+
+        for (StateMachineData.StateData s : pasted) {
+            String name = nameOf(s.state());
+            if (findState(name) != null) continue;
+
+            StateNode node = new StateNode(name, snap(s.x() + dx), snap(s.y() + dy));
+            node.poseGraph = s.poseGraph();
+            node.group = findGroup(s.group());
+            states.add(node);
+            created.add(node);
+            placed.add(s);
         }
 
-        return new StateMachineData(entry.x, entry.y, entryTransitions, stateData);
+        if (placed.isEmpty()) return List.of();
+
+        for (StateMachineData.StateData s : placed) {
+            StateNode from = findState(nameOf(s.state()));
+            if (from == null) continue;
+
+            for (StateMachineData.TransitionData t : s.transitions()) {
+                String to = nameOf(t.to());
+                if (findState(to) == null || findTransitionFrom(from, to) != null) continue;
+
+                Transition transition = new Transition(from, to);
+                transition.conditionGraph = t.conditionGraph();
+                transition.blendTime = t.blendTime();
+                transition.transferElapsedTime = t.transferElapsedTime();
+                transition.transitionPriority = t.transitionPriority();
+                transitions.add(transition);
+            }
+        }
+
+        selectedTransition = null;
+        clearSelection();
+        for (StateNode node : created) addToSelection(node);
+        notifySelection();
+
+        return placed;
+    }
+
+    /// Deletes the current selection: the selected transition, the selected group (its members stay,
+    /// ungrouped), or every selected state and the transitions touching it. Entry is never deleted.
+    /// Backs both `Delete` and Cut.
+    public void deleteSelection() {
+        if (selectedTransition != null) {
+            transitions.remove(selectedTransition);
+            selectedTransition = null;
+            notifySelection();
+            return;
+        }
+
+        if (selectedGroup != null) {
+            deleteGroup(selectedGroup);
+            notifySelection();
+            return;
+        }
+
+        for (StateNode n : List.copyOf(selectedNodes)) {
+            if (n != entry) deleteState(n);
+        }
+
+        clearSelection();
+        pruneEmptyGroups();
+        notifySelection();
     }
 
     /// The live [Holder] for a state name (its `identifier().toString()`), resolved through
@@ -346,8 +545,9 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         if (s != null) s.poseGraph = graph;
     }
 
-    /// The condition sub-graph stored for transition `from → to` ([ScriptGraphData#EMPTY] if unset /
-    /// unknown), and its setter — the host's `{from} to {to}` condition sub-tab reads / writes these.
+    /// The condition sub-graph stored for the state / Entry transition `from → to`
+    /// ([ScriptGraphData#EMPTY] if unset / unknown), and its setter — the host's `{from} to {to}`
+    /// condition sub-tab reads / writes these.
     public ScriptGraphData getTransitionCondition(String from, String to) {
         Transition t = findTransition(from, to);
         return t == null ? ScriptGraphData.EMPTY : t.conditionGraph;
@@ -358,14 +558,79 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         if (t != null) t.conditionGraph = graph;
     }
 
+    /// The condition sub-graph stored for the group transition `group → to`, and its setter — the
+    /// host's `{group} to {to}` condition sub-tab reads / writes these. One graph, expanded onto every
+    /// member of the group at compile.
+    public ScriptGraphData getGroupTransitionCondition(String group, String to) {
+        Transition t = findGroupTransition(group, to);
+        return t == null ? ScriptGraphData.EMPTY : t.conditionGraph;
+    }
+
+    public void setGroupTransitionCondition(String group, String to, ScriptGraphData graph) {
+        Transition t = findGroupTransition(group, to);
+        if (t != null) t.conditionGraph = graph;
+    }
+
+    /// The blend time of `transition`, in seconds, and its setter — the Details panel's Blend Time row
+    /// reads and writes these.
+    public float getTransitionBlendTime(Transition transition) {
+        return transition.blendTime;
+    }
+
+    public void setTransitionBlendTime(Transition transition, float blendTime) {
+        transition.blendTime = blendTime;
+    }
+
+    /// Whether `transition` hands the elapsed time of the state it leaves to the one it enters, and its
+    /// setter — the Details panel's Transfer Elapsed Time row reads and writes these.
+    public boolean getTransitionTransferElapsedTime(Transition transition) {
+        return transition.transferElapsedTime;
+    }
+
+    public void setTransitionTransferElapsedTime(Transition transition, boolean transferElapsedTime) {
+        transition.transferElapsedTime = transferElapsedTime;
+    }
+
+    /// The priority `transition` is taken at, and its setter — the Details panel's Transition Priority
+    /// row reads and writes these.
+    public int getTransitionPriority(Transition transition) {
+        return transition.transitionPriority;
+    }
+
+    public void setTransitionPriority(Transition transition, int transitionPriority) {
+        transition.transitionPriority = transitionPriority;
+    }
+
     private @Nullable Transition findTransition(String from, String to) {
-        for (Transition t : transitions) if (t.from.equals(from) && t.to.equals(to)) return t;
+        for (Transition t : transitions) {
+            if (t.from instanceof StateNode s && canvasFrom(s).equals(from) && t.to.equals(to)) return t;
+        }
         return null;
     }
 
-    /// ***************************************************************
-    /// Geometry
-    /// ***************************************************************
+    private @Nullable Transition findGroupTransition(String group, String to) {
+        for (Transition t : transitions) {
+            if (t.from instanceof GroupNode g && g.name.equals(group) && t.to.equals(to)) return t;
+        }
+        return null;
+    }
+
+    private @Nullable Transition findTransitionFrom(Box from, String to) {
+        for (Transition t : transitions) {
+            if (t.from == from && t.to.equals(to)) return t;
+        }
+        return null;
+    }
+
+    /// The name a transition leaving `source` reports to the host — the state's signature, or [#ENTRY]
+    /// for the Entry node, which has no signature of its own.
+    private String canvasFrom(StateNode source) {
+        return source == entry ? ENTRY : source.name;
+    }
+
+    // ***************************************************************
+    // Geometry
+    // ***************************************************************
     private int nodeWidth(StateNode n) {
         return Math.max(NODE_MIN_W, font.width(n.name) + NODE_PAD_X * 2);
     }
@@ -373,30 +638,82 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private int screenToGraphX(double sx) { return (int) ((sx - getX() - panX) / zoom); }
     private int screenToGraphY(double sy) { return (int) ((sy - getY() - panY) / zoom); }
 
-    private boolean inNode(StateNode n, int gx, int gy) {
-        return gx >= n.x && gx < n.x + nodeWidth(n) && gy >= n.y && gy < n.y + NODE_H;
+    /// The graph-space rectangle `{x, y, width, height}` of a box.
+    private int[] boundsOf(Box box) {
+        return switch (box) {
+            case StateNode s -> new int[]{s.x, s.y, nodeWidth(s), NODE_H};
+            case GroupNode g -> groupBounds(g);
+        };
     }
 
-    /// Whether `(gx, gy)` is in the node's outer edge band (a transition-drag start) vs. its inner
-    /// body (a move).
-    private boolean inEdgeBand(StateNode n, int gx, int gy) {
-        if (!inNode(n, gx, gy)) return false;
-        int w = nodeWidth(n);
-        return gx < n.x + EDGE_BAND || gx >= n.x + w - EDGE_BAND
-            || gy < n.y + EDGE_BAND || gy >= n.y + NODE_H - EDGE_BAND;
-    }
+    /// A group's rectangle: the bounding box of its members, padded on every side, extended upward by
+    /// the title bar and widened when the name would not fit. Derived, never stored — a group has no
+    /// position of its own, so moving its members moves the box with them. A memberless group reports
+    /// a zero rectangle; it is pruned before it can draw.
+    private int[] groupBounds(GroupNode group) {
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
 
-    /// The topmost node (states above Entry) under a graph point, or null.
-    private @Nullable StateNode nodeAt(int gx, int gy) {
-        for (int i = states.size() - 1; i >= 0; i--) {
-            if (inNode(states.get(i), gx, gy)) return states.get(i);
+        for (StateNode s : states) {
+            if (s.group != group) continue;
+            minX = Math.min(minX, s.x);
+            minY = Math.min(minY, s.y);
+            maxX = Math.max(maxX, s.x + nodeWidth(s));
+            maxY = Math.max(maxY, s.y + NODE_H);
         }
-        return inNode(entry, gx, gy) ? entry : null;
+
+        if (minX == Integer.MAX_VALUE) return new int[]{0, 0, 0, 0};
+
+        int width = Math.max(maxX - minX + GROUP_PAD * 2, font.width(group.name) + GROUP_PAD * 2);
+        int height = maxY - minY + GROUP_PAD * 2 + GROUP_TITLE_H;
+        return new int[]{minX - GROUP_PAD, minY - GROUP_PAD - GROUP_TITLE_H, width, height};
     }
 
-    /// ***************************************************************
-    /// Rendering
-    /// ***************************************************************
+    private boolean inBox(Box box, int gx, int gy) {
+        int[] b = boundsOf(box);
+        return gx >= b[0] && gx < b[0] + b[2] && gy >= b[1] && gy < b[1] + b[3];
+    }
+
+    /// Whether `(gx, gy)` is in the box's outer edge band (a transition-drag start) vs. its inner
+    /// body (a move).
+    private boolean inEdgeBand(Box box, int gx, int gy) {
+        if (!inBox(box, gx, gy)) return false;
+        int[] b = boundsOf(box);
+        return gx < b[0] + EDGE_BAND || gx >= b[0] + b[2] - EDGE_BAND
+            || gy < b[1] + EDGE_BAND || gy >= b[1] + b[3] - EDGE_BAND;
+    }
+
+    /// The topmost state box under a graph point (states above Entry), or null. States are hit-tested
+    /// before groups everywhere: they draw over them.
+    private @Nullable StateNode stateNodeAt(int gx, int gy) {
+        for (int i = states.size() - 1; i >= 0; i--) {
+            if (inBox(states.get(i), gx, gy)) return states.get(i);
+        }
+        return inBox(entry, gx, gy) ? entry : null;
+    }
+
+    /// The topmost group whose box covers a graph point, or null.
+    private @Nullable GroupNode groupAt(int gx, int gy) {
+        for (int i = groups.size() - 1; i >= 0; i--) {
+            if (inBox(groups.get(i), gx, gy)) return groups.get(i);
+        }
+        return null;
+    }
+
+    /// Whether a press at this graph point lands on a box that claims it — any state, or a group's
+    /// outer band. Transitions are hit-tested only where nothing claims the press, which is what keeps
+    /// one drawn across a group's interior selectable.
+    private boolean boxClaims(int gx, int gy) {
+        if (stateNodeAt(gx, gy) != null) return true;
+        GroupNode group = groupAt(gx, gy);
+        return group != null && inEdgeBand(group, gx, gy);
+    }
+
+    // ***************************************************************
+    // Rendering
+    // ***************************************************************
     @Override
     protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
         g.fill(getX(), getY(), getRight(), getBottom(), COLOR_BG);
@@ -408,22 +725,24 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
         drawGrid(g);
 
-        // Graph-space cursor for hover highlighting — off-canvas (no node) when the mouse is outside
-        // this widget, so a node / transition never falsely highlights.
+        // Graph-space cursor for hover highlighting — off-canvas (no box) when the mouse is outside
+        // this widget, so a box / transition never falsely highlights.
         boolean over = isMouseOver(mouseX, mouseY);
         int gmx = over ? screenToGraphX(mouseX) : Integer.MIN_VALUE;
         int gmy = over ? screenToGraphY(mouseY) : Integer.MIN_VALUE;
 
-        // The hovered transition (only when idle and the cursor isn't over a node). Hit-tested in
-        // graph space against the (already zoom-corrected) graph-space cursor.
-        Transition hovered = (over && dragging == null && transitionFrom == null && !marqueeing && nodeAt(gmx, gmy) == null)
+        // The hovered transition (only when idle and nothing claims the point).
+        Transition hovered = (over && dragging == null && transitionFrom == null && !marqueeing && !boxClaims(gmx, gmy))
             ? transitionAt(gmx, gmy) : null;
 
-        // Nodes / transitions live in graph space; a translate + scale pose draws them at their graph
+        // Boxes / transitions live in graph space; a translate + scale pose draws them at their graph
         // coordinates so they pan and zoom together (mirrors the Event Graph). The grid is screen-space.
         g.pose().pushMatrix();
         g.pose().translate(getX() + panX, getY() + panY);
         g.pose().scale(zoom, zoom);
+
+        // Groups sit behind everything: the states they hold draw over them, and so do the arrows.
+        for (GroupNode group : groups) drawGroup(g, group, gmx, gmy);
 
         for (Transition t : transitions) {
             int color = t == selectedTransition ? COLOR_TRANSITION_SELECTED
@@ -446,7 +765,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
         g.pose().popMatrix();
 
-        // Hover cursor when no gesture owns it: the 4-way move cross over a node's inner body, the
+        // Hover cursor when no gesture owns it: the 4-way move cross over a box's inner body, the
         // pointing hand over its outer edge band (the transition-drag grab zone) — mirrors the Event Graph.
         if (over && dragging == null && transitionFrom == null && transitionPendingSource == null
             && !marqueeing && !rightDown) {
@@ -456,13 +775,26 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         g.disableScissor();
     }
 
-    /// Requests the move (4-directional) cursor over the inner body of the topmost node under
-    /// `(gx, gy)`, or the pointing hand over its outer edge band; leaves the default arrow on empty
-    /// canvas.
+    /// Requests the move (4-directional) cursor over the inner body of the box under `(gx, gy)`, or the
+    /// pointing hand over its outer edge band; leaves the default arrow on empty canvas and over a
+    /// transition drawn across a group's interior, which the press would select rather than move.
     private void requestHoverCursor(GuiGraphicsExtractor g, int gx, int gy) {
-        StateNode node = nodeAt(gx, gy);
-        if (node == null) return;
-        g.requestCursor(inEdgeBand(node, gx, gy) ? CursorTypes.POINTING_HAND : CursorTypes.RESIZE_ALL);
+        StateNode node = stateNodeAt(gx, gy);
+        if (node != null) {
+            g.requestCursor(inEdgeBand(node, gx, gy) ? CursorTypes.POINTING_HAND : CursorTypes.RESIZE_ALL);
+            return;
+        }
+
+        GroupNode group = groupAt(gx, gy);
+        if (group == null) return;
+
+        if (inEdgeBand(group, gx, gy)) {
+            g.requestCursor(CursorTypes.POINTING_HAND);
+            return;
+        }
+        if (transitionAt(gx, gy) != null) return;
+
+        g.requestCursor(CursorTypes.RESIZE_ALL);
     }
 
     /// Draws a node as a two-region box: the outer frame (transition-drag band) around the inner body
@@ -477,7 +809,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         boolean edgeHover = dragging == null && transitionFrom == null && inEdgeBand(n, gmx, gmy);
         // While dragging a transition, the node it would drop onto (any state but the source / Entry)
         // highlights its frame as the valid target.
-        boolean dropTarget = transitionFrom != null && n != transitionFrom && n != entry && inNode(n, gmx, gmy);
+        boolean dropTarget = transitionFrom != null && n != transitionFrom && n != entry && inBox(n, gmx, gmy);
         int outer = selected ? COLOR_OUTER_SELECTED : (edgeHover || dropTarget ? COLOR_OUTER_HOVER : COLOR_OUTER);
 
         // A state whose signature no longer resolves gets the shared node error marking: red
@@ -501,6 +833,32 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         g.text(font, Component.literal(n.name), sx + NODE_PAD_X, sy + (NODE_H - font.lineHeight) / 2, COLOR_LABEL, false);
     }
 
+    /// Draws a group as the same two-region box a state uses — an outer band a drag grabs to start a
+    /// transition, around the interior its states sit in — with its editor name in the title bar. The
+    /// band is laid down as four strips rather than one fill so the interior keeps the canvas grid
+    /// behind its translucent wash.
+    private void drawGroup(GuiGraphicsExtractor g, GroupNode group, int gmx, int gmy) {
+        int[] b = groupBounds(group);
+        if (b[2] <= 0 || b[3] <= 0) return;
+
+        int x0 = b[0];
+        int y0 = b[1];
+        int x1 = b[0] + b[2];
+        int y1 = b[1] + b[3];
+
+        boolean edgeHover = dragging == null && transitionFrom == null && inEdgeBand(group, gmx, gmy);
+        int frame = group == selectedGroup ? COLOR_OUTER_SELECTED : (edgeHover ? COLOR_OUTER_HOVER : COLOR_GROUP_FRAME);
+
+        g.fill(x0, y0, x1, y0 + EDGE_BAND, frame);
+        g.fill(x0, y1 - EDGE_BAND, x1, y1, frame);
+        g.fill(x0, y0 + EDGE_BAND, x0 + EDGE_BAND, y1 - EDGE_BAND, frame);
+        g.fill(x1 - EDGE_BAND, y0 + EDGE_BAND, x1, y1 - EDGE_BAND, frame);
+        g.fill(x0 + EDGE_BAND, y0 + EDGE_BAND, x1 - EDGE_BAND, y1 - EDGE_BAND, COLOR_GROUP_BODY);
+
+        g.outline(x0, y0, b[2], b[3], COLOR_OUTLINE);
+        g.text(font, Component.literal(group.name), x0 + GROUP_PAD, y0 + EDGE_BAND + 2, COLOR_LABEL, false);
+    }
+
     /// A state whose signature resolves in neither the project nor the engine manager. Checked
     /// live each frame (cheap map lookups) so creating the missing block clears the mark without
     /// a reload.
@@ -513,9 +871,10 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     /// Draws the in-flight transition arrow (graph space): from `source`'s center to a graph-space
     /// point converted from the given screen-space end. Shared by the live drag and the pinned
     /// (menu-open) state.
-    private void drawTransitionPreview(GuiGraphicsExtractor g, StateNode source, double endScreenX, double endScreenY) {
-        float sx = source.x + nodeWidth(source) / 2.0F;
-        float sy = source.y + NODE_H / 2.0F;
+    private void drawTransitionPreview(GuiGraphicsExtractor g, Box source, double endScreenX, double endScreenY) {
+        int[] b = boundsOf(source);
+        float sx = b[0] + b[2] / 2.0F;
+        float sy = b[1] + b[3] / 2.0F;
         float ex = screenToGraphX(endScreenX);
         float ey = screenToGraphY(endScreenY);
         double ang = Math.atan2(ey - sy, ex - sx);
@@ -523,7 +882,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         drawArrowHead(g, ex, ey, ang, COLOR_TRANSITION);
     }
 
-    /// Draws a transition as a line between the two states' **edges** with a filled-triangle arrowhead
+    /// Draws a transition as a line between the two boxes' **edges** with a filled-triangle arrowhead
     /// sitting on the target state's border (UE-style), in `color`.
     private void drawTransition(GuiGraphicsExtractor g, Transition t, int color) {
         float[] e = transitionEndpoints(t);
@@ -535,26 +894,28 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     }
 
     /// The graph-space endpoints `{fromX, fromY, toX, toY}` of a transition: the points where the
-    /// center-to-center line meets each state's rectangle border (so the line touches the boxes rather
+    /// center-to-center line meets each box's rectangle border (so the line touches the boxes rather
     /// than their centers), perpendicular-offset when a reverse transition exists so the twin arrows
-    /// don't overlap. Null when an endpoint state is missing. Drawn / hit-tested under the graph-space
-    /// pose, so they pan and zoom with the nodes.
+    /// don't overlap. Null when the target state is missing or the source is a group with no box.
+    /// Drawn / hit-tested under the graph-space pose, so they pan and zoom with the boxes.
     private float @Nullable [] transitionEndpoints(Transition t) {
-        StateNode from = t.from.equals(ENTRY) ? entry : findState(t.from);
         StateNode to = findState(t.to);
-        if (from == null || to == null) return null;
+        if (to == null) return null;
 
-        float fcx = from.x + nodeWidth(from) / 2.0F;
-        float fcy = from.y + NODE_H / 2.0F;
-        float tcx = to.x + nodeWidth(to) / 2.0F;
-        float tcy = to.y + NODE_H / 2.0F;
+        int[] fb = boundsOf(t.from);
+        if (fb[2] <= 0 || fb[3] <= 0) return null;
+        int[] tb = boundsOf(to);
 
-        float[] fb = borderPoint(from, tcx, tcy);
-        float[] tb = borderPoint(to, fcx, fcy);
-        float fx = fb[0], fy = fb[1], tx = tb[0], ty = tb[1];
+        float fcx = fb[0] + fb[2] / 2.0F;
+        float fcy = fb[1] + fb[3] / 2.0F;
+        float tcx = tb[0] + tb[2] / 2.0F;
+        float tcy = tb[1] + tb[3] / 2.0F;
 
-        boolean hasReverse = transitions.stream().anyMatch(o -> o.from.equals(t.to) && o.to.equals(t.from));
-        if (hasReverse) {
+        float[] fp = borderPoint(fb, tcx, tcy);
+        float[] tp = borderPoint(tb, fcx, fcy);
+        float fx = fp[0], fy = fp[1], tx = tp[0], ty = tp[1];
+
+        if (hasReverse(t, to)) {
             double dx = tx - fx, dy = ty - fy;
             double len = Math.max(1.0, Math.hypot(dx, dy));
             float ox = (float) (-dy / len * 5.0);
@@ -564,16 +925,22 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         return new float[]{fx, fy, tx, ty};
     }
 
-    /// The point on `n`'s graph-space rectangle border along the ray from its center toward
+    /// Whether the opposite direction of `t` also exists, which offsets both lines sideways. Only a
+    /// state-to-state pair can have one: a group is never a target.
+    private boolean hasReverse(Transition t, StateNode to) {
+        if (!(t.from instanceof StateNode from)) return false;
+        return transitions.stream().anyMatch(o -> o.from == to && o.to.equals(from.name));
+    }
+
+    /// The point on a graph-space rectangle's border along the ray from its center toward
     /// `(towardX, towardY)`.
-    private float[] borderPoint(StateNode n, float towardX, float towardY) {
-        float w = nodeWidth(n);
-        float cx = n.x + w / 2.0F;
-        float cy = n.y + NODE_H / 2.0F;
+    private static float[] borderPoint(int[] bounds, float towardX, float towardY) {
+        float cx = bounds[0] + bounds[2] / 2.0F;
+        float cy = bounds[1] + bounds[3] / 2.0F;
         float dx = towardX - cx, dy = towardY - cy;
         if (dx == 0.0F && dy == 0.0F) return new float[]{cx, cy};
 
-        float hw = w / 2.0F, hh = NODE_H / 2.0F;
+        float hw = bounds[2] / 2.0F, hh = bounds[3] / 2.0F;
         float adx = Math.abs(dx), ady = Math.abs(dy);
         float scale = adx * hh > ady * hw ? hw / adx : hh / ady;
         return new float[]{cx + dx * scale, cy + dy * scale};
@@ -677,9 +1044,9 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         }
     }
 
-    /// ***************************************************************
-    /// Input
-    /// ***************************************************************
+    // ***************************************************************
+    // Input
+    // ***************************************************************
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
         boolean handled = handleMouseClicked(event, doubleClick);
@@ -702,7 +1069,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
         if (event.button() != 0) return true;
 
-        StateNode hit = nodeAt(gx, gy);
+        StateNode hit = stateNodeAt(gx, gy);
         if (hit != null) {
             selectedTransition = null;
 
@@ -736,18 +1103,43 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
                 // Clicking a node outside the selection selects just it; clicking one already in a
                 // multi-selection keeps the group so it can be dragged as a whole.
                 if (!selectedNodes.contains(hit)) selectOnly(hit);
-                beginNodeDrag(hit, gx, gy);
+                beginBoxDrag(hit, gx, gy);
             }
             return true;
         }
 
-        // Not over a node: a press on a transition selects it; a double-click opens its condition
-        // sub-tab (Entry transitions included — their condition gates the initial state).
+        // A group's outer band takes the press ahead of any transition drawn across it: it is the band
+        // a drag grabs to start a transition leaving the whole group.
+        GroupNode group = groupAt(gx, gy);
+        if (group != null && inEdgeBand(group, gx, gy)) {
+            selectGroup(group);
+
+            if ((event.modifiers() & GLFW.GLFW_MOD_ALT) != 0) {
+                disconnectAll(group);
+                return true;
+            }
+
+            transitionFrom = group;
+            transitionEndX = event.x();
+            transitionEndY = event.y();
+            return true;
+        }
+
+        // Nothing claims the press: a transition takes it — including one drawn across a group's
+        // interior — and a double-click opens its condition sub-tab (Entry transitions included, their
+        // condition gates the initial state).
         Transition t = transitionAt(gx, gy);
         if (t != null) {
             clearSelection();
             selectedTransition = t;
-            if (doubleClick && onTransitionActivated != null) onTransitionActivated.accept(t.from, t.to);
+            if (doubleClick) activateTransition(t);
+            return true;
+        }
+
+        // A group's interior: move the group, which is moving its members.
+        if (group != null) {
+            selectGroup(group);
+            beginBoxDrag(group, gx, gy);
             return true;
         }
 
@@ -769,6 +1161,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
     private void clearSelection() {
         selectedNodes.clear();
+        selectedGroup = null;
     }
 
     private void addToSelection(StateNode node) {
@@ -778,6 +1171,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     /// Flips `node`'s membership in the selection (Shift+click): drops it when already selected, adds
     /// it otherwise.
     private void toggleSelection(StateNode node) {
+        selectedGroup = null;
         if (!selectedNodes.remove(node)) addToSelection(node);
     }
 
@@ -786,21 +1180,41 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         addToSelection(node);
     }
 
-    /// Begins dragging `node`: the whole selection moves with it, each node offset from its own
-    /// captured start position so their relative layout is preserved.
-    private void beginNodeDrag(StateNode node, int gx, int gy) {
-        dragging = node;
-        grabDx = gx - node.x;
-        grabDy = gy - node.y;
-        dragAnchorStartX = node.x;
-        dragAnchorStartY = node.y;
+    /// Selects a group on its own — a group and states are never selected together, since `Delete` and
+    /// the Details panel mean something different for each.
+    private void selectGroup(GroupNode group) {
+        selectedNodes.clear();
+        selectedTransition = null;
+        selectedGroup = group;
+    }
+
+    /// Begins dragging `box`: a state carries the whole state selection, a group carries its members.
+    /// Each carried state is offset from its own captured start position so their relative layout is
+    /// preserved.
+    private void beginBoxDrag(Box box, int gx, int gy) {
+        int[] b = boundsOf(box);
+
+        dragging = box;
+        grabDx = gx - b[0];
+        grabDy = gy - b[1];
+        dragAnchorStartX = b[0];
+        dragAnchorStartY = b[1];
 
         dragNodes.clear();
         dragStartPositions.clear();
-        for (StateNode n : selectedNodes) {
+        for (StateNode n : dragSubjects(box)) {
             dragNodes.add(n);
             dragStartPositions.add(Pair.of(n.x, n.y));
         }
+    }
+
+    /// The states a drag on `box` moves: the whole state selection when a state is grabbed, a group's
+    /// members when its box is grabbed.
+    private List<StateNode> dragSubjects(Box box) {
+        return switch (box) {
+            case StateNode _ -> List.copyOf(selectedNodes);
+            case GroupNode g -> membersOf(g);
+        };
     }
 
     /// Recomputes the marquee selection: the base selection (for a Shift-additive drag) unioned with
@@ -826,16 +1240,30 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         return nx0 < maxX && nx1 > minX && ny0 < maxY && ny1 > minY;
     }
 
-    /// Removes every transition entering or leaving `node` (ALT + click on its outline).
-    private void disconnectAll(StateNode node) {
-        String name = node == entry ? ENTRY : node.name;
-        transitions.removeIf(t -> t.from.equals(name) || t.to.equals(name));
+    /// Removes every transition entering or leaving `box` (ALT + click on its outer band). A group has
+    /// no incoming transitions, so only the ones leaving it go.
+    private void disconnectAll(Box box) {
+        transitions.removeIf(t -> t.from == box || (box instanceof StateNode s && t.to.equals(s.name)));
         selectedTransition = null;
     }
 
     private void activate(StateNode node) {
         if (node == entry) return;
         if (onStateActivated != null) onStateActivated.accept(node);
+    }
+
+    /// Opens the double-clicked transition's condition sub-tab through the handler its source kind
+    /// belongs to — the two are keyed differently, since a group's condition is authored once and
+    /// expanded onto its members.
+    private void activateTransition(Transition t) {
+        switch (t.from) {
+            case StateNode s -> {
+                if (onTransitionActivated != null) onTransitionActivated.accept(canvasFrom(s), t.to);
+            }
+            case GroupNode g -> {
+                if (onGroupTransitionActivated != null) onGroupTransitionActivated.accept(g.name, t.to);
+            }
+        }
     }
 
     @Override
@@ -846,8 +1274,8 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
             return true;
         }
         if (dragging != null) {
-            // Re-derive the grabbed node from the cursor (so the grab point stays fixed at any zoom)
-            // and snap it, then shift every selected node by the same delta to keep their layout.
+            // Re-derive the grabbed box from the cursor (so the grab point stays fixed at any zoom)
+            // and snap it, then shift every carried state by the same delta to keep their layout.
             int targetX = snap(screenToGraphX(event.x()) - grabDx);
             int targetY = snap(screenToGraphY(event.y()) - grabDy);
             int ddx = targetX - dragAnchorStartX;
@@ -903,10 +1331,10 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         }
 
         if (transitionFrom != null) {
-            StateNode source = transitionFrom;
+            Box source = transitionFrom;
             transitionFrom = null;
 
-            StateNode target = nodeAt(screenToGraphX(event.x()), screenToGraphY(event.y()));
+            StateNode target = stateNodeAt(screenToGraphX(event.x()), screenToGraphY(event.y()));
             if (target != null) {
                 tryCreateTransition(source, target);
             } else {
@@ -922,15 +1350,14 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     /// Adds a `from → to` transition unless it is a self-loop or that exact direction already exists.
     /// Entry behaves like any other source: it may fan out to several states (each Entry transition's
     /// condition gates a candidate initial state — see `PlayerAnimatorScript`), capped only by the
-    /// no-duplicate-direction rule.
-    private void tryCreateTransition(StateNode from, @Nullable StateNode to) {
-        if (to == null || to == entry || from == to) return;
+    /// no-duplicate-direction rule. A group edge onto one of its own members is refused for the same
+    /// reason a self-loop is: expanded, it would transition that state to itself.
+    private void tryCreateTransition(Box from, @Nullable StateNode to) {
+        if (to == null || to == entry || to == from) return;
+        if (from instanceof GroupNode group && to.group == group) return;
+        if (findTransitionFrom(from, to.name) != null) return;
 
-        String fromName = from == entry ? ENTRY : from.name;
-        boolean dup = transitions.stream().anyMatch(t -> t.from.equals(fromName) && t.to.equals(to.name));
-        if (dup) return;
-
-        transitions.add(new Transition(fromName, to.name));
+        transitions.add(new Transition(from, to.name));
     }
 
     /// Scroll-wheel zoom, anchored on the graph point under the cursor (mirrors the Event Graph).
@@ -963,43 +1390,190 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private boolean handleKeyPressed(@NonNull KeyEvent event) {
         if (event.key() != GLFW.GLFW_KEY_DELETE && event.key() != GLFW.GLFW_KEY_BACKSPACE) return false;
 
-        if (selectedTransition != null) {
-            transitions.remove(selectedTransition);
-            selectedTransition = null;
-            return true;
-        }
-        if (!selectedNodes.isEmpty()) {
-            // Delete every selected state (Entry is non-deletable, so it is skipped) and the
-            // transitions touching them.
-            for (StateNode n : List.copyOf(selectedNodes)) {
-                if (n != entry) deleteState(n);
-            }
-            clearSelection();
-            return true;
-        }
-        return false;
+        if (selectedTransition == null && selectedGroup == null && selectedNodes.isEmpty()) return false;
+
+        deleteSelection();
+        return true;
     }
 
     private void deleteState(StateNode node) {
         states.remove(node);
-        transitions.removeIf(t -> t.from.equals(node.name) || t.to.equals(node.name));
+        transitions.removeIf(t -> t.from == node || t.to.equals(node.name));
         selectedTransition = null;
     }
 
-    /// Right-click → "Add State": a menu of the available [FSMAnimationState] signatures; the picked
-    /// one becomes a new state at the cursor.
+    // ***************************************************************
+    // Groups
+    // ***************************************************************
+
+    /// Every state currently in `group`, in canvas order.
+    private List<StateNode> membersOf(GroupNode group) {
+        return states.stream().filter(s -> s.group == group).toList();
+    }
+
+    private @Nullable GroupNode findGroup(String name) {
+        for (GroupNode g : groups) if (g.name.equals(name)) return g;
+        return null;
+    }
+
+    /// The first unused default group name on this machine: "Group", then "Group 2", "Group 3", …
+    private String freshGroupName() {
+        if (findGroup("Group") == null) return "Group";
+        for (int i = 2; ; i++) {
+            String candidate = "Group " + i;
+            if (findGroup(candidate) == null) return candidate;
+        }
+    }
+
+    /// Puts every selected state (Entry aside) into a fresh group, taking them out of whatever group
+    /// they were in — a state belongs to at most one group, so this is also how one moves between
+    /// groups.
+    private void groupSelection() {
+        List<StateNode> members = selectedNodes.stream().filter(n -> n != entry).toList();
+        if (members.isEmpty()) return;
+
+        GroupNode group = new GroupNode(freshGroupName());
+        groups.add(group);
+        for (StateNode s : members) s.group = group;
+
+        pruneEmptyGroups();
+        selectGroup(group);
+    }
+
+    /// Moves every selected state (Entry aside) into `group`.
+    private void addSelectionToGroup(GroupNode group) {
+        for (StateNode s : selectedNodes) {
+            if (s != entry) s.group = group;
+        }
+        pruneEmptyGroups();
+    }
+
+    /// Takes every selected state out of its group.
+    private void ungroupSelection() {
+        for (StateNode s : selectedNodes) s.group = null;
+        pruneEmptyGroups();
+    }
+
+    /// Drops a group and the transitions leaving it; its members stay, ungrouped.
+    private void deleteGroup(GroupNode group) {
+        for (StateNode s : states) {
+            if (s.group == group) s.group = null;
+        }
+        transitions.removeIf(t -> t.from == group);
+        groups.remove(group);
+
+        if (selectedGroup == group) selectedGroup = null;
+        if (lastNotifiedSelection == group) lastNotifiedSelection = null;
+    }
+
+    /// Drops every group left with no member. A group is nothing but its members: an emptied one has no
+    /// box to draw and no transition to expand onto anything.
+    private void pruneEmptyGroups() {
+        for (GroupNode group : List.copyOf(groups)) {
+            if (membersOf(group).isEmpty()) deleteGroup(group);
+        }
+    }
+
+    // ***************************************************************
+    // Context menus
+    // ***************************************************************
+
+    /// Right-click: **Add State** — a subpage of the signatures this machine can still take, the picked
+    /// one placed at the cursor — plus whichever grouping entries apply to the current selection.
     private void openContextMenu(int screenX, int screenY) {
-        openStateMenu(screenX, screenY, this::addState);
+        int gx = screenToGraphX(screenX);
+        int gy = screenToGraphY(screenY);
+
+        ContextMenuContainer.PageBuilder page =
+            ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(160);
+
+        fillStateEntries(
+            page.entry().message(Component.literal("Add State")).subpage().pageWidth(160),
+            this::addState, gx, gy
+        ).done();
+
+        List<StateNode> groupable = selectedNodes.stream().filter(n -> n != entry).toList();
+
+        if (!groupable.isEmpty()) {
+            page.entry().message(Component.literal("Group Selection"))
+                .onPress(_ -> { groupSelection(); notifySelection(); }).done();
+        }
+
+        if (!groupable.isEmpty() && !groups.isEmpty()) {
+            ContextMenuContainer.PageBuilder sub =
+                page.entry().message(Component.literal("Add To Group")).subpage().pageWidth(160);
+
+            for (GroupNode group : groups) {
+                sub.entry().message(Component.literal(group.name))
+                    .onPress(_ -> { addSelectionToGroup(group); notifySelection(); }).done();
+            }
+            sub.done();
+        }
+
+        if (groupable.stream().anyMatch(n -> n.group != null)) {
+            page.entry().message(Component.literal("Ungroup Selection"))
+                .onPress(_ -> { ungroupSelection(); notifySelection(); }).done();
+        }
+
+        if (selectedGroup != null) {
+            GroupNode group = selectedGroup;
+            page.entry().message(Component.literal("Delete Group"))
+                .onPress(_ -> { deleteGroup(group); notifySelection(); }).done();
+        }
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidget(page.build(), screenX, screenY);
     }
 
     /// Drop a transition on empty canvas → the same signature menu, but the picked state is created
     /// **and** wired as the transition's target (UE / Event-Graph "drag a pin to empty space" flow).
     /// The arrow is pinned to the drop point until this menu closes (see [#transitionPendingSource]).
-    private void openTransitionTargetMenu(StateNode source, int screenX, int screenY) {
+    private void openTransitionTargetMenu(Box source, int screenX, int screenY) {
         transitionPendingSource = source;
         transitionPendingX = screenX;
         transitionPendingY = screenY;
-        pendingMenu = openStateMenu(screenX, screenY, (name, gx, gy) -> tryCreateTransition(source, addState(name, gx, gy)));
+
+        ContextMenuContainer.PageBuilder page =
+            ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(160);
+
+        fillStateEntries(page, (name, gx, gy) -> tryCreateTransition(source, addState(name, gx, gy)),
+            screenToGraphX(screenX), screenToGraphY(screenY));
+
+        ContextMenuContainer menu = page.build();
+        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, screenX, screenY);
+        pendingMenu = menu;
+    }
+
+    /// Fills `page` with every registered [FSMAnimationState] signature — engine values merged with
+    /// editor-created (labs) ones — minus the reserved Entry / Exit and any already on this machine (no
+    /// duplicate states). A state is named by its signature and never renamed, so the picked signature
+    /// *is* its identity. When every signature is already used the page shows a disabled note.
+    /// `action` places the picked state at the given graph-space point.
+    private ContextMenuContainer.PageBuilder fillStateEntries(
+        ContextMenuContainer.PageBuilder page, StateMenuAction action, int gx, int gy
+    ) {
+        // Reserved engine states never appear as user-addable.
+        Set<Identifier> reserved = Set.of(
+            AkytheraAnimationState.ENTRY.identifier(),
+            AkytheraAnimationState.EXIT.identifier());
+
+        boolean any = false;
+
+        for (Identifier id : AkytheraProject.getCurrentProject()
+                .getMergedDataBlockIdentifiers(FSMAnimationState.ENUM_MANAGER)) {
+            if (reserved.contains(id)) continue;
+            String name = id.toString();
+            if (findState(name) != null) continue; // already on this machine — no duplicates
+
+            any = true;
+            page.entry().message(Component.literal(name))
+                .onPress(_ -> { action.place(name, gx, gy); notifySelection(); }).done();
+        }
+
+        if (!any) {
+            page.entry().message(Component.literal("All states added")).onPress(_ -> {}).done();
+        }
+
+        return page;
     }
 
     /// Whether the pinned-arrow's target-state menu is still on the modal stack.
@@ -1016,50 +1590,17 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         pendingMenu = null;
     }
 
-    /// A menu of every registered [FSMAnimationState] signature, minus the reserved Entry / Exit and
-    /// any already on this machine (no duplicate states). A state is named by its signature and never
-    /// renamed, so the picked signature *is* its identity. When every signature is already used the
-    /// menu shows a disabled note. `action` places the picked state at the (graph-space) cursor.
-    private ContextMenuContainer openStateMenu(int screenX, int screenY, StateMenuAction action) {
-        int gx = screenToGraphX(screenX);
-        int gy = screenToGraphY(screenY);
-
-        ContextMenuContainer.PageBuilder builder = ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(160);
-        boolean any = false;
-
-        // Reserved engine states never appear as user-addable.
-        Set<Identifier> reserved = Set.of(
-            AkytheraAnimationState.ENTRY.identifier(),
-            AkytheraAnimationState.EXIT.identifier());
-
-        // Merge engine values with editor-created (labs) states (split registry).
-        for (Identifier id : AkytheraProject.getCurrentProject()
-                .getMergedDataBlockIdentifiers(FSMAnimationState.ENUM_MANAGER)) {
-            if (reserved.contains(id)) continue;
-            String name = id.toString();
-            if (findState(name) != null) continue; // already on this machine — no duplicates
-
-            any = true;
-            builder.entry().message(Component.literal(name)).onPress(_ -> action.place(name, gx, gy)).done();
-        }
-
-        if (!any) {
-            builder.entry().message(Component.literal("All states added")).onPress(_ -> {}).done();
-        }
-
-        ContextMenuContainer menu = builder.build();
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, screenX, screenY);
-        return menu;
-    }
-
-    /// Places a picked signature as a state at a graph-space point (see [#openStateMenu]).
+    /// Places a picked signature as a state at a graph-space point (see [#fillStateEntries]).
     @FunctionalInterface
     private interface StateMenuAction {
         void place(String name, int gx, int gy);
     }
 
+    /// Places a picked signature as a state. A point inside a group's box joins that group: the box
+    /// *is* the group, so a state dropped in it belongs to it.
     private StateNode addState(String name, int gx, int gy) {
         StateNode node = new StateNode(name, snap(gx), snap(gy));
+        node.group = groupAt(gx, gy);
         states.add(node);
         selectOnly(node);
         return node;
@@ -1092,15 +1633,27 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         return Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) <= tol;
     }
 
+    /// Anything on the canvas the host builds a Details panel for: a box, or a transition between two
+    /// of them.
+    public sealed interface Selection permits Box, Transition {}
+
+    /// A box on the canvas a transition can leave from and a drag can move: a state (Entry included) or
+    /// a group. Public because the host switches on it to build the Details panel.
+    public sealed interface Box extends Selection permits StateNode, GroupNode {}
+
     /// A movable state box in graph space (Entry is one too: non-deletable; `name` "Entry"). Owns its
-    /// `{state}` output-pose sub-graph, edited in the state's sub-tab.
-    public static final class StateNode {
+    /// `{state}` output-pose sub-graph, edited in the state's sub-tab, and the group it belongs to.
+    public static final class StateNode implements Box {
         /// Mutable so a state can be re-signed to a different [FSMAnimationState] from the Details combo
         /// (see [StateMachineGraphWidget#changeStateSignature]); the name is still the state's identity.
         private String name;
         private int x;
         private int y;
         private ScriptGraphData poseGraph = ScriptGraphData.EMPTY;
+
+        /// The group this state belongs to, or null. A state is in at most one.
+        @Nullable
+        private GroupNode group;
 
         StateNode(String name, int x, int y) {
             this.name = name;
@@ -1111,17 +1664,49 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         public String name() { return name; }
     }
 
-    /// A directed transition by state name (`from` is [#ENTRY] for the Entry transition). Owns its
-    /// `{from} to {to}` boolean condition sub-graph, edited in the transition's sub-tab.
-    private static final class Transition {
-        /// Endpoints are mutable so re-signing a state ([StateMachineGraphWidget#changeStateSignature])
-        /// can retarget the transitions touching it without rebuilding them (their condition sub-graph
-        /// is preserved).
-        private String from;
+    /// A named box over a set of states, whose outgoing transitions every member inherits. It has no
+    /// position or size of its own — [StateMachineGraphWidget#groupBounds] derives its rectangle from
+    /// its members — and no state graph: only the transitions leaving it, which live in the shared
+    /// transition list keyed by this instance.
+    public static final class GroupNode implements Box {
+        /// Editor-only, and unique on the machine: the compile expands the group away, but the name
+        /// keys its condition sub-tabs.
+        private String name;
+
+        GroupNode(String name) {
+            this.name = name;
+        }
+
+        public String name() { return name; }
+    }
+
+    /// A directed transition from a box to a state (by name). Owns its `{from} to {to}` boolean
+    /// condition sub-graph, edited in the transition's sub-tab; a group's is expanded onto every member
+    /// at compile.
+    public static final class Transition implements Selection {
+        /// The box this transition leaves — held by identity, so re-signing a state
+        /// ([StateMachineGraphWidget#changeStateSignature]) or renaming a group leaves it alone.
+        private final Box from;
+
+        /// Mutable so re-signing the target state retargets the transition without rebuilding it (its
+        /// condition sub-graph is preserved).
         private String to;
+
         private ScriptGraphData conditionGraph = ScriptGraphData.EMPTY;
 
-        Transition(String from, String to) {
+        /// Seconds the machine cross-fades over while taking this transition — the `blendTime` of the
+        /// [AnimationStateTransition] it compiles into.
+        private float blendTime = StateMachineData.TransitionData.DEFAULT_BLEND_TIME;
+
+        /// Whether the state this transition leaves hands its elapsed time to the one it enters — the
+        /// `transferElapsedTime` of the [AnimationStateTransition] it compiles into.
+        private boolean transferElapsedTime = StateMachineData.TransitionData.DEFAULT_TRANSFER_ELAPSED_TIME;
+
+        /// The priority this transition is taken at — the `transitionPriority` of the
+        /// [AnimationStateTransition] it compiles into.
+        private int transitionPriority = StateMachineData.TransitionData.DEFAULT_TRANSITION_PRIORITY;
+
+        Transition(Box from, String to) {
             this.from = from;
             this.to = to;
         }
@@ -1141,9 +1726,9 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     protected void updateWidgetNarration(@NonNull NarrationElementOutput narrationElementOutput) {
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

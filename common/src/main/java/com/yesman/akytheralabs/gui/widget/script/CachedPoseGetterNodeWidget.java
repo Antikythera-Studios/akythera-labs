@@ -21,10 +21,15 @@ public final class CachedPoseGetterNodeWidget extends AbstractNodeWidget {
 
     private String cacheName;
 
-    public CachedPoseGetterNodeWidget(Font font, String cacheName, int graphX, int graphY) {
+    private boolean controlReferenceDriver;
+
+    public CachedPoseGetterNodeWidget(
+        Font font, String cacheName, boolean controlReferenceDriver, int graphX, int graphY
+    ) {
         super(font, Component.literal("Use cached pose '" + cacheName + "'"), graphX, graphY);
 
         this.cacheName = cacheName;
+        this.controlReferenceDriver = controlReferenceDriver;
 
         setTitleColor(TITLE_COLOR);
         addOutput(new Pin("Pose", NodeColors.forType(Pose.class), false, Pose.class));
@@ -44,8 +49,19 @@ public final class CachedPoseGetterNodeWidget extends AbstractNodeWidget {
         relayout();
     }
 
+    /// Whether this reference drives the cached pose's own driver — the `controlReferenceDriver` of the
+    /// [com.yesman.akythera.core.animation.driver.CachedPoseReference] it compiles into — and its
+    /// setter, which the Details panel's Control Reference Driver row reads and writes.
+    public boolean controlReferenceDriver() {
+        return controlReferenceDriver;
+    }
+
+    public void setControlReferenceDriver(boolean controlReferenceDriver) {
+        this.controlReferenceDriver = controlReferenceDriver;
+    }
+
     @Override
     public NodeData toData() {
-        return new CachedPoseGetterNodeData(cacheName);
+        return new CachedPoseGetterNodeData(cacheName, controlReferenceDriver);
     }
 }

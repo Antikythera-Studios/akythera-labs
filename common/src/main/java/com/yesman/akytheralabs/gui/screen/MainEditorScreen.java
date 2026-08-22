@@ -202,8 +202,8 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
         }
     }
 
-    /// Instead of assigning `modal` directly into [AbstractContainerEventHandler#focused], check and return opened modal via
-    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
+    /// The modal owning focus, through [ModalAccessibleScreen#getFocusOwningModal], so focus is
+    /// released when it closes.
     @Nullable
     public GuiEventListener getFocused() {
         AbstractWidget modal = getFocusOwningModal();

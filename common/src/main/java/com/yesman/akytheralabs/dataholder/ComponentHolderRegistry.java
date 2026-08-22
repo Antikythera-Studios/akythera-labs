@@ -3,10 +3,13 @@ package com.yesman.akytheralabs.dataholder;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.MapCodec;
+import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.EntityPatchComponentHolders;
 import com.yesman.akytheralabs.akythera.entitypatch.component.RootAttachableComponent;
 import com.yesman.akythera.client.api.component.RenderableComponent;
+import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHolders;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
@@ -16,11 +19,9 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
-/// Maps patch component **type ids** (the
-/// [com.yesman.akythera.core.registry.AkytheraRegistries.Frozen#COMPONENT_BLUEPRINT_TYPES] registry
-/// ids) to their editor-side holders. One instance per patch kind — see
-/// [com.yesman.akytheralabs.akythera.entitypatch.component.EntityPatchComponentHolders] and
-/// [com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHolders].
+/// Maps patch component **type ids** (the [AkytheraRegistries.Frozen#COMPONENT_BLUEPRINT_TYPES] registry ids)
+/// to their editor-side holders. One instance per patch kind — see [EntityPatchComponentHolders] and
+/// [ItemPatchComponentHolders].
 ///
 /// **Open registry**: external mods (compat plugins) register their own component holders through
 /// [#register] during client init — before the first project entry decodes and before the first
@@ -89,8 +90,7 @@ public final class ComponentHolderRegistry {
     }
 
     /// [#typeIdOf] for callers that legitimately meet an unregistered holder — a
-    /// [FailedComponentHolder] stands in for a type this build knows nothing about, and the
-    /// component list still has to draw a row for it.
+    /// [FailedComponentHolder] stands in for a type this build knows nothing about.
     public @Nullable Identifier typeIdOrNull(ComponentDataHolder<?> holder) {
         return typeIdsByClass.get(holder.getClass());
     }

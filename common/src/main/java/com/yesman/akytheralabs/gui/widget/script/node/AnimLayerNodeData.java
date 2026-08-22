@@ -2,7 +2,7 @@ package com.yesman.akytheralabs.gui.widget.script.node;
 
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
-import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
+import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akytheralabs.dataholder.DataBlockHolder;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.dataholder.EditorReference;

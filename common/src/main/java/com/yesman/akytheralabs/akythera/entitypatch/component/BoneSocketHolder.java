@@ -162,9 +162,9 @@ public final class BoneSocketHolder extends ComponentDataHolder<BoneSocket> impl
         return BoneSocket.class;
     }
 
-    /// ***************************************************************
-    /// Source export (File > Export > As Source Code)
-    /// ***************************************************************
+    // ***************************************************************
+    // Source export (File > Export > As Source Code)
+    // ***************************************************************
 
     @Override
     public String sourceTemplate() {

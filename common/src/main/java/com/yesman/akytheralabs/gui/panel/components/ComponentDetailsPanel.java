@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.panel.components;
 
 import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
@@ -13,12 +14,12 @@ import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-/// Right-hand "Details" panel of the entity-patch editor: shows the focused component's
-/// [com.yesman.akytheralabs.editor.EditorEditable] fields as [EditorWidgetFactory]-generated rows
-/// (asset accessors and registry keys become search PopupBoxes, booleans become checkboxes, ...).
-/// Nested editor objects and `List` fields render inline, one indent level per depth — the
-/// rendering (and list add/remove history) lives in the factory; this panel supplies the rebuild
-/// callback and the placeholder look (a centered grey "Details" label when nothing is focused).
+/// Right-hand "Details" panel of the entity-patch editor: shows the focused component's [EditorEditable]
+/// fields as [EditorWidgetFactory]-generated rows (asset accessors and registry keys become search
+/// PopupBoxes, booleans become checkboxes, ...). Nested editor objects and `List` fields render inline, one
+/// indent level per depth — the rendering (and list add/remove history) lives in the factory; this panel
+/// supplies the rebuild callback and the placeholder look (a centered grey "Details" label when nothing is
+/// focused).
 public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelArea {
     private static final Component TITLE = Component.literal("Details");
     private static final int ROW_H = 20;

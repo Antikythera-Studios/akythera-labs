@@ -5,6 +5,7 @@ import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.api.data.modularize.node.ScriptNode;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeInputs;
 import com.yesman.akytheralabs.gui.widget.script.node.PureCompileContext;
 import org.jspecify.annotations.Nullable;
@@ -19,10 +20,9 @@ import java.util.Map;
 /// ([AnimGraphCompiler]): node / wire indexing, reroute splicing, and the [PureCompileContext] the
 /// nodes lower themselves through.
 ///
-/// A node's own lowering lives on its
-/// [com.yesman.akytheralabs.gui.widget.script.node.NodeData#compilePure]. A canvas customises the
-/// shared node types by overriding the [PureCompileContext] defaults, and supplies its stand-in for
-/// an unwired input through [#defaultValue].
+/// A node's own lowering lives on its [NodeData#compilePure]. A canvas customises the shared node types by
+/// overriding the [PureCompileContext] defaults, and supplies its stand-in for an unwired input through
+/// [#defaultValue].
 abstract class PureGraphCompiler implements PureCompileContext {
     protected final Class<?> ownerType;
     protected final Map<Integer, GraphNode> byId = new HashMap<>();

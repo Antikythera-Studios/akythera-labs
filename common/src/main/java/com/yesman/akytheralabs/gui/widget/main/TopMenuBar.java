@@ -3,9 +3,11 @@ package com.yesman.akytheralabs.gui.widget.main;
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.UniversalMenu;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -18,9 +20,7 @@ import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 
@@ -34,36 +34,36 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     private static final int DROPDOWN_W = 120;
 
     /// The menu bar every screen shows, with every option at a fixed position. A screen differs only
-    /// in which [TopMenuOption]s its [Actions] wires up — the rest stay in place, greyed out and
-    /// unpressable.
+    /// in which [TopMenuOption]s its [UniversalMenu.Actions] wires up — the rest stay in place,
+    /// greyed out and unpressable.
     private static final List<Menu> MENUS = List.of(
         new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_FILE), List.of(
-            new OptionRow(TopMenuOption.SAVE),
-            new OptionRow(TopMenuOption.COMPILE),
-            new GroupRow(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_EXPORT), List.of(
-                new OptionRow(TopMenuOption.EXPORT_AS_PACK),
-                new OptionRow(TopMenuOption.EXPORT_AS_SOURCE_CODE)
+            new UniversalMenu.OptionRow<>(TopMenuOption.SAVE),
+            new UniversalMenu.OptionRow<>(TopMenuOption.COMPILE),
+            new UniversalMenu.GroupRow<TopMenuOption>(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_EXPORT), List.of(
+                new UniversalMenu.OptionRow<>(TopMenuOption.EXPORT_AS_PACK),
+                new UniversalMenu.OptionRow<>(TopMenuOption.EXPORT_AS_SOURCE_CODE)
             )),
-            new ChoiceListRow(TopMenuOption.CHANGE_PARENT),
-            new OptionRow(TopMenuOption.DELETE_PROJECT)
+            new UniversalMenu.ChoiceListRow<>(TopMenuOption.CHANGE_PARENT),
+            new UniversalMenu.OptionRow<>(TopMenuOption.DELETE_PROJECT)
         )),
         new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT), List.of(
-            new OptionRow(TopMenuOption.LANGUAGE),
-            new OptionRow(TopMenuOption.PROJECT_SETTINGS),
-            new OptionRow(TopMenuOption.EDITOR_PREFERENCES),
-            new OptionRow(TopMenuOption.MODEL_ARMATURE_MAPPING)
+            new UniversalMenu.OptionRow<>(TopMenuOption.LANGUAGE),
+            new UniversalMenu.OptionRow<>(TopMenuOption.PROJECT_SETTINGS),
+            new UniversalMenu.OptionRow<>(TopMenuOption.EDITOR_PREFERENCES),
+            new UniversalMenu.OptionRow<>(TopMenuOption.MODEL_ARMATURE_MAPPING)
         )),
         new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW), List.of(
-            new OptionRow(TopMenuOption.SELECT_PREVIEW_MODEL),
-            new OptionRow(TopMenuOption.FRAME_CAMERA)
+            new UniversalMenu.OptionRow<>(TopMenuOption.SELECT_PREVIEW_MODEL),
+            new UniversalMenu.OptionRow<>(TopMenuOption.FRAME_CAMERA)
         )),
         new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_TOOLS), List.of(
-            new OptionRow(TopMenuOption.ANIMATION_RETARGET),
-            new OptionRow(TopMenuOption.DEBUG)
+            new UniversalMenu.OptionRow<>(TopMenuOption.ANIMATION_RETARGET),
+            new UniversalMenu.OptionRow<>(TopMenuOption.DEBUG)
         )),
         new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_HELP), List.of(
-            new OptionRow(TopMenuOption.DOCS),
-            new OptionRow(TopMenuOption.ISSUE_REPORT)
+            new UniversalMenu.OptionRow<>(TopMenuOption.DOCS),
+            new UniversalMenu.OptionRow<>(TopMenuOption.ISSUE_REPORT)
         ))
     );
 
@@ -77,9 +77,9 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     /// right-click context menus do.
     private final ContextMenuContainer[] dropdowns;
 
-    /// Optional unsaved-changes probe. When it returns `true` a `*` is drawn in front of the title.
-    /// Editor screens wire this to a [com.yesman.akytheralabs.editor.historytrack.HistoryManager]
-    /// save-point comparison; left null (always clean) for bars without a save concept.
+    /// Optional unsaved-changes probe. When it returns `true` a `*` is drawn in front of the title. Editor
+    /// screens wire this to a [HistoryManager] save-point comparison; left null (always clean) for bars
+    /// without a save concept.
     private @Nullable BooleanSupplier dirtyChecker;
 
     public TopMenuBar(
@@ -92,7 +92,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         AnchoredWidget.HorizontalAnchorType horizontalAnchorType,
         AnchoredWidget.VerticalAnchorType verticalAnchorType,
         Button.OnPress onClose,
-        Actions actions
+        UniversalMenu.Actions<TopMenuOption> actions
     ) {
         super(0, 0, 0, 0, title, AbstractScrollArea.defaultSettings(0));
 
@@ -124,7 +124,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
                 .build();
 
             ContextMenuContainer.PageBuilder page = ContextMenuContainer.builder(minecraft).pageWidth(DROPDOWN_W);
-            populatePage(page, menu.rows(), actions);
+            UniversalMenu.populate(page, menu.rows(), actions, DROPDOWN_W);
             dropdowns[i] = page.build();
         }
 
@@ -160,46 +160,6 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
 
         // openModalWidget repositions the container (and closes any open sub-pages).
         manager.openModalWidget(dropdowns[i], menuButtons[i].getX(), getY() + getHeight());
-    }
-
-    /// Lays `rows` onto `page`, binding each option to `actions`. Sub-lists become sub-pages that
-    /// unfold to the right on hover, mirroring the right-click menus.
-    private static void populatePage(ContextMenuContainer.PageBuilder page, List<MenuRow> rows, Actions actions) {
-        for (MenuRow row : rows) {
-            switch (row) {
-                case OptionRow(TopMenuOption option) -> {
-                    Runnable action = actions.actions.get(option);
-                    var entry = page.entry().message(option.displayName()).predicate(() -> action != null);
-
-                    if (action != null) {
-                        entry.onPress(_ -> action.run());
-                    }
-                }
-                case ChoiceListRow(TopMenuOption option) -> {
-                    List<Choice> choices = actions.choiceLists.getOrDefault(option, List.of());
-                    ContextMenuContainer.PageBuilder subpage = page.entry()
-                        .message(option.displayName())
-                        .predicate(() -> !choices.isEmpty())
-                        .subpage()
-                        .pageWidth(DROPDOWN_W);
-
-                    for (Choice choice : choices) {
-                        Runnable action = choice.action();
-                        subpage.entry().message(choice.name()).onPress(_ -> action.run());
-                    }
-                }
-                case GroupRow(Component name, List<MenuRow> children) -> {
-                    boolean anyHandled = children.stream().anyMatch(actions::handles);
-                    ContextMenuContainer.PageBuilder subpage = page.entry()
-                        .message(name)
-                        .predicate(() -> anyHandled)
-                        .subpage()
-                        .pageWidth(DROPDOWN_W);
-
-                    populatePage(subpage, children, actions);
-                }
-            }
-        }
     }
 
     private void layoutButtons() {
@@ -261,61 +221,16 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         layoutButtons();
     }
 
-    public static Actions actions() {
-        return new Actions();
+    public static UniversalMenu.Actions<TopMenuOption> actions() {
+        return UniversalMenu.actions();
     }
 
     /// One top-level menu of [#MENUS] — the bar button plus the rows of its dropdown.
-    private record Menu(Component name, List<MenuRow> rows) {}
+    private record Menu(Component name, List<UniversalMenu.Row<TopMenuOption>> rows) {}
 
-    /// A single row of a dropdown page.
-    private sealed interface MenuRow {}
-
-    /// A row that runs the screen's action for @param `option`.
-    private record OptionRow(TopMenuOption option) implements MenuRow {}
-
-    /// A row that unfolds into the sub-list the screen registered for @param `option`
-    /// (see [Actions#onChoices]).
-    private record ChoiceListRow(TopMenuOption option) implements MenuRow {}
-
-    /// A row that unfolds into a fixed sub-list of further rows.
-    private record GroupRow(Component name, List<MenuRow> children) implements MenuRow {}
-
-    /// One row of a screen-supplied sub-list. See [Actions#onChoices].
-    public record Choice(Component name, Runnable action) {}
-
-    /// A screen's wiring of the universal menu: the [TopMenuOption]s it handles, and what each does.
-    /// Options left out of it render greyed out and reject clicks.
-    public static final class Actions {
-        private final Map<TopMenuOption, Runnable> actions = new EnumMap<>(TopMenuOption.class);
-        private final Map<TopMenuOption, List<Choice>> choiceLists = new EnumMap<>(TopMenuOption.class);
-
-        private Actions() {}
-
-        public Actions on(final TopMenuOption option, final Runnable action) {
-            actions.put(option, action);
-            return this;
-        }
-
-        /// Fills the sub-list of @param `option` with the choices this screen offers. An empty list
-        /// leaves the row greyed out.
-        public Actions onChoices(final TopMenuOption option, final List<Choice> choices) {
-            choiceLists.put(option, choices);
-            return this;
-        }
-
-        private boolean handles(final MenuRow row) {
-            return switch (row) {
-                case OptionRow(TopMenuOption option) -> actions.containsKey(option);
-                case ChoiceListRow(TopMenuOption option) -> !choiceLists.getOrDefault(option, List.of()).isEmpty();
-                case GroupRow group -> group.children().stream().anyMatch(this::handles);
-            };
-        }
-    }
-
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

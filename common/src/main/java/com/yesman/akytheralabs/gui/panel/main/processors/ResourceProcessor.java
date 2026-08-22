@@ -6,13 +6,15 @@ import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
+import com.yesman.akytheralabs.gui.panel.main.ContentContextOption;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.UniversalMenu;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
-import net.minecraft.client.Minecraft;
+import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
 import net.minecraft.client.gui.Font;
 import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
@@ -22,6 +24,7 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,13 +64,32 @@ public interface ResourceProcessor<T> {
     /// Whether this asset type allows creating subdirectories under its registry root.
     boolean canCreateSubDirectories();
 
-    /// Right-click on a [ContentWidget] in [ContentBrowserPanel]. Each processor
-    /// builds its own menu, capturing `widget` in closures so the menu reacts to
-    /// whichever widget the user clicked.
+    /// Right-click on a [ContentWidget] in [ContentBrowserPanel]: which [ContentContextOption]s this
+    /// asset type answers for `rightPressed`. The panel lays every option out itself, so an option
+    /// left out of the returned [UniversalMenu.Actions] keeps its place, greyed out.
     ///
-    /// Call [ContentBrowserPanel#getSelectedWidgets()] to get all selected items ordered by the location of a widget
-    /// in the grid
-    ContextMenuContainer createContextMenuOnWidget(ContentBrowserPanel browser, ContentWidget<?> rightPressed);
+    /// The default answers the shared set — see [#entryActions]. Override only to add options of this
+    /// type's own.
+    ///
+    /// Call [ContentBrowserPanel#getSelectedWidgets()] to get all selected items ordered by the location
+    /// of a widget in the grid
+    default UniversalMenu.Actions<ContentContextOption> contextActions(ContentBrowserPanel browser, ContentWidget<?> rightPressed) {
+        return entryActions(this, browser, rightPressed);
+    }
+
+    /// This category's whole-category source compile — every entry of it folded into the one generated
+    /// `.java` it owns, run by [ExportModalGenerator#openCompile]. Null when the category has no
+    /// generated source of its own, which greys the explorer's `Compile Objects` row.
+    default ExportModalGenerator.@Nullable Compile categoryCompile() {
+        return null;
+    }
+
+    /// The source compile of `entryKeys` — entries of this category, each becoming its own generated
+    /// `.java`. Null when this category's entries have no generated source of their own, which greys
+    /// the content browser's `Compile Selected` row.
+    default ExportModalGenerator.@Nullable Compile entryCompile(List<ResourceKey<?>> entryKeys) {
+        return null;
+    }
 
     /// Pressing the green `+` button in [ContentBrowserPanel].
     /// `selected` is the user-focused tree node (may equal the registry root or
@@ -77,6 +99,67 @@ public interface ResourceProcessor<T> {
     /// Convert a single regular-file path inside this asset type's directory
     /// into a [ContentWidget]. Returns null if the file is not recognized.
     @Nullable ContentWidget<?> createContentWidget(Font font, Path path);
+
+    /// Right-click on empty space: only `Add New`, re-firing the green-cross button on the browser's
+    /// currently selected node.
+    static UniversalMenu.Actions<ContentContextOption> backgroundActions(ContentBrowserPanel browser) {
+        return UniversalMenu.<ContentContextOption>actions()
+            .on(ContentContextOption.ADD_NEW, browser::triggerAddPressed);
+    }
+
+    /// Right-click on a folder widget, shared by every processor.
+    static UniversalMenu.Actions<ContentContextOption> folderActions(ContentBrowserPanel browser, ContentWidget<?> rightPressed) {
+        boolean onDisk = Files.exists(rightPressed.getPath());
+
+        return UniversalMenu.<ContentContextOption>actions()
+            .on(ContentContextOption.OPEN, rightPressed::onDoubleClicked)
+            .on(ContentContextOption.OPEN_IN_FILE_EXPLORER, () -> onDisk, () -> FileSystemHelper.openInFileExplorer(rightPressed.getPath()))
+            .on(ContentContextOption.RENAME, rightPressed::startEditing)
+            .on(ContentContextOption.DELETE_SELECTED, browser::triggerDeleteSelected);
+    }
+
+    /// The options every content widget answers, each resolved off what the widget already carries:
+    /// `Open` while it has an editor screen, `Open in File Explorer` while its file is still on disk
+    /// (tested once as the menu is built), `Compile Selected` while the selection has generated source
+    /// of its own, `Rename` while its name is editable, and `Delete Selected`.
+    static UniversalMenu.Actions<ContentContextOption> entryActions(
+        ResourceProcessor<?> processor, ContentBrowserPanel browser, ContentWidget<?> rightPressed
+    ) {
+        boolean onDisk = Files.exists(rightPressed.getPath());
+        List<ResourceKey<?>> selectedKeys = selectedEntryKeys(browser);
+        ExportModalGenerator.@Nullable Compile compile = selectedKeys.isEmpty() ? null : processor.entryCompile(selectedKeys);
+
+        UniversalMenu.Actions<ContentContextOption> actions = UniversalMenu.<ContentContextOption>actions()
+            .on(ContentContextOption.OPEN_IN_FILE_EXPLORER, () -> onDisk, () -> FileSystemHelper.openInFileExplorer(rightPressed.getPath()))
+            .on(ContentContextOption.DELETE_SELECTED, browser::triggerDeleteSelected);
+
+        if (rightPressed.isOpenable()) {
+            actions.on(ContentContextOption.OPEN, rightPressed::onDoubleClicked);
+        }
+
+        if (rightPressed.isEditable()) {
+            actions.on(ContentContextOption.RENAME, rightPressed::startEditing);
+        }
+
+        if (compile != null) {
+            actions.on(ContentContextOption.COMPILE, () -> ExportModalGenerator.openCompile(
+                browser.getFont(),
+                Component.translatable(LangKeys.GUI_EXPORT_MODAL_COMPILE_SELECTED_TITLE),
+                compile
+            ));
+        }
+
+        return actions;
+    }
+
+    /// The registry keys of the selected content entries. Folders and asset files carry no project
+    /// registry entry and drop out.
+    private static List<ResourceKey<?>> selectedEntryKeys(ContentBrowserPanel browser) {
+        return browser.getSelectedWidgets().stream()
+            .filter(ContentWidget.DataDrivenObjectContent.class::isInstance)
+            .<ResourceKey<?>>map(widget -> ((ContentWidget.DataDrivenObjectContent<?, ?>) widget).getResourceKey())
+            .toList();
+    }
 
     /// Walks parents to find the registry-root node — the topmost ancestor
     /// whose parent does not own a processor. Returns null if `node` is itself
@@ -175,36 +258,6 @@ public interface ResourceProcessor<T> {
             path,
             fileNameNoExt(path)
         );
-    }
-
-    /// Single shared right-click-on-empty-space menu for every processor.
-    /// One entry, "Add", which re-fires the green-cross button on the
-    /// browser's currently selected node.
-    static ContextMenuContainer backgroundMenu(ContentBrowserPanel browser) {
-        return ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(140)
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_ADD_NEW))
-                .onPress(_ -> browser.triggerAddPressed())
-                .done()
-            .build();
-    }
-
-    /// Single shared right-click-on-folder-widget menu for every processor.
-    static ContextMenuContainer folderMenu(ContentBrowserPanel browser, ContentWidget<?> rightPressed) {
-        return ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(140)
-            .entry()
-            .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_OPEN))
-            .onPress(_ -> rightPressed.onDoubleClicked())
-            .done()
-            .entry()
-            .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_RENAME))
-            .onPress(_ -> rightPressed.startEditing())
-            .done()
-            .entry()
-            .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_DELETE_SELECTED))
-            .onPress(_ -> browser.triggerDeleteSelected())
-            .done()
-            .build();
     }
 
     @FunctionalInterface

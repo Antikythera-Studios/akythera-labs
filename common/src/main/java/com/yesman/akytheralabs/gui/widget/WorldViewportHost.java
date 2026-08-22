@@ -1,13 +1,14 @@
 package com.yesman.akytheralabs.gui.widget;
 
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.mixin.MixinMouseHandler;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 
 /// Owner of the rectangle the in-game frame buffer is blitted into.
 ///
-/// [com.yesman.akytheralabs.AkytheraEditorLayoutManager#snatchInputs] reads the active host to decide
-/// whether a pointer position belongs to the editor or to the game, and
-/// [com.yesman.akytheralabs.mixin.MixinMouseHandler] reads it to express the cursor in the game's own
-/// coordinate space.
+/// [AkytheraEditorLayoutManager#snatchInputs] reads the active host to decide whether a pointer position
+/// belongs to the editor or to the game, and [MixinMouseHandler] reads it to express the cursor in the game's
+/// own coordinate space.
 public interface WorldViewportHost {
     /// The viewport rect, in editor gui units.
     ScreenRectangle getWorldViewportRectangle();

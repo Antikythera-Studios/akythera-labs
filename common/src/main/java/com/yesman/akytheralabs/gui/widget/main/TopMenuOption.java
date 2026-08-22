@@ -1,12 +1,13 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
 import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.widget.UniversalMenu;
 import net.minecraft.network.chat.Component;
 
 /// Every option the top menu can offer. [TopMenuBar] lays all of them out the same way on every
-/// screen; a screen wires up the ones it handles through [TopMenuBar.Actions] and the rest render
+/// screen; a screen wires up the ones it handles through [UniversalMenu.Actions] and the rest render
 /// greyed out.
-public enum TopMenuOption {
+public enum TopMenuOption implements UniversalMenu.MenuOption {
     SAVE(LangKeys.GUI_MENU_BAR_FILE_SAVE),
     COMPILE(LangKeys.GUI_MENU_BAR_FILE_COMPILE),
     EXPORT_AS_PACK(LangKeys.GUI_MENU_BAR_FILE_EXPORT_AS_PACK),
@@ -34,6 +35,7 @@ public enum TopMenuOption {
         this.displayName = Component.translatable(langKey);
     }
 
+    @Override
     public Component displayName() {
         return displayName;
     }

@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.api.animation.animator.AbstractAnimationInterface;
 import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
+import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -29,9 +30,9 @@ import java.util.List;
 /// Both references are shared live holders, so a rename of the key or of the default animation
 /// follows here without a rewrite.
 ///
-/// Compile rule (see the graph compilers): emit the `play_*_interface` `ANIM_GRAPH`
-/// [com.yesman.akythera.api.data.modularize.ScriptFunction], passing the construct-scope `animator`
-/// context variable, the key as an `anim_interface_key` literal, and the default animation's id.
+/// Compile rule (see the graph compilers): emit the `play_*_interface` `ANIM_GRAPH` [ScriptFunction], passing
+/// the construct-scope `animator` context variable, the key as an `anim_interface_key` literal, and the
+/// default animation's id.
 public abstract sealed class AnimInterfaceNodeWidget extends AbstractNodeWidget
     permits AnimSequenceInterfaceNodeWidget, BlendSpaceInterfaceNodeWidget {
 
@@ -57,6 +58,14 @@ public abstract sealed class AnimInterfaceNodeWidget extends AbstractNodeWidget
 
     private static Component title(Identifier keyId) {
         return Component.literal("Anim Interface: " + keyId);
+    }
+
+    /// An [AnimationInterfaceKey] registers once per animator (`BlendingAnimator#addAnimInterface`
+    /// throws on a duplicate) and is picked from the registry rather than minted, so a copy of this
+    /// node has no key to land under.
+    @Override
+    public boolean isCopyable() {
+        return false;
     }
 
     /// The bound key, for the row this widget describes.

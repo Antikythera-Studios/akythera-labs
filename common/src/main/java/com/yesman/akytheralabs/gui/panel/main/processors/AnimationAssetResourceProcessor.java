@@ -9,16 +9,15 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
-import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
+import com.yesman.akytheralabs.gui.panel.main.ContentContextOption;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.UniversalMenu;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.core.Registry;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
@@ -66,33 +65,10 @@ public final class AnimationAssetResourceProcessor implements ResourceProcessor<
     }
 
     @Override
-    public ContextMenuContainer createContextMenuOnWidget(ContentBrowserPanel browser, ContentWidget<?> rightPressed) {
-        return ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(100)
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_OPEN))
-                .onPress(_ -> rightPressed.onDoubleClicked())
-                .done()
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_RENAME))
-                .onPress(_ -> rightPressed.startEditing())
-                .done()
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_CREATE))
-                .subpage()
-                    .entry()
-                        .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_CREATE_ANIM_SEQUENCE))
-                        .onPress(_ -> createAnimSequences(new ArrayList<>(browser.getSelectedWidgets())))
-                        .done()
-                    .entry()
-                        .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_CREATE_ANIM_MONTAGE))
-                        .onPress(_ -> createAnimMontages(new ArrayList<>(browser.getSelectedWidgets())))
-                        .done()
-                    .done()
-            .entry()
-                .message(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_DELETE_SELECTED))
-                .onPress(_ -> browser.triggerDeleteSelected())
-                .done()
-            .build();
+    public UniversalMenu.Actions<ContentContextOption> contextActions(ContentBrowserPanel browser, ContentWidget<?> rightPressed) {
+        return ResourceProcessor.entryActions(this, browser, rightPressed)
+            .on(ContentContextOption.CREATE_ANIM_SEQUENCE, () -> createAnimSequences(new ArrayList<>(browser.getSelectedWidgets())))
+            .on(ContentContextOption.CREATE_ANIM_MONTAGE, () -> createAnimMontages(new ArrayList<>(browser.getSelectedWidgets())));
     }
 
     /// One [AnimationSequence] per selected animation, mirroring the animation's own path under the

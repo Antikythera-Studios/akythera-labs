@@ -111,9 +111,9 @@ public final class KeyMappingHolder extends AbstractWidget implements AnchoredWi
             || key == InputConstants.KEY_LSUPER || key == InputConstants.KEY_RSUPER;
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;
@@ -132,9 +132,9 @@ public final class KeyMappingHolder extends AbstractWidget implements AnchoredWi
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
 
-    /// *****************************************************************
-    /// [DataBoundWidget] implementations                               *
-    /// *****************************************************************
+    // *****************************************************************
+    // [DataBoundWidget] implementations
+    // *****************************************************************
     @Override
     public Callable<EditorKeyMapping> getDataProvider() {
         return () -> mapping;

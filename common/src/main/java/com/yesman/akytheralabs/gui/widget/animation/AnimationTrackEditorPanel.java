@@ -33,7 +33,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-/// Reusable animation-track editor as a [com.yesman.akytheralabs.gui.panel.AdjustablePanelManager.PanelArea]
+/// Reusable animation-track editor as a [AdjustablePanelManager.PanelArea]
 /// so it can drop into any panel section without extra glue. It owns:
 ///   - the title strip with the "+ track" button and per-frame ruler
 ///   - the scrolling track list ([AnimationTrackList])

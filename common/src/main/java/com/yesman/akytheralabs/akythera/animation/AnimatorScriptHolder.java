@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.akythera.animation;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.animation.animator.Animator;
+import com.yesman.akythera.api.data.modularize.node.ScriptNode;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
 import com.yesman.akythera.api.data.modularize.node.SequenceNode;
@@ -28,9 +29,8 @@ import java.util.stream.Stream;
 ///
 /// The editor keeps each of the three flow entry points (`construct` / `update` / `pose`) as a flat
 /// [ScriptGraphData] — a node list carrying on-canvas ids and positions, plus a wire list — which
-/// [#EDITOR_CODEC] writes into the `akythera_projects` file along with the editor-only
-/// `preview_model`. The runtime blueprint stores each flow as a tree of
-/// [com.yesman.akythera.api.data.modularize.node.ScriptNode]s instead.
+/// [#EDITOR_CODEC] writes into the `akythera_projects` file along with the editor-only `preview_model`. The
+/// runtime blueprint stores each flow as a tree of [ScriptNode]s instead.
 ///
 /// [#makeObject] is the compile step: it lowers each flat graph back into a tree [FlowNode] through
 /// [ScriptGraphCompiler] and assembles the runtime blueprint.
@@ -108,9 +108,9 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
         );
     }
 
-    /// ***************************************************************
-    /// Flow graphs (flat editor form)
-    /// ***************************************************************
+    // ***************************************************************
+    // Flow graphs (flat editor form)
+    // ***************************************************************
     public ScriptGraphData getConstructGraph() {
         return constructGraph;
     }
@@ -202,9 +202,9 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
         return null;
     }
 
-    /// ***************************************************************
-    /// State machines (Anim Graph), keyed by machine name
-    /// ***************************************************************
+    // ***************************************************************
+    // State machines (Anim Graph), keyed by machine name
+    // ***************************************************************
     public Map<String, StateMachineData> getStateMachines() {
         return stateMachines;
     }
@@ -213,9 +213,9 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
         this.stateMachines = new LinkedHashMap<>(stateMachines);
     }
 
-    /// ***************************************************************
-    /// Variables
-    /// ***************************************************************
+    // ***************************************************************
+    // Variables
+    // ***************************************************************
 
     /// The live variable list. [#setVariables] replaces it with a copy.
     public List<ScriptVariables.VariableInfo> getVariables() {
@@ -226,9 +226,9 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
         this.variables = new ArrayList<>(variables);
     }
 
-    /// ***************************************************************
-    /// Preview model (editor-only)
-    /// ***************************************************************
+    // ***************************************************************
+    // Preview model (editor-only)
+    // ***************************************************************
     public @Nullable EntityPreviewModel getPreviewModel() {
         return previewModel;
     }

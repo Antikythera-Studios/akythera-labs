@@ -8,9 +8,11 @@ import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
+import com.yesman.akytheralabs.gui.widget.PopupBox;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -80,10 +82,10 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
         this.accessorList = new AccessorList(listAccessors(type));
     }
 
-    /// Whether `accessor`'s id is still in the merged listing this modal shows for its type — the
-    /// [com.yesman.akytheralabs.gui.widget.PopupBox] validity probe for accessor cells (a
-    /// deleted / renamed asset drops out of the listing, but referrers keep the stale instance).
-    /// Enumerates without loading any asset; runs only at screen build and on picks.
+    /// Whether `accessor`'s id is still in the merged listing this modal shows for its type — the [PopupBox]
+    /// validity probe for accessor cells (a deleted / renamed asset drops out of the listing, but referrers
+    /// keep the stale instance). Enumerates without loading any asset; runs only at screen build and on
+    /// picks.
     public static boolean resolves(AssetAccessor<?> accessor) {
         return listAccessors(accessor.type()).stream()
             .anyMatch(a -> a.identifier().equals(accessor.identifier()));
@@ -107,10 +109,9 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
             .toList();
     }
 
-    /// Display string of an accessor: the identifier with the type's asset directory trimmed
-    /// (matching how the editor codecs write the ids), or `<none>` for the
-    /// [DataHolder#EMPTY_REFERENCE] / engine empty placeholder. Shared by this modal's rows and
-    /// [com.yesman.akytheralabs.editor.EditorWidgetFactory]'s accessor PopupBoxes.
+    /// Display string of an accessor: the identifier with the type's asset directory trimmed (matching how
+    /// the editor codecs write the ids), or `<none>` for the [DataHolder#EMPTY_REFERENCE] / engine empty
+    /// placeholder. Shared by this modal's rows and [EditorWidgetFactory]'s accessor PopupBoxes.
     public static String displayName(AssetAccessor<?> accessor) {
         String directory = switch (accessor.type()) {
             case ARMATURE -> ArmatureManager.DIRECTORY;
@@ -323,9 +324,9 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
             }
         }
 
-        /// ***************************************************************
-        /// [AnchoredWidget] implementations                              *
-        /// ***************************************************************
+        // ***************************************************************
+        // [AnchoredWidget] implementations
+        // ***************************************************************
         private Unit x1 = AnchoredWidget.pixel(0);
         private Unit x2 = AnchoredWidget.pixel(0);
         private Unit y1 = AnchoredWidget.pixel(LIST_TOP);

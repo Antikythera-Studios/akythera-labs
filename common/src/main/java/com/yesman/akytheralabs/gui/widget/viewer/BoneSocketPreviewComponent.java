@@ -69,9 +69,9 @@ public final class BoneSocketPreviewComponent implements LocatableComponent {
         return socket;
     }
 
-    /// ***************************************************************
-    /// [LocatableComponent]
-    /// ***************************************************************
+    // ***************************************************************
+    // [LocatableComponent]
+    // ***************************************************************
 
     /// The bound bone at the animator's current pose. Resolved per call — the socket holds only its
     /// local offset.
@@ -115,9 +115,9 @@ public final class BoneSocketPreviewComponent implements LocatableComponent {
         socket.getLocalTransform().readFrom(transform);
     }
 
-    /// ***************************************************************
-    /// [Model3DViewerComponent]
-    /// ***************************************************************
+    // ***************************************************************
+    // [Model3DViewerComponent]
+    // ***************************************************************
 
     @Override
     public boolean canBeFocused(final Model3DViewer owner) {

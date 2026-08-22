@@ -23,9 +23,8 @@ public abstract class AnimTrackEntry extends ContainerObjectSelectionList.Entry<
     /// Left name-block label.
     abstract Component rowLabel();
 
-    /// Draw the part to the RIGHT of the name block (over the frame ruler). Called by
-    /// [AnimationTrackEditorPanel] AFTER the frame measures are painted, inside the track
-    /// scissor, so child item widgets layer above the ruler. Default: nothing.
+    /// Draw the part to the RIGHT of the name block (over the frame ruler), inside the track
+    /// scissor and after the frame measures are painted. Default: nothing.
     void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
     }
 

@@ -750,9 +750,9 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
             void resizeSections(int order, PanelSection section1, PanelSection section2, int newPosition);
         }
 
-        /// ***************************************************************
-        /// [AnchoredWidget] implementations                              *
-        /// ***************************************************************
+        // ***************************************************************
+        // [AnchoredWidget] implementations
+        // ***************************************************************
         private Unit x1;
         private Unit x2;
         private Unit y1;
@@ -772,9 +772,9 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

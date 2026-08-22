@@ -1,26 +1,30 @@
 package com.yesman.akytheralabs.dataholder;
 
 import com.mojang.serialization.Codec;
-import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
-import com.yesman.akythera.core.animation.driver.FSMAnimationState;
+import com.yesman.akythera.core.animation.AnimationLayerSignature;
+import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
+import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.datablock.GuardedDataBlockCodec;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.AnimationLayerSignatureHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.FSMAnimationStateHolder;
+import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.panel.main.processors.DataBlockResourceProcessor;
+import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.reflect.ParameterizedType;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 
-/// Central, lazily-built catalogue of the editor-editable [EnumerableDataBlock] types — the single
-/// source of truth shared by [com.yesman.akytheralabs.AkytheraProject] (registry creation + loading
-/// + dir creation), [com.yesman.akytheralabs.gui.panel.main.ExplorerPanel] (tree roots), and
-/// [com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor#forTag] (tag → processor).
+/// Central, lazily-built catalogue of the editor-editable [EnumerableDataBlock] types — the single source of
+/// truth shared by [AkytheraProject] (registry creation + loading + dir creation), [ExplorerPanel] (tree
+/// roots), and [ResourceProcessor#forTag] (tag → processor).
 ///
 /// Each type maps to a per-type [DataBlockHolder] whose `makeObject()` yields the real engine
 /// object. The labs **registry key** is the engine manager's `directoryKey()` directly
@@ -39,12 +43,14 @@ public final class DataBlockRegistries {
         private final Supplier<H> holderFactory;
         private final Codec<H> codec;
         private final DataBlockResourceProcessor<T> processor;
+        private final Class<T> blockType;
 
         private Entry(EnumerableDataBlockManager<T> manager, Supplier<H> holderFactory, Codec<H> codec) {
             this.manager = manager;
             this.holderFactory = holderFactory;
             this.codec = codec;
             this.processor = new DataBlockResourceProcessor<>(manager.directoryKey(), manager);
+            this.blockType = blockTypeOf(holderFactory.get().getClass());
         }
 
         public ResourceKey<Registry<T>> registryKey() {
@@ -66,11 +72,32 @@ public final class DataBlockRegistries {
         public DataBlockResourceProcessor<T> processor() {
             return processor;
         }
+
+        /// The engine enum interface this type's entries are, e.g. `FSMAnimationState`.
+        public Class<T> blockType() {
+            return blockType;
+        }
+    }
+
+    /// Reads `T` back off a holder class's `extends DataBlockHolder<T>` clause — the one place the
+    /// erased type argument survives.
+    @SuppressWarnings("unchecked")
+    private static <T extends EnumerableDataBlock> Class<T> blockTypeOf(Class<?> holderClass) {
+        for (Class<?> cls = holderClass; cls != null; cls = cls.getSuperclass()) {
+            if (cls.getGenericSuperclass() instanceof ParameterizedType parameterized
+                && parameterized.getRawType() == DataBlockHolder.class) {
+                return (Class<T>) parameterized.getActualTypeArguments()[0];
+            }
+        }
+
+        throw new IllegalArgumentException(holderClass.getName() + " does not extend DataBlockHolder");
     }
 
     private static @Nullable Map<ResourceKey<? extends Registry<?>>, Entry<?, ?>> entries;
 
-    private static Map<ResourceKey<? extends Registry<?>>, Entry<?, ?>> entries() {
+    /// Synchronized: the catalogue is built lazily and [GuardedDataBlockCodec] reaches it from
+    /// whichever worker thread `RegistryDataLoader` decodes a data pack registry on.
+    private static synchronized Map<ResourceKey<? extends Registry<?>>, Entry<?, ?>> entries() {
         if (entries == null) {
             Map<ResourceKey<? extends Registry<?>>, Entry<?, ?>> built = new LinkedHashMap<>();
             register(built, FSMAnimationState.ENUM_MANAGER, FSMAnimationStateHolder::new, FSMAnimationStateHolder.CODEC);
@@ -94,10 +121,16 @@ public final class DataBlockRegistries {
         return entries().values();
     }
 
-    /// Tag → processor dispatch for [com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor#forTag].
-    /// The tag for a data block tree root is its labs registry key.
+    /// The catalogue entry for a data block tree root's tag — its labs registry key. Null for any
+    /// other tag.
+    public static @Nullable Entry<?, ?> entryOf(Object tag) {
+        return entries().get(tag);
+    }
+
+    /// Tag → processor dispatch for [ResourceProcessor#forTag]. The tag for a data block tree root is its
+    /// labs registry key.
     public static @Nullable DataBlockResourceProcessor<?> forKey(Object tag) {
-        Entry<?, ?> entry = entries().get(tag);
+        Entry<?, ?> entry = entryOf(tag);
         return entry == null ? null : entry.processor();
     }
 }

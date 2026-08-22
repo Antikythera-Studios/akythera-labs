@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.dataholder;
 import com.mojang.serialization.MapCodec;
 import com.yesman.akythera.api.animation.notify.AnimationNotify;
 import com.yesman.akythera.api.animation.notify.AnimationNotifyState;
+import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
 import org.jspecify.annotations.Nullable;
@@ -11,11 +12,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 
-/// Central index of `engine type → editor holder factory` for types that are
-/// identified by registry name *inside* another asset (notify / notify-state
-/// inside an AnimationSequence's notify track). Project-resource-keyed types
-/// (AnimationSequence, BlendSpace2D, AnimationMontage) belong to
-/// [com.yesman.akytheralabs.AkytheraProject#getDataHolder], not here.
+/// Central index of `engine type → editor holder factory` for types that are identified by registry name
+/// *inside* another asset (notify / notify-state inside an AnimationSequence's notify track).
+/// Project-resource-keyed types (AnimationSequence, BlendSpace2D, AnimationMontage) belong to
+/// [AkytheraProject#getDataHolder], not here.
 ///
 /// `LinkedHashMap` preserves registration order so the "Add Notify Here"
 /// picker shows entries deterministically.

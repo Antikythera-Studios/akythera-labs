@@ -9,9 +9,11 @@ import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.CallStack;
 import com.yesman.akythera.api.data.modularize.node.ExecutionRecord;
 import com.yesman.akythera.api.data.modularize.node.ScriptNode;
+import com.yesman.akythera.core.reflection.DataDrivenScript;
 import com.yesman.akytheralabs.gui.widget.script.node.FlowFunctionNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeBuildContext;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.PureFunctionNodeData;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
@@ -54,6 +56,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /// The blueprint canvas: a grid background and a set of [AbstractNodeWidget]s that
@@ -116,9 +119,9 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     @Nullable
     private BiFunction<ScriptNodeGraphWidget, NodeSuggestContext, List<NodeSuggestModal.Suggestion<NodeWidgetFactory>>> suggestionProvider;
 
-    /// The script owner type (e.g. the animator) whose available actions are offered when
-    /// the graph is right-clicked on empty canvas. Injected by the host screen, which knows
-    /// the concrete [com.yesman.akythera.core.reflection.DataDrivenScript] being edited.
+    /// The script owner type (e.g. the animator) whose available actions are offered when the graph is
+    /// right-clicked on empty canvas. Injected by the host screen, which knows the concrete
+    /// [DataDrivenScript] being edited.
     @Nullable
     private Class<?> scriptOwnerType;
 
@@ -256,26 +259,6 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             .toList();
     }
 
-    /// The [com.yesman.akythera.core.animation.driver.AnimationLayerSignature] identifiers
-    /// (`identifier().toString()`) of every [AnimLayerNodeWidget] on this canvas. A signature is used
-    /// at most once per canvas.
-    public List<String> animLayerSignatures() {
-        return nodes.stream()
-            .filter(AnimLayerNodeWidget.class::isInstance)
-            .map(n -> ((AnimLayerNodeWidget) n).signatureName())
-            .toList();
-    }
-
-    /// The [com.yesman.akythera.api.animation.animator.AnimationInterfaceKey] identifiers
-    /// (`identifier().toString()`) of every [AnimInterfaceNodeWidget] on this canvas. A key registers
-    /// once per animator, so it is used at most once here.
-    public List<String> animInterfaceKeys() {
-        return nodes.stream()
-            .filter(AnimInterfaceNodeWidget.class::isInstance)
-            .map(n -> ((AnimInterfaceNodeWidget) n).interfaceKeyName())
-            .toList();
-    }
-
     /// Sets the provider consulted when a wire is dropped on empty canvas to build
     /// the [NodeSuggestModal] entries for the given [NodeSuggestContext].
     public void setSuggestionProvider(@Nullable BiFunction<ScriptNodeGraphWidget, NodeSuggestContext, List<NodeSuggestModal.Suggestion<NodeWidgetFactory>>> provider) {
@@ -352,9 +335,9 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         }
     }
 
-    /// ***************************************************************
-    /// Persistence — flatten the live canvas to / from [ScriptGraphData]
-    /// ***************************************************************
+    // ***************************************************************
+    // Persistence — flatten the live canvas to / from [ScriptGraphData]
+    // ***************************************************************
 
     /// Builds the entry node for a freshly-loaded canvas. Injected by the host screen because the
     /// entry node's title and pin shape are event-specific (the Update event exposes
@@ -439,9 +422,9 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         return idOf;
     }
 
-    /// ***************************************************************
-    /// Debugging
-    /// ***************************************************************
+    // ***************************************************************
+    // Debugging
+    // ***************************************************************
 
     /// Shows `record` on the canvas: the wires it ran thicken and every recorded pin shows the value
     /// fed into it. Refuses a record whose ids do not describe this graph (see
@@ -648,16 +631,17 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     private final List<StashedWire> unresolvedWires = new ArrayList<>();
 
     /// Flattens the current selection into a [ScriptGraphData] for the clipboard — a selection-only
-    /// [#exportGraph]. Only **copyable** nodes are taken: a non-deletable structural singleton (an
-    /// event entry, the Output Pose, a transition's Result) is skipped, exactly as it cannot be
-    /// deleted. Ids are assigned over the copied nodes, and a wire is kept only when **both** of its
-    /// endpoints are in the copied set (a wire leaving the selection is dropped). Returns null when
-    /// nothing copyable is selected.
+    /// [#exportGraph]. Only [AbstractNodeWidget#isCopyable] nodes are taken — a structural singleton
+    /// (an event entry, the Output Pose, a transition's Result) and a node named by a registered
+    /// signature (an Anim Layer, an Animation Interface, a Cached Pose definition) are both skipped.
+    /// Ids are assigned over the copied nodes, and a wire is kept only when **both** of its endpoints
+    /// are in the copied set (a wire leaving the selection is dropped). Returns null when nothing
+    /// copyable is selected.
     public @Nullable ScriptGraphData copySelection() {
         // Unresolved placeholders are excluded: they have no describable state (toData() refuses)
         // and duplicating an unreadable raw row would duplicate the failure.
         List<AbstractNodeWidget> copied = selectedNodes.stream()
-            .filter(AbstractNodeWidget::isDeletable)
+            .filter(AbstractNodeWidget::isCopyable)
             .filter(n -> !(n instanceof UnresolvedNodeWidget))
             .toList();
         if (copied.isEmpty()) return null;
@@ -987,11 +971,11 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// cast, e.g. `double -> float`), or [#NONE] (incompatible).
     private enum LinkKind { DIRECT, CONVERT, NONE }
 
-    /// Classifies an `output -> input` pin pairing. Execution pins only pair exec↔exec. Typed data
-    /// pins are [LinkKind#DIRECT] when the value is assignable (same type, or a widening like `float -> double`,
+    /// Classifies an `output -> input` pin pairing. Execution pins only pair exec↔exec. Typed data pins are
+    /// [LinkKind#DIRECT] when the value is assignable (same type, or a widening like `float -> double`,
     /// resolved via the target type's narrowing map) and [LinkKind#CONVERT] when only an explicit narrowing
-    /// cast applies (the source type's [com.yesman.akythera.api.data.modularize.ScriptType#explicitCastableTypes()]
-    /// names the target). A null type on either side is treated as a wildcard ([LinkKind#DIRECT]).
+    /// cast applies (the source type's [ScriptType#explicitCastableTypes()] names the target). A null type on
+    /// either side is treated as a wildcard ([LinkKind#DIRECT]).
     private LinkKind linkKind(AbstractNodeWidget.Pin output, AbstractNodeWidget.Pin input) {
         if (output.exec() || input.exec()) {
             return output.exec() && input.exec() ? LinkKind.DIRECT : LinkKind.NONE;
@@ -1252,6 +1236,22 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         }
 
         return issues;
+    }
+
+    /// Flags each node whose payload `flag` returns a message for, on top of whatever [#validate] left
+    /// there. The host's hook for a problem no single canvas can see — a name this node shares with one
+    /// on another canvas — so such a node reads red exactly like a wiring error. An unresolved
+    /// placeholder describes no payload and is skipped.
+    ///
+    /// Additive, so run it *after* [#validate]: that pass rewrites every node's error state, and its
+    /// rewrite is what clears a flag placed here once the duplicate is resolved.
+    public void addPayloadErrors(Function<NodeData, @Nullable Component> flag) {
+        for (AbstractNodeWidget node : nodes) {
+            if (node instanceof UnresolvedNodeWidget || !node.reportsValidationErrors()) continue;
+
+            Component message = flag.apply(node.toData());
+            if (message != null) node.addError(message);
+        }
     }
 
     private static void addIssue(
@@ -1652,7 +1652,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     }
 
     /// Deletes every deletable node in the current selection as one undoable unit.
-    private void deleteSelection() {
+    public void deleteSelection() {
         deleteNodes(selectedNodes);
     }
 
@@ -2412,13 +2412,18 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         return null;
     }
 
+    /// Whether a node here is hosting an inline text editor, which owns the keyboard while it is open.
+    public boolean isInlineEditing() {
+        return inlineEditingNode() != null;
+    }
+
     @Override
     protected void updateWidgetNarration(@NonNull NarrationElementOutput narrationElementOutput) {
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;

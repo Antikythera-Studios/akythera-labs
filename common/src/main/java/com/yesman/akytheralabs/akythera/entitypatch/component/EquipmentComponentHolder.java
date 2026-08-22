@@ -109,9 +109,9 @@ public final class EquipmentComponentHolder extends ComponentDataHolder<Equipmen
         return EquipmentComponent.class;
     }
 
-    /// ***************************************************************
-    /// Source export (File > Export > As Source Code)
-    /// ***************************************************************
+    // ***************************************************************
+    // Source export (File > Export > As Source Code)
+    // ***************************************************************
 
     @Override
     public String sourceTemplate() {

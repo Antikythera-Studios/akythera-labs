@@ -1,5 +1,7 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.node.FlowNode;
+import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.blueprint.script.AnimatorScript;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
@@ -11,10 +13,9 @@ import net.minecraft.network.chat.Component;
 /// input and no output. The pose value wired into `Result` is what the animator's
 /// [AnimatorScript#getFinalPose] returns.
 ///
-/// Unlike the Event Graph, the Anim Graph is **data-flow**: there are no execution pins. The
-/// compiled `poseGetter` [com.yesman.akythera.api.data.modularize.node.FlowNode] is derived by
-/// evaluating the [com.yesman.akythera.api.data.modularize.node.PureNode] sub-tree feeding this
-/// node's `Result` input (see the graph compilers).
+/// Unlike the Event Graph, the Anim Graph is **data-flow**: there are no execution pins. The compiled
+/// `poseGetter` [FlowNode] is derived by evaluating the [PureNode] sub-tree feeding this node's `Result`
+/// input (see the graph compilers).
 ///
 /// Like the Event Graph's entry nodes this is the graph's root and so cannot be deleted.
 public final class OutputPoseNodeWidget extends AbstractNodeWidget {

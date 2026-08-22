@@ -1,25 +1,25 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.ScriptType;
+import com.yesman.akythera.api.data.modularize.node.PureNode;
+import com.yesman.akythera.api.data.modularize.node.TypeConvertNode;
+import com.yesman.akytheralabs.gui.screen.AnimatorScriptEditorScreen;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.TypeConvertNodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 
-/// A numeric type-conversion node (UE's autocast / "To Float" node): one input pin of the source
-/// type and one output pin of the target type. It performs an **explicit** (narrowing) cast — e.g.
-/// `double -> float`, `float -> int` — the casts listed in the source type's
-/// [com.yesman.akythera.api.data.modularize.ScriptType#explicitCastableTypes]. Widening casts
+/// A numeric type-conversion node (UE's autocast / "To Float" node): one input pin of the source type and one
+/// output pin of the target type. It performs an **explicit** (narrowing) cast — e.g. `double -> float`,
+/// `float -> int` — the casts listed in the source type's [ScriptType#explicitCastableTypes]. Widening casts
 /// (`float -> double`) are implicit and need no node.
 ///
-/// Spawned two ways: dropping a wire from a pin onto empty canvas offers a "Convert to X" entry per
-/// castable target (see [com.yesman.akytheralabs.gui.screen.AnimatorScriptEditorScreen]), and dropping
-/// a wire straight onto a pin of a different-but-castable type auto-inserts one between the two pins
-/// (see [ScriptNodeGraphWidget]).
+/// Spawned two ways: dropping a wire from a pin onto empty canvas offers a "Convert to X" entry per castable
+/// target (see [AnimatorScriptEditorScreen]), and dropping a wire straight onto a pin of a
+/// different-but-castable type auto-inserts one between the two pins (see [ScriptNodeGraphWidget]).
 ///
-/// Compile rule (see the graph compilers): lowers to an engine
-/// [com.yesman.akythera.api.data.modularize.node.TypeConvertNode] carrying the `from` / `to`
-/// [com.yesman.akythera.api.data.modularize.ScriptType]s and the [com.yesman.akythera.api.data.modularize.node.PureNode]
-/// wired into its input.
+/// Compile rule (see the graph compilers): lowers to an engine [TypeConvertNode] carrying the `from` / `to`
+/// [ScriptType]s and the [PureNode] wired into its input.
 public final class TypeConvertNodeWidget extends AbstractNodeWidget {
     private static final int TITLE_COLOR = 0xFF2A2A2A;
 
@@ -40,13 +40,13 @@ public final class TypeConvertNodeWidget extends AbstractNodeWidget {
     }
 
     /// The cast's source java type — this node's input pin type and the `from` of the emitted
-    /// [com.yesman.akythera.api.data.modularize.node.TypeConvertNode].
+    /// [TypeConvertNode].
     public Class<?> fromType() {
         return fromType;
     }
 
     /// The cast's target java type — this node's output pin type and the `to` of the emitted
-    /// [com.yesman.akythera.api.data.modularize.node.TypeConvertNode].
+    /// [TypeConvertNode].
     public Class<?> toType() {
         return toType;
     }

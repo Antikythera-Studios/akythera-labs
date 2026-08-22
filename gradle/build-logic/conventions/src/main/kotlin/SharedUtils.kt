@@ -159,10 +159,10 @@ private fun Project.buildReleaseChangelog(
 
         append(
             """
-    ### **Tested against:**
-    - **Minecraft:** $mcVersion
-    - **$modLoaderName:** $modLoaderVersion
-    """.trimIndent()
+            ### **Tested against:**
+            - **Minecraft:** $mcVersion
+            - **$modLoaderName:** $modLoaderVersion
+            """.trimIndent()
         )
 
         if (modLoader.isFabricLike) {

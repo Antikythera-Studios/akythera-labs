@@ -8,6 +8,7 @@ import com.google.gson.JsonParser;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
+import net.minecraft.util.Util;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
@@ -390,5 +391,20 @@ public final class FileSystemHelper {
         } catch (IOException e) {
             return 0;
         }
+    }
+
+    // ---------- desktop ----------
+
+    /// Opens `path` in the OS file browser: the directory itself, or the containing directory of a
+    /// regular file. Silent when there is no such directory on disk.
+    public static void openInFileExplorer(Path path) {
+        Path directory = Files.isDirectory(path) ? path : path.getParent();
+
+        if (directory == null || !Files.isDirectory(directory)) {
+            AkytheraLabs.LOGGER.warn("Failed to open {} in the file explorer: no such directory", path);
+            return;
+        }
+
+        Util.getPlatform().openPath(directory);
     }
 }

@@ -3,15 +3,15 @@ package com.yesman.akytheralabs.akythera.animation.notify;
 import com.google.gson.JsonElement;
 import com.yesman.akythera.api.animation.notify.AnimationNotify;
 import com.yesman.akythera.core.util.LogicalSide;
+import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Map;
 
-/// Placeholder for a notify row whose engine [AnimationNotify] failed to decode (unknown type
-/// after a refactor, or a broken body). Stores its own failure + raw JSON (it does not extend
-/// [com.yesman.akytheralabs.dataholder.AbstractDataHolder]), renders as an inert "Unknown notify"
-/// row, and is skipped by `toEngineTrack` / source export; the guarded codec re-emits its raw
-/// JSON on save so the row round-trips untouched.
+/// Placeholder for a notify row whose engine [AnimationNotify] failed to decode (unknown type after a
+/// refactor, or a broken body). Stores its own failure + raw JSON (it does not extend [AbstractDataHolder]),
+/// renders as an inert "Unknown notify" row, and is skipped by `toEngineTrack` / source export; the guarded
+/// codec re-emits its raw JSON on save so the row round-trips untouched.
 public final class FailedAnimationNotifyHolder extends AnimationNotifyHolder<AnimationNotify<?>> {
     @Nullable
     private JsonElement retainedRaw;

@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget;
 
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.gui.screen.ModalAccessibleScreen;
 
 /// A [Modal] that shares its screen instead of taking it over: the pointer belongs to the modal only
@@ -8,8 +9,7 @@ import com.yesman.akytheralabs.gui.screen.ModalAccessibleScreen;
 /// thing clicked, and loses it to the next widget.
 ///
 /// The modal stack still puts it on top, so it draws over the screen, and it still answers
-/// [com.yesman.akytheralabs.AkytheraEditorLayoutManager#getWorldViewportHost] when it is a
-/// [WorldViewportHost].
+/// [AkytheraEditorLayoutManager#getWorldViewportHost] when it is a [WorldViewportHost].
 ///
 /// A modal that dims the whole viewport is the opposite kind and must not implement this — see
 /// [ModalAccessibleScreen#getHoveringModal] for the two paths.

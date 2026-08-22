@@ -4,6 +4,7 @@ import com.mojang.datafixers.util.Pair;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.client.gui.widget.viewer.*;
+import com.yesman.akythera.core.util.helper.PoseOperators;
 import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
 import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
@@ -38,7 +39,6 @@ import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.blendspace2d.BlendSpaceNodeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
-import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.core.animation.driver.BlendSpace2DDriver;
 import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
@@ -367,7 +367,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
     }
 
     // ***************************************************************
-    // * DebuggableScreen                                            *
+    // * DebuggableScreen
     // ***************************************************************
 
     @Override
@@ -505,8 +505,8 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         }
     }
 
-    /// Instead of assigning `modal` directly into [Screen#getFocused], check and return opened modal via
-    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
+    /// The modal owning focus, through [ModalAccessibleScreen#getFocusOwningModal], so focus is
+    /// released when it closes.
     @Nullable
     public GuiEventListener getFocused() {
         AbstractWidget modal = getFocusOwningModal();
@@ -747,7 +747,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
                 t1 = t2 = t3 = elapsedTime;
             }
 
-            return Pose.blendPoses(
+            return PoseOperators.blendPoses(
                 Pair.of(a1.getPose(t1), w[0]),
                 Pair.of(a2.getPose(t2), w[1]),
                 Pair.of(a3.getPose(t3), w[2])

@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget;
 
+import com.yesman.akythera.client.gui.widget.ButtonTheme;
 import com.yesman.akythera.client.gui.widget.common.WidgetTheme;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -7,7 +8,7 @@ import org.jspecify.annotations.Nullable;
 
 /// Enum interface for [AdvancedComboBox] styles.
 ///
-/// Mirrors the [com.yesman.akytheralabs.gui.widget.EditBoxTheme] / [com.yesman.akythera.client.gui.widget.ButtonTheme]
+/// Mirrors the [EditBoxTheme] / [ButtonTheme]
 /// pattern: a theme owns both the box background and — unlike the other widget themes — the
 /// **text render** itself, so a theme can choose whether and how to draw a type-indicator swatch
 /// in front of the label. The same [#renderText] is reused for the collapsed display and for each

@@ -203,9 +203,9 @@ public final class ItemModelComponent implements LocatableComponent {
         this.displayContext = displayContext;
     }
 
-    /// ***************************************************************
-    /// [LocatableComponent]
-    /// ***************************************************************
+    // ***************************************************************
+    // [LocatableComponent]
+    // ***************************************************************
 
     @Override
     public Transform parentTransform() {

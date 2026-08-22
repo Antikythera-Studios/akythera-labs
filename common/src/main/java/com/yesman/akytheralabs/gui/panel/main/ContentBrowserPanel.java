@@ -47,6 +47,24 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     private static final int HEADER_WIDGET_H = 14;
     private static final int ADD_BUTTON_W = 30;
     private static final int PADDING = 6;
+    private static final int CONTEXT_MENU_W = 140;
+
+    /// The browser's right-click menu, with every option at a fixed position. Empty space, a folder
+    /// and a content widget differ only in which of them they answer (see
+    /// [ResourceProcessor#backgroundActions] / [ResourceProcessor#folderActions] /
+    /// [ResourceProcessor#contextActions]); the rest stay in place, greyed out and unpressable.
+    private static final List<UniversalMenu.Row<ContentContextOption>> CONTEXT_MENU_ROWS = List.of(
+        new UniversalMenu.OptionRow<>(ContentContextOption.OPEN),
+        new UniversalMenu.OptionRow<>(ContentContextOption.OPEN_IN_FILE_EXPLORER),
+        new UniversalMenu.OptionRow<>(ContentContextOption.COMPILE),
+        new UniversalMenu.GroupRow<ContentContextOption>(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_CREATE), List.of(
+            new UniversalMenu.OptionRow<>(ContentContextOption.CREATE_ANIM_SEQUENCE),
+            new UniversalMenu.OptionRow<>(ContentContextOption.CREATE_ANIM_MONTAGE)
+        )),
+        new UniversalMenu.OptionRow<>(ContentContextOption.ADD_NEW),
+        new UniversalMenu.OptionRow<>(ContentContextOption.RENAME),
+        new UniversalMenu.OptionRow<>(ContentContextOption.DELETE_SELECTED)
+    );
 
     private final Font font;
     private final PanelHeader header;
@@ -121,7 +139,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         selectedNode.processor.onPressAddButton(this, selectedNode);
     }
 
-    /// Public accessor for [ResourceProcessor#backgroundMenu] and any other
+    /// Public accessor for [ResourceProcessor#backgroundActions] and any other
     /// path that needs to fire the green-cross "+" handler externally.
     public void triggerAddPressed() {
         onAddPressed();
@@ -143,44 +161,50 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             List<ContentWidget<?>> folders = new ArrayList<>();
             List<ContentWidget<?>> files = new ArrayList<>();
 
-            try (Stream<Path> entries = Files.list(selectedNode.directoryPath)) {
-                entries.sorted(Comparator.comparing(p -> p.getFileName().toString()))
-                    .forEach(path -> {
-                        String name = path.getFileName().toString();
+            Path assetsRoot = AkytheraProject.getCurrentProject().getProjectRoot().resolve("assets");
 
-                        if (Files.isDirectory(path)) {
-                            ContentWidget<?> w = new ContentWidget.FolderContent(font, name, path);
+            if (selectedNode.directoryPath.equals(assetsRoot)) {
+                collectAssetRegistryFolders(assetsRoot, query, folders);
+            } else {
+                try (Stream<Path> entries = Files.list(selectedNode.directoryPath)) {
+                    entries.sorted(Comparator.comparing(p -> p.getFileName().toString()))
+                        .forEach(path -> {
+                            String name = path.getFileName().toString();
 
-                            if (query.isEmpty() || name.toLowerCase().contains(query)) {
-                                folders.add(w);
-                            }
-                        } else if (Files.isRegularFile(path) && !name.endsWith(AssetLoader.METADATA_EXTENSION)) {
-                            // A sidecar belongs to the asset next to it, not to the grid — the
-                            // processors parse whatever file they are handed, and a sidecar is not
-                            // an asset of any of their types.
-                            ContentWidget<?> w = null;
+                            if (Files.isDirectory(path)) {
+                                ContentWidget<?> w = new ContentWidget.FolderContent(font, name, path, true);
 
-                            if (selectedNode.processor != null) {
-                                try {
-                                    w = selectedNode.processor.createContentWidget(font, path);
-                                } catch (NoSuchElementException e) {
-                                    AkytheraLabs.LOGGER.error(
-                                        "Couldn't find registered object parsed from {}. This error means the data file is corrupted",
-                                        path);
+                                if (query.isEmpty() || name.toLowerCase().contains(query)) {
+                                    folders.add(w);
+                                }
+                            } else if (Files.isRegularFile(path) && !name.endsWith(AssetLoader.METADATA_EXTENSION)) {
+                                // A sidecar belongs to the asset next to it, not to the grid — the
+                                // processors parse whatever file they are handed, and a sidecar is not
+                                // an asset of any of their types.
+                                ContentWidget<?> w = null;
+
+                                if (selectedNode.processor != null) {
+                                    try {
+                                        w = selectedNode.processor.createContentWidget(font, path);
+                                    } catch (NoSuchElementException e) {
+                                        AkytheraLabs.LOGGER.error(
+                                            "Couldn't find registered object parsed from {}. This error means the data file is corrupted",
+                                            path);
+                                    }
+                                }
+
+                                if (w != null) {
+                                    w.setSortCallback(this::sortWidgets);
+                                    String nameNoExt = ResourceProcessor.fileNameNoExt(path);
+
+                                    if (query.isEmpty() || nameNoExt.toLowerCase().contains(query)) {
+                                        files.add(w);
+                                    }
                                 }
                             }
-
-                            if (w != null) {
-                                w.setSortCallback(this::sortWidgets);
-                                String nameNoExt = ResourceProcessor.fileNameNoExt(path);
-
-                                if (query.isEmpty() || nameNoExt.toLowerCase().contains(query)) {
-                                    files.add(w);
-                                }
-                            }
-                        }
-                    });
-            } catch (IOException ignored) {}
+                        });
+                } catch (IOException ignored) {}
+            }
 
             folders.forEach(grid::addChild);
             files.forEach(grid::addChild);
@@ -196,6 +220,20 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         grid.relocate(rect);
         searchBox.relocate(rect);
         addButton.relocate(rect);
+    }
+
+    /// The `assets` registry folders live one directory deeper, under the shared `animmodels`
+    /// directory, so the browser collects them from [AkytheraProject#ASSETS_FOLDERS] instead of
+    /// listing `assets` itself. They are fixed project layout, hence no rename box.
+    private void collectAssetRegistryFolders(Path assetsRoot, String query, List<ContentWidget<?>> folders) {
+        for (String directory : AkytheraProject.ASSETS_FOLDERS) {
+            Path path = assetsRoot.resolve(directory);
+            String name = path.getFileName().toString();
+
+            if (query.isEmpty() || name.toLowerCase().contains(query)) {
+                folders.add(new ContentWidget.FolderContent(font, name, path, false));
+            }
+        }
     }
 
     @Override
@@ -259,13 +297,17 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                     selectedWidgets.clear();
                 }
 
-                ContextMenuContainer toShow = (hovered != null)
+                UniversalMenu.Actions<ContentContextOption> actions = (hovered != null)
                     ? hovered instanceof ContentWidget.FolderContent
-                        ? ResourceProcessor.folderMenu(this, hovered)
-                        : selectedNode.processor.createContextMenuOnWidget(this, hovered)
-                    : ResourceProcessor.backgroundMenu(this);
+                        ? ResourceProcessor.folderActions(this, hovered)
+                        : selectedNode.processor.contextActions(this, hovered)
+                    : ResourceProcessor.backgroundActions(this);
 
-                AkytheraEditorLayoutManager.getInstance().openModalWidget(toShow, (int) event.x(), (int) event.y());
+                AkytheraEditorLayoutManager.getInstance().openModalWidget(
+                    UniversalMenu.buildPage(CONTEXT_MENU_ROWS, actions, CONTEXT_MENU_W),
+                    (int) event.x(),
+                    (int) event.y()
+                );
 
                 return true;
             }
@@ -356,6 +398,14 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
 
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
+        ContentWidget<?> editing = grid.getFocused();
+
+        // While a rename box is open the panel yields the whole keyboard to it — the shortcuts
+        // below overlap what a text field does with the same keys.
+        if (editing != null && editing.isEditing()) {
+            return super.keyPressed(event);
+        }
+
         // Global shortcut: select every content widget regardless of which panel is focused.
         if (EditorKeyMappings.SELECT_ALL.matches(event) && !grid.children().isEmpty()) {
             for (ContentWidget<?> w : grid.children()) {
@@ -372,6 +422,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         if (EditorKeyMappings.RENAME.matches(event) && selectedWidgets.size() == 1) {
             ContentWidget<?> target = selectedWidgets.iterator().next();
             if (target.isEditable()) {
+                setFocused(grid);
                 grid.setFocused(target);
                 target.startEditing();
 

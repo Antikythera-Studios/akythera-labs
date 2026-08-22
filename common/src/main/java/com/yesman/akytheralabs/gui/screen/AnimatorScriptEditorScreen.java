@@ -3,11 +3,14 @@ package com.yesman.akytheralabs.gui.screen;
 import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
 import com.yesman.akythera.api.animation.animator.Animator;
 import com.yesman.akythera.api.data.modularize.node.ExecutionRecord;
+import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
+import com.yesman.akythera.core.animation.driver.AnimationStateTransition;
 import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.editor.debug.ScriptExecutionRecords;
+import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.world.entity.Entity;
 import com.yesman.akythera.client.gui.widget.viewer.*;
@@ -17,8 +20,9 @@ import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.api.animation.impl.AkytheraAnimationState;
-import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
-import com.yesman.akythera.core.animation.driver.FSMAnimationState;
+import com.yesman.akythera.core.animation.driver.AnimationDriver;
+import com.yesman.akythera.core.animation.AnimationLayerSignature;
+import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
@@ -52,7 +56,11 @@ import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.gui.widget.script.node.AnimInterfaceNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.AnimLayerNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.CachedPoseGetterNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.CachedPoseNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.StateMachineNodeData;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -74,6 +82,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /// Editor screen for an [AnimatorScriptHolder] (a [DataDrivenAnimatorScript.AnimatorScriptBlueprint]).
 ///
@@ -81,10 +91,9 @@ import java.util.function.Supplier;
 /// top menu bar — preview + variables on the left, the blueprint graph tabs in the
 /// center, node details + asset browser on the right.
 ///
-/// Design stage only: every panel except the [Model3DViewer] is a text placeholder,
-/// and no value editing is wired up. The preview model is chosen *before* the screen
-/// opens (see [com.yesman.akytheralabs.gui.widget.main.ContentWidget.AnimatorScriptContent])
-/// and stored on the holder, so the previewer shows it here.
+/// Design stage only: every panel except the [Model3DViewer] is a text placeholder, and no value editing is
+/// wired up. The preview model is chosen *before* the screen opens (see
+/// [ContentWidget.AnimatorScriptContent]) and stored on the holder, so the previewer shows it here.
 public final class AnimatorScriptEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
 
@@ -102,6 +111,17 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Graph-space shift applied to a paste so the new nodes sit one grid step down-right of the
     /// originals instead of exactly on top of them (UE-style).
     private static final int PASTE_OFFSET = 24;
+
+    /// Bounds of the transition Blend Time row, in seconds. `0` is a hard cut; the step is one server
+    /// tick.
+    private static final float BLEND_TIME_MIN = 0.0F;
+    private static final float BLEND_TIME_MAX = 10.0F;
+    private static final float BLEND_TIME_STEP = 0.05F;
+
+    /// Bounds of the transition Transition Priority row. The engine ranks edges against each other, so
+    /// the row imposes no range of its own.
+    private static final int TRANSITION_PRIORITY_MIN = Integer.MIN_VALUE;
+    private static final int TRANSITION_PRIORITY_MAX = Integer.MAX_VALUE;
 
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
@@ -148,6 +168,16 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Sub-graphs (state pose / transition condition) carry no ENTRY rows — their root rebuilds
     /// directly — so their import never consults an entry factory.
     private final ScriptNodeGraphWidget.EntryNodeFactory subGraphEntryFactory = (_, _, _) -> null;
+
+    /// Whether [#compile] has run since this screen opened. Until it has, a freshly-opened sub-tab is
+    /// left unmarked — nothing has been compiled, so there is no verdict to put on its nodes.
+    private boolean compiled;
+
+    /// The open canvases that are transition conditions — the only ones a [SourceDriverNodeWidget]
+    /// resolves on, since only a transition check binds the driver it reads. Identity-keyed: a canvas
+    /// is the same canvas only if it is the same widget.
+    private final Set<ScriptNodeGraphWidget> conditionCanvases =
+        Collections.newSetFromMap(new IdentityHashMap<>());
 
     /// Mutable working copies of the blueprint's variables; flushed back to the
     /// holder only on [#save].
@@ -365,7 +395,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 .sorted(Comparator.comparing(h -> h.unwrapKey().map(k -> k.identifier().toString()).orElse("")))
                 .toList(),
             h -> h.unwrapKey().map(ResourceKey::identifier).orElse(Identifier.parse("unknown")).toString(),
-            h -> draggingAsset = new AssetDrag(h.unwrapKey().orElseThrow().identifier(), true),
+            h -> draggingAsset = new AssetDrag(h.unwrapKey().orElseThrow().identifier(), false),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
@@ -510,17 +540,39 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
 
         addAnimGraphSuggestions(graph, suggestions, context);
+        addSourceDriverSuggestion(graph, suggestions, context);
         addTypeConvertSuggestions(suggestions, context);
 
         return suggestions;
     }
 
-    /// Offers explicit numeric type-conversion ([TypeConvertNodeWidget]) entries for a pin dropped on
-    /// empty canvas: dragging a value **output** lists "Convert to X" for each type the dragged type
-    /// can narrow to ([com.yesman.akythera.api.data.modularize.ScriptType#explicitCastableTypes]);
-    /// dragging a value **input** lists "Convert Y to <expected>" for each type Y that narrows to the
-    /// expected type. Picking one spawns a converter the host then wires to the dropped pin. Widening
-    /// casts are implicit and not offered (a direct wire already works).
+    /// The Source State Driver node, offered on a transition-condition canvas only — nothing binds
+    /// its value anywhere else. Gated like the member-variable getters: on a data-input drag whose
+    /// slot a driver fits, and on the empty-canvas "All Actions" menu, but not on a value-output drag
+    /// (which wants consumers of the dragged value, and this node consumes nothing).
+    private void addSourceDriverSuggestion(
+        ScriptNodeGraphWidget graph,
+        List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions,
+        NodeSuggestContext context
+    ) {
+        if (!conditionCanvases.contains(graph)) return;
+
+        boolean valueDrag = context.valueProviders();
+        boolean allActions = context.flow() && context.pureFunctions() && context.providedType() == null;
+        if (!valueDrag && !allActions) return;
+        if (!AbstractNodeWidget.valueAssignable(AnimationDriver.class, context.expectedType())) return;
+
+        suggestions.add(new NodeSuggestModal.Suggestion<>(
+            Component.literal(SourceDriverNodeWidget.TITLE),
+            (font, x, y) -> new SourceDriverNodeWidget(font, x, y)
+        ));
+    }
+
+    /// Offers explicit numeric type-conversion ([TypeConvertNodeWidget]) entries for a pin dropped on empty
+    /// canvas: dragging a value **output** lists "Convert to X" for each type the dragged type can narrow to
+    /// ([ScriptType#explicitCastableTypes]); dragging a value **input** lists "Convert Y to <expected>" for
+    /// each type Y that narrows to the expected type. Picking one spawns a converter the host then wires to
+    /// the dropped pin. Widening casts are implicit and not offered (a direct wire already works).
     private void addTypeConvertSuggestions(
         List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions,
         NodeSuggestContext context
@@ -572,9 +624,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         return null;
     }
 
+    /// The submenu the pose mixers are filed under.
+    private static final String BLEND_CATEGORY = "Blend";
+
     /// The pose-specific nodes offered in any ANIM_GRAPH canvas (the root Anim Graph or a state's pose
     /// sub-graph): the pose **sources** — a State Machine, and a "Use cached pose" getter per cached
-    /// pose defined on the **root** Anim Graph — offered wherever a Pose value fits. The pose **sink**
+    /// pose defined on the **root** Anim Graph — plus the pose **mixers** (Blend / Apply Additive /
+    /// Layered Blend per Bone), offered wherever a Pose value fits. The pose **sink**
     /// (a "New Cached Pose" cacher) is offered **only on the root Anim Graph**: a cached pose is defined
     /// once at the root and merely referenced (via getters) from state pose graphs. Player nodes are
     /// not here — they come via Asset-Browser drop.
@@ -592,18 +648,34 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 (font, x, y) -> new StateMachineNodeWidget(font, machineName, x, y)
             ));
 
-            // Anim Layer nodes register one engine AnimationLayer per AnimationLayerSignature, so a
-            // signature already placed on the root Anim Graph is filtered out (the same no-duplicate
-            // rule states follow). Layers are stored in `construct`, which only sees the root graph,
-            // so they are offered on the root Anim Graph only.
-            if (graph == poseGraph) {
-                Set<String> usedLayers = new HashSet<>(poseGraph.animLayerSignatures());
+            // The pose mixers. Every pose canvas offers them: each one takes the poses it mixes as
+            // inputs, so it needs nothing the hosting graph owns.
+            suggestions.add(new NodeSuggestModal.Suggestion<>(
+                Component.literal("Blend"),
+                (font, x, y) -> new TwoPoseBlendNodeWidget(font, x, y),
+                BLEND_CATEGORY
+            ));
+            suggestions.add(new NodeSuggestModal.Suggestion<>(
+                Component.literal("Apply Additive"),
+                (font, x, y) -> new AdditiveBlendNodeWidget(font, x, y),
+                BLEND_CATEGORY
+            ));
+            suggestions.add(new NodeSuggestModal.Suggestion<>(
+                Component.literal("Layered Blend per Bone"),
+                (font, x, y) -> new LayeredBlendPerBoneNodeWidget(font, x, y),
+                BLEND_CATEGORY
+            ));
 
+            // Anim Layer nodes register one engine AnimationLayer per AnimationLayerSignature. Every
+            // signature is offered whether or not one is already placed — a duplicate is reported by
+            // the compile ([#collectDuplicateProperties]), not blocked here. Layers are stored in
+            // `construct`, which only sees the root graph, so they are offered on the root Anim Graph
+            // only.
+            if (graph == poseGraph) {
                 // Merge engine values with editor-created (labs) signatures (split registry).
                 for (Identifier id : AkytheraProject.getCurrentProject()
                         .getMergedDataBlockIdentifiers(AnimationLayerSignature.ENUM_MANAGER)) {
                     String name = id.toString();
-                    if (usedLayers.contains(name)) continue;
                     suggestions.add(new NodeSuggestModal.Suggestion<>(
                         Component.literal(name),
                         (font, x, y) -> new AnimLayerNodeWidget(
@@ -621,19 +693,19 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             for (String cached : poseGraph.cachedPoseNames()) {
                 suggestions.add(new NodeSuggestModal.Suggestion<>(
                     Component.literal("Use cached pose '" + cached + "'"),
-                    (font, x, y) -> new CachedPoseGetterNodeWidget(font, cached, x, y)
+                    (font, x, y) -> new CachedPoseGetterNodeWidget(
+                        font, cached, CachedPoseGetterNodeData.DEFAULT_CONTROL_REFERENCE_DRIVER, x, y)
                 ));
             }
 
             // Animation Interface nodes — replaceable pose slots keyed by an AnimationInterfaceKey,
             // offered per resource type (the engine's two interface kinds). A key registers once per
-            // animator (BlendingAnimator#addAnimInterface throws on a duplicate), so keys already
-            // used anywhere on this script — any pose canvas, root or state — are filtered out.
-            Set<String> usedInterfaceKeys = usedAnimInterfaceKeys();
+            // animator (BlendingAnimator#addAnimInterface throws on a duplicate), and every key is
+            // offered regardless: a duplicate is reported by the compile
+            // ([#collectDuplicateProperties]), not blocked here.
             for (Identifier id : AkytheraProject.getCurrentProject()
                     .getMergedDataBlockIdentifiers(AnimationInterfaceKey.ENUM_MANAGER)) {
                 String name = id.toString();
-                if (usedInterfaceKeys.contains(name)) continue;
 
                 suggestions.add(new NodeSuggestModal.Suggestion<>(
                     Component.literal(name),
@@ -667,30 +739,6 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
     }
 
-    /// Every [AnimationInterfaceKey] identifier already used by an Animation Interface node anywhere
-    /// on this script: the root Anim Graph, any open pose sub-tab (live widgets), and every stored
-    /// state pose sub-graph (closed tabs). A key registers **once per animator**, so a used key is
-    /// never offered (or pasted) again.
-    private Set<String> usedAnimInterfaceKeys() {
-        Set<String> used = new HashSet<>(poseGraph.animInterfaceKeys());
-
-        for (ScriptNodeGraphWidget open : openSubGraphs.values()) {
-            used.addAll(open.animInterfaceKeys());
-        }
-
-        for (StateMachineData machine : stateMachines.values()) {
-            for (StateMachineData.StateData state : machine.states()) {
-                for (GraphNode row : state.poseGraph().nodes()) {
-                    if (row.data() instanceof AnimInterfaceNodeData animInterface) {
-                        used.add(animInterface.interfaceKeyId().toString());
-                    }
-                }
-            }
-        }
-
-        return used;
-    }
-
     /// A cached-pose name not already used on the root Anim Graph (where every cache is defined).
     private String uniqueCachedPoseName() {
         java.util.Set<String> used = new java.util.HashSet<>(poseGraph.cachedPoseNames());
@@ -710,12 +758,40 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// A state-machine name not already used by a [StateMachineData] entry or a live State Machine
     /// node, so each machine keys distinctly into [#stateMachines].
     private String uniqueMachineName() {
-        java.util.Set<String> used = new java.util.HashSet<>(stateMachines.keySet());
-        used.addAll(poseGraph.stateMachineNames());
+        Set<String> used = usedMachineNames();
         for (int i = 1; ; i++) {
             String candidate = "State Machine " + i;
             if (!used.contains(candidate)) return candidate;
         }
+    }
+
+    /// Every state-machine name this script has taken: the [#stateMachines] keys plus the name every
+    /// State Machine node carries — on the root Anim Graph, on any open sub-graph tab, and in every
+    /// stored state's driver. A machine keys into [#stateMachines] uniquely, so a name in here is not
+    /// available.
+    private Set<String> usedMachineNames() {
+        Set<String> used = new HashSet<>(stateMachines.keySet());
+        used.addAll(poseGraph.stateMachineNames());
+
+        for (ScriptNodeGraphWidget open : openSubGraphs.values()) {
+            used.addAll(open.stateMachineNames());
+        }
+
+        for (StateMachineData machine : stateMachines.values()) {
+            for (StateMachineData.StateData state : machine.states()) {
+                machineNamesIn(state.poseGraph()).forEach(used::add);
+            }
+        }
+
+        return used;
+    }
+
+    /// The machine name every State Machine row of `graph` carries, blanks excluded.
+    private static Stream<String> machineNamesIn(ScriptGraphData graph) {
+        return graph.nodes().stream()
+            .filter(row -> row.data() instanceof StateMachineNodeData)
+            .map(row -> ((StateMachineNodeData) row.data()).machineName())
+            .filter(name -> !name.isEmpty());
     }
 
     /// Double-click handler for the Anim Graph: opens a State Machine node's sub-tab.
@@ -741,12 +817,14 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             if (detailsNamedNode == sm) return;
             variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
             detailsNamedNode = sm;
-            scriptNodeDetailsPanel.showStateMachine(sm::machineName, newName -> renameStateMachine(sm, newName));
+            scriptNodeDetailsPanel.showNameRow(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VARIABLE_NAME,
+                sm::machineName, newName -> renameStateMachine(sm, newName));
         } else if (node instanceof PoseCachingNodeWidget cp) {
             if (detailsNamedNode == cp) return;
             variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
             detailsNamedNode = cp;
-            scriptNodeDetailsPanel.showStateMachine(cp::cacheName, newName -> renameCachedPose(cp, newName));
+            scriptNodeDetailsPanel.showNameRow(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VARIABLE_NAME,
+                cp::cacheName, newName -> renameCachedPose(cp, newName));
         } else if (node instanceof AnimInterfaceNodeWidget animInterface) {
             if (detailsNamedNode == animInterface) return;
             variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
@@ -762,6 +840,11 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
             detailsNamedNode = blendSpacePlayer;
             showBlendSpacePlayerDetails(blendSpacePlayer);
+        } else if (node instanceof CachedPoseGetterNodeWidget cachedPoseGetter) {
+            if (detailsNamedNode == cachedPoseGetter) return;
+            variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
+            detailsNamedNode = cachedPoseGetter;
+            showCachedPoseGetterDetails(cachedPoseGetter);
         } else {
             if (detailsNamedNode == null) return;
             detailsNamedNode = null;
@@ -780,6 +863,16 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 node.setSequenceId(picked);
                 previewSequence(picked);
             })));
+    }
+
+    /// Shows the Details panel for a Use Cached Pose node: whether the reference drives the cached
+    /// pose's own driver, compiled into
+    /// [com.yesman.akythera.core.animation.driver.CachedPoseReference#controlReferenceDriver].
+    private void showCachedPoseGetterDetails(CachedPoseGetterNodeWidget node) {
+        scriptNodeDetailsPanel.showValueRows(List.of(new ScriptNodeDetailsPanel.BooleanRow(
+            LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_CONTROL_REFERENCE_DRIVER,
+            node::controlReferenceDriver,
+            node::setControlReferenceDriver)));
     }
 
     /// Shows the Details panel for a Blendspace Player node: the one blendspace it plays, rebindable
@@ -833,10 +926,9 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         );
     }
 
-    /// The Animation Interface key row. A key registers **once per animator**, so the lookup offers the
-    /// merged [AnimationInterfaceKey] blocks minus every key already used by another interface node on
-    /// this script — the node's own key stays listed, so re-opening the picker never hides the current
-    /// value. Built per press so the used-key set is current.
+    /// The Animation Interface key row: the lookup offers every merged [AnimationInterfaceKey] block.
+    /// A key registers once per animator, but re-keying to one another node already uses is reported by
+    /// the compile ([#collectDuplicateProperties]) rather than kept off the list.
     private ScriptNodeDetailsPanel.IdentifierRow interfaceKeyRow(AnimInterfaceNodeWidget node) {
         Supplier<@Nullable Identifier> current = () -> Identifier.tryParse(node.interfaceKeyName());
 
@@ -849,12 +941,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 return holder != null && holder.isBound();
             },
             box -> {
-                Set<String> used = usedAnimInterfaceKeys();
-                used.remove(node.interfaceKeyName());
-
                 List<ResourceKey<AnimationInterfaceKey>> options = AkytheraProject.getCurrentProject()
                     .getMergedDataBlockIdentifiers(AnimationInterfaceKey.ENUM_MANAGER).stream()
-                    .filter(id -> !used.contains(id.toString()))
                     .map(id -> ResourceKey.create(AnimationInterfaceKey.ENUM_MANAGER.directoryKey(), id))
                     .toList();
 
@@ -899,20 +987,33 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     }
 
     /// Selection handler for a State Machine tab: a single selected state shows its (re-assignable)
-    /// [FSMAnimationState] signature in the Details panel; any other selection (empty / multi / Entry)
-    /// reverts the panel to the selected variable.
-    private void onStateSelected(
-        String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.@Nullable StateNode state
+    /// [FSMAnimationState] signature in the Details panel, a selected group its editor name and a
+    /// selected transition its blend time; any other selection (empty / multi / Entry) reverts the
+    /// panel to the selected variable.
+    private void onMachineSelectionChanged(
+        String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.@Nullable Selection selection
     ) {
-        if (state == null) {
-            detailsNamedNode = null;
-            scriptNodeDetailsPanel.showVariable(variableController.getSelected());
-            return;
+        switch (selection) {
+            case null -> {
+                detailsNamedNode = null;
+                scriptNodeDetailsPanel.showVariable(variableController.getSelected());
+            }
+            case StateMachineGraphWidget.StateNode state -> {
+                variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
+                detailsNamedNode = null; // a machine state is not an AbstractNodeWidget-tracked selection
+                showStateDetails(machineName, machine, state);
+            }
+            case StateMachineGraphWidget.GroupNode group -> {
+                variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
+                detailsNamedNode = null;
+                showGroupDetails(machineName, machine, group);
+            }
+            case StateMachineGraphWidget.Transition transition -> {
+                variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
+                detailsNamedNode = null;
+                showTransitionDetails(machine, transition);
+            }
         }
-
-        variableController.select(null); // clear variable highlight (also resets detailsNamedNode)
-        detailsNamedNode = null; // a machine state is not an AbstractNodeWidget-tracked selection
-        showStateDetails(machineName, machine, state);
     }
 
     /// Builds and shows the Details combo for a selected machine state: the merged [FSMAnimationState]
@@ -954,12 +1055,67 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             });
     }
 
+    /// Shows the selected state group's editor-only name. The name never reaches the engine — the
+    /// compile expands the group into per-member transitions — but it keys the group's condition
+    /// sub-tabs, so those are flushed and closed before a rename lands; a blank or taken name reverts.
+    private void showGroupDetails(
+        String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.GroupNode group
+    ) {
+        scriptNodeDetailsPanel.showNameRow(
+            LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VARIABLE_NAME,
+            group::name,
+            newName -> {
+                if (newName.equals(group.name())) return true;
+                closeGroupSubTabs(machineName, group.name());
+                return machine.changeGroupName(group, newName);
+            });
+    }
+
+    /// Shows the selected transition's three engine-bound properties, each compiled into the
+    /// like-named [AnimationStateTransition] component: the seconds the machine cross-fades over while
+    /// taking it, whether the state it leaves hands its elapsed time to the one it enters, and the
+    /// priority it is taken at.
+    private void showTransitionDetails(
+        StateMachineGraphWidget machine, StateMachineGraphWidget.Transition transition
+    ) {
+        scriptNodeDetailsPanel.showValueRows(List.of(
+            new ScriptNodeDetailsPanel.FloatRow(
+                LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_BLEND_TIME,
+                BLEND_TIME_MIN, BLEND_TIME_MAX, BLEND_TIME_STEP,
+                () -> machine.getTransitionBlendTime(transition),
+                blendTime -> machine.setTransitionBlendTime(transition, blendTime)),
+            new ScriptNodeDetailsPanel.BooleanRow(
+                LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_TRANSFER_ELAPSED_TIME,
+                () -> machine.getTransitionTransferElapsedTime(transition),
+                transfer -> machine.setTransitionTransferElapsedTime(transition, transfer)),
+            new ScriptNodeDetailsPanel.IntRow(
+                LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_TRANSITION_PRIORITY,
+                TRANSITION_PRIORITY_MIN, TRANSITION_PRIORITY_MAX,
+                () -> machine.getTransitionPriority(transition),
+                priority -> machine.setTransitionPriority(transition, priority))));
+    }
+
+    /// Closes (flushing first) every open condition sub-tab of `groupName` on `machineName` — their
+    /// keys embed the group name, so a rename would leave them pointing at the old one.
+    private void closeGroupSubTabs(String machineName, String groupName) {
+        String prefix = ScriptCanvasKeys.groupTransition(machineName, groupName, "");
+
+        List<ScriptNodeGraphWidget> toClose = new ArrayList<>();
+
+        for (Map.Entry<String, ScriptNodeGraphWidget> e : openSubGraphs.entrySet()) {
+            if (e.getKey().startsWith(prefix)) toClose.add(e.getValue());
+        }
+
+        for (ScriptNodeGraphWidget graph : toClose) closeTab(graph);
+    }
+
     /// Closes (flushing first) every open sub-tab whose key embeds `stateName` on `machineName` — the
     /// state's own pose sub-tab and every transition-condition sub-tab entering or leaving it — so a
     /// state re-sign can't leave name-keyed sub-tab bookkeeping pointing at the old signature.
     private void closeStateSubTabs(String machineName, String stateName) {
         String poseKey = machineName + "/state/" + stateName;
         String transPrefix = machineName + "/trans/";
+        String groupTransPrefix = machineName + "/gtrans/";
 
         List<ScriptNodeGraphWidget> toClose = new ArrayList<>();
 
@@ -975,6 +1131,12 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 String from = pair.substring(0, split);
                 String to = pair.substring(split + 1);
                 if (from.equals(stateName) || to.equals(stateName)) toClose.add(e.getValue());
+            } else if (key.startsWith(groupTransPrefix)) {
+                // A group edge's source is a group, so only its target can name the state.
+                String pair = key.substring(groupTransPrefix.length()); // "group>to"
+                int split = pair.indexOf('>');
+                if (split < 0) continue;
+                if (pair.substring(split + 1).equals(stateName)) toClose.add(e.getValue());
             }
         }
 
@@ -999,16 +1161,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
     /// Renames a Cached Pose node to `rawName` (trimmed) and retargets every getter referencing the old
     /// name, so the cache and its `Use cached pose` readers stay linked. Returns false — rejecting the
-    /// edit — when the name is blank or already used by another cache on the Anim Graph.
+    /// edit — only when the name is blank; a name another cache already defines is reported by the
+    /// compile ([#collectDuplicateProperties]).
     private boolean renameCachedPose(PoseCachingNodeWidget node, String rawName) {
         String oldName = node.cacheName();
         String newName = rawName.trim();
         if (newName.equals(oldName)) return true;
         if (newName.isEmpty()) return false;
-
-        Set<String> used = new HashSet<>(poseGraph.cachedPoseNames());
-        used.remove(oldName);
-        if (used.contains(newName)) return false;
 
         node.setCacheName(newName);
 
@@ -1094,8 +1253,10 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         );
         widget.setOnStateActivated(state -> openStatePoseTab(name, widget, state.name()));
         widget.setOnTransitionActivated((from, to) -> openTransitionConditionTab(name, widget, from, to));
-        // Selecting a single state shows its (re-assignable) FSMAnimationState signature in the Details panel.
-        widget.setOnStateSelected(state -> onStateSelected(name, widget, state));
+        widget.setOnGroupTransitionActivated((group, to) -> openGroupTransitionConditionTab(name, widget, group, to));
+        // Selecting a single state shows its (re-assignable) FSMAnimationState signature in the Details
+        // panel, a group its name, a transition its blend time.
+        widget.setOnSelectionChanged(selection -> onMachineSelectionChanged(name, widget, selection));
         openStateMachines.put(name, widget);
 
         Runnable flush = () -> stateMachines.put(name, widget.exportData());
@@ -1144,18 +1305,46 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
 
         ScriptNodeGraphWidget graph = makeSubGraph(ScriptFunction.Usage.SCRIPT);
-        ScriptGraphData data = machine.getTransitionCondition(from, to);
-        if (data.isEmpty()) {
-            graph.addNode(new TransitionResultNodeWidget(
-                minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_TRANSITION_RESULT),
-                OUTPUT_POSE_X, OUTPUT_POSE_Y));
-        } else {
-            graph.importGraph(data, subGraphEntryFactory);
-        }
+        fillConditionCanvas(graph, machine.getTransitionCondition(from, to));
 
         String title = (from.isEmpty() ? "Entry" : from) + " to " + to;
         registerSubGraphTab(key, Component.literal(title), graph,
             () -> machine.setTransitionCondition(from, to, graph.exportGraph()), machineName, machine);
+    }
+
+    /// Opens (or re-focuses) the closeable `{group} to {to}` sub-tab: the boolean condition every member
+    /// of the group leaves on. One canvas, copied onto each member at compile.
+    private void openGroupTransitionConditionTab(
+        String machineName, StateMachineGraphWidget machine, String group, String to
+    ) {
+        String key = ScriptCanvasKeys.groupTransition(machineName, group, to);
+        ScriptNodeGraphWidget existing = openSubGraphs.get(key);
+        if (existing != null) {
+            blueprintEditor.setActiveIndex(blueprintEditor.indexOfContent(existing));
+            return;
+        }
+
+        ScriptNodeGraphWidget graph = makeSubGraph(ScriptFunction.Usage.SCRIPT);
+        fillConditionCanvas(graph, machine.getGroupTransitionCondition(group, to));
+
+        registerSubGraphTab(key, Component.literal(group + " to " + to), graph,
+            () -> machine.setGroupTransitionCondition(group, to, graph.exportGraph()), machineName, machine);
+    }
+
+    /// Fills a freshly-made transition-condition canvas from `data` — a "Can Enter Transition" result
+    /// root on an empty one, the persisted rows otherwise — and marks it a condition canvas, which is
+    /// what puts the Source State Driver node in its palette.
+    private void fillConditionCanvas(ScriptNodeGraphWidget graph, ScriptGraphData data) {
+        conditionCanvases.add(graph);
+
+        if (data.isEmpty()) {
+            graph.addNode(new TransitionResultNodeWidget(
+                minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_TRANSITION_RESULT),
+                OUTPUT_POSE_X, OUTPUT_POSE_Y));
+            return;
+        }
+
+        graph.importGraph(data, subGraphEntryFactory);
     }
 
     /// Shared open-bookkeeping for a sub-graph (state pose / transition condition) tab: registers its
@@ -1176,9 +1365,15 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         blueprintEditor.addCloseableTab(title, graph, () -> {
             flush.run();
             openSubGraphs.remove(key);
+            conditionCanvases.remove(graph);
             openEditors.removeIf(e -> e.content() == graph);
         });
         blueprintEditor.setActiveIndex(blueprintEditor.indexOfContent(graph));
+
+        // Mark the canvas on sight, but only once a compile has given a verdict to show: a compile
+        // validates what is on screen at the time, so without this a page the toast already named
+        // opens with no banner on the node that failed it.
+        if (compiled) graph.validate();
     }
 
     /// A pose / condition sub-graph canvas with the standard editor hookups for the given usage(s).
@@ -1289,11 +1484,10 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
     }
 
-    /// Value providers ([com.yesman.akythera.api.data.modularize.node.PureNode]s) other than
-    /// functions, offered to fill a **data input**: the Self node, an inline Literal node, and
-    /// a getter per script variable. When the dragged pin carries a concrete `expectedType`,
-    /// getters whose output cannot satisfy it are dropped and a single Literal of exactly that
-    /// type is offered; an untyped slot offers the common literal types instead.
+    /// Value providers ([PureNode]s) other than functions, offered to fill a **data input**: the Self node,
+    /// an inline Literal node, and a getter per script variable. When the dragged pin carries a concrete
+    /// `expectedType`, getters whose output cannot satisfy it are dropped and a single Literal of exactly
+    /// that type is offered; an untyped slot offers the common literal types instead.
     private void addValueProviderSuggestions(
         List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions,
         @Nullable Class<?> expectedType,
@@ -1472,47 +1666,81 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     }
 
     // ***************************************************************
-    // Node copy / paste
+    // Copy / cut / paste
     // ***************************************************************
 
-    /// The last copied selection, shared across every canvas and every open animator-script editor
-    /// (a `static` clipboard, so a node copied here pastes into another script too). Holds the copied
-    /// nodes + the wires among them ([#graph]) plus a snapshot of every [StateMachineData] those nodes
-    /// referenced, transitively ([#machines]) — so a pasted State Machine keeps its states /
-    /// transitions even when pasted into a different script. Null until the first copy.
-    private record NodeClipboard(ScriptGraphData graph, Map<String, StateMachineData> machines) {}
+    /// The last copy, shared across every canvas and every open animator-script editor (a `static`
+    /// clipboard, so a selection copied here pastes into another script too). Null until the first copy.
+    ///
+    /// A node-canvas copy fills [#graph] — the copied nodes and the wires among them — and a
+    /// state-machine-canvas copy fills [#states] — the copied states, each with the driver authored
+    /// under it and the transitions to the other copied states. The other stays empty, which is what
+    /// lets one paste serve both: an empty graph lands nothing on a node canvas and an empty state list
+    /// lands nothing on a machine canvas, so a clipboard pasted onto the wrong canvas is a no-op with
+    /// no check of its own.
+    ///
+    /// [#machines] is the nested content either kind carries: the topology of every State Machine the
+    /// copy names, gathered transitively, so a paste recreates it in full even on a script that never
+    /// had that machine.
+    private record NodeClipboard(
+        ScriptGraphData graph,
+        List<StateMachineData.StateData> states,
+        Map<String, StateMachineData> machines
+    ) {}
 
     @Nullable
     private static NodeClipboard clipboard;
 
-    /// COPY: snapshots the active canvas's current selection into the [#clipboard]. Non-copyable
-    /// structural singletons (event entries, the Output Pose, a transition Result) are skipped by the
-    /// canvas, and the data of any selected State Machine is captured so a paste recreates it in full.
-    /// A copy with nothing copyable selected leaves the previous clipboard untouched.
-    private void copySelection() {
-        if (!(blueprintEditor.getActiveContent() instanceof ScriptNodeGraphWidget graph)) return;
+    /// COPY: snapshots the active canvas's selection into the [#clipboard] — nodes on a node canvas,
+    /// states on a state-machine canvas. Each canvas skips what it will not hand out (see
+    /// [AbstractNodeWidget#isCopyable] and [StateMachineGraphWidget#copySelection]). Returns whether
+    /// anything was copied; a copy with nothing copyable selected leaves the clipboard untouched.
+    private boolean copySelection() {
+        switch (blueprintEditor.getActiveContent()) {
+            case ScriptNodeGraphWidget graph -> {
+                ScriptGraphData copied = graph.copySelection();
+                if (copied == null) return false;
 
-        ScriptGraphData copied = graph.copySelection();
-        if (copied == null) return;
+                clipboard = new NodeClipboard(copied, List.of(), collectMachineData(machineNamesIn(copied)));
+            }
+            case StateMachineGraphWidget machine -> {
+                List<StateMachineData.StateData> copied = machine.copySelection();
+                if (copied == null) return false;
 
-        clipboard = new NodeClipboard(copied, collectMachineData(copied));
-    }
-
-    /// The [StateMachineData] of every State Machine node in `copied`, gathered transitively (a state's
-    /// pose sub-graph may itself host a nested State Machine). Open editors are flushed first so the
-    /// snapshot reflects any unsaved tab edits. Empty when the selection holds no State Machine.
-    private Map<String, StateMachineData> collectMachineData(ScriptGraphData copied) {
-        Deque<String> queue = new ArrayDeque<>();
-        for (GraphNode row : copied.nodes()) {
-            if (row.data() instanceof StateMachineNodeData machine && !machine.machineName().isEmpty()) {
-                queue.add(machine.machineName());
+                clipboard = new NodeClipboard(ScriptGraphData.EMPTY, copied,
+                    collectMachineData(copied.stream().flatMap(s -> machineNamesIn(s.poseGraph()))));
+            }
+            default -> {
+                return false;
             }
         }
+
+        return true;
+    }
+
+    /// CUT: copies the active canvas's selection, then deletes it. A selection with nothing copyable in
+    /// it is left alone rather than deleted unrecorded.
+    private void cutSelection() {
+        if (!copySelection()) return;
+
+        switch (blueprintEditor.getActiveContent()) {
+            case ScriptNodeGraphWidget graph -> graph.deleteSelection();
+            case StateMachineGraphWidget machine -> machine.deleteSelection();
+            default -> {}
+        }
+    }
+
+    /// The [StateMachineData] of every State Machine reachable from `seeds`, gathered transitively (a
+    /// state's driver may itself host a nested State Machine). Open editors are flushed first so the
+    /// snapshot reflects any unsaved tab edits. Empty when nothing is reachable.
+    private Map<String, StateMachineData> collectMachineData(Stream<String> seeds) {
+        Deque<String> queue = seeds.collect(Collectors.toCollection(ArrayDeque::new));
         if (queue.isEmpty()) return Map.of();
 
         flushOpenEditors(); // make `stateMachines` reflect any open tab's live edits
 
         Map<String, StateMachineData> out = new HashMap<>();
+
         while (!queue.isEmpty()) {
             String name = queue.poll();
             if (out.containsKey(name)) continue;
@@ -1522,42 +1750,39 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             out.put(name, data);
 
             for (StateMachineData.StateData state : data.states()) {
-                for (GraphNode row : state.poseGraph().nodes()) {
-                    if (row.data() instanceof StateMachineNodeData nested && !nested.machineName().isEmpty()) {
-                        queue.add(nested.machineName());
-                    }
-                }
+                machineNamesIn(state.poseGraph()).forEach(queue::add);
             }
         }
 
         return out;
     }
 
-    /// PASTE: drops the [#clipboard]'s nodes onto the active canvas, offset by [#PASTE_OFFSET], keeping
-    /// only the nodes legal here ([#canPasteNodeOnto]) and recording the paste as one undoable unit.
-    /// Any State Machine that actually landed has its carried data registered (without clobbering one
-    /// already on this script), so opening its tab restores the copied states / transitions.
+    /// PASTE: drops the [#clipboard] onto the active canvas, offset by [#PASTE_OFFSET], and registers
+    /// the machines it carries once anything lands, so opening a pasted State Machine's tab restores
+    /// the copied states, transitions and drivers. Open editors are flushed first so that registration
+    /// sees any unsaved tab edits.
+    ///
+    /// Nothing here keeps a name or key unique. A paste may land a State Machine named like one the
+    /// script already has — a cut and re-paste is exactly that, and re-issuing the name would be the
+    /// wrong answer to it — and the compile reports what actually collided
+    /// ([#collectDuplicateProperties]). A carried machine whose name is already registered keeps the
+    /// registered topology: the two nodes then name one machine.
     private void pasteClipboard() {
         if (clipboard == null) return;
-        if (!(blueprintEditor.getActiveContent() instanceof ScriptNodeGraphWidget graph)) return;
 
-        // Names already taken on this script — a pasted State Machine must not reuse one (a duplicate
-        // signature can't be placed on the same page).
-        Set<String> usedMachines = new HashSet<>(stateMachines.keySet());
-        usedMachines.addAll(poseGraph.stateMachineNames());
-        usedMachines.addAll(graph.stateMachineNames());
+        flushOpenEditors();
 
-        // Interface keys already used across the script — a pasted Animation Interface must not
-        // reuse one (a key registers once per animator).
-        Set<String> usedInterfaceKeys = usedAnimInterfaceKeys();
+        boolean landed = switch (blueprintEditor.getActiveContent()) {
+            case ScriptNodeGraphWidget graph -> !graph.pasteGraph(
+                clipboard.graph(), PASTE_OFFSET, PASTE_OFFSET, node -> canPasteNodeOnto(node, graph)).isEmpty();
+            case StateMachineGraphWidget machine ->
+                !machine.pasteStates(clipboard.states(), PASTE_OFFSET, PASTE_OFFSET).isEmpty();
+            default -> false;
+        };
 
-        List<AbstractNodeWidget> pasted = graph.pasteGraph(
-            clipboard.graph(), PASTE_OFFSET, PASTE_OFFSET,
-            node -> canPasteNodeOnto(node, graph, usedMachines, usedInterfaceKeys));
-
-        if (pasted.stream().anyMatch(StateMachineNodeWidget.class::isInstance)) {
-            clipboard.machines().forEach(stateMachines::putIfAbsent);
-        }
+        // A machine whose node did not land is dropped by the next save or compile
+        // (see [#pruneOrphanedStateMachines]).
+        if (landed) clipboard.machines().forEach(stateMachines::putIfAbsent);
     }
 
     /// Whether a copied `node` may be pasted onto `target`, encoding the same per-canvas palette rules
@@ -1565,18 +1790,15 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     ///   - structural singletons (entry / Output Pose / transition Result) — never (also un-copied);
     ///   - execution-flow constructs (Sequence / Branch / flow function / variable Set) — only on a
     ///     canvas with an execution flow (the Event Graph), never a data-flow-only pose canvas;
-    ///   - pose sources / readers (sequence + blendspace players, cached-pose getter) — only on a pose
-    ///     (ANIM_GRAPH) canvas;
-    ///   - a State Machine — a pose canvas, with a signature still free on this script;
-    ///   - an Animation Interface — a pose canvas, with an interface key still free on this script;
-    ///   - Anim Layers / Cached Pose definitions — only the root Anim Graph, unduplicated there;
+    ///   - pose sources / readers (sequence + blendspace players, cached-pose getter), pose mixers and
+    ///     a State Machine — only on a pose (ANIM_GRAPH) canvas;
     ///   - everything else (Self / Literal / member getters / math / logic / reroute / convert) — any
     ///     canvas (all accept SCRIPT).
-    private boolean canPasteNodeOnto(
-        AbstractNodeWidget node, ScriptNodeGraphWidget target, Set<String> usedMachines, Set<String> usedInterfaceKeys
-    ) {
+    ///
+    /// Nodes named by a registered signature — an Anim Layer, an Animation Interface, a Cached Pose
+    /// definition — never reach here: they are not [AbstractNodeWidget#isCopyable].
+    private boolean canPasteNodeOnto(AbstractNodeWidget node, ScriptNodeGraphWidget target) {
         boolean animGraph = target.usage().contains(ScriptFunction.Usage.ANIM_GRAPH);
-        boolean rootAnimGraph = target == poseGraph;
         boolean dataFlowOnly = target.isDataFlowOnly();
 
         return switch (node) {
@@ -1592,13 +1814,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             case AnimSequencePlayerNodeWidget ignored -> animGraph;
             case BlendSpacePlayerNodeWidget ignored -> animGraph;
             case CachedPoseGetterNodeWidget ignored -> animGraph;
-
-            case StateMachineNodeWidget sm -> animGraph && !usedMachines.contains(sm.machineName());
-
-            case AnimInterfaceNodeWidget ai -> animGraph && !usedInterfaceKeys.contains(ai.interfaceKeyName());
-
-            case AnimLayerNodeWidget al -> rootAnimGraph && !target.animLayerSignatures().contains(al.signatureName());
-            case PoseCachingNodeWidget cp -> rootAnimGraph && !target.cachedPoseNames().contains(cp.cacheName());
+            case AbstractBlendNodeWidget ignored -> animGraph;
+            case StateMachineNodeWidget ignored -> animGraph;
 
             default -> true;
         };
@@ -1674,6 +1891,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         // Validate each page in turn: an unconnected required input or an incompatible wire marks the
         // offending nodes (UE-style red "ERROR!" banner) and aborts the build, like UE's failed
         // compile. The first failing page names the toast (e.g. "Event Graph" / "akythera:idle").
+        compiled = true;
         Component failedPage = firstFailedPage();
 
         if (failedPage != null) {
@@ -1690,6 +1908,17 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         if (!unresolved.isEmpty()) {
             AkytheraLabs.LOGGER.warn("Compile of '{}' aborted — unresolved nodes: {}", resourceKey.identifier(), unresolved);
             showCompileToast(false, Component.literal(String.join("; ", unresolved)));
+            return;
+        }
+
+        // A name or key the editor let collide while the graph was authored. Nothing on a canvas keeps
+        // one unique, so this is where a collision is caught — before makeObject builds a script whose
+        // parts silently overwrite each other.
+        List<String> duplicates = collectDuplicateProperties();
+
+        if (!duplicates.isEmpty()) {
+            AkytheraLabs.LOGGER.warn("Compile of '{}' aborted — duplicated properties: {}", resourceKey.identifier(), duplicates);
+            showCompileToast(false, Component.literal(String.join("; ", duplicates)));
             return;
         }
 
@@ -1741,11 +1970,108 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
     }
 
+    /// A name or key its node must be the only holder of: the label naming the kind, plus the value
+    /// itself, read off the persisted payload.
+    private record UniqueProperty(String label, String value) {}
+
+    /// The uniqueness `data` carries, or null when it carries none. Each of these is a name or key the
+    /// animator resolves *by*, so a second holder makes the script ambiguous: an **Anim Layer**
+    /// signature and an **Animation Interface** key each register once per animator
+    /// (`BlendingAnimator#addAnimInterface` throws on a duplicate), a **State Machine** name keys the
+    /// topology store, and a **Cached Pose** name is what every `Use cached pose` getter reads back.
+    private static @Nullable UniqueProperty uniquePropertyOf(NodeData data) {
+        return switch (data) {
+            case StateMachineNodeData machine -> new UniqueProperty("State Machine", machine.machineName());
+            case CachedPoseNodeData cache -> new UniqueProperty("Cached Pose", cache.cacheName());
+            case AnimLayerNodeData layer -> new UniqueProperty("Anim Layer", layer.signatureId().toString());
+            case AnimInterfaceNodeData key -> new UniqueProperty("Animation Interface key", key.interfaceKeyId().toString());
+            default -> null;
+        };
+    }
+
+    /// Every [UniqueProperty] carried by more than one node, as the report lines for the compile toast
+    /// — and, on the way, the red "ERROR!" banner on each live node carrying one, so a duplicate reads
+    /// on the canvas the way a wiring error does ([#markDuplicateNodes]).
+    ///
+    /// Counted over every pose canvas — the root Anim Graph and each state's driver — from the holder,
+    /// which [#compile] has already flushed the live canvases onto, so a closed tab counts too. State
+    /// signatures are counted separately, per machine: `addState` registers them in that scope, and
+    /// they belong to the machine canvas rather than to a node.
+    private List<String> collectDuplicateProperties() {
+        List<ScriptGraphData> poseGraphs = new ArrayList<>();
+        poseGraphs.add(holder.getPoseGraph());
+
+        for (StateMachineData machine : stateMachines.values()) {
+            for (StateMachineData.StateData state : machine.states()) poseGraphs.add(state.poseGraph());
+        }
+
+        Map<UniqueProperty, Integer> counts = new LinkedHashMap<>();
+
+        for (ScriptGraphData graph : poseGraphs) {
+            for (GraphNode row : graph.nodes()) {
+                UniqueProperty property = uniquePropertyOf(row.data());
+                if (property != null) counts.merge(property, 1, Integer::sum);
+            }
+        }
+
+        Map<UniqueProperty, Integer> duplicated = new LinkedHashMap<>();
+        counts.forEach((property, held) -> {
+            if (held > 1) duplicated.put(property, held);
+        });
+
+        markDuplicateNodes(duplicated);
+
+        List<String> out = new ArrayList<>();
+        duplicated.forEach((property, held) ->
+            out.add(property.label() + " '" + property.value() + "' carried by " + held + " nodes"));
+
+        for (Map.Entry<String, StateMachineData> entry : stateMachines.entrySet()) {
+            Map<String, Integer> signatures = new LinkedHashMap<>();
+
+            for (StateMachineData.StateData state : entry.getValue().states()) {
+                signatures.merge(ScriptCanvasKeys.stateName(state.state()), 1, Integer::sum);
+            }
+
+            signatures.forEach((name, held) -> {
+                if (held > 1) out.add("State '" + name + "' on '" + entry.getKey() + "' carried by " + held + " states");
+            });
+        }
+
+        return out;
+    }
+
+    /// Flags every live node carrying a duplicated property with the red outline + "ERROR!" banner and
+    /// the count as its tooltip. Runs over the canvases with widgets on screen — the root Anim Graph
+    /// and every open sub-graph tab; a node in a closed tab is named by the toast line alone.
+    ///
+    /// Additive over [ScriptNodeGraphWidget#validate], which [#compile] ran first (via
+    /// [#firstFailedPage]): that pass rewrites every node's error state, so resolving the duplicate and
+    /// compiling again is what clears the flag.
+    private void markDuplicateNodes(Map<UniqueProperty, Integer> duplicated) {
+        if (duplicated.isEmpty()) return;
+
+        List<ScriptNodeGraphWidget> live = new ArrayList<>(openSubGraphs.values());
+        live.add(poseGraph);
+
+        for (ScriptNodeGraphWidget canvas : live) {
+            canvas.addPayloadErrors(data -> {
+                UniqueProperty property = uniquePropertyOf(data);
+                Integer held = property == null ? null : duplicated.get(property);
+
+                return held == null ? null : Component.translatable(
+                    LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VALIDATION_DUPLICATE,
+                    property.label(), property.value(), held);
+            });
+        }
+    }
+
     /// The first page that fails validation, as the Component naming it for the compile toast, or null
     /// when every page is valid. Checks the live Event Graph and Anim Graph (which also marks their
     /// nodes' error banners), then per state machine: each state's pose sub-graph (named by its state
-    /// id, e.g. `akythera:idle`) and each transition's condition sub-graph (named like its tab,
-    /// e.g. `akythera:idle to akythera:walk`). A transition's condition is **required**: it fails
+    /// id, e.g. `akythera:idle`), each transition's condition sub-graph (named like its tab,
+    /// e.g. `akythera:idle to akythera:walk`), and each group edge's condition.
+    /// Pages are keyed through [ScriptCanvasKeys], the same spelling the sub-tabs and the compiler
+    /// use, so an open tab is found and its nodes marked rather than a throwaway probe's. A transition's condition is **required**: it fails
     /// whether it shows as an unwired `Can Enter Transition` result (page visited) or an empty /
     /// never-authored condition graph (page never visited) — both mean an undefined condition, so the
     /// outcome is the same regardless of whether the page was ever opened. Wire a `true` literal into
@@ -1771,25 +2097,41 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             StateMachineData machine = machineEntry.getValue();
 
             for (StateMachineData.TransitionData entry : machine.entryTransitions()) {
-                String to = entry.to().value().identifier().toString();
-                if (transitionConditionHasErrors(machineName + "/trans/" + ">" + to, entry.conditionGraph())) {
-                    return transitionPage("", to);
+                String to = ScriptCanvasKeys.stateName(entry.to());
+
+                if (transitionConditionHasErrors(
+                    ScriptCanvasKeys.transition(machineName, ScriptCanvasKeys.ENTRY, to), entry.conditionGraph())) {
+                    return transitionPage(ScriptCanvasKeys.ENTRY, to);
                 }
             }
 
             for (StateMachineData.StateData state : machine.states()) {
-                String from = state.state().value().identifier().toString();
+                String from = ScriptCanvasKeys.stateName(state.state());
 
-                if (subGraphHasErrors(machineName + "/state/" + from, state.poseGraph(),
+                if (subGraphHasErrors(ScriptCanvasKeys.statePose(machineName, from), state.poseGraph(),
                     ScriptFunction.Usage.ANIM_GRAPH, ScriptFunction.Usage.SCRIPT)) {
                     return Component.literal(from);
                 }
 
                 for (StateMachineData.TransitionData transition : state.transitions()) {
-                    String to = transition.to().value().identifier().toString();
+                    String to = ScriptCanvasKeys.stateName(transition.to());
 
-                    if (transitionConditionHasErrors(machineName + "/trans/" + from + ">" + to, transition.conditionGraph())) {
+                    if (transitionConditionHasErrors(
+                        ScriptCanvasKeys.transition(machineName, from, to), transition.conditionGraph())) {
                         return transitionPage(from, to);
+                    }
+                }
+            }
+
+            // A group edge carries one condition canvas, shared by every member the compile expands it
+            // onto, so it is checked here rather than per member.
+            for (StateMachineData.GroupData group : machine.groups()) {
+                for (StateMachineData.TransitionData transition : group.transitions()) {
+                    String to = ScriptCanvasKeys.stateName(transition.to());
+
+                    if (transitionConditionHasErrors(
+                        ScriptCanvasKeys.groupTransition(machineName, group.name(), to), transition.conditionGraph())) {
+                        return transitionPage(group.name(), to);
                     }
                 }
             }
@@ -1910,9 +2252,9 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         return HistoryManager.getInstance().currentSavePoint() != savePoint;
     }
 
-    /// ***************************************************************
-    /// [DebuggableScreen]                                            *
-    /// ***************************************************************
+    // ***************************************************************
+    // [DebuggableScreen]
+    // ***************************************************************
 
     /// Entities whose animator runs *this* script — mirroring any other entity would highlight rows
     /// against a run that never touched them.
@@ -2112,14 +2454,26 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             return true;
         }
 
-        if (EditorKeyMappings.COPY.matches(event)) {
-            copySelection();
-            return true;
-        }
+        // A node hosting an inline text editor owns the keyboard while it is open, so the clipboard
+        // keys stay with its text rather than acting on the canvas' selection.
+        boolean inlineEditing = blueprintEditor.getActiveContent() instanceof ScriptNodeGraphWidget graph
+            && graph.isInlineEditing();
 
-        if (EditorKeyMappings.PASTE.matches(event)) {
-            pasteClipboard();
-            return true;
+        if (!inlineEditing) {
+            if (EditorKeyMappings.COPY.matches(event)) {
+                copySelection();
+                return true;
+            }
+
+            if (EditorKeyMappings.CUT.matches(event)) {
+                cutSelection();
+                return true;
+            }
+
+            if (EditorKeyMappings.PASTE.matches(event)) {
+                pasteClipboard();
+                return true;
+            }
         }
 
         return super.keyPressed(event);
@@ -2142,8 +2496,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
     }
 
-    /// Instead of assigning `modal` directly into [Screen#getFocused], check and return opened modal via
-    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
+    /// The modal owning focus, through [ModalAccessibleScreen#getFocusOwningModal], so focus is
+    /// released when it closes.
     @Nullable
     public GuiEventListener getFocused() {
         AbstractWidget modal = getFocusOwningModal();

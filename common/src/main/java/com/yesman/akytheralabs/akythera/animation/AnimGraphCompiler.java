@@ -37,6 +37,10 @@ import java.util.*;
 /// [AnimationStateMachineNode] from its [StateMachineData]. Machine references are guarded against
 /// cycles.
 ///
+/// A machine's state groups are expanded here and nowhere else: every transition a
+/// [StateMachineData.GroupData] holds is copied onto each state naming that group, so the engine only
+/// ever sees per-state transitions.
+///
 /// Each canvas lowers under its [ScriptCanvasKeys] key, which the deferred sub-trees — a blendspace's
 /// inputs, a transition's condition — carry into the pack so their samples can be recorded against
 /// the canvas they came from.
@@ -145,9 +149,9 @@ public final class AnimGraphCompiler {
         }
     }
 
-    /// ***************************************************************
-    /// State machines
-    /// ***************************************************************
+    // ***************************************************************
+    // State machines
+    // ***************************************************************
 
     /// Assembles the named machine into an [AnimationStateMachineNode]. A missing machine or a cyclic
     /// reference yields an empty driver.
@@ -158,6 +162,10 @@ public final class AnimGraphCompiler {
         try {
             List<TransitionEntry> entryTransitions =
                 compileTransitions(data.entryTransitions(), name, ScriptCanvasKeys.ENTRY);
+
+            Map<String, StateMachineData.GroupData> groups = new HashMap<>();
+            for (StateMachineData.GroupData group : data.groups()) groups.put(group.name(), group);
+
             List<StateEntry> states = new ArrayList<>();
             for (StateMachineData.StateData s : data.states()) {
                 // A dangling state signature drops the state and keeps the rest of the machine.
@@ -167,13 +175,45 @@ public final class AnimGraphCompiler {
                 }
                 String stateName = ScriptCanvasKeys.stateName(s.state());
                 PureNode driver = compilePoseGraph(s.poseGraph(), ScriptCanvasKeys.statePose(name, stateName));
-                states.add(new StateEntry(
-                    s.state().value(), driver, compileTransitions(s.transitions(), name, stateName)));
+
+                // The state's own transitions come first: a group edge is the fallback its members
+                // share, so a state that answers a condition itself wins over the group's answer.
+                List<TransitionEntry> outgoing =
+                    new ArrayList<>(compileTransitions(s.transitions(), name, stateName));
+                outgoing.addAll(compileGroupTransitions(groups.get(s.group()), name, stateName));
+
+                states.add(new StateEntry(s.state().value(), driver, outgoing));
             }
             return new AnimationStateMachineNode(entryTransitions, states);
         } finally {
             machineStack.remove(name);
         }
+    }
+
+    /// The transitions a state inherits from the group it belongs to: one copy of every group edge,
+    /// each keeping the group's single authored condition **and** its canvas key, so the values a run
+    /// records land on the one sub-tab that draws it. An edge back onto the inheriting state is
+    /// dropped — a machine never transitions a state to itself. Empty for a state in no group.
+    private List<TransitionEntry> compileGroupTransitions(
+        StateMachineData.@Nullable GroupData group, String machineName, String stateName
+    ) {
+        if (group == null) return List.of();
+
+        List<TransitionEntry> out = new ArrayList<>(group.transitions().size());
+        for (StateMachineData.TransitionData t : group.transitions()) {
+            if (!t.to().isBound()) {
+                AkytheraLabs.LOGGER.warn("Skipping transition to unresolved state {}", idOf(t.to()));
+                continue;
+            }
+            String toName = ScriptCanvasKeys.stateName(t.to());
+            if (toName.equals(stateName)) continue;
+
+            String canvasKey = ScriptCanvasKeys.groupTransition(machineName, group.name(), toName);
+            out.add(new TransitionEntry(
+                t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey),
+                t.blendTime(), t.transferElapsedTime(), t.transitionPriority(), canvasKey));
+        }
+        return out;
     }
 
     private List<TransitionEntry> compileTransitions(
@@ -188,7 +228,8 @@ public final class AnimGraphCompiler {
             String canvasKey =
                 ScriptCanvasKeys.transition(machineName, fromName, ScriptCanvasKeys.stateName(t.to()));
             out.add(new TransitionEntry(
-                t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey), canvasKey));
+                t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey),
+                t.blendTime(), t.transferElapsedTime(), t.transitionPriority(), canvasKey));
         }
         return out;
     }
@@ -212,9 +253,9 @@ public final class AnimGraphCompiler {
         return cond != null ? cond : AnimGraphFunctions.literalTrue();
     }
 
-    /// ***************************************************************
-    /// One pose / condition data-flow graph
-    /// ***************************************************************
+    // ***************************************************************
+    // One pose / condition data-flow graph
+    // ***************************************************************
 
     /// The pure-data lowering of one pose / condition sub-graph. The nodes lower themselves; this
     /// canvas adds the state machines and the pose-typed defaults for unwired inputs.
@@ -260,9 +301,9 @@ public final class AnimGraphCompiler {
         }
     }
 
-    /// ***************************************************************
-    /// Reference checks
-    /// ***************************************************************
+    // ***************************************************************
+    // Reference checks
+    // ***************************************************************
 
     /// Every reference in the graph that resolves to nothing: state signatures, transition targets,
     /// and whatever the pose nodes report through [NodeData#missingReferences].
@@ -284,6 +325,12 @@ public final class AnimGraphCompiler {
 
             for (StateMachineData.TransitionData t : machine.entryTransitions()) {
                 if (unbound(t.to())) missing.add(idOf(t.to()));
+            }
+
+            for (StateMachineData.GroupData group : machine.groups()) {
+                for (StateMachineData.TransitionData t : group.transitions()) {
+                    if (unbound(t.to())) missing.add(idOf(t.to()));
+                }
             }
         }
 

@@ -2,7 +2,7 @@ package com.yesman.akytheralabs.mixin;
 
 import com.yesman.akythera.api.animation.animator.AnimationLayer;
 import com.yesman.akythera.core.animation.animator.BlendingAnimator;
-import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
+import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.core.blueprint.script.AnimatorScript;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;

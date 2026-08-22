@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.dataholder;
 
 import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.core.blueprint.ComponentBlueprint;
+import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
 
 /// Placeholder for a patch component whose `type` id is unknown / unregistered (a removed compat
@@ -11,10 +12,9 @@ import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolde
 /// (`getDTO`) — calling [#makeObject] is a bug. (A known type with a malformed body never lands
 /// here — [AbstractDataHolder#guardedComponent] gives it a defaults fallback instead.)
 ///
-/// Not a [com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder]: the
-/// raw JSON it re-emits already carries whatever was attached under it, and the editor cannot know
-/// what the missing type would accept, so the whole component stays an opaque leaf in the tree.
-/// It names no source template either, so the source export writes a TODO marker where this
+/// Not a [ComponentAttachableHolder]: the raw JSON it re-emits already carries whatever was attached under
+/// it, and the editor cannot know what the missing type would accept, so the whole component stays an opaque
+/// leaf in the tree. It names no source template either, so the source export writes a TODO marker where this
 /// component's constructor expression would go.
 public final class FailedComponentHolder extends ComponentDataHolder<ComponentBlueprint<?, ?>> {
     @Override

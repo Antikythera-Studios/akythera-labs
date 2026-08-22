@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
+import com.yesman.akythera.api.data.modularize.node.ScriptVariableSetterNode;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.VariableSetterNodeData;
 import net.minecraft.client.gui.Font;
@@ -7,9 +8,8 @@ import net.minecraft.network.chat.Component;
 
 import java.util.Optional;
 
-/// Widget for a [com.yesman.akythera.api.data.modularize.node.ScriptVariableSetterNode]:
-/// sets a script member variable. The value-in data pin and the value-out passthrough
-/// pin are colored by the variable's type, and the title bar is tinted to match.
+/// Widget for a [ScriptVariableSetterNode]: sets a script member variable. The value-in data pin and the
+/// value-out passthrough pin are colored by the variable's type, and the title bar is tinted to match.
 public final class ScriptVariableSetterNodeWidget extends AbstractNodeWidget implements VariableNodeWidget {
     private String variableName;
     private Class<?> variableType;

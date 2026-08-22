@@ -185,9 +185,9 @@ public final class ItemPatchEditorScreen extends Screen
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
-    /// ***************************************************************
-    /// Node graph tabs
-    /// ***************************************************************
+    // ***************************************************************
+    // Node graph tabs
+    // ***************************************************************
 
     /// Opens (or re-focuses) the closeable graph tab for one pure-node component property.
     /// `flush` receives the exported graph on tab close and on save.
@@ -366,9 +366,9 @@ public final class ItemPatchEditorScreen extends Screen
             (font, x, y) -> new LiteralNodeWidget(font, type, x, y));
     }
 
-    /// ***************************************************************
-    /// Widget registration / layout
-    /// ***************************************************************
+    // ***************************************************************
+    // Widget registration / layout
+    // ***************************************************************
     @Override
     protected void init() {
         super.init();
@@ -385,9 +385,9 @@ public final class ItemPatchEditorScreen extends Screen
         panelManager.relocate(rect);
     }
 
-    /// ***************************************************************
-    /// Save / compile
-    /// ***************************************************************
+    // ***************************************************************
+    // Save / compile
+    // ***************************************************************
 
     /// Flattens the working state onto the holder and writes it to disk asynchronously.
     private java.util.concurrent.CompletableFuture<Void> save() {
@@ -414,12 +414,31 @@ public final class ItemPatchEditorScreen extends Screen
     private void compile() {
         flushToHolder();
 
+        if (validateLiveCanvases()) {
+            AkytheraLabs.LOGGER.warn("Compile of item patch '{}' failed validation", resourceKey.identifier());
+            return;
+        }
+
         try {
             ItemPatchBlueprint blueprint = holder.makeObject();
             AkytheraLabs.LOGGER.info("Compiled item patch '{}': {}", resourceKey.identifier(), blueprint);
         } catch (RuntimeException e) {
             AkytheraLabs.LOGGER.error("Failed to compile item patch '{}'", resourceKey.identifier(), e);
         }
+    }
+
+    /// Validates every canvas with widgets on screen — each open result / condition sub-tab — and
+    /// returns whether any failed. Every canvas is validated even once one has failed:
+    /// [ScriptNodeGraphWidget#validate] is what paints a node's red "ERROR!" banner, so stopping early
+    /// would leave the offending node on a later tab unmarked.
+    private boolean validateLiveCanvases() {
+        boolean failed = false;
+
+        for (ScriptNodeGraphWidget open : openGraphs.values()) {
+            if (!open.validate().isEmpty()) failed = true;
+        }
+
+        return failed;
     }
 
     /// Flushes any open graph tabs. Components and the parent reference are edited on the holder
@@ -440,9 +459,9 @@ public final class ItemPatchEditorScreen extends Screen
         return HistoryManager.getInstance().currentSavePoint() != savePoint;
     }
 
-    /// ***************************************************************
-    /// Screen lifecycle / input — mirrors EntityPatchEditorScreen
-    /// ***************************************************************
+    // ***************************************************************
+    // Screen lifecycle / input — mirrors EntityPatchEditorScreen
+    // ***************************************************************
     @Override
     public void handleQuitRequest() {
         SafeCloseScreen.openQuiteScreen(

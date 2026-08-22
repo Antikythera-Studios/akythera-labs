@@ -64,6 +64,7 @@ public final class ScriptNodeTypes {
         register("mesh_asset", MeshAssetNodeData.CODEC);
         register("output_pose", OutputPoseNodeData.CODEC);
         register("transition_result", TransitionResultNodeData.CODEC);
+        register("source_driver", SourceDriverNodeData.CODEC);
         register("anim_sequence_player", AnimSequencePlayerNodeData.CODEC);
         register("blend_space_player", BlendSpacePlayerNodeData.CODEC);
         register("anim_sequence_interface", AnimSequenceInterfaceNodeData.CODEC);
@@ -72,5 +73,8 @@ public final class ScriptNodeTypes {
         register("anim_layer", AnimLayerNodeData.CODEC);
         register("cached_pose", CachedPoseNodeData.CODEC);
         register("cached_pose_getter", CachedPoseGetterNodeData.CODEC);
+        register("two_pose_blend", TwoPoseBlendNodeData.CODEC);
+        register("additive_blend", AdditiveBlendNodeData.CODEC);
+        register("layered_blend_per_bone", LayeredBlendPerBoneNodeData.CODEC);
     }
 }

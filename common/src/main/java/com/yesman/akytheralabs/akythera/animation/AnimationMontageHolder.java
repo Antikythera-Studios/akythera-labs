@@ -6,7 +6,7 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
-import com.yesman.akythera.core.animation.driver.AnimationLayerSignature;
+import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.api.animation.impl.AkytheraAnimationLayerSignature;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.BoneAnimationTrack;
@@ -239,9 +239,9 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
         return dto;
     }
 
-    /// ***************************************************************
-    /// Segments — list ops flip the clip dirty flag
-    /// ***************************************************************
+    // ***************************************************************
+    // Segments — list ops flip the clip dirty flag
+    // ***************************************************************
     public void addSegment(AssetAccessor<AnimationClip> clip) {
         insertSegment(segments.size(), clip);
     }
@@ -305,9 +305,9 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             .map(c -> (EditorReference) c);
     }
 
-    /// ***************************************************************
-    /// Merged preview clip
-    /// ***************************************************************
+    // ***************************************************************
+    // Merged preview clip
+    // ***************************************************************
 
     /// The merged clip, rebaked when a segment edit marked it dirty.
     public AnimationClip getMergedClip() {
@@ -396,9 +396,9 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
         return new Transform(transform.loc().add(rootShift), transform.rot(), transform.sca());
     }
 
-    /// ***************************************************************
-    /// Accessors
-    /// ***************************************************************
+    // ***************************************************************
+    // Accessors
+    // ***************************************************************
     public NotifyTrackHolder getNotifyTrackHolder() {
         return notifyTrackHolder;
     }

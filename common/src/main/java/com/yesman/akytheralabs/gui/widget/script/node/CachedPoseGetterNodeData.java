@@ -10,11 +10,18 @@ import com.yesman.akytheralabs.gui.widget.script.CachedPoseGetterNodeWidget;
 import org.jspecify.annotations.Nullable;
 
 /// Reads the pose cached under [#cacheName] by a [CachedPoseNodeData] on the same graph.
-public record CachedPoseGetterNodeData(String cacheName) implements NodeData {
+///
+/// `controlReferenceDriver` is
+/// [com.yesman.akythera.core.animation.driver.CachedPoseReference#controlReferenceDriver].
+public record CachedPoseGetterNodeData(String cacheName, boolean controlReferenceDriver) implements NodeData {
+    /// Whether a freshly placed getter drives the cached pose's own driver: it does not.
+    public static final boolean DEFAULT_CONTROL_REFERENCE_DRIVER = false;
+
     public static final MapCodec<CachedPoseGetterNodeData> CODEC = RecordCodecBuilder.mapCodec(
         instance ->
             instance.group(
-                Codec.STRING.optionalFieldOf("variable", "").forGetter(CachedPoseGetterNodeData::cacheName)
+                Codec.STRING.optionalFieldOf("variable", "").forGetter(CachedPoseGetterNodeData::cacheName),
+                Codec.BOOL.optionalFieldOf("control_reference_driver", DEFAULT_CONTROL_REFERENCE_DRIVER).forGetter(CachedPoseGetterNodeData::controlReferenceDriver)
             ).apply(instance, CachedPoseGetterNodeData::new)
     );
 
@@ -25,11 +32,11 @@ public record CachedPoseGetterNodeData(String cacheName) implements NodeData {
 
     @Override
     public AbstractNodeWidget createWidget(NodeBuildContext ctx) {
-        return new CachedPoseGetterNodeWidget(ctx.font(), cacheName, ctx.x(), ctx.y());
+        return new CachedPoseGetterNodeWidget(ctx.font(), cacheName, controlReferenceDriver, ctx.x(), ctx.y());
     }
 
     @Override
     public PureNode compilePure(NodeInputs in, int fromPin, @Nullable Class<?> expectedType) {
-        return new CachedPoseReferenceNode(cacheName);
+        return new CachedPoseReferenceNode(cacheName, controlReferenceDriver);
     }
 }

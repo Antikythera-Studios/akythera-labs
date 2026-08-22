@@ -251,8 +251,8 @@ public final class MeshAssetEditorScreen extends Screen implements ModalAccessib
         }
     }
 
-    /// Instead of assigning `modal` directly into [#getFocused()], check and return opened modal via
-    /// [ModalAccessibleScreen#getFocusOwningModal] to release focus automatically when closed.
+    /// The modal owning focus, through [ModalAccessibleScreen#getFocusOwningModal], so focus is
+    /// released when it closes.
     @Nullable
     public GuiEventListener getFocused() {
         AbstractWidget modal = getFocusOwningModal();

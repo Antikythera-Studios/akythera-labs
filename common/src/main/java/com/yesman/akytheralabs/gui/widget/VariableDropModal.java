@@ -1,6 +1,8 @@
 package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.gui.widget.script.ScriptVariableGetterNodeWidget;
+import com.yesman.akytheralabs.gui.widget.script.ScriptVariableSetterNodeWidget;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -13,10 +15,9 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Locale;
 
-/// Tiny chooser opened where a variable is dropped on the node graph: a faded header naming the
-/// variable, then a "Get <var>" and (where execution flow exists) a "Set <var>" row. Picking one
-/// spawns the matching [com.yesman.akytheralabs.gui.widget.script.ScriptVariableGetterNodeWidget] /
-/// [com.yesman.akytheralabs.gui.widget.script.ScriptVariableSetterNodeWidget] at the drop point.
+/// Tiny chooser opened where a variable is dropped on the node graph: a faded header naming the variable,
+/// then a "Get <var>" and (where execution flow exists) a "Set <var>" row. Picking one spawns the matching
+/// [ScriptVariableGetterNodeWidget] / [ScriptVariableSetterNodeWidget] at the drop point.
 ///
 /// A data-flow-only canvas (the Anim Graph, a state's pose graph, a transition's condition graph) has
 /// no execution flow, so it uses the get-only constructor and the Set row is omitted.

@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akythera.client.gui.widget.common.WidgetTheme;
+import com.yesman.akytheralabs.gui.widget.script.NodeColors;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
@@ -30,9 +31,8 @@ public enum AkytheraLabsComboBoxTheme implements ComboBoxTheme {
             }
         }
     ),
-    /// Unreal-style variable type indicator: a dark rounded fill with a colored capsule swatch in
-    /// front of the label (the type color, matched to the node pins via
-    /// [com.yesman.akytheralabs.gui.widget.script.NodeColors]) and a muted dropdown arrow.
+    /// Unreal-style variable type indicator: a dark rounded fill with a colored capsule swatch in front of
+    /// the label (the type color, matched to the node pins via [NodeColors]) and a muted dropdown arrow.
     UE_VARIABLE_COMBO_BOX(
         (widget, g, _, _, _) -> {
             int x = widget.getX(), y = widget.getY(), w = widget.getWidth(), h = widget.getHeight();

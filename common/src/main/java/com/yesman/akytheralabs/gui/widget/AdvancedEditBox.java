@@ -4,6 +4,7 @@ import com.yesman.akythera.client.gui.widget.common.*;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
@@ -21,8 +22,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-/// Modeled after [net.minecraft.client.gui.components.EditBox] with extra functionality
-/// and switchable background style via [EditBoxTheme].
+/// Modeled after [EditBox] with extra functionality and switchable background style via [EditBoxTheme].
 public final class AdvancedEditBox<T> extends AbstractWidget
     implements AnchoredWidget, DataBoundWidget<T>, ThemeApplicableWidget<EditBoxTheme>, WarningMarkableWidget<T>
 {
@@ -120,9 +120,9 @@ public final class AdvancedEditBox<T> extends AbstractWidget
     /// The start index of the visible portion of text, used for horizontal scrolling.
     private int displayOffset;
 
-    /// Fixed end of a read-only drag selection (the moving end is [#cursorPos]). Equal to
-    /// [#cursorPos] when nothing is selected. Drives the highlight + the view scroll while the user
-    /// drags a read-only box to read overflowing text. See [#mouseDragged].
+    /// Fixed end of the selected range (the moving end is [#cursorPos]). Equal to [#cursorPos]
+    /// when nothing is selected. Extended by `Shift` + the cursor keys while editing, and by a
+    /// pointer drag over a read-only box.
     private int selectionAnchor;
 
     /// Timestamp of the last focus-gain, used for cursor blink timing.
@@ -198,12 +198,10 @@ public final class AdvancedEditBox<T> extends AbstractWidget
             int from = Math.min(displayOffset, display.length());
             String visible = font.plainSubstrByWidth(display.substring(from), w - TEXT_PADDING * 2);
 
-            // Read-only drag selection highlight (drawn under the text).
-            if (!editable && selectionAnchor != cursorPos) {
-                int selStart = Math.min(selectionAnchor, cursorPos);
-                int selEnd = Math.max(selectionAnchor, cursorPos);
-                int visStart = Math.clamp(selStart, from, from + visible.length());
-                int visEnd = Math.clamp(selEnd, from, from + visible.length());
+            // Selection highlight (drawn under the text).
+            if (hasSelection()) {
+                int visStart = Math.clamp(selectionStart(), from, from + visible.length());
+                int visEnd = Math.clamp(selectionEnd(), from, from + visible.length());
 
                 if (visEnd > visStart) {
                     int hx1 = x + TEXT_PADDING + font.width(display.substring(from, visStart));
@@ -265,7 +263,48 @@ public final class AdvancedEditBox<T> extends AbstractWidget
 
     public void setCursorPosRightmost() {
         cursorPos = text.length();
+        selectionAnchor = cursorPos;
         ensureCursorVisible();
+    }
+
+    /// True while [#selectionAnchor] and [#cursorPos] straddle a non-empty range.
+    public boolean hasSelection() {
+        return selectionAnchor != cursorPos;
+    }
+
+    private int selectionStart() {
+        return Math.min(selectionAnchor, cursorPos);
+    }
+
+    private int selectionEnd() {
+        return Math.max(selectionAnchor, cursorPos);
+    }
+
+    /// Selects the whole text with the caret at its end, so the next typed character replaces it.
+    public void selectAll() {
+        selectionAnchor = 0;
+        cursorPos = text.length();
+        ensureCursorVisible();
+    }
+
+    /// Moves the caret to `to`. With `select`, [#selectionAnchor] stays put and the highlight
+    /// grows; without it the selection collapses onto the new caret.
+    private void moveCursor(int to, boolean select) {
+        cursorPos = Math.clamp(to, 0, text.length());
+        if (!select) selectionAnchor = cursorPos;
+    }
+
+    /// Removes the selected range through the filter, collapsing the caret onto its start.
+    private void deleteSelection() {
+        int start = selectionStart();
+        String candidate = text.substring(0, start) + text.substring(selectionEnd());
+
+        if (filter.test(candidate)) {
+            text = candidate;
+            cursorPos = start;
+            selectionAnchor = start;
+            onTextMutated();
+        }
     }
 
     @Override
@@ -286,7 +325,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
 
     @Override
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
-        // Editable boxes keep their default behaviour (text selection isn't implemented there); a
+        // Editable boxes keep their default behaviour (drag-selection isn't implemented there); a
         // read-only box uses the drag to extend a selection, scrolling the view toward the cursor —
         // the dragged end — so the offset follows the drag direction like a normal text field.
         if (editable) return super.mouseDragged(event, dx, dy);
@@ -328,11 +367,13 @@ public final class AdvancedEditBox<T> extends AbstractWidget
             if (replacement != null) charStr = String.valueOf(replacement);
         }
 
-        String candidate = text.substring(0, cursorPos) + charStr + text.substring(cursorPos);
+        int start = selectionStart();
+        String candidate = text.substring(0, start) + charStr + text.substring(selectionEnd());
 
         if (filter.test(candidate)) {
             text = candidate;
-            cursorPos++;
+            cursorPos = start + charStr.length();
+            selectionAnchor = cursorPos;
             onTextMutated();
         }
 
@@ -352,23 +393,34 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         if (!editable || !isFocused()) return false;
 
         boolean ctrl = (event.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0;
+        boolean shift = (event.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
 
         switch (event.key()) {
-            case GLFW.GLFW_KEY_BACKSPACE -> {
+            case GLFW.GLFW_KEY_A -> {
                 if (ctrl) {
+                    selectAll();
+                    return true;
+                }
+            }
+            case GLFW.GLFW_KEY_BACKSPACE -> {
+                if (hasSelection()) {
+                    deleteSelection();
+                } else if (ctrl) {
                     deleteWordBackward();
                 } else if (cursorPos > 0) {
                     String candidate = text.substring(0, cursorPos - 1) + text.substring(cursorPos);
                     if (filter.test(candidate)) {
                         text = candidate;
-                        cursorPos--;
+                        moveCursor(cursorPos - 1, false);
                         onTextMutated();
                     }
                 }
                 return true;
             }
             case GLFW.GLFW_KEY_DELETE -> {
-                if (ctrl) {
+                if (hasSelection()) {
+                    deleteSelection();
+                } else if (ctrl) {
                     deleteWordForward();
                 } else if (cursorPos < text.length()) {
                     String candidate = text.substring(0, cursorPos) + text.substring(cursorPos + 1);
@@ -380,19 +432,29 @@ public final class AdvancedEditBox<T> extends AbstractWidget
                 return true;
             }
             case GLFW.GLFW_KEY_LEFT -> {
-                cursorPos = ctrl ? wordBoundaryBackward() : Math.max(0, cursorPos - 1);
+                // An unmodified arrow over a selection collapses it onto the near edge rather than
+                // stepping the caret.
+                if (hasSelection() && !shift && !ctrl) {
+                    moveCursor(selectionStart(), false);
+                } else {
+                    moveCursor(ctrl ? wordBoundaryBackward() : cursorPos - 1, shift);
+                }
                 return true;
             }
             case GLFW.GLFW_KEY_RIGHT -> {
-                cursorPos = ctrl ? wordBoundaryForward() : Math.min(text.length(), cursorPos + 1);
+                if (hasSelection() && !shift && !ctrl) {
+                    moveCursor(selectionEnd(), false);
+                } else {
+                    moveCursor(ctrl ? wordBoundaryForward() : cursorPos + 1, shift);
+                }
                 return true;
             }
             case GLFW.GLFW_KEY_HOME -> {
-                cursorPos = 0;
+                moveCursor(0, shift);
                 return true;
             }
             case GLFW.GLFW_KEY_END -> {
-                cursorPos = text.length();
+                moveCursor(text.length(), shift);
                 return true;
             }
             case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
@@ -416,7 +478,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         String candidate = text.substring(0, to) + text.substring(cursorPos);
         if (filter.test(candidate)) {
             text = candidate;
-            cursorPos = to;
+            moveCursor(to, false);
             onTextMutated();
         }
     }
@@ -486,7 +548,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
             value = parsed;
             // Re-serialize to normalize display (e.g. "03" -> "3")
             text = serializer.apply(parsed);
-            cursorPos = text.length();
+            moveCursor(text.length(), false);
             displayOffset = 0;
             onValueChanged.accept(parsed);
             if (onCommitted != null) onCommitted.accept(preEditValue, parsed);
@@ -497,7 +559,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
             } else {
                 text = "";
             }
-            cursorPos = text.length();
+            moveCursor(text.length(), false);
             displayOffset = 0;
         }
     }
@@ -506,7 +568,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
     public void setValue(T value) {
         this.value = value;
         this.text = serializer.apply(value);
-        this.cursorPos = Math.min(cursorPos, text.length());
+        moveCursor(cursorPos, false);
         this.displayOffset = 0;
     }
 
@@ -516,7 +578,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         if (!filter.test(text)) return;
 
         this.text = text;
-        this.cursorPos = Math.min(cursorPos, text.length());
+        moveCursor(cursorPos, false);
         this.displayOffset = 0;
 
         try {
@@ -566,9 +628,9 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         warned = false;
     }
 
-    /// ***************************************************************
-    /// [ThemeApplicableWidget] implementations                       *
-    /// ***************************************************************
+    // ***************************************************************
+    // [ThemeApplicableWidget] implementations
+    // ***************************************************************
     @Override
     public boolean isSupportedTheme(WidgetTheme theme) {
         return EditBoxTheme.class.isAssignableFrom(theme.getClass());
@@ -584,9 +646,9 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         this.theme = theme;
     }
 
-    /// ***************************************************************
-    /// [AnchoredWidget] implementations                              *
-    /// ***************************************************************
+    // ***************************************************************
+    // [AnchoredWidget] implementations
+    // ***************************************************************
     private Unit x1;
     private Unit x2;
     private Unit y1;
@@ -605,9 +667,9 @@ public final class AdvancedEditBox<T> extends AbstractWidget
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
 
-    /// *****************************************************************
-    /// [DataBoundWidget] implementations                               *
-    /// *****************************************************************
+    // *****************************************************************
+    // [DataBoundWidget] implementations
+    // *****************************************************************
     private final Callable<T> dataProvider;
     private final Consumer<T> onValueChanged;
 
@@ -631,6 +693,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         this.value = null;
         this.text = "";
         this.cursorPos = 0;
+        this.selectionAnchor = 0;
         this.displayOffset = 0;
     }
 }
