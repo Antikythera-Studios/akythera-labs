@@ -10,6 +10,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
+import com.yesman.akytheralabs.editor.historytrack.FileCreation;
 import com.yesman.akytheralabs.editor.historytrack.FileDeletion;
 import com.yesman.akytheralabs.editor.historytrack.FileMove;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -61,7 +62,10 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             new UniversalMenu.OptionRow<>(ContentContextOption.CREATE_ANIM_SEQUENCE),
             new UniversalMenu.OptionRow<>(ContentContextOption.CREATE_ANIM_MONTAGE)
         )),
-        new UniversalMenu.OptionRow<>(ContentContextOption.ADD_NEW),
+        new UniversalMenu.GroupRow<ContentContextOption>(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_ADD_NEW), List.of(
+            new UniversalMenu.OptionRow<>(ContentContextOption.NEW_FOLDER),
+            new UniversalMenu.OptionRow<>(ContentContextOption.NEW_ITEM)
+        )),
         new UniversalMenu.OptionRow<>(ContentContextOption.RENAME),
         new UniversalMenu.OptionRow<>(ContentContextOption.DELETE_SELECTED)
     );
@@ -143,6 +147,72 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     /// path that needs to fire the green-cross "+" handler externally.
     public void triggerAddPressed() {
         onAddPressed();
+    }
+
+    /// Whether the browsed directory takes a new subdirectory — the category the browser is
+    /// currently showing has to allow subdirectories.
+    public boolean canCreateFolder() {
+        return selectedNode != null
+            && selectedNode.directoryPath != null
+            && selectedNode.processor != null
+            && selectedNode.processor.canCreateSubDirectories();
+    }
+
+    /// Creates a subdirectory under the browsed directory and opens its rename box, with the
+    /// creation pushed to [HistoryManager] so Ctrl+Z removes it again.
+    public void triggerCreateFolder() {
+        if (!canCreateFolder()) return;
+
+        Path parentDir = selectedNode.directoryPath;
+        Path newDir = parentDir.resolve(FileSystemHelper.findNextAvailableName(parentDir, "new_folder", ""));
+
+        if (!createDirectory(newDir)) return;
+
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+
+        HistoryManager.getInstance().pushHistory(new FileCreation(
+            () -> {
+                if (createDirectory(newDir)) refreshAfterFolderCreated(parentDir, null);
+            },
+            () -> {
+                project.deletePathRecursive(newDir);
+                refreshAfterFolderCreated(parentDir, null);
+            }
+        ));
+
+        refreshAfterFolderCreated(parentDir, newDir);
+    }
+
+    private static boolean createDirectory(Path dir) {
+        try {
+            Files.createDirectories(dir);
+            return true;
+        } catch (IOException e) {
+            AkytheraLabs.LOGGER.error("Failed to create directory {}", dir, e);
+            return false;
+        }
+    }
+
+    /// Rebuilds the tree and the grid around `parentDir`, then selects `editPath` and opens its
+    /// rename box when one is given.
+    private void refreshAfterFolderCreated(Path parentDir, @Nullable Path editPath) {
+        AkytheraEditorLayoutManager.getInstance().<MainEditorScreen>ifLastScreen(mainEditorScreen -> {
+            mainEditorScreen.explorerPanel.rebuildTree();
+            mainEditorScreen.explorerPanel.focusNodeByPath(parentDir);
+
+            if (editPath == null) return;
+
+            for (ContentWidget<?> widget : grid.children()) {
+                if (!editPath.equals(widget.getPath())) continue;
+
+                pickSelections(true, editPath);
+                setFocused(grid);
+                grid.setFocused(widget);
+                widget.startEditing();
+
+                return;
+            }
+        });
     }
 
     /// Public accessor for processor widget menus that need to invoke the
@@ -893,7 +963,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             ));
         }
 
-        refreshAfterMove(sourceDir);
+        refreshAfterMove(moved.isEmpty() ? sourceDir : destinationPath);
     }
 
     private void refreshAfterMoveAndSelect(@Nullable Path focusDir, List<Path> toSelect) {

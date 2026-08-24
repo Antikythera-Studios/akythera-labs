@@ -6,7 +6,7 @@ chain together. Montages are how you build multi-part animations that the game
 triggers and steers at runtime — attack combos, reload sequences, multi-stage
 abilities.
 
-Where an [Animation Sequence](AnimationSequenceEditor.md) is a single clip, a
+Where an [Animation Sequence](data/Animation_Sequence.md) is a single clip, a
 Montage is a *sequence of clips plus a road map* for playing through them.
 
 ![The Animation Montage Editor with the segment timeline and sections tab](images/montage-editor-overview.png)
@@ -38,7 +38,7 @@ Montage is a *sequence of clips plus a road map* for playing through them.
 | **Fade In** | How long (seconds) the montage blends in when it starts, easing from the previous pose. `0` is an instant cut. |
 | **Fade Out** | How long (seconds) the montage blends out when it ends. `0` is an instant cut. |
 | **Loops** | When on, the montage restarts when it finishes instead of stopping on the last frame. |
-| **Root Motion** | When on, the movement in the clips actually drives the character through the world (see [Root Motion](AnimationSequenceEditor.md#about-root-motion)). The preview draws the travel path. |
+| **Root Motion** | When on, the movement in the clips actually drives the character through the world (see [Root Motion](data/Animation_Sequence.md#about-root-motion)). The preview draws the travel path. |
 | **Layer Signature** | Which **animation layer** this montage plays on. Layers let a montage affect only part of the body while another animation continues elsewhere — for example, an upper-body reload on top of a full-body run. The default layer is the base (whole body). |
 
 ## The timeline
@@ -51,7 +51,7 @@ The timeline is where you assemble the montage. Reading top to bottom, it has:
   provided so overlapping or alternating clips are easy to read. Click a segment to
   jump to the **Asset Browser**.
 - **Notify tracks** — event markers, exactly like the [Animation Sequence's
-  notifies](AnimationSequenceEditor.md#notifies-panel). Selecting one opens the
+  notifies](data/Animation_Sequence.md#notifies-panel). Selecting one opens the
   **Notify Details** tab.
 
 Drag the playhead to scrub; the preview follows.

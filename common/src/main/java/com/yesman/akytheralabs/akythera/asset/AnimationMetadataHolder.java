@@ -60,7 +60,7 @@ public final class AnimationMetadataHolder {
     /// The engine's half of any animation's sidecar, for the walks that only need the reference
     /// pose chain and have no accessor to bind.
     public static AnimationLoader.Metadata metadataOf(final Identifier animationId) {
-        return readSidecar(animationId, AnimationLoader.Metadata.CODEC, AnimationLoader.Metadata.DEFAULT);
+        return readSidecar(animationId, EditorAssetAccessors.ANIMATION_METADATA_CODEC, AnimationLoader.Metadata.DEFAULT);
     }
 
     /// `animationId`'s sidecar as `codec` reads it: the open project first, the game's packs
@@ -87,13 +87,13 @@ public final class AnimationMetadataHolder {
     }
 
     /// The sidecar's json for a holder of `accessor`: the engine's fields at the root through
-    /// [AnimationLoader.Metadata#MAP_CODEC], with `preview_model` beside them. The file names the
-    /// animation nowhere, so the accessor a decoded holder belongs to comes from here.
+    /// [EditorAssetAccessors#ANIMATION_METADATA_MAP_CODEC], with `preview_model` beside them. The
+    /// file names the animation nowhere, so the accessor a decoded holder belongs to comes from here.
     private static Codec<AnimationMetadataHolder> editorCodec(final AkytheraProject.EditorAnimationAccessor accessor) {
         return RecordCodecBuilder.create(
             instance ->
                 instance.group(
-                    AnimationLoader.Metadata.MAP_CODEC.forGetter(AnimationMetadataHolder::makeMetadata),
+                    EditorAssetAccessors.ANIMATION_METADATA_MAP_CODEC.forGetter(AnimationMetadataHolder::makeMetadata),
                     EntityPreviewModel.CODEC.optionalFieldOf("preview_model")
                         .forGetter(ParseUtils.provideOptional(AnimationMetadataHolder::getPreviewModel))
                 ).apply(instance, (metadata, previewModel) -> {

@@ -2454,12 +2454,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             return true;
         }
 
-        // A node hosting an inline text editor owns the keyboard while it is open, so the clipboard
-        // keys stay with its text rather than acting on the canvas' selection.
-        boolean inlineEditing = blueprintEditor.getActiveContent() instanceof ScriptNodeGraphWidget graph
-            && graph.isInlineEditing();
+        // A widget taking text input owns the keyboard while it is open — a focused edit box, or a node
+        // hosting an inline editor — so the clipboard keys stay with its text rather than acting on the
+        // canvas' selection.
+        boolean textEditing = AdvancedEditBox.isEditingText(this)
+            || (blueprintEditor.getActiveContent() instanceof ScriptNodeGraphWidget graph && graph.isInlineEditing());
 
-        if (!inlineEditing) {
+        if (!textEditing) {
             if (EditorKeyMappings.COPY.matches(event)) {
                 copySelection();
                 return true;

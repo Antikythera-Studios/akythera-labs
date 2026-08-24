@@ -5,6 +5,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
+import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.api.animation.impl.AkytheraAnimationLayerSignature;
@@ -41,7 +42,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
 {
     public static final Codec<AnimationMontageHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
-            AnimationManager.CODEC.listOf().optionalFieldOf("animationsToReplace", List.of())
+            EditorAssetAccessors.ANIMATION_CODEC.listOf().optionalFieldOf("animationsToReplace", List.of())
                 .forGetter(h -> h.segments),
             Codec.unboundedMap(Codec.STRING, Codec.FLOAT).optionalFieldOf("sections", Map.of())
                 .forGetter(h -> h.sections),

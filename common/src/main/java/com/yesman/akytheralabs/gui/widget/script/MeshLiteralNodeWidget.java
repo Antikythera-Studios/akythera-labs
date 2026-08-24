@@ -3,7 +3,7 @@ package com.yesman.akytheralabs.gui.widget.script;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.Mesh;
-import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
+import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -66,11 +66,9 @@ public final class MeshLiteralNodeWidget extends AbstractNodeWidget {
         return Identifier.fromNamespaceAndPath(id.getNamespace(), id.getPath().replace(MeshManager.DIRECTORY, ""));
     }
 
-    /// Trimmed mesh id → accessor. [MeshManager#skeletalMesh] issues one when absent, and the labs
-    /// mixin reroutes project-namespaced ids to the project's editor accessors — so this never
-    /// returns null, even for ids saved before their asset was ever browsed.
+    /// Trimmed mesh id → accessor, never null — see [EditorAssetAccessors#skeletalMesh].
     public static AssetAccessor<? extends Mesh<?>> resolve(Identifier trimmedId) {
-        return MeshManager.skeletalMesh(trimmedId.getNamespace(), trimmedId.getPath(), SkeletalMesh::new);
+        return EditorAssetAccessors.skeletalMesh(trimmedId);
     }
 
     private static Component title(Identifier meshId) {

@@ -73,6 +73,7 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.MODEL_ARMATURE_MAPPING, () -> ModelArmatureMappingModal.open(font))
                 .on(TopMenuOption.ANIMATION_RETARGET, () -> AnimationRetargetModal.open(font))
+                .on(TopMenuOption.MODEL_TRANSFORMER, () -> ModelTransformerModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
@@ -122,6 +123,7 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
     @Override
     public void onFilesDrop(@NonNull List<Path> paths) {
         if (AnimationRetargetModal.onFilesDrop(paths)) return;
+        if (ModelTransformerModal.onFilesDrop(paths)) return;
         if (ProjectSetupModalGenerator.onFilesDrop(paths)) return;
 
         ExplorerPanel.TreeNode selected = explorerPanel.getSelected();

@@ -8,6 +8,7 @@ import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.PlayableAnimation;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.EditorReference;
@@ -30,7 +31,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
 {
     public static final Codec<AnimationSequenceHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
-            AnimationManager.CODEC.fieldOf("animation_path").forGetter(AnimationSequenceHolder::getAnimClip),
+            EditorAssetAccessors.ANIMATION_CODEC.fieldOf("animation_path").forGetter(AnimationSequenceHolder::getAnimClip),
             Codec.FLOAT.fieldOf("fade_in_time").forGetter(AnimationSequenceHolder::getFadeInTime),
             Codec.FLOAT.fieldOf("fade_out_time").forGetter(AnimationSequenceHolder::getFadeOutTime),
             Codec.BOOL.fieldOf("loops").forGetter(AnimationSequenceHolder::loops),

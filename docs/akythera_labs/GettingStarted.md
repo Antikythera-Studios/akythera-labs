@@ -22,14 +22,14 @@ button. Press it to create a new project.
 
 ![type_project_name.png](images/type_project_name.png)
 
-Enter your project name, then press OK.
+Enter your project name, then press OK. Only **lower case alphabet** and **'_'** are allowed.
 
 ![project_generated.png](images/project_generated.png)
 
 Now you'll see that the project has been generated. Open the project by double-clicking the project
 widget, or press "Open" at the bottom right.
 
-## Main Layout
+## Main Screen Layout
 
 ---
 
@@ -50,6 +50,8 @@ Here's what each panel does:
 Provides multiple options to manage the project or configure preferences. The name of the project
 appears on the right side, along with a project close button that lets you quit the project editor
 layout and get back to the Minecraft-only viewport.
+
+If you're curious about what each option does, see [Menu Options]().
 
 ### Explorer Panel
 
@@ -83,3 +85,21 @@ icon, or right-click to bring up the actions you can perform on that file.
 You can press the green "+" button to add a new entry. It may ask you to select a pre-existing
 object, such as an Item, an Entity, or a Block whose behavior you want to change, or to open a file
 explorer to import an asset. You can also drag and drop files from your desktop to import assets.
+
+#### Moving files by dragging to both content browser panel and explorer panel
+
+You can drag & drop to move files from a current directory to another one just like OS system's file
+explorer. You can only move files in a same concrete directories. (e.g. You can't move animations
+under `meshes` directories.)
+
+- Move by dragging into another folder
+
+![move_to_folder_icon.gif](images/move_to_folder_icon.gif)
+
+- Move by dragging into explorer directory
+
+![move_to_explorer_directory.gif](images/move_to_explorer_directory.gif)
+
+You may worry about changing the file path will dislink all references that looked at the moved files.
+Akythera supports auto-redirecting new file location so in most cases you don't have to re-assign them
+manually.

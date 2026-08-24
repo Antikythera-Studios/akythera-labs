@@ -15,7 +15,7 @@ does, and what each property means.
 | Editor | Use it to build… | In short |
 |--------|------------------|----------|
 | [Project Editor](ProjectEditor.md) | Your whole project | The home base: browse, import, and open your assets, and export the finished project. |
-| [Animation Sequence Editor](AnimationSequenceEditor.md) | A single animation | Wrap one animation clip with fade, looping, root motion, and event markers. |
+| [Animation Sequence Editor](data/Animation_Sequence.md) | A single animation | Wrap one animation clip with fade, looping, root motion, and event markers. |
 | [Animation Montage Editor](AnimationMontageEditor.md) | A stitched-together animation | Chain several clips into sections you can jump between — attacks, combos, reload sequences. |
 | [Blend Space 2D Editor](BlendSpace2DEditor.md) | A blended animation | Smoothly blend between animations based on two inputs, like speed and direction. |
 | [Animator Blueprint Editor](AnimatorBlueprintEditor.md) | Animation logic | A node graph that decides which animation plays and when — state machines, transitions, variables. |

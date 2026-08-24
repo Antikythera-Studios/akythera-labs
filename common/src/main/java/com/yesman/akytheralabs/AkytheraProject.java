@@ -39,6 +39,7 @@ import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.MeshMetadataHolder;
+import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.dataholder.*;
@@ -289,7 +290,7 @@ public final class AkytheraProject {
     void discoverEditorAssets() {
         walkAssetFiles(MeshManager.DIRECTORY, file -> {
             try {
-                getEditorSkeletalMeshAccessorByPath(file);
+                getEditorMeshAccessorByPath(file);
             } catch (Exception e) {
                 AkytheraLabs.LOGGER.warn("Failed to register mesh accessor for {}", file, e);
             }
@@ -389,7 +390,7 @@ public final class AkytheraProject {
 
     public static AkytheraProject getCurrentProject() {
         if (currentProject == null) {
-            throw new IllegalStateException("No Akythera project has loaded yet");
+            throw new IllegalStateException("No Akythera project has loaded.");
         }
 
         return currentProject;
@@ -2004,11 +2005,11 @@ public final class AkytheraProject {
 
             try {
                 // Tries to load skeletal mesh first
-                mesh = MeshLoader.getLoader(id, rm).loadSkeletalMesh(SkeletalMesh::new);
+                mesh = MeshLoader.getLoader(id, rm, AssetLoader::readMetadata).loadSkeletalMesh(SkeletalMesh::new);
                 AkytheraLabs.LOGGER.info("{} is skeletal mesh.", path.getFileName());
             } catch (ResourceLoadingFailureException e) {
                 AkytheraLabs.LOGGER.info("{} is not a skeletal mesh type. Now try load as static mesh.", path.getFileName());
-                mesh = MeshLoader.getLoader(id, rm).loadStaticMesh(StaticMesh::new);
+                mesh = MeshLoader.getLoader(id, rm, AssetLoader::readMetadata).loadStaticMesh(StaticMesh::new);
             }
 
             if (mesh == null) {
@@ -2037,6 +2038,25 @@ public final class AkytheraProject {
             issuedEditorMeshAccessors.computeIfAbsent(id, k -> new EditorSkeletalMeshAccessor<>(k, SkeletalMesh::new));
     }
 
+    /// Issues the accessor matching what the file at `path` actually holds, detected by
+    /// [#isEditorMeshSkeletal]: [EditorSkeletalMeshAccessor] for a skeletal mesh,
+    /// [EditorStaticMeshAccessor] otherwise.
+    public AssetAccessor<? extends Mesh<?>> getEditorMeshAccessorByPath(Path path) {
+        Identifier id = getAccessorIdentifierFromPath(MeshManager.DIRECTORY, path);
+        AssetAccessor<? extends Mesh<?>> issued = issuedEditorMeshAccessors.get(id);
+
+        if (issued != null) {
+            return issued;
+        }
+
+        AssetAccessor<? extends Mesh<?>> accessor = isEditorMeshSkeletal(path)
+            ? new EditorSkeletalMeshAccessor<>(id, SkeletalMesh::new)
+            : new EditorStaticMeshAccessor<>(id, StaticMesh::new);
+        issuedEditorMeshAccessors.put(id, accessor);
+
+        return accessor;
+    }
+
     /// Detect whether the on-disk mesh at `path` is skeletal (vs static), loading and caching it into
     /// [#editorMeshes] on first call. Detection matches [#loadMeshToCurrentProject]'s: a file parses
     /// as skeletal when it carries armature data, otherwise it is static. Returns false when the mesh
@@ -2051,10 +2071,12 @@ public final class AkytheraProject {
     /// succeeds.
     private @Nullable Mesh<?> loadEditorMeshDetectingType(Identifier id) {
         try {
-            return MeshLoader.getLoader(id, PROJECT_RESOURCE_MANAGER).loadSkeletalMesh(SkeletalMesh::new);
+            return MeshLoader.getLoader(id, PROJECT_RESOURCE_MANAGER, AssetLoader::readMetadata)
+                .loadSkeletalMesh(SkeletalMesh::new);
         } catch (ResourceLoadingFailureException notSkeletal) {
             try {
-                return MeshLoader.getLoader(id, PROJECT_RESOURCE_MANAGER).loadStaticMesh(StaticMesh::new);
+                return MeshLoader.getLoader(id, PROJECT_RESOURCE_MANAGER, AssetLoader::readMetadata)
+                    .loadStaticMesh(StaticMesh::new);
             } catch (ResourceLoadingFailureException notStatic) {
                 AkytheraLabs.LOGGER.error("Failed to read mesh {} as skeletal or static", id, notStatic);
                 return null;
@@ -2073,16 +2095,6 @@ public final class AkytheraProject {
 
         // Explicit call to release buffers
         if (mesh != null) mesh.close();
-    }
-
-    @SuppressWarnings("unchecked")
-    public <T extends StaticMesh> AssetAccessor<T> getOrIssueEditorStaticMeshAccessor(
-        Identifier id,
-        MeshLoader.MeshConstructor<T, Mesh.CommonMeshBuilder<StaticMesh.StaticMeshPart>> meshConstructor
-    ) {
-        return (AssetAccessor<T>) issuedEditorMeshAccessors.computeIfAbsent(
-            id, k -> new EditorStaticMeshAccessor<>(k, meshConstructor)
-        );
     }
 
     @SuppressWarnings("unchecked")
@@ -2173,7 +2185,7 @@ public final class AkytheraProject {
         public T get() {
             return (T) getCurrentProject().editorMeshes.computeIfAbsent(
                 identifier(),
-                id -> MeshLoader.getLoader(id, PROJECT_RESOURCE_MANAGER)
+                id -> MeshLoader.getLoader(id, PROJECT_RESOURCE_MANAGER, AssetLoader::readMetadata)
                     .loadStaticMesh(meshConstructor)
             );
         }
@@ -2199,7 +2211,7 @@ public final class AkytheraProject {
         public T get() {
             return (T) getCurrentProject().editorMeshes.computeIfAbsent(
                 identifier(),
-                id -> MeshLoader.getLoader(id, PROJECT_RESOURCE_MANAGER)
+                id -> MeshLoader.getLoader(id, PROJECT_RESOURCE_MANAGER, AssetLoader::readMetadata)
                     .loadSkeletalMesh(meshConstructor)
             );
         }
@@ -2324,6 +2336,20 @@ public final class AkytheraProject {
     /// mid-load, so [#editorAnimations] is re-entered while one entry is still being produced.
     private final Set<Identifier> loadingEditorAnimations = new HashSet<>();
 
+    /// The [AssetLoader.MetadataLoader] an animation read out of this project is loaded with. The
+    /// engine's `Metadata.CODEC` arrives in `engineCodec` and is dropped for
+    /// [EditorAssetAccessors#ANIMATION_METADATA_CODEC], so a `ref_pose_provider` naming a project
+    /// animation resolves to that project's accessor rather than to one reading the game's packs.
+    private static AnimationLoader.Metadata readProjectAnimationMetadata(
+        final Identifier assetPath,
+        final ResourceManager resourceManager,
+        final Codec<AnimationLoader.Metadata> engineCodec,
+        final AnimationLoader.Metadata orElse
+    ) {
+        return AssetLoader.readMetadata(
+            assetPath, resourceManager, EditorAssetAccessors.ANIMATION_METADATA_CODEC, orElse);
+    }
+
     /// Copies the dropped file into the current project, then parses the copy into an
     /// [AnimationClip]. The accessor identifier is derived from the destination path (the
     /// source may live anywhere on disk, e.g. the user's desktop), so the copy must happen
@@ -2332,7 +2358,7 @@ public final class AkytheraProject {
         return importAssetFile(path, toCopy, "animation", () -> {
             Identifier id = getAccessorIdentifierFromPath(AnimationManager.DIRECTORY, toCopy);
             SingleFileResourceManager rm = new SingleFileResourceManager(toCopy);
-            AnimationLoader loader = AnimationLoader.getLoader(id, rm);
+            AnimationLoader loader = AnimationLoader.getLoader(id, rm, AssetLoader::readMetadata);
 
             if (loader instanceof JsonAssetLoader) {
                 throw new RuntimeException("Akythera Labs doesn't support json animationsToReplace. Please use animation retargeter to export your animationsToReplace as binary assets");
@@ -2443,7 +2469,7 @@ public final class AkytheraProject {
 
             try {
                 AnimationClip clip = AnimationLoader
-                    .getLoader(identifier, PROJECT_RESOURCE_MANAGER)
+                    .getLoader(identifier, PROJECT_RESOURCE_MANAGER, AkytheraProject::readProjectAnimationMetadata)
                     .loadAnimationClip(null);
 
                 project.editorAnimations.put(identifier, clip);

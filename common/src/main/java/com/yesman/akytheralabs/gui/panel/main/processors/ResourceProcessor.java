@@ -100,11 +100,13 @@ public interface ResourceProcessor<T> {
     /// into a [ContentWidget]. Returns null if the file is not recognized.
     @Nullable ContentWidget<?> createContentWidget(Font font, Path path);
 
-    /// Right-click on empty space: only `Add New`, re-firing the green-cross button on the browser's
-    /// currently selected node.
+    /// Right-click on empty space: only the `Add New` group — `New Item` re-fires the green-cross
+    /// button on the browser's currently selected node, `New Folder` creates a subdirectory under the
+    /// browsed directory while this asset type allows subdirectories.
     static UniversalMenu.Actions<ContentContextOption> backgroundActions(ContentBrowserPanel browser) {
         return UniversalMenu.<ContentContextOption>actions()
-            .on(ContentContextOption.ADD_NEW, browser::triggerAddPressed);
+            .on(ContentContextOption.NEW_FOLDER, browser::canCreateFolder, browser::triggerCreateFolder)
+            .on(ContentContextOption.NEW_ITEM, browser::triggerAddPressed);
     }
 
     /// Right-click on a folder widget, shared by every processor.

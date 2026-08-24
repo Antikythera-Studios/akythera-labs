@@ -1,15 +1,22 @@
 package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akythera.client.gui.widget.common.*;
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
+import com.yesman.akytheralabs.generated.LangKeys;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.events.ContainerEventHandler;
+import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.StringUtil;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
@@ -122,7 +129,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
 
     /// Fixed end of the selected range (the moving end is [#cursorPos]). Equal to [#cursorPos]
     /// when nothing is selected. Extended by `Shift` + the cursor keys while editing, and by a
-    /// pointer drag over a read-only box.
+    /// pointer drag.
     private int selectionAnchor;
 
     /// Timestamp of the last focus-gain, used for cursor blink timing.
@@ -189,7 +196,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
             graphics.text(font, getMessage(), x + TEXT_PADDING, textY, 0xFF555555, false);
         } else {
             // Clamp displayOffset so the active end of input — the editing caret, or the dragged end
-            // of a read-only selection — stays visible. The view therefore follows the drag.
+            // of a selection — stays visible. The view therefore follows the drag.
             ensureCursorVisible();
 
             // The offsets index [#text]; a formatter only ever decorates an unfocused box, so they
@@ -296,39 +303,57 @@ public final class AdvancedEditBox<T> extends AbstractWidget
 
     /// Removes the selected range through the filter, collapsing the caret onto its start.
     private void deleteSelection() {
-        int start = selectionStart();
-        String candidate = text.substring(0, start) + text.substring(selectionEnd());
+        replaceRange(selectionStart(), selectionEnd(), "");
+    }
 
-        if (filter.test(candidate)) {
-            text = candidate;
-            cursorPos = start;
-            selectionAnchor = start;
-            onTextMutated();
+    /// Replaces `text` between `from` and `to` with `insertion`, leaving the caret at its end. The whole
+    /// candidate string goes through [#filter]; a rejected one leaves the field as it was.
+    ///
+    /// The bounds are clamped rather than trusted: the context menu hands back a range captured when it
+    /// opened.
+    private void replaceRange(int from, int to, String insertion) {
+        int start = Math.clamp(from, 0, text.length());
+        int end = Math.clamp(to, start, text.length());
+        String candidate = text.substring(0, start) + insertion + text.substring(end);
+
+        if (!filter.test(candidate)) return;
+
+        text = candidate;
+        cursorPos = start + insertion.length();
+        selectionAnchor = cursorPos;
+        onTextMutated();
+    }
+
+    @Override
+    public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
+        // Right-press opens the clipboard menu with the caret and the highlight left alone, so the menu
+        // acts on what is already selected. The menu is a modal, which needs the editor layout up.
+        if (event.button() == 1
+            && isActive()
+            && isMouseOver(event.x(), event.y())
+            && AkytheraEditorLayoutManager.getInstance().isActive()
+        ) {
+            openClipboardMenu((int) event.x(), (int) event.y());
+            return true;
         }
+
+        return super.mouseClicked(event, doubleClick);
     }
 
     @Override
     public void onClick(@NonNull MouseButtonEvent event, boolean doubleClick) {
-        if (!editable) {
-            // Read-only: a press sets the selection anchor; dragging extends it (see mouseDragged).
-            cursorPos = cursorIndexAt(event.x());
-            selectionAnchor = cursorPos;
-            return;
-        }
+        // A press drops the caret and anchors a selection there; dragging extends it (see mouseDragged).
+        if (editable) focusTimestamp = System.currentTimeMillis();
 
-        focusTimestamp = System.currentTimeMillis();
-
-        // Place cursor at click position
         cursorPos = cursorIndexAt(event.x());
         selectionAnchor = cursorPos;
     }
 
     @Override
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
-        // Editable boxes keep their default behaviour (drag-selection isn't implemented there); a
-        // read-only box uses the drag to extend a selection, scrolling the view toward the cursor —
-        // the dragged end — so the offset follows the drag direction like a normal text field.
-        if (editable) return super.mouseDragged(event, dx, dy);
+        // A drag moves the cursor — the selection's moving end — away from the anchor the press set,
+        // scrolling the view toward it so the offset follows the drag direction.
+        if (event.button() != 0) return super.mouseDragged(event, dx, dy);
 
         int innerLeft = getX() + TEXT_PADDING;
         int innerRight = getX() + getWidth() - TEXT_PADDING;
@@ -360,12 +385,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
     public boolean charTyped(@NonNull CharacterEvent event) {
         if (!editable || !isFocused()) return false;
 
-        String charStr = event.codepointAsString();
-
-        if (charStr.length() == 1 && charReplacements != null) {
-            Character replacement = charReplacements.get(charStr.charAt(0));
-            if (replacement != null) charStr = String.valueOf(replacement);
-        }
+        String charStr = applyCharReplacements(event.codepointAsString());
 
         int start = selectionStart();
         String candidate = text.substring(0, start) + charStr + text.substring(selectionEnd());
@@ -388,12 +408,40 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         charReplacements.put(from, to);
     }
 
+    /// Runs `input` through the [#charReplacements] substitutions.
+    private String applyCharReplacements(String input) {
+        if (charReplacements == null || input.isEmpty()) return input;
+
+        StringBuilder replaced = new StringBuilder(input.length());
+
+        for (char c : input.toCharArray()) {
+            replaced.append(charReplacements.getOrDefault(c, c));
+        }
+
+        return replaced.toString();
+    }
+
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (!editable || !isFocused()) return false;
 
         boolean ctrl = (event.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0;
         boolean shift = (event.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
+
+        if (EditorKeyMappings.COPY.matches(event)) {
+            copyRange(selectionStart(), selectionEnd());
+            return true;
+        }
+
+        if (EditorKeyMappings.CUT.matches(event)) {
+            cutRange(selectionStart(), selectionEnd());
+            return true;
+        }
+
+        if (EditorKeyMappings.PASTE.matches(event)) {
+            replaceRange(selectionStart(), selectionEnd(), clipboardInsertion());
+            return true;
+        }
 
         switch (event.key()) {
             case GLFW.GLFW_KEY_A -> {
@@ -506,6 +554,79 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         while (i < len && text.charAt(i) != ' ') i++;
         while (i < len && text.charAt(i) == ' ') i++;
         return i;
+    }
+
+    // ***************************************************************
+    // Clipboard
+    // ***************************************************************
+
+    /// Puts `text` between `from` and `to` on the OS clipboard. An empty range leaves it alone.
+    private void copyRange(int from, int to) {
+        int start = Math.clamp(from, 0, text.length());
+        int end = Math.clamp(to, start, text.length());
+
+        if (start == end) return;
+
+        Minecraft.getInstance().keyboardHandler.setClipboard(text.substring(start, end));
+    }
+
+    /// Copies `[from, to)` and then removes it. Only for an editable box.
+    private void cutRange(int from, int to) {
+        copyRange(from, to);
+        replaceRange(from, to, "");
+    }
+
+    /// The OS clipboard as this box would insert it: [StringUtil#filterText] first — which is what strips
+    /// the newlines of a multi-line clipboard — then the [#charReplacements] substitutions, so a paste is
+    /// accepted wherever typing the same characters would be.
+    private String clipboardInsertion() {
+        return applyCharReplacements(StringUtil.filterText(Minecraft.getInstance().keyboardHandler.getClipboard()));
+    }
+
+    /// Opens the cut / copy / paste menu at the pointer.
+    ///
+    /// The highlighted range and the clipboard text are read here and captured by the entries, because
+    /// [ContextMenuContainer.ContextMenu.Entry] closes the modal before it runs the action and the box can
+    /// lose its focus — and with it its highlight — on the way out.
+    private void openClipboardMenu(int x, int y) {
+        int start = selectionStart();
+        int end = selectionEnd();
+        String insertion = clipboardInsertion();
+
+        ContextMenuContainer menu = ContextMenuContainer.builder(Minecraft.getInstance()).pageWidth(90)
+            .entry()
+                .message(Component.translatable(LangKeys.GUI_EDIT_BOX_CUT))
+                .predicate(() -> editable && end > start)
+                .onPress(_ -> cutRange(start, end))
+                .done()
+            .entry()
+                .message(Component.translatable(LangKeys.GUI_EDIT_BOX_COPY))
+                .predicate(() -> end > start)
+                .onPress(_ -> copyRange(start, end))
+                .done()
+            .entry()
+                .message(Component.translatable(LangKeys.GUI_EDIT_BOX_PASTE))
+                .predicate(() -> editable && !insertion.isEmpty())
+                .onPress(_ -> replaceRange(start, end, insertion))
+                .done()
+            .build();
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, x, y);
+    }
+
+    /// Whether `root`'s focus chain ends at a box taking text input. Screens that bind the clipboard keys
+    /// above their `super.keyPressed` call test it, since a focused box owns those keys.
+    public static boolean isEditingText(@Nullable GuiEventListener root) {
+        GuiEventListener node = root;
+
+        while (node instanceof ContainerEventHandler container) {
+            GuiEventListener focused = container.getFocused();
+            if (focused == null) break;
+
+            node = focused;
+        }
+
+        return node instanceof AdvancedEditBox<?> box && box.isFocused() && box.isEditable();
     }
 
     @Override

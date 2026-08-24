@@ -12,6 +12,7 @@ import com.yesman.akythera.core.asset.armature.BoneSocket;
 import com.yesman.akythera.core.blueprint.ArmatureComponentBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DataHolder;
@@ -102,10 +103,9 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
         );
     }
 
-    /// Trimmed armature id → accessor, never null. [ArmatureManager#accessor] issues one when absent,
-    /// and the labs mixin reroutes project-namespaced ids to the project's editor accessors.
+    /// Trimmed armature id → accessor, never null — see [EditorAssetAccessors#armature].
     public static AssetAccessor<? extends Armature> resolveArmature(Identifier trimmedId) {
-        return ArmatureManager.accessor(trimmedId.getNamespace(), trimmedId.getPath(), Armature::new);
+        return EditorAssetAccessors.armature(trimmedId);
     }
 
     /// The referenced armature's bone names, sorted — the candidate list an attached

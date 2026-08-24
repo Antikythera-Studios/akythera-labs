@@ -23,8 +23,9 @@ import com.yesman.akytheralabs.gui.widget.AdvancedComboBox;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
-import com.yesman.akytheralabs.gui.widget.main.AnimationRetargetManager.ExportResult;
-import com.yesman.akytheralabs.gui.widget.main.AnimationRetargetManager.TemplateEntry;
+import com.yesman.akytheralabs.InMemoryAssetAccessor;
+import com.yesman.akytheralabs.gui.widget.main.AssetExportManager.ExportResult;
+import com.yesman.akytheralabs.gui.widget.main.AssetExportManager.TemplateEntry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -542,9 +543,9 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         if (focusedEntry == null) {
             previewAnimation = null;
         } else {
-            AnimationClip remapped = AnimationRetargetManager.INSTANCE.remap(focusedEntry.clip, focusedEntry.template);
+            AnimationClip remapped = AssetExportManager.INSTANCE.remap(focusedEntry.clip, focusedEntry.template);
             Identifier id = AkytheraLabs.identifier("retarget_preview/" + focusedEntry.source.getFileName().toString().toLowerCase());
-            previewAnimation = new AnimationRetargetManager.DirectAccessor(id, remapped);
+            previewAnimation = InMemoryAssetAccessor.animation(id, remapped);
         }
 
         applyPreviewAnimationToComponent();
@@ -598,7 +599,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     /// Refresh `templateEntries` from disk. Cheap enough to call on armature swap / import.
     private void refreshTemplateList() {
-        templateEntries = AnimationRetargetManager.INSTANCE.loadTemplates(templatesDir());
+        templateEntries = AssetExportManager.INSTANCE.loadTemplates(templatesDir());
     }
 
     private void onPickTemplate(@Nullable TemplateEntry picked) {
@@ -629,7 +630,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             .thenAcceptAsync(result -> {
                 if (result == null) return;
                 try {
-                    Path dest = AnimationRetargetManager.INSTANCE.importTemplate(
+                    Path dest = AssetExportManager.INSTANCE.importTemplate(
                         Path.of(result), templatesDir());
                     refreshTemplateList();
                     rebuildBoneMappingPanel();
@@ -678,7 +679,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         if (entries.isEmpty() || sourceArmature == null || currentArmature == null) return;
 
         Path destDir = Path.of(exportPathBox.getValue());
-        List<ExportResult> results = AnimationRetargetManager.INSTANCE.exportAll(
+        List<ExportResult<RetargetEntry>> results = AssetExportManager.INSTANCE.exportAll(
             new ArrayList<>(entries),
             sourceArmature.get(),
             currentArmature.get(),
@@ -688,8 +689,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
         failedExports.clear();
 
-        for (ExportResult r : results) {
-            if (r instanceof ExportResult.Failure f) failedExports.add(f.entry());
+        for (ExportResult<RetargetEntry> r : results) {
+            if (r instanceof ExportResult.Failure<RetargetEntry> f) failedExports.add(f.entry());
         }
 
         if (failedExports.isEmpty()) {
@@ -713,7 +714,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             .thenAcceptAsync(result -> {
                 if (result == null) return;
                 Path dest = Path.of(result.endsWith(".json") ? result : result + ".json");
-                if (AnimationRetargetManager.INSTANCE.saveTemplate(dest, focusedEntry.template)) {
+                if (AssetExportManager.INSTANCE.saveTemplate(dest, focusedEntry.template)) {
                     Util.getPlatform().openFile(dest.toFile());
                     refreshTemplateList();
                     rebuildBoneMappingPanel();
@@ -752,7 +753,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     private boolean tryLoadAsArmature(String filename, Identifier id, SingleFileResourceManager rm) {
         try {
             Armature arm = ArmatureLoader.getLoader(id, rm).loadArmature(Armature::new);
-            sourceArmature = new InMemoryArmatureAccessor(id, arm);
+            sourceArmature = InMemoryAssetAccessor.armature(id, arm);
             sourceArmatureFilename = filename;
             return true;
         } catch (Exception e) {
@@ -764,14 +765,15 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         if (sourceArmature == null) return false;       // JsonAnimationLoader needs an armature
 
         try {
-            AnimationClip clip = AnimationLoader.getLoader(id, rm).loadAnimationClip(sourceArmature);
+            AnimationClip clip = AnimationLoader.getLoader(id, rm, AssetLoader::readMetadata)
+                .loadAnimationClip(sourceArmature);
             Set<String> boneNames = new LinkedHashSet<>();
             clip.visitBoneTracks((bone, _) -> boneNames.add(bone));
 
             Identifier templateArmId = currentArmature == null ? null : currentArmature.identifier();
             RetargetEntry entry = new RetargetEntry(
                 src, clip, boneNames,
-                new AnimationRetargetManager.MappingTemplate(templateArmId)
+                new AssetExportManager.MappingTemplate(templateArmId)
             );
 
             entries.add(entry);
@@ -1706,32 +1708,6 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             exportBtn.setY2(AnchoredWidget.pixel(TEMPLATE_BTN_H));
             exportBtn.relocate(modalRect);
             exportBtn.extractRenderState(g, mx, my, a);
-        }
-    }
-
-    /// Wraps a dropped, in-memory `Armature` instance as an `AssetAccessor` so it can be
-    /// passed to `AnimationLoader.loadAnimationClip`. The asset isn't backed by any
-    /// resource manager — `isResourcePresent` returns true unconditionally because the
-    /// `Armature` is already in memory.
-    private record InMemoryArmatureAccessor(Identifier id, Armature armature) implements AssetAccessor<Armature> {
-        @Override
-        public Identifier identifier() {
-            return id;
-        }
-
-        @Override
-        public Armature get() {
-            return armature;
-        }
-
-        @Override
-        public Type type() {
-            return Type.ARMATURE;
-        }
-
-        @Override
-        public boolean isResourcePresent() {
-            return true;
         }
     }
 }

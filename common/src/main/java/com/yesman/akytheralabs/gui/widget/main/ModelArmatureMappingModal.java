@@ -48,6 +48,12 @@ import java.util.stream.Stream;
 /// the `<none>` row enabled, so a mapping can be cleared again. The right column hosts a
 /// [Model3DViewer]: selecting a row displays its vanilla model in bind pose (no animation
 /// is ever pushed), re-displayed after a pick so the new armature mapping takes effect.
+///
+/// A mapping whose armature accessor no longer resolves in the project — the asset was removed
+/// after it was bound — is marked red on the row's box ([PopupBox#withValidator], evaluated for
+/// every row as the modal builds its list) and never handed to the previewer, whose
+/// [EntityModelComponent] would throw while loading the missing armature. Picking a fresh
+/// armature clears the mark and brings the model back.
 public final class ModelArmatureMappingModal extends OverlayingWindowModal
     implements ResizeCompleteCallbackListener, CloseableWidget
 {
@@ -155,9 +161,23 @@ public final class ModelArmatureMappingModal extends OverlayingWindowModal
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
+    /// A mapping is displayable when it is absent — the vanilla model carries its own skeleton — or
+    /// when its accessor still resolves against the project's armature listing. A dangling accessor
+    /// fails to load inside [EntityModelComponent], so such a row is marked instead of previewed.
+    private static boolean mappingResolves(EntityType<?> type) {
+        AssetAccessor<? extends Armature> armature = ComponentsFactory.getImpl().getExternalArmatureMappingFor(type);
+        return armature == null || AccessorSelectionModal.resolves(armature);
+    }
+
     /// Shows the selected row's vanilla model in the right-column previewer. No animation is
-    /// pushed onto the component, so the model stands in its bind/default pose.
+    /// pushed onto the component, so the model stands in its bind/default pose. A row whose
+    /// mapping doesn't resolve displays nothing, dropping whatever model stood there before.
     private void showPreview(EntityType<?> type) {
+        if (!mappingResolves(type)) {
+            preview.removeAllComponents(EntityModelComponent.class);
+            return;
+        }
+
         preview.displayEntity(
             BuiltInRegistries.ENTITY_TYPE.getKey(type),
             EntityModelComponent.ModelType.VANILLA_ENTITY,
@@ -375,7 +395,7 @@ public final class ModelArmatureMappingModal extends OverlayingWindowModal
 
         MappingRow(EntityType<?> type) {
             this.type = type;
-            this.popupBox = new PopupBox<>(
+            this.popupBox = new PopupBox<AssetAccessor<? extends Armature>>(
                 font,
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(BOX_H),
@@ -385,9 +405,11 @@ public final class ModelArmatureMappingModal extends OverlayingWindowModal
                 accessor -> accessor == null ? "" : AccessorSelectionModal.displayName(accessor),
                 Component.empty(),
                 box -> openArmaturePicker(type, box)
-            );
+            ).withValidator(AccessorSelectionModal::resolves);
+
             // The modal flow refreshes via setValue on confirm; seed the display from the
-            // current registration (setValue(null) renders the unmapped box as <none>).
+            // current registration (setValue(null) renders the unmapped box as <none>), which
+            // also runs the validator — so a dangling mapping is marked as the list is built.
             popupBox.setValue(ComponentsFactory.getImpl().getExternalArmatureMappingFor(type));
             this.children = List.of(popupBox);
         }

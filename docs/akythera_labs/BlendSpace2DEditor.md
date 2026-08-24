@@ -95,7 +95,7 @@ existing node to replace its animation.
 ## Root motion in a blend space
 
 If the animations at the corners of a blend use [root
-motion](AnimationSequenceEditor.md#about-root-motion), the preview draws the
+motion](data/Animation_Sequence.md#about-root-motion), the preview draws the
 blended travel path for the **current control-point position**, and reshapes it as
 you move the cursor — so you can see how the movement itself blends, not just the
 pose.
