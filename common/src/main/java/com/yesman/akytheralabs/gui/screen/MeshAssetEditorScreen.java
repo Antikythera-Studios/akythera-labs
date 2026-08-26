@@ -22,6 +22,7 @@ import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
+import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
@@ -73,6 +74,7 @@ public final class MeshAssetEditorScreen extends Screen implements ModalAccessib
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
+                .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
         );
 

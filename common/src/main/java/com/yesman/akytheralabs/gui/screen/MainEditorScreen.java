@@ -74,6 +74,7 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
                 .on(TopMenuOption.MODEL_ARMATURE_MAPPING, () -> ModelArmatureMappingModal.open(font))
                 .on(TopMenuOption.ANIMATION_RETARGET, () -> AnimationRetargetModal.open(font))
                 .on(TopMenuOption.MODEL_TRANSFORMER, () -> ModelTransformerModal.open(font))
+                .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );

@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.neoforged;
 import com.yesman.akythera.client.gui.widget.common.WidgetTheme;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.editor.debug.EditorLogBuffer;
 import com.yesman.akytheralabs.gui.widget.script.node.ScriptNodeTypes;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
@@ -20,6 +21,8 @@ import net.neoforged.neoforge.data.event.GatherDataEvent;
 @Mod(value = AkytheraLabs.MODID, dist = Dist.CLIENT)
 public class AkytheraLabsNeoForged {
     public AkytheraLabsNeoForged(IEventBus modEventBus, ModContainer modContainer) {
+        EditorLogBuffer.getInstance().install();
+
         WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsButtonTheme.class);
         WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsEditBoxTheme.class);
         WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsComboBoxTheme.class);

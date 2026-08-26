@@ -50,6 +50,7 @@ import com.yesman.akytheralabs.gui.widget.VariableDropModal;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.viewer.BoneSocketPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
+import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.UniversalMenu;
@@ -155,6 +156,7 @@ public final class EntityPatchEditorScreen extends Screen
                 .onChoices(TopMenuOption.CHANGE_PARENT, parentChoices())
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
+                .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );

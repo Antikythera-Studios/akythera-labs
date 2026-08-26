@@ -19,6 +19,7 @@ import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
+import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
@@ -74,6 +75,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
+                .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
         );
 

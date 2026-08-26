@@ -44,6 +44,7 @@ import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
+import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
@@ -136,6 +137,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
         );
 

@@ -48,6 +48,7 @@ import com.yesman.akytheralabs.gui.panel.script.VariableDraft;
 import com.yesman.akytheralabs.gui.panel.script.VariableEditController;
 import com.yesman.akytheralabs.gui.panel.script.VariablePanel;
 import com.yesman.akytheralabs.gui.widget.*;
+import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.RegistryLookupModal;
@@ -228,6 +229,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
@@ -2454,13 +2456,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             return true;
         }
 
-        // A widget taking text input owns the keyboard while it is open — a focused edit box, or a node
-        // hosting an inline editor — so the clipboard keys stay with its text rather than acting on the
-        // canvas' selection.
-        boolean textEditing = AdvancedEditBox.isEditingText(this)
+        // A modal, a focused edit box, or a node hosting an inline editor owns the keyboard while it is
+        // open, so the clipboard keys stay with it rather than acting on the canvas' selection.
+        boolean keyboardTaken = getFocusOwningModal() != null
+            || AdvancedEditBox.isEditingText(this)
             || (blueprintEditor.getActiveContent() instanceof ScriptNodeGraphWidget graph && graph.isInlineEditing());
 
-        if (!textEditing) {
+        if (!keyboardTaken) {
             if (EditorKeyMappings.COPY.matches(event)) {
                 copySelection();
                 return true;

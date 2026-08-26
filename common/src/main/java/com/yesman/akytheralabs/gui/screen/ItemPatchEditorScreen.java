@@ -28,6 +28,7 @@ import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
+import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
@@ -116,6 +117,7 @@ public final class ItemPatchEditorScreen extends Screen
                 .on(TopMenuOption.COMPILE, this::compile)
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
+                .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );

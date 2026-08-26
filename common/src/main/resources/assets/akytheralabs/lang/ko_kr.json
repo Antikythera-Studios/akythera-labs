@@ -4,6 +4,7 @@
   "gui.akytheralabs.cancel": "취소",
   "gui.akytheralabs.apply": "적용",
   "gui.akytheralabs.ok": "확인",
+  "gui.akytheralabs.close": "닫기",
   "gui.akytheralabs.main_screen.title": "에디터 메인 화면",
   "gui.akytheralabs.widget.details": "상세",
   "gui.akytheralabs.edit_box.cut": "잘라내기",
@@ -27,6 +28,7 @@
   "gui.akytheralabs.menu_bar.tools": "도구",
   "gui.akytheralabs.menu_bar.tools.animation_retarget": "애니메이션 리타게터",
   "gui.akytheralabs.menu_bar.tools.debug": "디버그",
+  "gui.akytheralabs.menu_bar.tools.console": "콘솔",
   "gui.akytheralabs.menu_bar.help": "도움",
   "gui.akytheralabs.menu_bar.help.docs": "문서",
   "gui.akytheralabs.menu_bar.help.issue_report": "문제 보고",
@@ -259,5 +261,9 @@
   "gui.akytheralabs.main_screen.widget.project_settings.error.empty_name": "Project name can't be empty!",
   "gui.akytheralabs.main_screen.widget.project_settings.error.empty_version": "Version number can't be empty!",
   "gui.akytheralabs.main_screen.widget.project_settings.error.name_taken": "A project with this name already exists.",
-  "gui.akytheralabs.main_screen.widget.project_settings.error.rename_failed": "Error while tried to rename project directory"
+  "gui.akytheralabs.main_screen.widget.project_settings.error.rename_failed": "Error while tried to rename project directory",
+  "gui.akytheralabs.console_modal.title": "콘솔",
+  "gui.akytheralabs.console_modal.clear": "지우기",
+  "gui.akytheralabs.console_modal.open_logs": "로그 폴더 열기",
+  "gui.akytheralabs.console_modal.buffer_size": "버퍼 크기"
 }

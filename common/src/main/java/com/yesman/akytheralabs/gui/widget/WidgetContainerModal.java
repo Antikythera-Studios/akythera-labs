@@ -25,6 +25,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /// A modal popup box for warnings or simple user input.
 ///
@@ -207,6 +208,31 @@ public final class WidgetContainerModal extends OverlayingWindowModal {
     @Override
     public boolean isMouseOverHeader(double mouseX, double mouseY) {
         return !rows.isEmpty() && rows.getFirst() instanceof TitleRow titleRow && titleRow.isMouseOver(mouseX, mouseY);
+    }
+
+    /// Mirrors the render order: [TitleRow] and [FooterRow] are unclipped and sit on top, body rows
+    /// are hit-testable only inside the scissored body viewport.
+    @Override
+    public @NonNull Optional<GuiEventListener> getChildAt(double mouseX, double mouseY) {
+        for (AnchoredRow row : rows) {
+            if ((row instanceof TitleRow || row instanceof FooterRow) && row.isMouseOver(mouseX, mouseY)) {
+                return Optional.of(row);
+            }
+        }
+
+        if (mouseY < bodyTop() || mouseY >= bodyBottom()) {
+            return Optional.empty();
+        }
+
+        for (AnchoredRow row : rows) {
+            if (row instanceof TitleRow || row instanceof FooterRow) continue;
+
+            if (row.isMouseOver(mouseX, mouseY)) {
+                return Optional.of(row);
+            }
+        }
+
+        return Optional.empty();
     }
 
     @Override

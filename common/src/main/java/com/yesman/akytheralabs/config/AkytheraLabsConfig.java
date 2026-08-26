@@ -5,6 +5,7 @@
 
 package com.yesman.akytheralabs.config;
 
+import com.yesman.akytheralabs.editor.debug.EditorLogBuffer;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMapping;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import net.neoforged.neoforge.common.ModConfigSpec;
@@ -24,6 +25,10 @@ public final class AkytheraLabsConfig {
         .comment("A custom GUI scale adjustment for Akythera Labs editor independent from Minecraft's GuiScale")
         .defineInRange("gui.editor_gui_scale", 2, 1, 6);
 
+    public static final ModConfigSpec.IntValue CONSOLE_BUFFER_SIZE = BUILDER
+        .comment("How many log lines the editor console keeps in memory")
+        .defineInRange("gui.console_buffer_size", 5000, 100, 100000);
+
     public static final ModConfigSpec.ConfigValue<List<? extends String>> KEY_MAPPINGS = BUILDER
         .comment("Editor key mappings, each encoded as 'id=modBits,keyCode'")
         .defineListAllowEmpty("input.key_mappings", List.of(), () -> "", o -> o instanceof String s && s.indexOf('=') > 0);
@@ -32,6 +37,7 @@ public final class AkytheraLabsConfig {
 
     // config values
     private static int editorGuiScale;
+    private static int consoleBufferSize;
 
     public static int getEditorGuiScale() {
         return editorGuiScale;
@@ -41,15 +47,26 @@ public final class AkytheraLabsConfig {
         editorGuiScale = value;
     }
 
+    public static int getConsoleBufferSize() {
+        return consoleBufferSize;
+    }
+
+    public static void setConsoleBufferSize(int value) {
+        consoleBufferSize = value;
+    }
+
     /// Loads the in-memory values from the config specs.
     public static void initConfigValues() {
         editorGuiScale = EDITOR_GUI_SCALE.getAsInt();
+        consoleBufferSize = CONSOLE_BUFFER_SIZE.getAsInt();
+        EditorLogBuffer.getInstance().setCapacity(consoleBufferSize);
         applyKeyMappingsFromSpec();
     }
 
     /// Writes the in-memory values back into the config specs and saves them.
     public static void saveConfigValues() {
         setAndSave(EDITOR_GUI_SCALE, editorGuiScale);
+        setAndSave(CONSOLE_BUFFER_SIZE, consoleBufferSize);
         setAndSave(KEY_MAPPINGS, serializeKeyMappings());
     }
 

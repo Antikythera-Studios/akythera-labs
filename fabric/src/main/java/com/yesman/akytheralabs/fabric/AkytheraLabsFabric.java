@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.fabric;
 import com.yesman.akythera.client.gui.widget.common.WidgetTheme;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.editor.debug.EditorLogBuffer;
 import com.yesman.akytheralabs.gui.widget.script.node.ScriptNodeTypes;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
@@ -16,6 +17,8 @@ import net.neoforged.fml.config.ModConfig;
 public final class AkytheraLabsFabric implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
+        EditorLogBuffer.getInstance().install();
+
         WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsButtonTheme.class);
         WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsEditBoxTheme.class);
         WidgetTheme.ENUM_MANAGER.registerEnumCls(Akythera.MODID, AkytheraLabsComboBoxTheme.class);

@@ -37,6 +37,7 @@ import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.blendspace2d.BlendSpaceNodeGraphWidget;
+import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import com.yesman.akythera.core.animation.driver.BlendSpace2DDriver;
@@ -137,6 +138,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
         );
 

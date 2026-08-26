@@ -31,6 +31,7 @@ import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.animation.AnimTrackEntry;
 import com.yesman.akytheralabs.gui.widget.animation.AnimationTrackEditorPanel;
 import com.yesman.akytheralabs.gui.widget.animation.NotifyRow;
+import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
@@ -96,6 +97,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
         );
 
