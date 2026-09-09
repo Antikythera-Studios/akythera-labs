@@ -26,19 +26,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 /// Draws an armature's bind pose over whatever the viewer already holds: an octahedron per bone,
 /// running from its own head to its tail, and a screen-sized marker at every head. Clicking either
-/// selects that bone.
-///
-/// The armature stores no tail — only a local transform per bone — so a bone's tail is taken as the
-/// midpoint of its children's heads. That is exact for the single-child case, which is most of a
-/// humanoid rig, and averages the split for a bone that forks. A childless bone has nothing to
-/// average, so its shape carries on in the direction it arrived from, at [#LEAF_LENGTH_RATIO] of
-/// that offset.
+/// selects that bone, and shift-clicking reports the pick together with the one it replaces.
 public final class ArmatureViewComponent implements Model3DViewerComponent {
     private static final int COLOR_BONE = 0xFFDDDDDD;
     private static final int COLOR_SELECTED = 0xFFFFA028;
+    private static final int COLOR_PARTNER = 0xFF48B0FF; // the mirror partner of the selected bone
+    private static final int COLOR_PAIRED = 0xFF58A882;  // paired with something else
     private static final float LINE_WIDTH = 2.0F;
     private static final float SELECTED_LINE_WIDTH = 3.0F;
 
@@ -53,16 +51,12 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
     /// How far off a bone's projected axis a click still counts as a hit, in widget pixels.
     private static final float PICK_TOLERANCE_PIXELS = 5.0F;
 
-    /// How long a childless bone's shape is drawn, as a fraction of the offset it sits at from its
-    /// parent.
-    private static final float LEAF_LENGTH_RATIO = 0.5F;
-
     private final AssetAccessor<? extends Armature> armature;
 
     /// Bone heads in viewer world space, in hierarchy order. Rebuilt every frame.
     private final Map<Bone, Vector3f> heads = new LinkedHashMap<>();
 
-    /// The octahedron drawn for each bone. One per bone, minus a childless root.
+    /// The octahedron drawn for each bone.
     private final List<BoneSegment> segments = new ArrayList<>();
 
     @Nullable
@@ -71,6 +65,16 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
     /// Run whenever [#selected] moves to a different bone, so an owner can follow the pick.
     @Nullable
     private Runnable onSelectionChanged;
+
+    /// The mirror partner's name for a bone, or null while it stands alone. Null — the default —
+    /// draws every bone alike.
+    @Nullable
+    private Function<Bone, String> mirrorPartnerProvider;
+
+    /// Run on a shift-click that lands on a bone other than the selected one, with the bone that
+    /// was selected and the one just hit.
+    @Nullable
+    private BiConsumer<Bone, Bone> onShiftPicked;
 
     private double lastMouseX;
     private double lastMouseY;
@@ -81,6 +85,14 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
 
     public void setOnSelectionChanged(final Runnable onSelectionChanged) {
         this.onSelectionChanged = onSelectionChanged;
+    }
+
+    public void setMirrorPartnerProvider(final @Nullable Function<Bone, String> mirrorPartnerProvider) {
+        this.mirrorPartnerProvider = mirrorPartnerProvider;
+    }
+
+    public void setOnShiftPicked(final BiConsumer<Bone, Bone> onShiftPicked) {
+        this.onShiftPicked = onShiftPicked;
     }
 
     /// The bone the last click landed on, or null while none is picked.
@@ -111,7 +123,7 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
 
         heads.clear();
         segments.clear();
-        collect(arm.getRootBone(), new Matrix4f(), null);
+        collect(arm.getRootBone(), new Matrix4f());
 
         // The scene drawn so far stays, its depth does not — so the bones read over the mesh while
         // still occluding one another.
@@ -122,23 +134,15 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         PoseStack.Pose pose = poseStack.last();
 
         for (BoneSegment segment : segments) {
-            boolean highlighted = segment.bone().equals(selected);
+            int color = colorOf(segment.bone());
 
-            emitOctahedron(
-                builder, pose, segment.head(), segment.tail(),
-                highlighted ? COLOR_SELECTED : COLOR_BONE,
-                highlighted ? SELECTED_LINE_WIDTH : LINE_WIDTH
-            );
+            emitOctahedron(builder, pose, segment.head(), segment.tail(), color, lineWidthOf(color));
         }
 
         for (Map.Entry<Bone, Vector3f> head : heads.entrySet()) {
-            boolean highlighted = head.getKey().equals(selected);
+            int color = colorOf(head.getKey());
 
-            emitMarker(
-                builder, pose, viewer, head.getValue(),
-                highlighted ? COLOR_SELECTED : COLOR_BONE,
-                highlighted ? SELECTED_LINE_WIDTH : LINE_WIDTH
-            );
+            emitMarker(builder, pose, viewer, head.getValue(), color, lineWidthOf(color));
         }
 
         MeshData meshData = builder.build();
@@ -146,34 +150,34 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         if (meshData != null) RenderUtils.drawImmediate(renderType, meshData);
     }
 
+    /// The color `bone` is drawn in: the pick, the pick's mirror partner, a bone standing in some
+    /// other pair, or a plain one.
+    private int colorOf(final Bone bone) {
+        if (bone.equals(selected)) return COLOR_SELECTED;
+        if (mirrorPartnerProvider == null) return COLOR_BONE;
+        if (selected != null && bone.getName().equals(mirrorPartnerProvider.apply(selected))) return COLOR_PARTNER;
+
+        return mirrorPartnerProvider.apply(bone) == null ? COLOR_BONE : COLOR_PAIRED;
+    }
+
+    /// The pick and its partner are drawn thick, so the two read as one thing.
+    private static float lineWidthOf(final int color) {
+        return color == COLOR_SELECTED || color == COLOR_PARTNER ? SELECTED_LINE_WIDTH : LINE_WIDTH;
+    }
+
     /// Walks the bind-pose hierarchy the way [Bone#initOriginTransform] does, gathering each bone's
-    /// head and the shape running out of it. Returns `bone`'s own head, which is what its parent
-    /// averages into a tail.
-    private Vector3f collect(final Bone bone, final Matrix4f parentTransform, final @Nullable Vector3f parentHead) {
+    /// head and the shape running out of it.
+    private void collect(final Bone bone, final Matrix4f parentTransform) {
         Matrix4f modelTransform = parentTransform.mul(bone.getLocalTransform(), new Matrix4f());
         Vector3f head = Matrix4fUtils.extractTranslation(modelTransform);
+        Vector3f tail = modelTransform.transformPosition(new Vector3f(bone.getToTail()));
 
         heads.put(bone, head);
-
-        Vector3f tail = new Vector3f();
-        int childCount = 0;
-
-        for (Bone child : bone.getChildBones()) {
-            tail.add(collect(child, modelTransform, head));
-            childCount++;
-        }
-
-        if (childCount > 0) {
-            tail.div(childCount);
-        } else if (parentHead != null) {
-            tail.set(head).sub(parentHead).mul(LEAF_LENGTH_RATIO).add(head);
-        } else {
-            return head;  // a lone bone points nowhere — its marker is the whole of it
-        }
-
         segments.add(new BoneSegment(bone, head, tail));
 
-        return head;
+        for (Bone child : bone.getChildBones()) {
+            collect(child, modelTransform);
+        }
     }
 
     /// The 12 edges of the bone shape: four from `head` to the ring, the ring itself, four from the
@@ -349,7 +353,13 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
 
         if (hit == null) return false;
 
+        Bone previous = selected;
+
         select(hit);
+
+        if (event.hasShiftDown() && onShiftPicked != null && previous != null && !previous.equals(hit)) {
+            onShiftPicked.accept(previous, hit);
+        }
 
         return true;
     }

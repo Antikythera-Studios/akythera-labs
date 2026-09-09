@@ -5,14 +5,11 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.core.asset.armature.BoneSocket;
-import com.yesman.akythera.core.blueprint.ComponentBlueprint;
 import com.yesman.akythera.core.math.Transform;
-import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
-import net.minecraft.resources.Identifier;
 import org.joml.Quaterniond;
 import org.jspecify.annotations.Nullable;
 
@@ -130,24 +127,8 @@ public final class BoneSocketHolder extends ComponentDataHolder<BoneSocket> impl
         boneName = object.getBoneName();
         localTransform.readFrom(object.getLocalTransform());
 
-        components.clear();
-        object.getChildBlueprints().forEach((name, blueprint) -> {
-            Identifier typeId = AkytheraRegistries.Frozen.COMPONENT_BLUEPRINT_TYPES.getKey(blueprint.mapCodec());
-            if (typeId == null) return;
-
-            ComponentDataHolder<?> holder = EntityPatchComponentHolders.REGISTRY.createDefault(typeId);
-            if (holder == null) return;
-
-            readInto(holder, blueprint);
-            components.put(name, holder);
-        });
-    }
-
-    /// The runtime component records are their own blueprints, so a holder's `readFrom` accepts them
-    /// directly. The cast recovers what the wildcard erased.
-    @SuppressWarnings("unchecked")
-    private static <T> void readInto(AbstractDataHolder<T> holder, ComponentBlueprint<?, ?> blueprint) {
-        holder.readFrom((T) blueprint);
+        ComponentAttachableHolder.readComponents(
+            this, EntityPatchComponentHolders.REGISTRY, object.getChildBlueprints());
     }
 
     @Override

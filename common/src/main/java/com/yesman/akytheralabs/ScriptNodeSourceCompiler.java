@@ -2,7 +2,7 @@ package com.yesman.akytheralabs;
 
 import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
-import com.yesman.akythera.api.data.modularize.impl.NumericComparators;
+import com.yesman.akythera.api.data.modularize.impl.ScriptComparators;
 import com.yesman.akythera.api.data.modularize.node.*;
 import com.yesman.akythera.api.data.modularize.node.animgraph.AnimationStateMachineNode;
 import com.yesman.akythera.api.data.modularize.node.animgraph.CachedPoseReferenceNode;
@@ -341,15 +341,16 @@ public final class ScriptNodeSourceCompiler {
         };
     }
 
-    /// The [NumericComparators] constant expression for one of its singleton comparators.
+    /// The [ScriptComparators] constant expression for one of its singleton comparators.
     private static String comparatorConstant(java.util.Comparator<?> comparator) {
-        if (comparator == NumericComparators.NUMBER_COMPARATOR)  return "NumericComparators.NUMBER_COMPARATOR";
-        if (comparator == NumericComparators.BYTE_COMPARATOR)    return "NumericComparators.BYTE_COMPARATOR";
-        if (comparator == NumericComparators.SHORT_COMPARATOR)   return "NumericComparators.SHORT_COMPARATOR";
-        if (comparator == NumericComparators.INTEGER_COMPARATOR) return "NumericComparators.INTEGER_COMPARATOR";
-        if (comparator == NumericComparators.LONG_COMPARATOR)    return "NumericComparators.LONG_COMPARATOR";
-        if (comparator == NumericComparators.FLOAT_COMPARATOR)   return "NumericComparators.FLOAT_COMPARATOR";
-        if (comparator == NumericComparators.DOUBLE_COMPARATOR)  return "NumericComparators.DOUBLE_COMPARATOR";
+        if (comparator == ScriptComparators.EQUALITY_COMPARATOR) return "ScriptComparators.EQUALITY_COMPARATOR";
+        if (comparator == ScriptComparators.NUMBER_COMPARATOR)  return "ScriptComparators.NUMBER_COMPARATOR";
+        if (comparator == ScriptComparators.BYTE_COMPARATOR)    return "ScriptComparators.BYTE_COMPARATOR";
+        if (comparator == ScriptComparators.SHORT_COMPARATOR)   return "ScriptComparators.SHORT_COMPARATOR";
+        if (comparator == ScriptComparators.INTEGER_COMPARATOR) return "ScriptComparators.INTEGER_COMPARATOR";
+        if (comparator == ScriptComparators.LONG_COMPARATOR)    return "ScriptComparators.LONG_COMPARATOR";
+        if (comparator == ScriptComparators.FLOAT_COMPARATOR)   return "ScriptComparators.FLOAT_COMPARATOR";
+        if (comparator == ScriptComparators.DOUBLE_COMPARATOR)  return "ScriptComparators.DOUBLE_COMPARATOR";
         return "null /* TODO: unsupported comparator literal */";
     }
 

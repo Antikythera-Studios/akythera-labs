@@ -29,6 +29,10 @@ public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelAre
     private final WidgetTable table;
     private final EditorWidgetFactory factory;
 
+    /// Run after the rows re-render themselves — a list add or remove and its undo. What sweeps an
+    /// override back off a patch once it matches what it overrides.
+    private final Runnable afterChange;
+
     @Nullable
     private Object shown;
 
@@ -36,11 +40,25 @@ public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelAre
     @Nullable
     private Object shownContext;
 
+    /// The component [#shown] overrides, filling the rows it leaves unset. Kept for the rebuilds.
+    @Nullable
+    private Object shownInherited;
+
+    /// Reported before the first value written into [#shown] lands. Kept for the rebuilds.
+    @Nullable
+    private Runnable shownOnWrite;
+
     @Nullable
     private ScreenRectangle lastRect;
 
+    /// For an editor with no patch inheritance, where no override can fall back to nothing.
     public ComponentDetailsPanel(Font font, Screen parentScreen) {
+        this(font, parentScreen, () -> {});
+    }
+
+    public ComponentDetailsPanel(Font font, Screen parentScreen, Runnable afterChange) {
         this.font = font;
+        this.afterChange = afterChange;
         this.header = new PanelHeader(font, TITLE);
         this.factory = new EditorWidgetFactory(font);
         this.table = new WidgetTable(
@@ -66,13 +84,25 @@ public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelAre
     /// candidates come from their surroundings read it ([EditorWidgetFactory#fillWidgetTable]), which
     /// is how a bone socket lists the bones of its parent component's armature.
     public void showComponent(@Nullable Object componentHolder, @Nullable Object context) {
+        showComponent(componentHolder, context, null, null);
+    }
+
+    /// Variant carrying the component this one overrides — its values are what the rows grey against,
+    /// see [EditorEditable#inheritable] — and the hook that attaches `componentHolder` once something
+    /// is written into it.
+    public void showComponent(
+        @Nullable Object componentHolder, @Nullable Object context, @Nullable Object inherited, @Nullable Runnable onWrite
+    ) {
         shown = componentHolder;
         shownContext = context;
+        shownInherited = inherited;
+        shownOnWrite = onWrite;
 
         if (componentHolder == null) {
             table.clearWidgets();
         } else {
-            factory.fillWidgetTable(table, componentHolder, () -> refreshIfShown(componentHolder), context);
+            factory.fillWidgetTable(
+                table, componentHolder, () -> refreshIfShown(componentHolder), context, inherited, onWrite);
         }
 
         if (lastRect != null) table.relocate(lastRect);
@@ -81,7 +111,10 @@ public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelAre
     /// Section add/remove (and its undo/redo replay) rebuilds the rows only when this holder is
     /// still the one on display.
     private void refreshIfShown(Object owner) {
-        if (shown == owner) showComponent(owner, shownContext);
+        if (shown != owner) return;
+
+        showComponent(owner, shownContext, shownInherited, shownOnWrite);
+        afterChange.run();
     }
 
     @Override

@@ -10,6 +10,7 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.dataholder.DataBlockHolder;
 import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
@@ -166,6 +167,11 @@ public final class FreemarkerExporter {
         model.put("blockType", entry.blockType().getSimpleName());
         model.put("managerAccess", managerAccess(entry));
         model.put("constants", constants);
+        // Shape off a default instance; the per-constant values ride in each row's `args`.
+        model.put("properties", entry.holderFactory().get().sourceProperties().stream()
+            .map(property -> Map.of(
+                "type", property.type(), "field", property.field(), "accessor", property.accessor()))
+            .toList());
 
         render("datablock_enum_template.ftl", model, dataBlocksRoot.resolve(className + ".java"), entry.registryKey().identifier());
     }
@@ -325,16 +331,28 @@ public final class FreemarkerExporter {
         }
     }
 
-    /// One `{ name, path }` row per project entry of `entry`'s type, from [SourceNames#dataBlockConstants]:
-    /// `name` is the enum constant, `path` the identifier path that constant registers itself under.
+    /// One `{ name, path, args }` row per project entry of `entry`'s type, from
+    /// [SourceNames#dataBlockConstants]: `name` is the enum constant, `path` the identifier path that
+    /// constant registers itself under, and `args` its [DataBlockHolder.SourceProperty] values in
+    /// constructor-parameter order.
     private static <T extends EnumerableDataBlock> List<Map<String, Object>> collectDataBlockConstants(
         AkytheraProject project, DataBlockRegistries.Entry<T, ?> entry
     ) {
+        ProjectObjectRegistry<T, DataBlockHolder<T>> registry = project.getModifiableRegistry(entry.registryKey());
+        Map<String, List<DataBlockHolder.SourceProperty>> byPath = new LinkedHashMap<>();
+
+        if (registry != null) {
+            registry.dataHolderEntrySet().forEach(holder ->
+                byPath.put(holder.getKey().identifier().getPath(), holder.getValue().sourceProperties()));
+        }
+
         return SourceNames.dataBlockConstants(project, entry).entrySet().stream()
             .<Map<String, Object>>map(constant -> {
                 Map<String, Object> row = new LinkedHashMap<>();
                 row.put("name", constant.getValue());
                 row.put("path", constant.getKey());
+                row.put("args", byPath.getOrDefault(constant.getKey(), List.of()).stream()
+                    .map(DataBlockHolder.SourceProperty::value).toList());
 
                 return row;
             })

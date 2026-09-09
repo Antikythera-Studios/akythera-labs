@@ -64,6 +64,58 @@ public interface ResourceProcessor<T> {
     /// Whether this asset type allows creating subdirectories under its registry root.
     boolean canCreateSubDirectories();
 
+    /// Whether this asset type takes a copy of one of its entries. False where an entry's id is the
+    /// only binding to what it patches and the type has no unbound form.
+    default boolean canDuplicate() {
+        return true;
+    }
+
+    /// Whether the first segment of an entry's id path is its namespace, split back out at datapack
+    /// export ([AkytheraProject#exportAsPacks]). Such a type takes no entry directly in its registry
+    /// root — there is no segment there to read as the namespace.
+    default boolean pathEncodesNamespace() {
+        return false;
+    }
+
+    /// The id `key` takes once exported, so a project entry reads and resolves the same as the loaded
+    /// world's copy of it — `epicfight:minecraft/sword` becomes `minecraft:sword`. Splits at the first
+    /// slash, the way [AkytheraProject#exportAsPacks] does, and only for a [#pathEncodesNamespace]
+    /// type. Anything else, and an entry with no such segment, is its own id.
+    ///
+    /// This is the form a reference to the entry is **stored** in, the engine knowing nothing of the
+    /// project the entry was authored in.
+    static Identifier exportedId(ResourceKey<?> key) {
+        ResourceProcessor<?> processor = forTag(key.registryKey());
+
+        if (processor == null || !processor.pathEncodesNamespace()) return key.identifier();
+
+        String path = key.identifier().getPath();
+        int slash = path.indexOf('/');
+
+        if (slash < 0) return key.identifier();
+
+        return Identifier.fromNamespaceAndPath(path.substring(0, slash), path.substring(slash + 1));
+    }
+
+    /// The inverse of [#exportedId]: `minecraft:sword` becomes `<projectName>:minecraft/sword`, the id
+    /// this project keys that entry by. What a stored reference has to be read back as before the
+    /// project can resolve it.
+    static Identifier projectId(ResourceKey<? extends Registry<?>> registryKey, Identifier exported) {
+        ResourceProcessor<?> processor = forTag(registryKey);
+
+        if (processor == null || !processor.pathEncodesNamespace()) return exported;
+
+        return Identifier.fromNamespaceAndPath(
+            AkytheraProject.getCurrentProject().getProjectName(),
+            exported.getNamespace() + "/" + exported.getPath());
+    }
+
+    /// The id `key` is shown to the user by — [#exportedId], so a project entry reads the same as the
+    /// loaded world's copy of it.
+    static String displayId(ResourceKey<?> key) {
+        return exportedId(key).toString();
+    }
+
     /// Right-click on a [ContentWidget] in [ContentBrowserPanel]: which [ContentContextOption]s this
     /// asset type answers for `rightPressed`. The panel lays every option out itself, so an option
     /// left out of the returned [UniversalMenu.Actions] keeps its place, greyed out.
@@ -104,18 +156,26 @@ public interface ResourceProcessor<T> {
     /// button on the browser's currently selected node, `New Folder` creates a subdirectory under the
     /// browsed directory while this asset type allows subdirectories.
     static UniversalMenu.Actions<ContentContextOption> backgroundActions(ContentBrowserPanel browser) {
+        Path browsedDir = browser.getBrowsedDirectory();
+
         return UniversalMenu.<ContentContextOption>actions()
             .on(ContentContextOption.NEW_FOLDER, browser::canCreateFolder, browser::triggerCreateFolder)
-            .on(ContentContextOption.NEW_ITEM, browser::triggerAddPressed);
+            .on(ContentContextOption.NEW_ITEM, browser::triggerAddPressed)
+            .on(ContentContextOption.PASTE, () -> browser.canPasteInto(browsedDir), () -> browser.pasteInto(browsedDir));
     }
 
-    /// Right-click on a folder widget, shared by every processor.
+    /// Right-click on a folder widget, shared by every processor. `Paste` targets the pressed folder
+    /// rather than the browsed one.
     static UniversalMenu.Actions<ContentContextOption> folderActions(ContentBrowserPanel browser, ContentWidget<?> rightPressed) {
         boolean onDisk = Files.exists(rightPressed.getPath());
+        Path folder = rightPressed.getPath();
 
         return UniversalMenu.<ContentContextOption>actions()
             .on(ContentContextOption.OPEN, rightPressed::onDoubleClicked)
-            .on(ContentContextOption.OPEN_IN_FILE_EXPLORER, () -> onDisk, () -> FileSystemHelper.openInFileExplorer(rightPressed.getPath()))
+            .on(ContentContextOption.OPEN_IN_FILE_EXPLORER, () -> onDisk, () -> FileSystemHelper.openInFileExplorer(folder))
+            .on(ContentContextOption.CUT, browser::canCutSelection, () -> browser.putSelectionOnClipboard(true))
+            .on(ContentContextOption.COPY, browser::canCopySelection, () -> browser.putSelectionOnClipboard(false))
+            .on(ContentContextOption.PASTE, () -> browser.canPasteInto(folder), () -> browser.pasteInto(folder))
             .on(ContentContextOption.RENAME, rightPressed::startEditing)
             .on(ContentContextOption.DELETE_SELECTED, browser::triggerDeleteSelected);
     }
@@ -123,16 +183,21 @@ public interface ResourceProcessor<T> {
     /// The options every content widget answers, each resolved off what the widget already carries:
     /// `Open` while it has an editor screen, `Open in File Explorer` while its file is still on disk
     /// (tested once as the menu is built), `Compile Selected` while the selection has generated source
-    /// of its own, `Rename` while its name is editable, and `Delete Selected`.
+    /// of its own, `Rename` while its name is editable, `Copy` while the category takes duplicates,
+    /// `Paste` while the clipboard fits the browsed directory, plus `Cut` and `Delete Selected`.
     static UniversalMenu.Actions<ContentContextOption> entryActions(
         ResourceProcessor<?> processor, ContentBrowserPanel browser, ContentWidget<?> rightPressed
     ) {
         boolean onDisk = Files.exists(rightPressed.getPath());
+        Path browsedDir = browser.getBrowsedDirectory();
         List<ResourceKey<?>> selectedKeys = selectedEntryKeys(browser);
         ExportModalGenerator.@Nullable Compile compile = selectedKeys.isEmpty() ? null : processor.entryCompile(selectedKeys);
 
         UniversalMenu.Actions<ContentContextOption> actions = UniversalMenu.<ContentContextOption>actions()
             .on(ContentContextOption.OPEN_IN_FILE_EXPLORER, () -> onDisk, () -> FileSystemHelper.openInFileExplorer(rightPressed.getPath()))
+            .on(ContentContextOption.CUT, browser::canCutSelection, () -> browser.putSelectionOnClipboard(true))
+            .on(ContentContextOption.COPY, browser::canCopySelection, () -> browser.putSelectionOnClipboard(false))
+            .on(ContentContextOption.PASTE, () -> browser.canPasteInto(browsedDir), () -> browser.pasteInto(browsedDir))
             .on(ContentContextOption.DELETE_SELECTED, browser::triggerDeleteSelected);
 
         if (rightPressed.isOpenable()) {

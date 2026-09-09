@@ -90,7 +90,7 @@ When you select a node in the graph, this tab shows:
 
 Lists every animation you can use — both the ones you've created in this project
 and the built-in ones. Drag any of them onto the graph to add a node, or onto an
-existing node to replace its animation.
+existing node to replaceEntry its animation.
 
 ## Root motion in a blend space
 

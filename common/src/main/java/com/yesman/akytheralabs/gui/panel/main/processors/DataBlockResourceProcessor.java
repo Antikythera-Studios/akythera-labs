@@ -22,11 +22,12 @@ import java.nio.file.Path;
 /// per type, bound to its labs registry key (see
 /// [DataBlockRegistries]).
 ///
-/// Data blocks are property-less, so there is **no screen editor** (double-click is a no-op) — only
-/// **create** (green `+`, then rename to choose the identifier) and **remove** (context menu) are
-/// offered. Entries live in the project's `ProjectObjectRegistry<T, ...>`; on-disk they are empty
-/// `{}` JSON under `data/<registryPath>/`, so they ride the existing datapack delete / restore /
-/// move pipeline unchanged.
+/// **Create** (green `+`, then rename to choose the identifier) and **remove** (context menu) are what
+/// the browser offers; a type whose holder carries properties also opens a
+/// [com.yesman.akytheralabs.gui.screen.DataBlockEditorScreen] on double-click. Entries live in the
+/// project's `ProjectObjectRegistry<T, ...>`; on-disk they are the holder codec's JSON under
+/// `data/<registryPath>/` (`{}` for a property-less type), so they ride the existing datapack delete /
+/// restore / move pipeline unchanged.
 public final class DataBlockResourceProcessor<T extends EnumerableDataBlock> implements ResourceProcessor<T> {
     private final ResourceKey<Registry<T>> registryKey;
     @SuppressWarnings("unused") // bound for symmetry / future merged-listing helpers
@@ -45,9 +46,9 @@ public final class DataBlockResourceProcessor<T extends EnumerableDataBlock> imp
         return true;
     }
 
-    /// Green `+`: create a property-less entry under the focused directory with the next free name,
-    /// then focus & select it so the user can rename it (the name *is* the data block identifier).
-    /// No modal — there is nothing to configure.
+    /// Green `+`: create an entry under the focused directory with the next free name, then focus &
+    /// select it so the user can rename it (the name *is* the data block identifier). No modal — a
+    /// fresh entry opens at its holder's defaults.
     @Override
     public void onPressAddButton(ContentBrowserPanel browser, ExplorerPanel.TreeNode selected) {
         ExplorerPanel.TreeNode regRoot = ResourceProcessor.regRootOf(selected);

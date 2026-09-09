@@ -4,18 +4,20 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.client.gui.widget.*;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.client.gui.widget.common.DataBoundWidget;
+import com.yesman.akythera.client.gui.widget.common.PlaceholderExpressionWidget;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
+import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.AnimationRef;
-import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.ReferencePose;
 import com.yesman.akytheralabs.akythera.entitypatch.component.AnimatorScriptRef;
 import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.ProjectObjectRegistry;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorFieldScanner.EditorField;
@@ -23,6 +25,8 @@ import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
+import com.yesman.akytheralabs.gui.screen.AnimationPreviewHost;
 import com.yesman.akytheralabs.gui.screen.NodeGraphTabHost;
 import com.yesman.akytheralabs.gui.widget.*;
 import com.yesman.akytheralabs.gui.widget.main.AccessorSelectionModal;
@@ -39,7 +43,9 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
@@ -53,56 +59,50 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.lang.reflect.WildcardType;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
-/// Maps annotated holder fields to anchored editor widgets and stuffs them
-/// into a [WidgetTable] row. Instantiate once per panel (it caches per-class
-/// row producers); call [#fillWidgetTable] every time the selection changes.
+/// Builds [WidgetTable] rows of editor widgets from a holder's `@EditorEditable` fields.
+/// Instantiate once per panel; call [#fillWidgetTable] on every selection change.
 ///
-/// Editor widgets are dispatched by value type through a static type→[WidgetProducer]
-/// registry. Built-in types are registered in the static initializer; custom blueprint
-/// types can be added via [#registerWidgetProducer] — register during client init,
-/// before the first editor screen builds rows for the holder class (resolved producers
-/// are captured in per-factory row caches). Producers read and write one [ValueSlot],
-/// never a [Field] directly, which is what lets a list element carry the same widget its
-/// scalar-field equivalent would.
+/// Widgets are dispatched by value type through a static type→[WidgetProducer] registry.
+/// Custom types register through [#registerWidgetProducer] during client init, before the
+/// first editor screen builds rows for the holder class — resolved producers are captured
+/// in per-factory row caches. Producers read and write a [ValueSlot], never a [Field].
 public final class EditorWidgetFactory {
-    /// Minimum label column width; the effective width is proportional, see [#labelWidth].
-    public static final int LABEL_W = 96;
-    /// Fraction of the row width the label column takes (subject to the [#LABEL_W] floor).
-    public static final float LABEL_RATIO = 0.35F;
-    public static final int INDENT = 8;
-    public static final int ROW_H = 20;
-    public static final int COLUMN_GAP = 4;
+    /// Minimum label column width, see [#labelWidth].
+    private static final int LABEL_W = 96;
+    /// Fraction of the row width the label column takes, floored at [#LABEL_W].
+    private static final float LABEL_RATIO = 0.35F;
+    private static final int INDENT = 8;
+    private static final int ROW_H = 20;
+    private static final int COLUMN_GAP = 4;
 
-    /// Pixels a list element row keeps clear on its right for the `✕` button — [#sectionButton]
-    /// anchors it 4px off the margin at 16px wide, and the editor columns must stop short of it.
-    public static final int ENTRY_BUTTON_GUTTER = 24;
+    /// Right-hand pixels a list element row keeps clear for its `✕` button.
+    private static final int ENTRY_BUTTON_GUTTER = 24;
 
-    /// Produces the editor widget(s) — label excluded — for one [ValueSlot].
-    /// Returned widgets must implement [AnchoredWidget] with a `TOP_HEIGHT` vertical
-    /// anchor ([WidgetTable#addWidget]'s rule); use [#columnStart] / [#columnSize] for
-    /// horizontal anchors so multi-widget rows split the editor area evenly and list
-    /// element rows leave the `✕` gutter alone.
-    ///
-    /// [#appendRows] is what the row builders call. A composite value whose parts each want a
-    /// labelled row of their own overrides it and opens those rows itself.
+    /// Label color of a row holding what it inherits.
+    private static final int INHERITED_LABEL_COLOR = 0xFF7A7A7A;
+
+    /// Produces the editor widget(s) of one [ValueSlot], label excluded. Returned widgets must
+    /// implement [AnchoredWidget] with a `TOP_HEIGHT` vertical anchor, and take their horizontal
+    /// anchors from [EditorWidgetFactory#columnStart] / [EditorWidgetFactory#columnSize].
     @FunctionalInterface
     public interface WidgetProducer {
         List<? extends AbstractWidget> produce(EditorWidgetFactory factory, ValueSlot slot);
 
-        /// Lays `slot` out as rows of `table`, inset `indent` pixels — the row that carries the
-        /// value, and any the producer wants under it. The default is the one-row shape a scalar
-        /// editor has: the label cell, then [#produce]'s widgets in the editor columns.
-        ///
-        /// The last row opened stays the current one, so a caller can append to it afterwards —
-        /// that is where a list element's `✕` lands, see [#appendList].
+        /// Lays `slot` out as rows of `table`, inset `indent` pixels. The default is one row: the
+        /// label cell, then [#produce]'s widgets in the editor columns. The last row opened stays
+        /// the current one, so a caller can append to it afterwards.
         default void appendRows(EditorWidgetFactory factory, WidgetTable table, ValueSlot slot, int indent) {
-            table.newRow(indent).addWidget(makeLabel(factory.font, slot.labelComponent()));
+            table.newRow(indent).addWidget(factory.slotLabel(slot));
+
+            boolean locked = factory.isLocked(slot);
 
             for (AbstractWidget widget : produce(factory, slot)) {
+                if (locked) lock(widget);
                 addProduced(table, widget);
             }
         }
@@ -110,50 +110,41 @@ public final class EditorWidgetFactory {
 
     /// One editable value: a holder field, or one element of a holder's [List] field.
     ///
-    /// Producers dispatch on [#type] — the **declared** type, because the runtime value cannot
-    /// supply it (an enum constant with a body reports its anonymous subclass; a `Holder<T>`'s `T`
-    /// is erased) — and route history through [#pushSlotChange] / [#pushSlotCommit], so an element
-    /// edit lands on the undo stack exactly like a field edit.
-    ///
-    /// [#owner] is the holder in both cases, never the element: owner-scoped lookups (the
-    /// [EntityPreviewModel] field, [NodeGraphTitleProvider]) must keep resolving against the object
-    /// that declares the property.
-    public sealed interface ValueSlot permits FieldSlot, ElementSlot {
+    /// [#type] is the **declared** type — the runtime value cannot supply it, an enum constant with
+    /// a body reporting its anonymous subclass and a `Holder<T>`'s `T` being erased. [#owner] is the
+    /// holder in both cases, never the element.
+    public sealed interface ValueSlot permits FieldSlot, ElementSlot, WritingSlot {
         Class<?> type();
 
         EditorEditable annotation();
 
         String label();
 
-        /// The label cell's text: a field labels itself by lang key, a list element by its literal
-        /// `#n` marker.
+        /// The label cell's text: a lang key for a field, the literal `#n` marker for a list
+        /// element.
         Component labelComponent();
 
         Object owner();
 
-        /// The declaring field, or null for a list element. Annotation-driven producers
-        /// ([EditorNodeGraph]) read it defensively.
+        /// The declaring field, or null for a list element.
         @Nullable Field field();
 
         Object get();
 
         void set(Object value);
 
-        /// Right-hand pixels the row's editor columns must leave free, see [#ENTRY_BUTTON_GUTTER].
+        /// Right-hand pixels the row's editor columns must leave free, see
+        /// [EditorWidgetFactory#ENTRY_BUTTON_GUTTER].
         default int rightGutter() {
             return 0;
         }
     }
 
     /// What a widget reads and writes in place of its [ValueSlot]. Under
-    /// [EditorEditable#setOnCommit] it buffers the in-flight value and the slot stays untouched until
-    /// the commit lands it; otherwise it is the slot, pass-through.
-    ///
-    /// The buffer is what a deferred widget's data provider reads. [ClampedNumberBox] decides
-    /// whether a commit changed anything by re-reading that provider, and a provider pointing at the
-    /// still-unwritten slot would report "unchanged" and throw the edit away.
+    /// [EditorEditable#setOnCommit] it buffers the in-flight value and the slot stays untouched
+    /// until the commit lands it; otherwise it is the slot, pass-through.
     private static final class PendingValue {
-        /// Null while the value is being buffered — the deferred case.
+        /// Null while the value is buffered — the [EditorEditable#setOnCommit] case.
         private final @Nullable ValueSlot slot;
 
         private Object value;
@@ -178,7 +169,7 @@ public final class EditorWidgetFactory {
         }
     }
 
-    /// A holder field. Writes prefer the bean setter, see [#findSetter].
+    /// A holder field. Writes prefer the bean setter, see [EditorWidgetFactory#findSetter].
     public record FieldSlot(EditorField editorField, Object owner) implements ValueSlot {
         @Override
         public Class<?> type() {
@@ -216,10 +207,9 @@ public final class EditorWidgetFactory {
         }
     }
 
-    /// One element of a holder's [List] field: `type` is the list's element type ([#elementType]),
-    /// `annotation` the list field's own — so `min` / `max` on a numeric list apply per element.
-    /// Writes land straight in the backing list, which is the same live list the `+` / `✕` buttons
-    /// mutate.
+    /// One element of a holder's [List] field: [#type] is the list's element type, [#annotation]
+    /// the list field's own — so `min` / `max` on a numeric list apply per element. Writes land
+    /// straight in the backing list.
     public record ElementSlot(
         List<Object> list, int index, Class<?> type, EditorEditable annotation, Object owner
     ) implements ValueSlot {
@@ -254,14 +244,64 @@ public final class EditorWidgetFactory {
         }
     }
 
-    /// Keyed by [ParseUtils#box]-normalized classes so primitives and wrappers share one
-    /// entry. Interface and superclass keys (e.g. [EnumerableDataBlock], [Enum]) are
-    /// resolved by the hierarchy walk in [#findProducer].
+    /// A slot that reports every write before it lands. What the Details panel claims an inherited
+    /// component by: the rows are built over a copy the patch does not hold yet, and the first value
+    /// written attaches it.
+    public record WritingSlot(ValueSlot delegate, Runnable onWrite) implements ValueSlot {
+        @Override
+        public Class<?> type() {
+            return delegate.type();
+        }
+
+        @Override
+        public EditorEditable annotation() {
+            return delegate.annotation();
+        }
+
+        @Override
+        public String label() {
+            return delegate.label();
+        }
+
+        @Override
+        public Component labelComponent() {
+            return delegate.labelComponent();
+        }
+
+        @Override
+        public Object owner() {
+            return delegate.owner();
+        }
+
+        @Override
+        public @Nullable Field field() {
+            return delegate.field();
+        }
+
+        @Override
+        public Object get() {
+            return delegate.get();
+        }
+
+        @Override
+        public void set(Object value) {
+            onWrite.run();
+            delegate.set(value);
+        }
+
+        @Override
+        public int rightGutter() {
+            return delegate.rightGutter();
+        }
+    }
+
+    /// Widget producers keyed by [ParseUtils#box]-normalized value type. Interface and superclass
+    /// keys are resolved by the hierarchy walk in [#findProducer].
     private static final Map<Class<?>, WidgetProducer> PRODUCERS = new ConcurrentHashMap<>();
 
-    /// Registers an editor widget producer for a value type. Primitive and wrapper
-    /// classes are interchangeable; interface / superclass keys match all implementors
-    /// unless a nearer registration exists.
+    /// Registers an editor widget producer for a value type. Primitive and wrapper classes are
+    /// interchangeable; an interface or superclass key matches every implementor with no nearer
+    /// registration.
     public static void registerWidgetProducer(Class<?> type, WidgetProducer producer) {
         PRODUCERS.put(ParseUtils.box(type), producer);
     }
@@ -290,11 +330,26 @@ public final class EditorWidgetFactory {
 
     private final Font font;
 
-    /// The object surrounding the instance being filled — a component holder's parent, for the patch
-    /// editors' Details panels. Set for the duration of one [#fillWidgetTable] and read by
-    /// [#resolveCandidates], so producers must consume it while they build, not later.
+    /// The object surrounding the instance being filled, offered to [EditorEditable#candidates].
+    /// Set for the duration of one [#fillWidgetTable], so a producer must consume it while it
+    /// builds.
     @Nullable
     private Object context;
+
+    /// The instance an [EditorEditable#inheritable] row falls back to while its own value is unset,
+    /// of the same class as the block being appended. [#appendObject] re-points it per nesting level,
+    /// so a nested object resolves against its own counterpart.
+    @Nullable
+    private Object inherited;
+
+    /// Reported before the first value of this fill lands, so the panel can attach a component the
+    /// patch does not declare yet. Captured by every row built during one [#fillWidgetTable].
+    @Nullable
+    private Runnable onWrite;
+
+    /// The current fill's re-render callback. Set for the duration of one [#fillWidgetTable].
+    @Nullable
+    private Runnable rebuild;
 
     public EditorWidgetFactory(Font font) {
         this.font = font;
@@ -304,64 +359,154 @@ public final class EditorWidgetFactory {
         return font;
     }
 
-    /// Clears the table, then renders `instance`'s `@EditorEditable` rows — nested editor objects
-    /// recurse one indent level deeper, see [#appendObject] — and runs [WidgetTable#initialize]
-    /// so DataBoundWidgets pull their initial values. Without a `rebuild` callback, [List] rows are
-    /// skipped (no way to re-render after add/remove).
+    /// Clears the table, renders `instance`'s `@EditorEditable` rows, then runs
+    /// [WidgetTable#initialize] so [DataBoundWidget]s pull their initial values. Without a
+    /// `rebuild` callback, [List] rows are skipped.
     public void fillWidgetTable(WidgetTable table, Object instance) {
         fillWidgetTable(table, instance, null, null);
     }
 
-    /// Variant for panels that can re-render themselves: `rebuild` re-fills the whole table after
-    /// a list add/remove (and on its undo/redo), which enables [List] row rendering — the object's
-    /// lists, and those of every nested object, inline at their depth.
+    /// Variant for panels that can re-render themselves: `rebuild` re-fills the whole table after a
+    /// list add/remove and on its undo/redo, which enables [List] row rendering.
     public void fillWidgetTable(WidgetTable table, Object instance, @Nullable Runnable rebuild) {
         fillWidgetTable(table, instance, rebuild, null);
     }
 
-    /// Variant for panels that know what `instance` hangs off: `context` is offered to the rows that
-    /// need their surroundings to know what to offer ([EditorEditable#candidates]). The Details panels
-    /// pass the shown component's parent.
+    /// Variant for panels that know what `instance` hangs off: `context` is offered to
+    /// [EditorEditable#candidates].
     public void fillWidgetTable(WidgetTable table, Object instance, @Nullable Runnable rebuild, @Nullable Object context) {
+        fillWidgetTable(table, instance, rebuild, context, null, null);
+    }
+
+    /// Variant for a holder laid over another: an [EditorEditable#inheritable] field left unset
+    /// draws `inheritedInstance`'s value as its widget's placeholder, see
+    /// [PlaceholderExpressionWidget].
+    public void fillWidgetTable(
+        WidgetTable table, Object instance, @Nullable Runnable rebuild,
+        @Nullable Object context, @Nullable Object inheritedInstance
+    ) {
+        fillWidgetTable(table, instance, rebuild, context, inheritedInstance, null);
+    }
+
+    /// Variant that reports the first value written into the filled block. `onWrite` is what attaches
+    /// a component the patch is only previewing, see [WritingSlot].
+    public void fillWidgetTable(
+        WidgetTable table, Object instance, @Nullable Runnable rebuild,
+        @Nullable Object context, @Nullable Object inheritedInstance, @Nullable Runnable onWrite
+    ) {
         this.context = context;
+        this.rebuild = rebuild;
+        this.onWrite = onWrite;
 
         try {
             table.clearWidgets();
-            appendObject(table, instance, 0, rebuild);
+            appendObject(table, instance, inheritedInstance, 0, rebuild);
             table.initialize(false);
         } finally {
             this.context = null;
+            this.rebuild = null;
+            this.onWrite = null;
         }
     }
 
-    /// Append `instance`'s editor rows to `table` without clearing existing
-    /// rows. Use after [#fillWidgetTable] to stack rows from a second object
-    /// (e.g. a notify's wrapping `MutableNotify` then the inner holder).
+    /// The value `slot` inherits, whether or not it holds one of its own. Null when nothing was
+    /// inherited behind the block, `slot` is a list element, or the field takes no part in
+    /// inheritance.
+    public @Nullable Object inheritedValue(ValueSlot slot) {
+        Field f = slot.field();
+        EditorEditable ann = slot.annotation();
+
+        if (inherited == null || f == null || !(ann.inheritable() || ann.declarerOwned())) return null;
+
+        return tryGet(f, inherited);
+    }
+
+    /// What `slot`'s widget draws while the slot itself is unset: the value it inherits.
+    public @Nullable Object placeholderFor(ValueSlot slot) {
+        return slot.get() == null ? inheritedValue(slot) : null;
+    }
+
+    /// Whether `slot` holds what it inherits — what greys its label. A slot inheriting nothing is its
+    /// own declaration and never greys.
+    public boolean inheritsValue(ValueSlot slot) {
+        EditorEditable ann = slot.annotation();
+
+        return inherited != null
+            && (ann.inheritable() || ann.declarerOwned())
+            && Objects.equals(slot.get(), inheritedValue(slot));
+    }
+
+    /// Whether `slot`'s widgets take no input: the slot is the declarer's and something is inherited
+    /// behind it.
+    public boolean isLocked(ValueSlot slot) {
+        return inherited != null && slot.annotation().declarerOwned();
+    }
+
+    /// The label cell of one slot, greyed while [#inheritsValue] holds.
+    public Static slotLabel(ValueSlot slot) {
+        Static label = makeLabel(font, slot.labelComponent());
+
+        if (inheritsValue(slot)) label.setColor(INHERITED_LABEL_COLOR);
+
+        return label;
+    }
+
+    /// Turns one produced widget read-only.
+    private static void lock(AbstractWidget widget) {
+        widget.active = false;
+
+        if (widget instanceof AdvancedEditBox<?> box) box.setEditable(false);
+    }
+
+    /// Installs what `slot` inherits on `widget`, for the widget to draw while it holds nothing of
+    /// its own. A no-op when the slot inherits nothing.
+    @SuppressWarnings("unchecked")
+    public <T> void bindPlaceholder(ValueSlot slot, PlaceholderExpressionWidget<T> widget) {
+        T placeholder = (T) placeholderFor(slot);
+        if (placeholder == null) return;
+
+        widget.setPlaceholderValue(placeholder);
+    }
+
+    /// Appends `instance`'s editor rows to `table` without clearing existing rows, stacking them
+    /// under those of a previous [#fillWidgetTable].
     public void appendRowsFrom(WidgetTable table, Object instance) {
-        appendObject(table, instance, 0, null);
+        appendObject(table, instance, null, 0, null);
     }
 
-    /// Renders one object's editor rows at `indentLevel` — each level insets its rows by [#INDENT]
-    /// pixels through [WidgetTable#newRow(int)], so where a row belongs reads off its left edge.
-    /// Rows are grouped into [EditorEditable#category] blocks that indent below `indentLevel` on
-    /// their own, see [#buildRowBuilders]; nested objects and [List] fields recurse, see
-    /// [#builderFor].
-    private void appendObject(WidgetTable table, Object instance, int indentLevel, @Nullable Runnable rebuild) {
-        for (RowBuilder rb : rowCache.computeIfAbsent(instance.getClass(), this::buildRowBuilders)) {
-            rb.apply(table, instance, indentLevel, rebuild);
+    /// Renders one object's editor rows at `indentLevel`, each level inset by [#INDENT] pixels.
+    /// [EditorEditable#category] blocks indent below `indentLevel` on their own; nested objects and
+    /// [List] fields recurse, each carrying the counterpart it inherits from.
+    private void appendObject(
+        WidgetTable table, Object instance, @Nullable Object inheritedInstance, int indentLevel, @Nullable Runnable rebuild
+    ) {
+        Object outer = inherited;
+        inherited = inheritedInstance;
+
+        try {
+            for (RowBuilder rb : rowCache.computeIfAbsent(instance.getClass(), this::buildRowBuilders)) {
+                rb.apply(table, instance, indentLevel, rebuild);
+            }
+        } finally {
+            inherited = outer;
         }
     }
 
-    /// Folds the class's fields into the [EditorEditable#category] tree, then flattens it back into
-    /// a flat row builder list — each builder carrying the extra indent depth its category block
-    /// earned. Categories are laid out as a unit: a block sits where its lowest-ordered member
-    /// would have gone, and every member follows it there even if other fields' `order` values
-    /// interleave with them.
+    /// `raw`, or the wrapper that reports this fill's writes. Every slot the factory builds goes
+    /// through here.
+    private ValueSlot slot(ValueSlot raw) {
+        return onWrite == null ? raw : new WritingSlot(raw, onWrite);
+    }
+
+    /// Folds the class's fields into the [EditorEditable#category] tree, then flattens it into a
+    /// row builder list, each builder carrying the extra indent depth its category block earned. A
+    /// category is laid out as a unit: the block sits where its lowest-ordered member would have
+    /// gone, and every member follows it there.
     private List<RowBuilder> buildRowBuilders(Class<?> type) {
         CategoryNode root = new CategoryNode("");
 
-        // fieldsOf is pre-sorted ascending by order, and every sort below is stable, so a field's
-        // rank within its block — and a block's rank among its siblings — follows from insertion.
+        // fieldsOf is pre-sorted ascending by order and every sort below is stable, so ranks
+        // follow from insertion order.
         for (EditorField editorField : EditorFieldScanner.fieldsOf(type)) {
             root.insert(splitCategory(editorField.annotation().category()), 0, editorField);
         }
@@ -372,10 +517,9 @@ public final class EditorWidgetFactory {
         return List.copyOf(out);
     }
 
-    /// Emits `node`'s rows at `depth`: leaf fields become their own row builders, nested categories
-    /// a title row followed by their contents one level deeper. Siblings sort by [CategoryEntry#order]
-    /// — a field's own `order`, a category's smallest — which is what makes a block travel to its
-    /// earliest member instead of fragmenting around the fields ordered between its members.
+    /// Emits `node`'s rows at `depth`: a leaf field becomes its own row builder, a nested category
+    /// a title row followed by its contents one level deeper. Siblings sort by
+    /// [CategoryEntry#order] — a field's own `order`, a category's smallest.
     private void appendCategory(CategoryNode node, List<RowBuilder> out, int depth) {
         List<CategoryEntry> entries = new ArrayList<>(node.entries);
         entries.sort(Comparator.comparingInt(CategoryEntry::order));
@@ -393,9 +537,8 @@ public final class EditorWidgetFactory {
         }
     }
 
-    /// Segments of a category path. Each segment is a whole lang key, so the separator is `/` and
-    /// not `.`; blank segments drop out, which leaves the default empty category as no path at all
-    /// (an uncategorized, root-level row).
+    /// Segments of a category path, split on `/` since each segment is a whole lang key. Blank
+    /// segments drop out, so the default empty category is no path at all.
     private static String[] splitCategory(String category) {
         return Arrays.stream(category.split("/"))
             .map(String::trim)
@@ -417,8 +560,8 @@ public final class EditorWidgetFactory {
     }
 
     /// One node of the category tree. `entries` interleaves this node's own fields with its child
-    /// categories, so both compete for the same row slots; `children` is only the by-name index
-    /// [#insert] rejoins later fields of the same category through — the coupling itself.
+    /// categories, both competing for the same row slots; `children` is the by-name index
+    /// [#insert] rejoins later fields of the same category through.
     private static final class CategoryNode implements CategoryEntry {
         private final String title;
         private final Map<String, CategoryNode> children = new LinkedHashMap<>();
@@ -429,9 +572,8 @@ public final class EditorWidgetFactory {
             this.title = title;
         }
 
-        /// A category ranks by its lowest-ordered member, at every depth: the minimum propagates
-        /// down the whole path being inserted, so a deeply nested field drags its outermost
-        /// category block up with it.
+        /// A category ranks by its lowest-ordered member at every depth: the minimum propagates
+        /// down the whole path being inserted.
         @Override
         public int order() {
             return minOrder;
@@ -448,7 +590,7 @@ public final class EditorWidgetFactory {
             CategoryNode child = children.get(path[index]);
 
             // Only the first field of a category takes a row slot; the rest rejoin the node it
-            // already claimed, which is exactly where the coupling happens.
+            // already claimed.
             if (child == null) {
                 child = new CategoryNode(path[index]);
                 children.put(path[index], child);
@@ -463,46 +605,47 @@ public final class EditorWidgetFactory {
         Field f = editorField.field();
         String labelText = editorField.label();
 
-        // A List field is the list editor itself, dispatched ahead of the producer registry. It
-        // needs the rebuild callback to re-render after an add / remove; without one the whole row
-        // drops out.
+        // A List field is the list editor itself, dispatched ahead of the producer registry, and
+        // renders only when there is a rebuild callback to re-render through.
         if (List.class.isAssignableFrom(f.getType())) {
             return (table, inst, indentLevel, rebuild) -> {
                 if (rebuild == null) return;
-                appendList(table, new FieldSlot(editorField, inst), indentLevel + depth, rebuild);
+                appendList(table, slot(new FieldSlot(editorField, inst)), indentLevel + depth, rebuild);
             };
         }
 
-        // A candidate list outranks the value's own type: the point of it is that the field's valid
-        // values are narrower than everything its type can hold.
+        // A candidate list outranks the value's own type.
         WidgetProducer producer = editorField.annotation().candidates().isBlank()
             ? findProducer(f.getType())
             : EditorWidgetFactory::candidateCombo;
 
         if (producer == null) {
-            // Nested editor object: no widget for the type itself, but the type declares its own
-            // @EditorEditable rows — header label, then the value's rows one level deeper. The
-            // declared type only gates detection; the recursion dispatches on the runtime class.
+            // Nested editor object: a header label, then the value's own @EditorEditable rows one
+            // level deeper. The declared type only gates detection; the recursion dispatches on
+            // the runtime class.
             if (!EditorFieldScanner.fieldsOf(f.getType()).isEmpty()) {
                 return (table, inst, indentLevel, rebuild) -> {
                     table.newRow((indentLevel + depth) * INDENT).addWidget(headerLabel(Component.translatable(labelText)));
 
                     Object nested = tryGet(f, inst);
-                    if (nested != null) appendObject(table, nested, indentLevel + depth + 1, rebuild);
+                    if (nested == null) return;
+
+                    Object nestedInherited = inherited == null ? null : tryGet(f, inherited);
+                    appendObject(table, nested, nestedInherited, indentLevel + depth + 1, rebuild);
                 };
             }
 
-            // TODO: editor for ${ft.getSimpleName()}
+            // TODO: editor for f.getType()
             return (table, inst, indentLevel, _) -> {
-                FieldSlot slot = new FieldSlot(editorField, inst);
+                ValueSlot slot = slot(new FieldSlot(editorField, inst));
                 table.newRow((indentLevel + depth) * INDENT)
-                    .addWidget(makeTranslatableLabel(font, labelText))
+                    .addWidget(slotLabel(slot))
                     .addWidget(readOnlyDisplay(slot));
             };
         }
 
         return (table, inst, indentLevel, _) ->
-            producer.appendRows(this, table, new FieldSlot(editorField, inst), (indentLevel + depth) * INDENT);
+            producer.appendRows(this, table, slot(new FieldSlot(editorField, inst)), (indentLevel + depth) * INDENT);
     }
 
     // ***************************************************************
@@ -510,66 +653,96 @@ public final class EditorWidgetFactory {
     // ***************************************************************
 
     /// One [List] field: a header row carrying the field's label and a `+` button, then one block
-    /// per element at `listLevel + 1` — a scalar element is a single `#n` row (its widget plus a
-    /// `✕`), an editor object a `#n` / `✕` marker row followed by the object's own rows. Adds and
-    /// removes mutate the live backing list, land on the undo stack, and re-render through `rebuild`.
+    /// per element at `listLevel + 1` — a scalar element is a single `#n` row, an editor object a
+    /// `#n` marker row followed by the object's own rows. Adds and removes mutate the live backing
+    /// list, land on the undo stack and re-render through `rebuild`.
     ///
-    /// A blank [EditorEditable#defaultElement] drops both buttons and leaves the elements read-only.
+    /// A blank [EditorEditable#defaultElement] drops both buttons and leaves the elements
+    /// read-only.
     private void appendList(WidgetTable table, ValueSlot listSlot, int listLevel, Runnable rebuild) {
         @SuppressWarnings("unchecked")
         List<Object> entries = (List<Object>) listSlot.get();
         if (entries == null) return;
 
-        Class<?> declared = elementType(listSlot.field());
+        Class<?> declared = typeArgumentOf(listSlot.field());
         Supplier<Object> elementFactory = defaultElementFactory(listSlot, declared);
+        Runnable claim = onWrite;
 
         table.newRow(listLevel * INDENT).addWidget(headerLabel(Component.translatable(listSlot.label())));
 
         if (elementFactory != null) {
-            table.addWidget(sectionButton(Component.literal("+"), () -> addEntry(entries, elementFactory.get(), rebuild)));
+            table.addWidget(sectionButton(Component.literal("+"), () -> {
+                Object element = elementFactory.get();
+
+                if (element == null) {
+                    String reason = listSlot.annotation().emptyCandidates();
+
+                    RefusalPopup.open(
+                        Component.translatable(LangKeys.GUI_DETAILS_PANEL_POPUP_CANNOT_ADD_TITLE),
+                        Component.translatable(reason.isBlank()
+                            ? LangKeys.GUI_DETAILS_PANEL_POPUP_CANNOT_ADD_REASON
+                            : reason));
+                    return;
+                }
+
+                if (claim != null) claim.run();
+                addEntry(entries, element, rebuild);
+            }));
         }
 
         for (int i = 0; i < entries.size(); i++) {
             int index = i;
             Object value = entries.get(index);
 
-            // The declared element type is authoritative; a raw or wildcard list falls back to the
-            // element's runtime class, which is all the object recursion below needs anyway.
+            // The declared element type is authoritative; a raw or wildcard list falls back to
+            // the element's runtime class.
             Class<?> slotType = declared != null ? declared : (value == null ? Object.class : value.getClass());
-            ElementSlot slot = new ElementSlot(entries, index, slotType, listSlot.annotation(), listSlot.owner());
+            ValueSlot slot = slot(new ElementSlot(entries, index, slotType, listSlot.annotation(), listSlot.owner()));
 
-            // The list field's own candidates apply per element, like its min / max do.
+            // The list field's own candidates apply per element.
             WidgetProducer producer = listSlot.annotation().candidates().isBlank()
                 ? findProducer(slotType)
                 : EditorWidgetFactory::candidateCombo;
 
             if (producer == null) {
-                // Editor object element: the marker row runs to the margin like a section title did,
-                // then the object's own rows follow one level deeper.
+                // Editor object element: a `#n` marker row, then the object's own rows one level
+                // deeper.
                 table.newRow((listLevel + 1) * INDENT).addWidget(headerLabel(Component.literal(slot.label())));
                 if (elementFactory != null) {
-                    table.addWidget(sectionButton(Component.literal("✕"), () -> removeEntry(entries, index, rebuild)));
+                    table.addWidget(sectionButton(Component.literal("✕"), () -> {
+                        if (claim != null) claim.run();
+                        removeEntry(entries, index, rebuild);
+                    }));
                 }
 
-                if (value != null) appendObject(table, value, listLevel + 1, rebuild);
+                if (value != null) {
+                    appendObject(table, value, inheritedElementAt(listSlot, index), listLevel + 1, rebuild);
+                }
                 continue;
             }
 
-            // Scalar element: `#n` takes the label column and the widget the editor columns, so the
-            // whole element is one row.
+            // Scalar element: `#n` in the label column, the widget in the editor columns.
             producer.appendRows(this, table, slot, (listLevel + 1) * INDENT);
 
             if (elementFactory != null) {
-                table.addWidget(sectionButton(Component.literal("✕"), () -> removeEntry(entries, index, rebuild)));
+                table.addWidget(sectionButton(Component.literal("✕"), () -> {
+                    if (claim != null) claim.run();
+                    removeEntry(entries, index, rebuild);
+                }));
             }
         }
     }
 
-    /// The element type of a [List] field, off its generic signature: `List<Holder<AnimationMontage>>`
-    /// resolves to [Holder], since the producer registry is keyed by raw types. A raw, wildcard or
-    /// `List<Object>` field resolves to null — [#appendList] then dispatches per element on the
-    /// runtime class.
-    private static @Nullable Class<?> elementType(@Nullable Field f) {
+    /// The inherited list's element at `index`, paired by position — a claimed list is a copy of the
+    /// one it overrides, so the two run in step until the author adds or removes a row.
+    private @Nullable Object inheritedElementAt(ValueSlot listSlot, int index) {
+        return inheritedValue(listSlot) instanceof List<?> base && index < base.size() ? base.get(index) : null;
+    }
+
+    /// The single type argument of a field, off its generic signature: `List<Holder<AnimationMontage>>`
+    /// resolves to the raw [Holder], `Holder<? extends PlayableAnimation>` to [PlayableAnimation].
+    /// Null for a raw or `<Object>` field, and for one carrying more than one argument.
+    private static @Nullable Class<?> typeArgumentOf(@Nullable Field f) {
         if (f == null || !(f.getGenericType() instanceof ParameterizedType parameterized)) return null;
 
         Type[] args = parameterized.getActualTypeArguments();
@@ -580,15 +753,18 @@ public final class EditorWidgetFactory {
         return switch (type) {
             case Class<?> c -> c == Object.class ? null : c;
             case ParameterizedType p -> rawTypeOf(p.getRawType());
-            // Wildcards and type variables carry nothing the producer registry can key on.
+            // A wildcard is its upper bound: `Holder<? extends PlayableAnimation>` is over that type.
+            case WildcardType w -> w.getUpperBounds().length == 1 ? rawTypeOf(w.getUpperBounds()[0]) : null;
+            // A type variable carries nothing the producer registry can key on.
             default -> null;
         };
     }
 
-    /// The `+` button's element factory: [EditorEditable#defaultElement]'s static no-argument method
-    /// on the class declaring the list. Null when the annotation leaves it blank, which renders the
-    /// list read-only — see [#appendList]. A name matching no such method throws at row-build time.
-    private static @Nullable Supplier<Object> defaultElementFactory(ValueSlot listSlot, @Nullable Class<?> elementType) {
+    /// The `+` button's element factory: [EditorEditable#defaultElement]'s static no-argument
+    /// method on the class declaring the list, or null when the annotation leaves it blank. A name
+    /// matching no such method throws. The factory itself may answer null — nothing to build an
+    /// element from yet.
+    private static @Nullable Supplier<@Nullable Object> defaultElementFactory(ValueSlot listSlot, @Nullable Class<?> elementType) {
         String name = listSlot.annotation().defaultElement();
         if (name.isBlank()) return null;
 
@@ -626,8 +802,8 @@ public final class EditorWidgetFactory {
         };
     }
 
-    /// Header cell (list titles, nested-object labels, element markers) — unlike [#makeTranslatableLabel]
-    /// it runs to the row's right margin, since these titles regularly outgrow the label column.
+    /// Header cell for list titles, nested-object labels and element markers. Runs to the row's
+    /// right margin instead of stopping at the label column.
     private Static headerLabel(Component title) {
         return new Static(
             font,
@@ -639,8 +815,8 @@ public final class EditorWidgetFactory {
         );
     }
 
-    /// Read-only value display for a type no producer covers: fills the editor area, minus the
-    /// slot's own right gutter so a list element's `✕` stays clickable.
+    /// Read-only value display for a type no producer covers. Fills the editor area, minus the
+    /// slot's own right gutter.
     private Static readOnlyDisplay(ValueSlot slot) {
         return new Static(
             font,
@@ -702,10 +878,8 @@ public final class EditorWidgetFactory {
         rebuild.run();
     }
 
-    /// Nearest registered producer for the (boxed) value type: the class itself, then its
-    /// interfaces in declaration order, then the superclass — breadth-first, so proximity
-    /// wins and interfaces beat the superclass on the same level (an enum implementing
-    /// [EnumerableDataBlock] gets the data block combo, not the plain enum combo).
+    /// Nearest registered producer for the boxed value type, breadth-first over the class itself,
+    /// its interfaces in declaration order, then its superclass.
     private static @Nullable WidgetProducer findProducer(Class<?> valueType) {
         Deque<Class<?>> queue = new ArrayDeque<>();
         Set<Class<?>> visited = new HashSet<>();
@@ -727,8 +901,8 @@ public final class EditorWidgetFactory {
         return null;
     }
 
-    /// [WidgetTable#addWidget] wants `AbstractWidget & AnchoredWidget`; producers hand
-    /// back plain [AbstractWidget]s, so the intersection is restored here in one place.
+    /// Restores the `AbstractWidget & AnchoredWidget` intersection [WidgetTable#addWidget] wants
+    /// from a producer's plain [AbstractWidget].
     @SuppressWarnings("unchecked")
     private static <W extends AbstractWidget & AnchoredWidget> void addProduced(WidgetTable table, AbstractWidget widget) {
         table.addWidget((W) widget);
@@ -738,26 +912,24 @@ public final class EditorWidgetFactory {
     // Column anchor units
     // ***************************************************************
 
-    /// The label column width for one row rectangle: proportional ([#LABEL_RATIO] of the row
-    /// width) with [#LABEL_W] as the floor, so long labels get room on wide panels and narrow
-    /// panels don't collapse the column. Resolved per row, so indented rows shrink it with them.
+    /// The label column width for one row rectangle: [#LABEL_RATIO] of the row width, floored at
+    /// [#LABEL_W]. Resolved per row, so an indented row shrinks it.
     public static int labelWidth(ScreenRectangle rect) {
         return Math.max(LABEL_W, (int) (rect.width() * LABEL_RATIO));
     }
 
-    /// Horizontal `x1` unit for editor column `index` of `count` of one slot's row: the editor area
+    /// Horizontal `x1` unit for editor column `index` of `count` on one slot's row: the editor area
     /// right of the label, minus the slot's [ValueSlot#rightGutter], split into equal columns with
-    /// [#COLUMN_GAP] between them. Resolved against the table rect at relocate time, which no
-    /// [Pixel]/[Fraction] combination can express, the label split and the column split both being
-    /// proportional. Pair with [AnchoredWidget.HorizontalAnchorType#LEFT_WIDTH] and [#columnSize].
+    /// [#COLUMN_GAP] between them. Resolved against the table rect at relocate time. Pair with
+    /// [AnchoredWidget.HorizontalAnchorType#LEFT_WIDTH] and [#columnSize].
     public static AnchoredWidget.Unit columnStart(ValueSlot slot, int index, int count) {
         return (rect, xy) -> labelWidth(rect) + 2
             + index * (columnWidth(rect, count, labelWidth(rect), slot.rightGutter()) + COLUMN_GAP);
     }
 
-    /// Horizontal `x2` (width) unit for editor column `index` of `count` of one slot's row. The last
-    /// column runs to the right margin minus the slot's gutter, absorbing the integer-division
-    /// remainder.
+    /// Horizontal `x2` (width) unit for editor column `index` of `count` on one slot's row. The
+    /// last column runs to the right margin minus the slot's gutter, absorbing the
+    /// integer-division remainder.
     public static AnchoredWidget.Unit columnSize(ValueSlot slot, int index, int count) {
         return (rect, xy) -> {
             int label = labelWidth(rect);
@@ -769,24 +941,22 @@ public final class EditorWidgetFactory {
         };
     }
 
-    /// Gutter-free variant for tables that lay rows out themselves (e.g. the animator script
-    /// variables Details panel).
+    /// Gutter-free variant of [#columnStart(ValueSlot,int,int)].
     public static AnchoredWidget.Unit columnStart(int index, int count) {
         return (rect, xy) -> columnStart(index, count, labelWidth(rect)).pixels(rect, xy);
     }
 
-    /// Variant for tables whose label cell is a fixed width instead of the proportional
-    /// [#labelWidth] (e.g. the animator script variables Details panel).
+    /// Variant of [#columnStart(int,int)] for a fixed-width label cell.
     public static AnchoredWidget.Unit columnStart(int index, int count, int labelWidth) {
         return (rect, xy) -> labelWidth + 2 + index * (columnWidth(rect, count, labelWidth, 0) + COLUMN_GAP);
     }
 
-    /// Gutter-free variant, see [#columnStart(int,int)].
+    /// Gutter-free variant of [#columnSize(ValueSlot,int,int)].
     public static AnchoredWidget.Unit columnSize(int index, int count) {
         return (rect, xy) -> columnSize(index, count, labelWidth(rect)).pixels(rect, xy);
     }
 
-    /// Variant for tables whose label cell is a fixed width, see [#columnStart].
+    /// Variant of [#columnSize(int,int)] for a fixed-width label cell.
     public static AnchoredWidget.Unit columnSize(int index, int count, int labelWidth) {
         return (rect, xy) -> index == count - 1
             ? rect.width() - INDENT - (labelWidth + 2 + index * (columnWidth(rect, count, labelWidth, 0) + COLUMN_GAP))
@@ -823,6 +993,7 @@ public final class EditorWidgetFactory {
         );
 
         box.setOnCommitted((oldVal, newVal) -> pushSlotCommit(slot, oldVal, newVal, box));
+        factory.bindPlaceholder(slot, box);
 
         return List.of(box);
     }
@@ -849,6 +1020,7 @@ public final class EditorWidgetFactory {
         );
 
         box.setOnCommitted((oldVal, newVal) -> pushSlotCommit(slot, oldVal, newVal, box));
+        factory.bindPlaceholder(slot, box);
 
         return List.of(box);
     }
@@ -873,14 +1045,14 @@ public final class EditorWidgetFactory {
         );
 
         box.setOnCommitted((oldVal, newVal) -> pushSlotCommit(slot, oldVal, newVal, box));
+        factory.bindPlaceholder(slot, box);
 
         return List.of(box);
     }
 
     private static List<? extends AbstractWidget> checkBox(EditorWidgetFactory factory, ValueSlot slot) {
-        // The change consumer is a constructor argument, so it must late-bind the widget
-        // it configures through a mutable cell — a lambda can't capture the local before
-        // it is assigned. setOnCommitted-style widgets don't need this.
+        // Late-bound cell: the change consumer is a constructor argument and cannot capture
+        // the widget it configures.
         CheckBox[] ref = new CheckBox[1];
 
         ref[0] = new CheckBox(
@@ -894,6 +1066,9 @@ public final class EditorWidgetFactory {
             Component.empty(),
             false
         );
+
+        // Placeholder only: a checkbox has no room for the revert affordance.
+        ref[0].setPlaceholderValue((Boolean) factory.placeholderFor(slot));
 
         return List.of(ref[0]);
     }
@@ -915,12 +1090,12 @@ public final class EditorWidgetFactory {
 
         box.setTheme(AkytheraLabsEditBoxTheme.DEFAULT_EDIT_BOX);
         box.setOnCommitted((oldVal, newVal) -> pushSlotCommit(slot, oldVal, newVal, box));
+        factory.bindPlaceholder(slot, box);
 
         return List.of(box);
     }
 
-    /// Axis component of an immutable [Vec3] (0 = x, 1 = y, 2 = z). Shared with other
-    /// per-axis Vec3 editors (e.g. the variables Details panel's default-value row).
+    /// Axis component of a [Vec3] (0 = x, 1 = y, 2 = z).
     public static double axisOf(Vec3 v, int axis) {
         return switch (axis) { case 0 -> v.x; case 1 -> v.y; default -> v.z; };
     }
@@ -934,13 +1109,13 @@ public final class EditorWidgetFactory {
         };
     }
 
-    /// Three per-axis double boxes over one immutable [Vec3] slot. Axis setters write a
-    /// whole new vector live (like the float box writing through the slot while typing);
-    /// a commit pushes one [DataChange] holding full old/new vectors, and its replay
-    /// refreshes all three boxes.
+    /// Three per-axis double boxes over one [Vec3] slot. An axis setter writes a whole new vector
+    /// live; a commit pushes one [DataChange] holding full old/new vectors, whose replay refreshes
+    /// all three boxes.
     private static List<? extends AbstractWidget> vec3Boxes(EditorWidgetFactory factory, ValueSlot slot) {
         EditorEditable ann = slot.annotation();
         PendingValue pending = PendingValue.of(slot);
+        Vec3 placeholder = (Vec3) factory.placeholderFor(slot);
 
         @SuppressWarnings("unchecked")
         ClampedNumberBox<Double>[] boxes = new ClampedNumberBox[3];
@@ -965,11 +1140,13 @@ public final class EditorWidgetFactory {
                 Double::sum
             );
 
+            boxes[axis].setPlaceholderValue(placeholder == null ? null : axisOf(placeholder, axis));
+
             boxes[axis].setOnCommitted((oldVal, newVal) -> {
-                Vec3 newVec = (Vec3) pending.get(); // the axis setter already wrote the new value
+                Vec3 newVec = (Vec3) pending.get(); // the axis setter already wrote it
                 Vec3 oldVec = withAxis(newVec, axis, oldVal);
 
-                // Deferred: nothing has reached the slot yet, so the commit is what lands it.
+                // Deferred: the commit is what lands the value in the slot.
                 if (ann.setOnCommit()) slot.set(newVec);
 
                 if (Objects.equals(oldVec, newVec)) return;
@@ -1005,15 +1182,16 @@ public final class EditorWidgetFactory {
         };
     }
 
-    /// Four per-component boxes over one [Quaterniond] slot — the [#vec3Boxes] treatment for the rotation
-    /// half of a [TransformHolder].
+    /// Four per-component boxes over one [Quaterniond] slot — the [#vec3Boxes] treatment for the
+    /// rotation half of a [TransformHolder].
     ///
-    /// A [Quaterniond] is mutable, but each setter writes a whole new quaternion through the slot.
-    /// An undo entry has to hold a value later edits cannot reach back into, and the holder shares
-    /// its instance with the history stack.
+    /// A [Quaterniond] is mutable, yet each setter writes a whole new quaternion through the slot:
+    /// the holder shares its instance with the history stack, whose entries must hold values later
+    /// edits cannot reach back into.
     private static List<? extends AbstractWidget> quaternionBoxes(EditorWidgetFactory factory, ValueSlot slot) {
         EditorEditable ann = slot.annotation();
         PendingValue pending = PendingValue.of(slot);
+        Quaterniond placeholder = (Quaterniond) factory.placeholderFor(slot);
 
         @SuppressWarnings("unchecked")
         ClampedNumberBox<Double>[] boxes = new ClampedNumberBox[4];
@@ -1038,11 +1216,13 @@ public final class EditorWidgetFactory {
                 Double::sum
             );
 
+            boxes[component].setPlaceholderValue(placeholder == null ? null : componentOf(placeholder, component));
+
             boxes[component].setOnCommitted((oldVal, newVal) -> {
                 Quaterniond newQuat = (Quaterniond) pending.get(); // the component setter already wrote it
                 Quaterniond oldQuat = withComponent(newQuat, component, oldVal);
 
-                // Deferred: nothing has reached the slot yet, so the commit is what lands it.
+                // Deferred: the commit is what lands the value in the slot.
                 if (ann.setOnCommit()) slot.set(newQuat);
 
                 if (Objects.equals(oldQuat, newQuat)) return;
@@ -1063,11 +1243,24 @@ public final class EditorWidgetFactory {
         return List.of(boxes);
     }
 
+    /// Combo over the merged data block set: everything compiled into the manager plus the current
+    /// project's editor-created blocks, see [AkytheraProject#getMergedDataBlockIdentifiers].
     private static List<? extends AbstractWidget> enumerableCombo(EditorWidgetFactory factory, ValueSlot slot) {
-        Collection<? extends EnumerableDataBlock> values =
-            ((EnumerableDataBlock) slot.get()).getEnumManager().universalValues();
+        Object placeholder = factory.placeholderFor(slot);
 
-        // Late-bound array: the change consumer is a constructor argument (see checkBox)
+        // An unset block names no manager; the inherited value names the one the field is over.
+        EnumerableDataBlockManager<?> manager =
+            ((EnumerableDataBlock) (slot.get() != null ? slot.get() : placeholder)).getEnumManager();
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        List<Object> values = new ArrayList<>();
+
+        for (Identifier id : project.getMergedDataBlockIdentifiers(manager)) {
+            Holder<? extends EnumerableDataBlock> holder = project.getDataBlockHolder(manager, id);
+            if (holder != null && holder.isBound()) values.add(holder.value());
+        }
+
+        // Late-bound cell: the change consumer is a constructor argument and cannot capture
+        // the widget it configures.
         @SuppressWarnings("unchecked")
         AdvancedComboBox<Object>[] ref = new AdvancedComboBox[1];
 
@@ -1081,14 +1274,16 @@ public final class EditorWidgetFactory {
             v -> pushSlotChange(slot, v, ref[0]),
             Math.min(8, values.size()),
             Component.empty(),
-            List.<Object>copyOf(values),
+            List.copyOf(values),
             v -> ((EnumerableDataBlock) v).identifier().toString()
         );
+
+        factory.bindPlaceholder(slot, ref[0]);
 
         return List.of(ref[0]);
     }
 
-    /// The deliberate "nothing picked" key — never marked invalid by the popup validators.
+    /// Whether `key` is the deliberate "nothing picked" reference.
     private static boolean isEmptyReference(ResourceKey<?> key) {
         return key.identifier().equals(DataHolder.EMPTY_REFERENCE);
     }
@@ -1108,6 +1303,8 @@ public final class EditorWidgetFactory {
         ).withValidator(v -> !(v instanceof AssetAccessor<?> accessor)
             || accessor.identifier().equals(DataHolder.EMPTY_REFERENCE)
             || AccessorSelectionModal.resolves(accessor));
+
+        factory.bindPlaceholder(slot, box);
 
         return List.of(box);
     }
@@ -1131,6 +1328,8 @@ public final class EditorWidgetFactory {
                 || d.holder().unwrapKey().map(EditorWidgetFactory::isEmptyReference).orElse(false);
         });
 
+        factory.bindPlaceholder(slot, box);
+
         return List.of(box);
     }
 
@@ -1153,16 +1352,17 @@ public final class EditorWidgetFactory {
             case AnimationRef.Blend b -> b.holder().isBound();
         });
 
+        factory.bindPlaceholder(slot, box);
+
         return List.of(box);
     }
 
     /// The reference pose editor: a header row naming the value, then a labelled row per part — a
-    /// search PopupBox naming the clip, and a **display-only** number box showing the timestamp on
-    /// it. Both halves are written by one modal pick, never typed, so the number box is not editable
-    /// and the history entry refreshes the pair together.
+    /// search [PopupBox] naming the clip, and a display-only number box showing the timestamp on it.
+    /// One modal pick writes both halves, and one history entry refreshes the pair.
     private static final class ReferencePoseProducer implements WidgetProducer {
-        /// One row after all, for a caller that has no rows to give (a list element, whose `✕` must
-        /// stay on the value's own row): both parts share the editor area.
+        /// Both parts on one row, sharing the editor area — for a caller that has only the one row
+        /// to give.
         @Override
         public List<? extends AbstractWidget> produce(EditorWidgetFactory factory, ValueSlot slot) {
             return parts(factory, slot, 2);
@@ -1183,10 +1383,10 @@ public final class EditorWidgetFactory {
             addProduced(table, parts.getLast());
         }
 
-        /// The clip box and the timestamp box, over `columns` editor columns each row: one apiece
-        /// when [#appendRows] gives them a row of their own, two side by side when they share one.
+        /// The clip box and the timestamp box, laid over `columns` editor columns.
         private static List<? extends AbstractWidget> parts(EditorWidgetFactory factory, ValueSlot slot, int columns) {
             int timeColumn = columns - 1;
+            ReferencePose placeholder = (ReferencePose) factory.placeholderFor(slot);
 
             ClampedNumberBox<Float> timeBox = new ClampedNumberBox<>(
                 factory.font,
@@ -1206,6 +1406,8 @@ public final class EditorWidgetFactory {
             );
 
             timeBox.setEditable(false);
+            // Placeholder only: the clip box carries the revert.
+            timeBox.setPlaceholderValue(placeholder == null ? null : placeholder.timeStamp());
 
             PopupBox<Object> clipBox = new PopupBox<>(
                 factory.font,
@@ -1222,13 +1424,14 @@ public final class EditorWidgetFactory {
                 || referencePose.clip() == null
                 || AccessorSelectionModal.resolves(referencePose.clip()));
 
+            factory.bindPlaceholder(slot, clipBox);
+
             return List.of(clipBox, timeBox);
         }
     }
 
-    /// Opens the reference pose picker for a [ReferencePose] slot. [AnimationMetadataHolder] is the
-    /// only owner such a slot has, and its accessor carries everything the modal reads; the button is
-    /// inert on any other owner.
+    /// Opens the reference pose picker for a [ReferencePose] slot, off the owning
+    /// [AnimationMetadataHolder]'s accessor. Inert on an owner of any other type.
     private static void openReferencePoseSelect(
         Font font, ValueSlot slot, PopupBox<Object> clipBox, ClampedNumberBox<Float> timeBox
     ) {
@@ -1237,8 +1440,7 @@ public final class EditorWidgetFactory {
         ReferencePose current = (ReferencePose) slot.get();
 
         ReferencePoseSelectModal modal = new ReferencePoseSelectModal(font, holder.getAccessor(), picked -> {
-            // Both halves land in one history entry, whose replay refreshes both widgets — the
-            // shared pushSlotChange only knows about the one widget it is handed.
+            // Both halves land in one history entry, whose replay refreshes both widgets.
             slot.set(picked);
             HistoryManager.getInstance().pushHistory(new DataChange<>(
                 current, picked,
@@ -1272,6 +1474,8 @@ public final class EditorWidgetFactory {
             b -> factory.openItemSelect(slot, b)
         );
 
+        factory.bindPlaceholder(slot, box);
+
         return List.of(box);
     }
 
@@ -1291,7 +1495,32 @@ public final class EditorWidgetFactory {
             || holder.isBound()
             || holder.unwrapKey().map(EditorWidgetFactory::isEmptyReference).orElse(false));
 
+        Class<?> valueType = typeArgumentOf(slot.field());
+
+        // A row that can hold a sequence. A montage-only row is left alone: a montage plays through a
+        // MontageAnimator carrying its section info, which its own editor installs.
+        if (valueType != null && valueType.isAssignableFrom(AnimationSequence.class)) {
+            box.setOnValuePressed(() -> previewAnimation(slot));
+        }
+
+        factory.bindPlaceholder(slot, box);
+
         return List.of(box);
+    }
+
+    /// Plays what `slot` holds on the open screen's preview. Read per press rather than captured, so
+    /// the row follows whatever the picker last put in it.
+    ///
+    /// Nothing happens where there is nothing to play: a screen with no preview, a dangling holder, or
+    /// a [com.yesman.akythera.core.animation.playable.BlendSpace2D] — it poses only under a driver's
+    /// control point, so it carries no clip of its own and is previewed in its own editor. The row
+    /// still takes the press, the two sharing one slot.
+    private static void previewAnimation(ValueSlot slot) {
+        if (!(AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof AnimationPreviewHost host)) return;
+        if (!(slot.get() instanceof Holder<?> holder) || !holder.isBound()) return;
+        if (!(holder.value() instanceof AnimationSequence sequence)) return;
+
+        host.previewAnimation(sequence.animClip());
     }
 
     private static List<? extends AbstractWidget> resourceKeyPopup(EditorWidgetFactory factory, ValueSlot slot) {
@@ -1304,7 +1533,7 @@ public final class EditorWidgetFactory {
             slot::get,
             _ -> {},
             v -> v instanceof ResourceKey<?> key
-                ? (key.identifier().equals(DataHolder.EMPTY_REFERENCE) ? "<none>" : key.identifier().toString())
+                ? (isEmptyReference(key) ? "<none>" : ResourceProcessor.displayId(key))
                 : Objects.toString(v),
             Component.empty(),
             b -> factory.openRegistryLookup(slot, (ResourceKey<?>) slot.get(), b)
@@ -1312,15 +1541,17 @@ public final class EditorWidgetFactory {
             || isEmptyReference(key)
             || AkytheraProject.getCurrentProject().getEntryFromProjectAndRegistry(key) != null);
 
+        factory.bindPlaceholder(slot, box);
+
         return List.of(box);
     }
 
-    /// An "Edit Node Graph" button for a raw [ScriptGraphData] slot — the same storage convention as
-    /// [AnimatorScriptHolder]'s flow graphs. Opens the slot's canvas as a closeable center tab of the hosting
-    /// [NodeGraphTabHost] screen, shaped by the declaring field's [EditorNodeGraph] annotation (context pins,
-    /// result type). The tab's flush writes the exported graph back through the slot (no history entry — the
-    /// canvas manages its own edit history). Key: owner identity + the slot's field name (its `#n` label for
-    /// a list element), so re-clicking refocuses the already-open tab.
+    /// An "Edit Node Graph" button for a [ScriptGraphData] slot. Opens the slot's canvas as a
+    /// closeable center tab of the hosting [NodeGraphTabHost] screen, shaped by the declaring
+    /// field's [EditorNodeGraph] annotation (context pins, result type); the tab's flush writes the
+    /// exported graph back through the slot, with no history entry of its own. The tab key is owner
+    /// identity plus the slot's field name — its `#n` label for a list element — so re-clicking
+    /// refocuses the already-open tab.
     private static List<? extends AbstractWidget> nodeGraphButton(EditorWidgetFactory factory, ValueSlot slot) {
         Field f = slot.field();
         String labelText = slot.label();
@@ -1369,15 +1600,16 @@ public final class EditorWidgetFactory {
         Class<?> type = slot.type();
         Object[] constants = type.getEnumConstants();
 
-        // An enum constant with a body reports its anonymous subclass, whose getEnumConstants() is
-        // null — only reachable when a raw list forced runtime-class dispatch, but cheap to absorb.
+        // An enum constant with a body reports its anonymous subclass, whose getEnumConstants()
+        // is null.
         if (constants == null && type.getSuperclass() != null) {
             constants = type.getSuperclass().getEnumConstants();
         }
 
         Object[] values = constants == null ? new Object[0] : constants;
 
-        // Late-bound array: the change consumer is a constructor argument (see checkBox)
+        // Late-bound cell: the change consumer is a constructor argument and cannot capture
+        // the widget it configures.
         @SuppressWarnings("unchecked")
         AdvancedComboBox<Object>[] ref = new AdvancedComboBox[1];
 
@@ -1395,19 +1627,20 @@ public final class EditorWidgetFactory {
             v -> ParseUtils.toDisplayName(((Enum<?>) v).name())
         );
 
+        factory.bindPlaceholder(slot, ref[0]);
+
         return List.of(ref[0]);
     }
 
-    /// Combo over the values [EditorEditable#candidates] resolves for this slot — for a field whose
-    /// valid values are known only at edit time (a socket's bone name, off the parent component's
-    /// armature). Empty candidates leave the box showing the annotation's reason message.
+    /// Combo over the values [EditorEditable#candidates] resolves for this slot. Empty candidates
+    /// leave the box showing the annotation's reason message.
     ///
-    /// The list is snapshotted here: the panel re-fills on every focus change, so the offered values
-    /// follow the context that produced them. A stored value the list doesn't contain still displays.
+    /// The list is snapshotted per fill. A stored value it does not contain still displays.
     private static List<? extends AbstractWidget> candidateCombo(EditorWidgetFactory factory, ValueSlot slot) {
-        List<Object> candidates = resolveCandidates(slot, factory.context);
+        List<Object> candidates = resolveListMethod(slot, factory.context, slot.annotation().candidates());
 
-        // Late-bound array: the change consumer is a constructor argument (see checkBox)
+        // Late-bound cell: the change consumer is a constructor argument and cannot capture
+        // the widget it configures.
         @SuppressWarnings("unchecked")
         AdvancedComboBox<Object>[] ref = new AdvancedComboBox[1];
 
@@ -1418,8 +1651,8 @@ public final class EditorWidgetFactory {
             AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             slot::get,
-            // The "(none)" row clears a String slot to blank rather than null: these are plain
-            // properties whose codecs default to empty, and a null would break their encode.
+            // The "(none)" row clears a String slot to blank rather than null, which its codec
+            // cannot encode.
             v -> pushSlotChange(slot, v == null && slot.type() == String.class ? "" : v, ref[0]),
             Math.min(8, candidates.size()),
             Component.empty(),
@@ -1433,15 +1666,15 @@ public final class EditorWidgetFactory {
                 : slot.annotation().emptyCandidates()
         ));
 
+        factory.bindPlaceholder(slot, ref[0]);
+
         return List.of(ref[0]);
     }
 
-    /// Invokes [EditorEditable#candidates]'s method on the slot's owner, resolved on the class
-    /// declaring the field the way [#defaultElementFactory] resolves its factory. A name matching no
-    /// such method throws. A context the method wants but this fill did not supply yields no
-    /// candidates — an object edited outside a component tree has nothing to offer.
-    private static List<Object> resolveCandidates(ValueSlot slot, @Nullable Object context) {
-        String name = slot.annotation().candidates();
+    /// Invokes the [EditorEditable] method `name` names on the slot's owner, resolved on the class
+    /// declaring the field. A name matching no such method throws; a context the method wants but
+    /// this fill did not supply yields no values.
+    private static List<Object> resolveListMethod(ValueSlot slot, @Nullable Object context, String name) {
         Field f = slot.field();
         Class<?> declaring = f != null ? f.getDeclaringClass() : slot.owner().getClass();
         Method source = null;
@@ -1457,20 +1690,21 @@ public final class EditorWidgetFactory {
 
         if (source == null) {
             throw new IllegalStateException(
-                "@EditorEditable(candidates) names no no-argument or single-argument method: "
+                "@EditorEditable names no no-argument or single-argument method: "
                     + declaring.getName() + "#" + name);
         }
 
         if (!List.class.isAssignableFrom(source.getReturnType())) {
             throw new IllegalStateException(
-                "@EditorEditable(candidates) returns " + source.getReturnType().getName()
+                "@EditorEditable method returns " + source.getReturnType().getName()
                     + ", which is not a List: " + declaring.getName() + "#" + name);
         }
 
         Object[] args = new Object[source.getParameterCount()];
 
         if (args.length == 1) {
-            if (context != null && !source.getParameterTypes()[0].isInstance(context)) return List.of();
+            // isInstance(null) is false, so a fill with no context takes this exit too.
+            if (!source.getParameterTypes()[0].isInstance(context)) return List.of();
             args[0] = context;
         }
 
@@ -1484,8 +1718,8 @@ public final class EditorWidgetFactory {
         }
     }
 
-    /// Dropdown label of a candidate — the enum / data block conventions the typed combos already
-    /// use, and the value's own string form for everything else.
+    /// Dropdown label of a candidate: an [EnumerableDataBlock]'s identifier, an enum constant's
+    /// display name, the value's own string form otherwise.
     private static String candidateLabel(Object value) {
         return switch (value) {
             case EnumerableDataBlock dataBlock -> dataBlock.identifier().toString();
@@ -1500,10 +1734,8 @@ public final class EditorWidgetFactory {
     // ***************************************************************
 
     /// Opens the pick modal for an [AssetAccessor] slot, routed by the accessor's runtime
-    /// [AssetAccessor.Type] (generics are erased, so the type check must live on the value).
-    /// The modal writes the slot through [#pushSlotChange] — so it lands in history and the
-    /// [PopupBox] display refreshes — and persists the reported preview model, if any, on the
-    /// slot's **owner** (a list element has no preview model field of its own).
+    /// [AssetAccessor.Type] since the slot's generic is erased. The modal writes the slot through
+    /// [#pushSlotChange] and persists the reported preview model, if any, on the slot's **owner**.
     private void openAccessorSearchModal(ValueSlot slot, PopupBox<Object> box) {
         AssetAccessor<?> current = (AssetAccessor<?>) slot.get();
 
@@ -1512,14 +1744,13 @@ public final class EditorWidgetFactory {
                 AnimationSelectModal modal = new AnimationSelectModal(font, getPreviewModelField(slot.owner()), (animClips, previewModel) -> {
                     var animClip = animClips.getFirst();
 
-                    // Preview model first: the holder's clip-change listener (fired by the write
-                    // below) reads it to refresh the editor previewer.
+                    // Preview model first: the clip-change listener fired by the write below
+                    // reads it.
                     if (previewModel != null) setPreviewModelField(slot.owner(), previewModel);
                     pushSlotChange(slot, animClip, box);
 
-                    // pushSlotChange only routes through valueSetter on undo/redo — the immediate
-                    // path assumes the widget already shows the value, which holds for typed/toggled
-                    // widgets but not for a modal-driven box. Refresh the display explicitly.
+                    // pushSlotChange routes through valueSetter only on undo/redo, so a
+                    // modal-driven box refreshes its display here.
                     box.valueSetter().accept(animClip);
                 });
 
@@ -1543,8 +1774,8 @@ public final class EditorWidgetFactory {
         return item == Items.AIR ? "<none>" : item.getDefaultInstance().getHoverName().getString();
     }
 
-    /// Opens the item picker for an [Item] slot: [ItemSelectModal] as a centered window, which
-    /// closes itself once something is picked.
+    /// Opens the item picker for an [Item] slot, as a centered [ItemSelectModal] that closes itself
+    /// on a pick.
     private void openItemSelect(ValueSlot slot, PopupBox<Object> box) {
         ItemSelectModal modal = new ItemSelectModal(font, item -> {
             AkytheraEditorLayoutManager.getInstance().closeModal();
@@ -1561,23 +1792,47 @@ public final class EditorWidgetFactory {
             .orElse("<none>");
     }
 
-    /// Opens the data pack entry lookup for a [Holder] reference slot, dropped-down under the
-    /// box. Like the [ResourceKey] branch, the target registry comes from the current value's
-    /// key (the slot's generic is erased) — so Holder slots must never be null; holders default
-    /// them to a dangling placeholder. The picked key is resolved back to the shared live holder
-    /// (see [AkytheraProject#getEntryHolderOrDangling]) so the slot follows renames of its target.
+    /// Opens the data pack entry lookup for a [Holder] slot, dropped down under the box. The rows are
+    /// every entry of the registries [EditorEditable#registries] names, or of the registry the current
+    /// value's key addresses when it names none — the slot's generic being erased, so a [Holder] slot
+    /// is never null, holders defaulting it to a dangling placeholder. The picked key resolves back to
+    /// the shared live holder, see [AkytheraProject#getEntryHolderOrDangling].
+    @SuppressWarnings("unchecked")
     private <T> void openHolderLookup(ValueSlot slot, PopupBox<Object> box) {
-        @SuppressWarnings("unchecked")
         Holder<T> current = (Holder<T>) slot.get();
         ResourceKey<T> currentKey = current.unwrapKey().orElseThrow();
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        String named = slot.annotation().registries();
+        List<ResourceKey<? extends Registry<T>>> registries;
 
-        RegistryLookupModal<T> modal = RegistryLookupModal.dataPackEntries(
+        if (named.isBlank()) {
+            registries = List.of(currentKey.registryKey());
+        } else {
+            registries = (List<ResourceKey<? extends Registry<T>>>) (List<?>)
+                resolveListMethod(slot, context, named);
+
+            // A slot that names a registry list and gets none back is miswired, not in a state.
+            if (registries.isEmpty()) {
+                throw new IllegalStateException(
+                    "@EditorEditable(registries) lists no registry: " + slot.owner().getClass().getName()
+                        + "#" + named);
+            }
+        }
+
+        List<ResourceKey<T>> keys = registries.stream()
+            .flatMap(registryKey -> project.getMergedEntries(registryKey).stream().map(Map.Entry::getKey))
+            .toList();
+
+        Component title = registries.size() == 1
+            ? Component.literal(currentKey.registryKey().identifier().getPath())
+            : slot.labelComponent();
+
+        RegistryLookupModal<T> modal = new RegistryLookupModal<>(
             font,
-            Component.literal(currentKey.registryKey().identifier().getPath()),
-            currentKey.registryKey(),
-            false,
+            title,
+            keys,
             key -> {
-                Holder<T> picked = AkytheraProject.getCurrentProject().getEntryHolderOrDangling(key);
+                Holder<T> picked = project.getEntryHolderOrDangling(key);
                 pushSlotChange(slot, picked, box);
                 box.valueSetter().accept(picked);
             }
@@ -1586,10 +1841,9 @@ public final class EditorWidgetFactory {
         AkytheraEditorLayoutManager.getInstance().openModalWidgetUnder(box, modal);
     }
 
-    /// Opens the combined animator-script picker for an [AnimatorScriptRef] slot, dropped-down under
-    /// the box. Lists both class-based scripts and data pack script blueprints; the picked ref is
-    /// written through [#pushSlotChange] (history + display refresh). A data pack pick resolves to
-    /// the shared live holder inside [AnimatorScriptRef#dataPack], so the slot follows renames.
+    /// Opens the animator-script picker for an [AnimatorScriptRef] slot, dropped down under the box.
+    /// Lists both class-based scripts and data pack script blueprints; a data pack pick resolves to
+    /// the shared live holder inside [AnimatorScriptRef#dataPack].
     private void openAnimatorScriptSelect(ValueSlot slot, PopupBox<Object> box) {
         AnimatorScriptSelectModal modal = new AnimatorScriptSelectModal(font, box.getWidth(), picked -> {
             pushSlotChange(slot, picked, box);
@@ -1599,16 +1853,16 @@ public final class EditorWidgetFactory {
         AkytheraEditorLayoutManager.getInstance().openModalWidgetUnder(box, modal);
     }
 
-    /// Opens the animation-sequence picker for an [AnimationRef] slot, dropped-down under the box.
-    /// Mirrors the holder pickers: the picked sequence key resolves to the shared live project holder
-    /// (so the node follows renames) and is written back as an [AnimationRef.Sequence] through
-    /// [#pushSlotChange] (history entry + display refresh). Only sequences are pickable here.
+    /// Opens the animation-sequence picker for an [AnimationRef] slot, dropped down under the box.
+    /// The picked key resolves to the shared live project holder and is written back as an
+    /// [AnimationRef.Sequence]. Only sequences are pickable here.
     private void openAnimationRefSelect(ValueSlot slot, PopupBox<Object> box) {
         RegistryLookupModal<AnimationSequence> modal = RegistryLookupModal.dataPackEntries(
             font,
             Component.translatable(LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_ANIMATION),
             AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY,
             false,
+            Set.of(),
             key -> {
                 Holder<AnimationSequence> holder = AkytheraProject.getCurrentProject().getEntryHolderOrDangling(key);
                 AnimationRef picked = new AnimationRef.Sequence(holder);
@@ -1620,16 +1874,18 @@ public final class EditorWidgetFactory {
         AkytheraEditorLayoutManager.getInstance().openModalWidgetUnder(box, modal);
     }
 
-    /// Opens the data pack entry lookup for a [ResourceKey] slot, dropped-down under the box. The
-    /// target registry comes from the current **value**'s `registryKey()` (the slot's generic is
-    /// erased) — so ResourceKey slots must never be null; holders default them to a dangling
-    /// placeholder key. Lists project entries merged with the loaded world's registry access.
+    /// Opens the data pack entry lookup for a [ResourceKey] slot, dropped down under the box. The
+    /// target registry comes from the current value's `registryKey()`, the slot's generic being
+    /// erased — so a [ResourceKey] slot is never null, holders defaulting it to a dangling
+    /// placeholder key. Lists project entries merged with the loaded world's registry access, minus
+    /// the entry being edited.
     private <T> void openRegistryLookup(ValueSlot slot, ResourceKey<T> current, PopupBox<Object> box) {
         RegistryLookupModal<T> modal = RegistryLookupModal.dataPackEntries(
             font,
             Component.literal(current.registryKey().identifier().getPath()),
             current.registryKey(),
             false,
+            cyclicPicks(slot, current.registryKey()),
             key -> {
                 pushSlotChange(slot, key, box);
                 box.valueSetter().accept(key);
@@ -1639,16 +1895,62 @@ public final class EditorWidgetFactory {
         AkytheraEditorLayoutManager.getInstance().openModalWidgetUnder(box, modal);
     }
 
-    /// Reflectively finds the holder's [EntityPreviewModel] field (if it declares one) and writes
-    /// the model a select modal reported, so the picked preview model persists with the entry.
+    /// The entries picking would make `slot`'s owner its own ancestor: the owner itself, plus every
+    /// entry whose chain of this same field already leads back to it. Ids come out as
+    /// [ResourceProcessor#displayId], the form the lookup matches on.
+    ///
+    /// The chain is walked through the slot's own [Field] on each candidate's holder, so this stays
+    /// blind to what the reference means — any holder pointing into the registry it lives in gets the
+    /// guard. Empty when the owner is no entry of `registryKey`, a component holder edited inside one
+    /// being the usual case.
+    @SuppressWarnings("unchecked")
+    private static <T> Set<String> cyclicPicks(ValueSlot slot, ResourceKey<? extends Registry<T>> registryKey) {
+        ProjectObjectRegistry<T, DataHolder<T>> registry =
+            AkytheraProject.getCurrentProject().getModifiableRegistry(registryKey);
+
+        if (registry == null || !(slot.owner() instanceof DataHolder<?> owner)) return Set.of();
+
+        ResourceKey<T> ownerKey = registry.getResourceKeyByHolder((DataHolder<T>) owner).orElse(null);
+
+        if (ownerKey == null) return Set.of();
+
+        Set<String> excluded = new HashSet<>();
+        excluded.add(ResourceProcessor.displayId(ownerKey));
+
+        Field field = slot.field();
+
+        if (field == null) return excluded;
+
+        for (ResourceKey<T> candidate : registry.typedRegistryKeySet()) {
+            Set<ResourceKey<T>> walked = new HashSet<>();
+            ResourceKey<T> current = candidate;
+
+            // A chain already looping among other entries ends on `walked`, not on the owner.
+            while (current != null && walked.add(current)) {
+                if (current.equals(ownerKey)) {
+                    excluded.add(ResourceProcessor.displayId(candidate));
+                    break;
+                }
+
+                DataHolder<T> holder = registry.getDataHolder(current);
+
+                current = holder != null && tryGet(field, holder) instanceof ResourceKey<?> parent
+                    ? (ResourceKey<T>) parent
+                    : null;
+            }
+        }
+
+        return excluded;
+    }
+
+    /// Writes `model` to the holder's [EntityPreviewModel] field, when it declares one.
     private static void setPreviewModelField(Object inst, EntityPreviewModel model) {
         Field field = findPreviewModelField(inst);
         if (field != null) trySet(field, inst, model);
     }
 
-    /// Read-side twin of [#setPreviewModelField]: the holder's current [EntityPreviewModel], used
-    /// to open select modals pre-selected on the entry's preview model. Null when the holder has
-    /// no such field or hasn't picked a model yet.
+    /// The holder's current [EntityPreviewModel]. Null when it declares no such field, or has not
+    /// picked a model yet.
     private static @Nullable EntityPreviewModel getPreviewModelField(Object inst) {
         Field field = findPreviewModelField(inst);
         return field == null ? null : (EntityPreviewModel) tryGet(field, inst);
@@ -1667,7 +1969,7 @@ public final class EditorWidgetFactory {
         return null;
     }
 
-    /// Builds the label cell — its width follows the proportional [#labelWidth] column.
+    /// The label cell, its width following the proportional [#labelWidth] column.
     public static Static makeLabel(Font font, Component component) {
         return new Static(
             font,
@@ -1679,7 +1981,7 @@ public final class EditorWidgetFactory {
         );
     }
 
-    /// Builds the label cell from a lang key. Its width follows the proportional [#labelWidth]
+    /// The label cell built from a lang key, its width following the proportional [#labelWidth]
     /// column.
     public static Static makeTranslatableLabel(Font font, String text) {
         return new Static(
@@ -1693,7 +1995,7 @@ public final class EditorWidgetFactory {
     }
 
     // ***************************************************************
-    // Value access + history — shared with external [WidgetProducer]s
+    // Value access + history
     // ***************************************************************
 
     public static Object tryGet(Field f, Object inst) {
@@ -1704,8 +2006,9 @@ public final class EditorWidgetFactory {
         }
     }
 
-    /// For widgets that change and commit in the same motion — a checkbox, a picker, a combo box.
-    /// [EditorEditable#setOnCommit] does not apply: there is no in-flight value to hold back.
+    /// Writes `newValue` through `slot` and pushes the [DataChange] for it, for a widget that
+    /// changes and commits in the same motion. [EditorEditable#setOnCommit] does not apply: there
+    /// is no in-flight value to hold back.
     public static <T, W extends DataBoundWidget<T>> void pushSlotChange(ValueSlot slot, T newValue, W widget) {
         @SuppressWarnings("unchecked")
         T oldValue = (T) slot.get();
@@ -1725,7 +2028,7 @@ public final class EditorWidgetFactory {
 
     /// The end of an edit that had an in-flight value: an edit box losing focus or taking Enter, a
     /// stepper click. Under [EditorEditable#setOnCommit] this is also where the value first reaches
-    /// the slot — nothing was written while it was being typed.
+    /// the slot.
     public static <T, W extends DataBoundWidget<T>> void pushSlotCommit(ValueSlot slot, T oldValue, T newValue, W widget) {
         if (slot.annotation().setOnCommit()) slot.set(newValue);
 

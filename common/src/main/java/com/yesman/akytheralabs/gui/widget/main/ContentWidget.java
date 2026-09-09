@@ -28,6 +28,8 @@ import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
+import com.yesman.akytheralabs.editor.ContentClipboard;
+import com.yesman.akytheralabs.editor.EditorFieldScanner;
 import com.yesman.akytheralabs.editor.historytrack.FileMove;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -38,9 +40,11 @@ import com.yesman.akytheralabs.gui.panel.main.processors.ItemPatchResourceProces
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.screen.AnimationAssetEditorScreen;
+import com.yesman.akytheralabs.gui.screen.ArmatureAssetEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimationMontageEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimationSequenceEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimatorScriptEditorScreen;
+import com.yesman.akytheralabs.gui.screen.DataBlockEditorScreen;
 import com.yesman.akytheralabs.gui.screen.EntityPatchEditorScreen;
 import com.yesman.akytheralabs.gui.screen.ItemPatchEditorScreen;
 import com.yesman.akytheralabs.gui.screen.BlendSpace2DEditorScreen;
@@ -86,6 +90,9 @@ public abstract class ContentWidget<T> extends AbstractWidget {
     private static final int COLOR_ERROR = 0xFFD03A3A;
     private static final int COLOR_ERROR_BORDER = 0xFF7A1F1F;
     private static final int COLOR_ERROR_TEXT = 0xFFFF8A8A;
+
+    /// Translucent black over a tile sitting on the clipboard as a cut.
+    private static final int COLOR_CUT_VEIL = 0x80101010;
 
     /// Wrap width of the failure tooltip. The message is never truncated — it only wraps.
     private static final int ERROR_TOOLTIP_WRAP_WIDTH = 260;
@@ -225,6 +232,11 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             String label = font.plainSubstrByWidth(getContentName(), w - 2);
             int labelX = x + (w - font.width(label)) / 2;
             guiGraphics.text(font, label, labelX, y + h - LABEL_HEIGHT, 0xFF888888, false);
+        }
+
+        // Dimmed while it waits for its cut's paste.
+        if (ContentClipboard.getInstance().isCut(path)) {
+            guiGraphics.fill(x, y, x + w, y + h, COLOR_CUT_VEIL);
         }
 
         if (loadingFailure != null) {
@@ -592,12 +604,9 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
         @Override
         public void onDoubleClicked() {
+            if (!(getReferencingObject() instanceof AkytheraProject.EditorArmatureAccessor<?> armature)) return;
 
-        }
-
-        @Override
-        public boolean isOpenable() {
-            return false;
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ArmatureAssetEditorScreen(armature));
         }
 
         @Override
@@ -834,8 +843,9 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
     /// A single editable [EnumerableDataBlock] entry. Reuses the data-driven rename machinery
     /// ([DataDrivenObjectContent#renameOnDisk] → `moveEntry`, which re-keys the project's data block
-    /// registry), but double-click opens nothing — data blocks are property-less. The "object" is the real
-    /// engine enum value, wrapped by a per-type [DataBlockHolder].
+    /// registry). The "object" is the real engine enum value, wrapped by a per-type [DataBlockHolder].
+    /// A holder declaring no editor field — the property-less types, whose identity *is* the identifier
+    /// — has nothing to open; one that does opens a [DataBlockEditorScreen].
     public static class DataBlockContent<T extends EnumerableDataBlock> extends DataDrivenObjectContent<T, DataBlockHolder<T>> {
         private static final Identifier ICON = AkytheraLabs.identifier("widget/data_block");
 
@@ -845,12 +855,17 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
         @Override
         public void onDoubleClicked() {
-            // Property-less — no editor screen.
+            if (!isOpenable()) return;
+
+            // Open the live registry holder, not the cached one (a prior "Quit" may have disk-reloaded it).
+            DataBlockHolder<T> holder = AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey);
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new DataBlockEditorScreen(resourceKey, holder));
         }
 
         @Override
         public boolean isOpenable() {
-            return false;
+            DataBlockHolder<T> holder = getReferencingObject();
+            return holder != null && !EditorFieldScanner.fieldsOf(holder.getClass()).isEmpty();
         }
 
         @Override
@@ -893,8 +908,10 @@ public abstract class ContentWidget<T> extends AbstractWidget {
     public static class ItemPatchContent extends DataDrivenObjectContent<ItemPatchBlueprint, ItemPatchBlueprintHolder> {
         private static final Identifier ICON = AkytheraLabs.identifier("widget/script");
 
+        /// The entry id names the item this patches, so a rename is what turns an item-bound patch
+        /// into a meta one and back.
         public ItemPatchContent(Font font, ResourceKey<@NonNull ItemPatchBlueprint> resourceKey, Path path, String name) {
-            super(font, name, false, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
         }
 
         /// The target item is bound at creation (see [ItemPatchResourceProcessor#onPressAddButton]), so

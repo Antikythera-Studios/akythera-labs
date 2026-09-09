@@ -173,7 +173,7 @@ public final class NodeTreeSourceRenderer {
     // ***************************************************************
 
     /// A mesh accessor as the [MeshManager] call that reissues it, from the asset's trimmed id.
-    private static String meshAccessor(AssetAccessor<? extends Mesh<?>> mesh) {
+    public static String meshAccessor(AssetAccessor<? extends Mesh<?>> mesh) {
         Identifier id = mesh.identifier();
         Identifier trimmed = Identifier.fromNamespaceAndPath(
             id.getNamespace(), id.getPath().replace(MeshManager.DIRECTORY, ""));

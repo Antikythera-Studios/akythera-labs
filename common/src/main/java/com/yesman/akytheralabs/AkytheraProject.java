@@ -38,7 +38,9 @@ import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
+import com.yesman.akytheralabs.akythera.asset.ArmatureMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.MeshMetadataHolder;
+import com.yesman.akytheralabs.editor.ContentClipboard;
 import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
@@ -330,22 +332,29 @@ public final class AkytheraProject {
             String rel = FileSystemHelper.relativeIdPath(dir, file);
             String idPath = rel.substring(0, rel.length() - 5);
             Identifier id = Identifier.fromNamespaceAndPath(projectName, idPath);
-            ResourceKey<T> key = ResourceKey.create(registryKey, id);
 
-            try {
-                JsonElement json = JsonParser.parseReader(Files.newBufferedReader(file));
-                // The registry codec is guarded (see ProjectObjectRegistry): a decode failure
-                // yields a default holder marked failed + carrying the raw JSON, so getOrThrow
-                // only throws for unreadable / syntactically-broken files.
-                H holder = registry.getCodec().parse(JsonOps.INSTANCE, json).getOrThrow();
-                registry.register(key, holder);
-            } catch (Exception e) {
-                AkytheraLabs.LOGGER.error("Failed at loading {}", key, e);
-                H holder = registry.provideDefault();
-                holder.markFailed(e);
-                registry.register(key, holder);
-            }
+            readEntryFile(registry, ResourceKey.create(registryKey, id), file);
         });
+    }
+
+    /// Decodes `file` and registers the holder under `key`. A file that can't be read at all still
+    /// registers — a default holder marked failed, so the entry shows in the browser with its error.
+    private <T, H extends DataHolder<T>> void readEntryFile(
+        ProjectObjectRegistry<T, H> registry, ResourceKey<T> key, Path file
+    ) {
+        try {
+            JsonElement json = JsonParser.parseReader(Files.newBufferedReader(file));
+            // The registry codec is guarded (see ProjectObjectRegistry): a decode failure
+            // yields a default holder marked failed + carrying the raw JSON, so getOrThrow
+            // only throws for unreadable / syntactically-broken files.
+            H holder = registry.getCodec().parse(JsonOps.INSTANCE, json).getOrThrow();
+            registry.register(key, holder);
+        } catch (Exception e) {
+            AkytheraLabs.LOGGER.error("Failed at loading {}", key, e);
+            H holder = registry.provideDefault();
+            holder.markFailed(e);
+            registry.register(key, holder);
+        }
     }
 
     /// Finish the project without saving, and close editor layout
@@ -354,6 +363,8 @@ public final class AkytheraProject {
         // Entity→armature preview mappings are project state living in the engine's
         // runtime map — drop them so they don't leak into the next project.
         ComponentsFactory.getImpl().clearArmatureMappings();
+        // The clipboard holds absolute paths of this project's files.
+        ContentClipboard.getInstance().clear();
         currentProject = null;
     }
 
@@ -511,18 +522,22 @@ public final class AkytheraProject {
     }
 
     /// Returns all accessible entries including both the current project's entries and the current level's registry access
+    ///
+    /// A registry the project manages no entries of — a vanilla one a holder references, the
+    /// attribute registry say — contributes the level's entries alone.
     @SuppressWarnings("unchecked")
     public <T> Set<Map.Entry<ResourceKey<T>, T>> getMergedEntries(final ResourceKey<? extends Registry<T>> registryKey) {
+        ProjectObjectRegistry<T, ?> registry = (ProjectObjectRegistry<T, ?>) modifiableRegistries.get(registryKey);
         Map<ResourceKey<T>, T> entries = new HashMap<>();
 
         StaticRegistryAccess.getRegistryAccess().lookupOrThrow(registryKey).entrySet().forEach(entry ->
             entries.put(entry.getKey(), entry.getValue())
         );
 
-        // Overwrite exported project pack
-        ((ProjectObjectRegistry<T, ?>) modifiableRegistries.get(registryKey)).entrySet().forEach(entry ->
-            entries.put(entry.getKey(), entry.getValue())
-        );
+        if (registry != null) {
+            // Overwrite exported project pack
+            registry.entrySet().forEach(entry -> entries.put(entry.getKey(), entry.getValue()));
+        }
 
         return new HashSet<>(entries.entrySet());
     }
@@ -547,11 +562,12 @@ public final class AkytheraProject {
         return entries.values().stream().toList();
     }
 
-    /// Returns only the entries that are created by this project
+    /// Returns only the entries that are created by this project. Empty for a registry the project
+    /// manages no entries of.
     @SuppressWarnings("unchecked")
     public <T, H extends DataHolder<T>> Set<Map.Entry<ResourceKey<T>, H>> getModifiableEntries(final ResourceKey<? extends Registry<T>> registryKey) {
         ProjectObjectRegistry<T, H> registry = (ProjectObjectRegistry<T, H>) modifiableRegistries.get(registryKey);
-        return registry.dataHolderEntrySet();
+        return registry == null ? Set.of() : registry.dataHolderEntrySet();
     }
 
     /// Merged identifier listing for one editor-editable data block type: the engine
@@ -1137,7 +1153,7 @@ public final class AkytheraProject {
                 ? Identifier.fromNamespaceAndPath(newNs, oldId.getPath())
                 : oldId;
 
-            ((EditorReferenceable) e.getValue()).rename(newId);
+            ((EditorReferenceable<?>) e.getValue()).rename(newId);
             issued.put(newId, e.getValue());
         }
     }
@@ -1363,6 +1379,97 @@ public final class AkytheraProject {
         }
     }
 
+    /// Copies `source` into `targetDir` under a free name and registers whatever landed. An asset
+    /// takes its `.akmeta` sidecar along; a directory is copied whole. Returns the new path, or null
+    /// when nothing was copied.
+    public @Nullable Path copyInto(Path source, Path targetDir) {
+        if (!Files.exists(source)) return null;
+
+        String fileName = source.getFileName().toString();
+        boolean directory = Files.isDirectory(source);
+        String extension = directory ? "" : FileSystemHelper.extension(fileName);
+        String stem = directory ? fileName : FileSystemHelper.stem(fileName);
+        Path target = targetDir.resolve(FileSystemHelper.findNextAvailableName(targetDir, stem, extension) + extension);
+
+        if (!FileSystemHelper.copyRecursive(source, target)) return null;
+
+        Path sidecar = getMetadataFileBeside(source);
+
+        if (!directory && Files.isRegularFile(sidecar)) {
+            FileSystemHelper.copyReplace(sidecar, getMetadataFileBeside(target));
+        }
+
+        registerPathRecursive(target);
+
+        return target;
+    }
+
+    /// Registers every datapack entry / editor accessor the files under `path` stand for — the
+    /// mirror of the unregister walk in [#deletePathRecursive], for files that arrived on disk after
+    /// project load.
+    public void registerPathRecursive(Path path) {
+        if (!Files.exists(path)) return;
+
+        Path dataRoot = projectRoot.resolve("data");
+        Path assetsRoot = projectRoot.resolve("assets");
+
+        if (Files.isRegularFile(path)) {
+            registerCreatedFile(dataRoot, assetsRoot, path);
+        } else {
+            FileSystemHelper.forEachFile(path, file -> registerCreatedFile(dataRoot, assetsRoot, file));
+        }
+    }
+
+    private void registerCreatedFile(Path dataRoot, Path assetsRoot, Path file) {
+        if (file.startsWith(dataRoot)) {
+            registerDatapackFile(dataRoot, file);
+        } else if (file.startsWith(assetsRoot)) {
+            registerAssetFile(assetsRoot, file);
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void registerDatapackFile(Path dataRoot, Path file) {
+        if (!file.toString().endsWith(".json")) return;
+
+        for (ProjectObjectRegistry<?, ?> registry : modifiableRegistries.values()) {
+            Path regDir = dataRoot.resolve(registry.key().identifier().getPath());
+
+            if (!file.startsWith(regDir)) continue;
+
+            String rel = FileSystemHelper.relativeIdPath(regDir, file);
+            String idPath = rel.substring(0, rel.length() - ".json".length());
+            Identifier id = Identifier.fromNamespaceAndPath(projectName, idPath);
+            ResourceKey key = ResourceKey.create((ResourceKey) registry.key(), id);
+
+            readEntryFile((ProjectObjectRegistry) registry, key, file);
+
+            return;
+        }
+    }
+
+    /// Issues the accessor for one asset file. A sidecar is no asset of its own — it is read through
+    /// the accessor of the file it sits beside.
+    private void registerAssetFile(Path assetsRoot, Path file) {
+        String fileName = file.getFileName().toString();
+
+        if (!fileName.endsWith("." + AssetLoader.BINARY_EXTENSION) && !fileName.endsWith(".json")) return;
+
+        String rel = FileSystemHelper.relativeIdPath(assetsRoot, file);
+
+        try {
+            if (rel.startsWith(MeshManager.DIRECTORY)) {
+                getEditorMeshAccessorByPath(file);
+            } else if (rel.startsWith(ArmatureManager.DIRECTORY)) {
+                getEditorArmatureAccessorByPath(file);
+            } else if (rel.startsWith(AnimationManager.DIRECTORY)) {
+                getEditorAnimationAccessorByPath(file);
+            }
+        } catch (Exception e) {
+            AkytheraLabs.LOGGER.warn("Failed to register asset accessor for {}", file, e);
+        }
+    }
+
     /// Walk `path` BEFORE deletion and return a `Runnable` whose `.run()`
     /// rebuilds the exact subtree — bytes restored, registries / accessors
     /// re-registered with the SAME in-memory instances they had before.
@@ -1533,7 +1640,7 @@ public final class AkytheraProject {
         A accessor = issued.remove(oldId);
 
         if (accessor != null) {
-            EditorReferenceable renamed = (EditorReferenceable) accessor;
+            EditorReferenceable<?> renamed = (EditorReferenceable<?>) accessor;
             renamed.rename(newId);
             issued.put(newId, accessor);
             resaveReferrers(renamed);
@@ -2110,10 +2217,8 @@ public final class AkytheraProject {
     /// What the two mesh accessors share: the identifier a rename writes through in place, and the
     /// sidecar view. [AkytheraProject] issues one accessor per identifier, so there is one
     /// [MeshMetadataHolder] per identifier — every screen editing this mesh edits the same values.
-    public abstract static class EditorMeshAccessor<T extends Mesh<?>> extends EditorReferenceable implements AssetAccessor<T> {
+    public abstract static class EditorMeshAccessor<T extends Mesh<?>> extends EditorReferenceable<MeshMetadataHolder> implements AssetAccessor<T> {
         private Identifier identifier;
-
-        private @Nullable MeshMetadataHolder metadata;
 
         private EditorMeshAccessor(Identifier identifier) {
             this.identifier = identifier;
@@ -2129,13 +2234,9 @@ public final class AkytheraProject {
             this.identifier = identifier;
         }
 
-        /// The sidecar view, read off disk on first call and kept from then on.
-        public MeshMetadataHolder metadata() {
-            if (metadata == null) {
-                metadata = MeshMetadataHolder.readFrom(this);
-            }
-
-            return metadata;
+        @Override
+        MeshMetadataHolder readMetadata() {
+            return MeshMetadataHolder.readFrom(this);
         }
 
         @Override
@@ -2271,13 +2372,18 @@ public final class AkytheraProject {
         );
     }
 
-    private static final class EditorArmatureAccessor<T extends Armature> extends EditorReferenceable implements AssetAccessor<T> {
+    public static final class EditorArmatureAccessor<T extends Armature> extends EditorReferenceable<ArmatureMetadataHolder> implements AssetAccessor<T> {
         private Identifier identifier;
         private final ArmatureLoader.ArmatureConstructor<T> armatureConstructor;
 
         EditorArmatureAccessor(Identifier identifier, ArmatureLoader.ArmatureConstructor<T> armatureConstructor) {
             this.identifier = identifier;
             this.armatureConstructor = armatureConstructor;
+        }
+
+        @Override
+        ArmatureMetadataHolder readMetadata() {
+            return ArmatureMetadataHolder.readFrom(this);
         }
 
         @Override public Identifier identifier() { return identifier; }
@@ -2424,23 +2530,16 @@ public final class AkytheraProject {
     }
 
     /// Accessor for animation data stored in [AnimationClip]
-    public static final class EditorAnimationAccessor extends EditorReferenceable implements AssetAccessor<AnimationClip> {
+    public static final class EditorAnimationAccessor extends EditorReferenceable<AnimationMetadataHolder> implements AssetAccessor<AnimationClip> {
         private Identifier identifier;
-
-        private @Nullable AnimationMetadataHolder metadata;
 
         private EditorAnimationAccessor(Identifier identifier) {
             this.identifier = identifier;
         }
 
-        /// The sidecar view, read off disk on first call and kept from then on. [AkytheraProject]
-        /// issues one accessor per identifier, so there is one holder per identifier.
-        public AnimationMetadataHolder metadata() {
-            if (metadata == null) {
-                metadata = AnimationMetadataHolder.readFrom(this);
-            }
-
-            return metadata;
+        @Override
+        AnimationMetadataHolder readMetadata() {
+            return AnimationMetadataHolder.readFrom(this);
         }
 
         @Override
@@ -2521,9 +2620,24 @@ public final class AkytheraProject {
     /// field (each has its own constructor shape). A [#rename] mutates that id in place; because
     /// each accessor is issued one-per-id and shared by every referrer, the rename propagates to
     /// referrers for free (disk is re-saved by the asset rename scan).
-    private static abstract class EditorReferenceable implements EditorReference {
+    private static abstract class EditorReferenceable<H> implements EditorReference {
+        /// The sidecar view, read on first call and kept from then on. One accessor is issued per
+        /// identifier, so there is one holder per identifier.
+        private @Nullable H metadata;
+
         /// Subclasses mutate their own identifier field.
         abstract void setIdentifier(Identifier id);
+
+        /// Reads this accessor's sidecar off disk.
+        abstract H readMetadata();
+
+        public H metadata() {
+            if (metadata == null) {
+                metadata = readMetadata();
+            }
+
+            return metadata;
+        }
 
         void rename(Identifier newId) {
             setIdentifier(newId);

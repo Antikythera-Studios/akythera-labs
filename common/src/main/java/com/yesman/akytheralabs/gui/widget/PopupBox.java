@@ -4,6 +4,7 @@ import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akythera.client.gui.widget.ClampedNumberBox;
 import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.gui.widget.common.PlaceholderExpressionWidget;
 import com.yesman.akythera.client.gui.widget.common.WarningMarkableWidget;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -35,7 +36,7 @@ import java.util.function.Predicate;
 /// dangling holder, a stale key) with a red border on the display box — re-evaluated on every [#setValue],
 /// i.e. at screen build ([WidgetTable]) and on every modal pick.
 public final class PopupBox<T> extends AbstractContainerWidget
-    implements AnchoredWidget, WarningMarkableWidget<T>, DropdownSizeMemory {
+    implements AnchoredWidget, WarningMarkableWidget<T>, PlaceholderExpressionWidget<T>, DropdownSizeMemory {
 
     private static final int PADDING = 2;
 
@@ -50,6 +51,11 @@ public final class PopupBox<T> extends AbstractContainerWidget
 
     /// Converts the bound value into the string shown in the read-only box.
     private final Function<T, String> nameFunction;
+
+    /// Pressed when the value area — the display box, not the magnifier — is clicked. Null leaves the
+    /// area inert, which is the default: a picker cell answers the magnifier alone.
+    @Nullable
+    private Runnable onValuePressed;
 
     public PopupBox(
         Font font,
@@ -157,8 +163,29 @@ public final class PopupBox<T> extends AbstractContainerWidget
         return List.of(displayBox, searchButton);
     }
 
+    /// Installs the action the value area answers a press with, see [#onValuePressed].
+    public PopupBox<T> setOnValuePressed(@Nullable Runnable onValuePressed) {
+        this.onValuePressed = onValuePressed;
+
+        return this;
+    }
+
+    /// Whether the cursor is over the display box — the row minus the magnifier.
+    private boolean overValueArea(double mouseX, double mouseY) {
+        return mouseX >= displayBox.getX() && mouseX < displayBox.getX() + displayBox.getWidth()
+            && mouseY >= displayBox.getY() && mouseY < displayBox.getY() + displayBox.getHeight();
+    }
+
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
+        if (!active || !visible) return false;
+
+        // Ahead of the children: the display box takes the press otherwise, only to refuse the focus
+        if (onValuePressed != null && event.button() == 0 && overValueArea(event.x(), event.y())) {
+            onValuePressed.run();
+            return true;
+        }
+
         for (GuiEventListener child : children()) {
             if (child.mouseClicked(event, doubleClick)) {
                 // The read-only display box refuses widget focus, but the container still records it
@@ -249,6 +276,14 @@ public final class PopupBox<T> extends AbstractContainerWidget
     /// Shown when the bound value is null — nothing selected yet, or an optional pick cleared.
     private static final String NONE_DISPLAY = "<none>";
 
+    /// The value the display box currently names, or null while it is unset.
+    @Nullable
+    private T value;
+
+    /// Named in [#displayBox]'s own placeholder slot while [#value] is unset. Null = no placeholder.
+    @Nullable
+    private T placeholderValue;
+
     /// Flags an invalid bound value (returns false) for the red-border mark. Null = no validation
     /// (never marked). A null *value* is always valid — that's the deliberate `<none>`.
     @Nullable
@@ -266,7 +301,8 @@ public final class PopupBox<T> extends AbstractContainerWidget
     /// modal flow that changed the bound data already handled it. Re-evaluates [#validator]:
     /// an invalid value marks the display box red; a valid one (or `<none>`) clears the mark.
     public void setValue(@Nullable T value) {
-        displayBox.setValueByString(value == null ? NONE_DISPLAY : nameFunction.apply(value));
+        this.value = value;
+        refreshDisplay();
 
         if (validator == null || value == null || validator.test(value)) {
             unmark();
@@ -274,6 +310,37 @@ public final class PopupBox<T> extends AbstractContainerWidget
             mark();
         }
     }
+
+    /// Writes what the read-only box shows: the value's name, or — while it is unset — an empty box
+    /// carrying the placeholder's name, falling back to `<none>` when there is no placeholder.
+    private void refreshDisplay() {
+        displayBox.setPlaceholderValue(placeholderValue == null ? null : nameFunction.apply(placeholderValue));
+        displayBox.setValueByString(
+            value != null
+                ? nameFunction.apply(value)
+                : placeholderValue != null ? "" : NONE_DISPLAY
+        );
+    }
+
+    // ***************************************************************
+    // [PlaceholderExpressionWidget] implementations
+    // ***************************************************************
+    @Override
+    public @Nullable T getPlaceholderValue() {
+        return placeholderValue;
+    }
+
+    @Override
+    public void setPlaceholderValue(@Nullable T value) {
+        this.placeholderValue = value;
+        refreshDisplay();
+    }
+
+    @Override
+    public boolean hasPlaceholderValue() {
+        return value == null && placeholderValue != null;
+    }
+
 
     @Override
     public void mark() {
@@ -287,7 +354,8 @@ public final class PopupBox<T> extends AbstractContainerWidget
 
     @Override
     public void reset() {
-        displayBox.setValueByString(NONE_DISPLAY);
+        this.value = null;
+        refreshDisplay();
         unmark();
     }
 }

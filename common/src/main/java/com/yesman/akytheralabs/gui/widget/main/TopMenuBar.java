@@ -3,7 +3,6 @@ package com.yesman.akytheralabs.gui.widget.main;
 import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
-import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
@@ -12,7 +11,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.*;
-import net.minecraft.client.gui.components.events.ContainerEventHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
@@ -25,9 +23,6 @@ import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 
 /// Top menu bar with File/Edit/View/Tools/Help menus and dropdown support.
-///
-/// Extends [AbstractContainerWidget] so [AnchoredButton] children are dispatched
-/// through Minecraft's standard [ContainerEventHandler] input routing.
 public final class TopMenuBar extends AbstractContainerWidget implements AnchoredWidget {
     private static final int ITEM_PAD = 8;
     private static final int TITLE_PAD = 6;
@@ -55,6 +50,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         )),
         new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW), List.of(
             new UniversalMenu.OptionRow<>(TopMenuOption.SELECT_PREVIEW_MODEL),
+            new UniversalMenu.OptionRow<>(TopMenuOption.SELECT_PREVIEW_ITEM),
             new UniversalMenu.OptionRow<>(TopMenuOption.FRAME_CAMERA)
         )),
         new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_TOOLS), List.of(
@@ -75,13 +71,11 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     private final AnchoredButton[] menuButtons;
 
     /// One dropdown per [#MENUS] entry, in the same order. Each is a [ContextMenuContainer] so
-    /// options can nest into sub-lists (`Export > As Pack` / `As Source Code`) the same way
-    /// right-click context menus do.
+    /// options can nest into sub-lists (`Export > As Pack` / `As Source Code`).
     private final ContextMenuContainer[] dropdowns;
 
-    /// Optional unsaved-changes probe. When it returns `true` a `*` is drawn in front of the title. Editor
-    /// screens wire this to a [HistoryManager] save-point comparison; left null (always clean) for bars
-    /// without a save concept.
+    /// Optional unsaved-changes probe. When it returns `true` a `*` is drawn in front of the title.
+    /// Null means always clean.
     private @Nullable BooleanSupplier dirtyChecker;
 
     public TopMenuBar(

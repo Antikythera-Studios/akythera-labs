@@ -7,18 +7,22 @@ import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.client.api.component.impl.EntityModelComponent;
-import com.yesman.akythera.client.api.component.impl.MeshGetter;
+import com.yesman.akythera.client.api.mesh.MeshManager;
+import com.yesman.akythera.client.core.asset.mesh.Mesh;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.compat.CompatibleMod;
 import com.yesman.akythera.platform.ModPlatformProvider;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.ConditionGraphCompiler;
+import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
+import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.editor.EditorNodeGraph;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.StringRepresentable;
 import org.jspecify.annotations.Nullable;
 
@@ -26,6 +30,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 /// Editor holder for an `akythera:entity_model` ([EntityModelComponent]) — the [SkeletalMesh] a patched
@@ -34,9 +39,12 @@ import java.util.stream.Stream;
 /// A [RootAttachableComponent], attached directly on the patch. It hosts no children.
 ///
 /// [#meshGetter] is a raw [ScriptGraphData] canvas edited in a center tab, stored the way
-/// [AnimatorScriptHolder] stores its canvases. Its [MeshGetter#OWNER_PARAM] entry pin carries the owning
+/// [AnimatorScriptHolder] stores its canvases. Its [EntityModelComponent#OWNER_PARAM] entry pin carries the owning
 /// patch, typed by the patch's parent, so a player-parented patch can pick its mesh off the skin's model
 /// type; its result root takes an [AssetAccessor].
+///
+/// [#defaultMesh] is the mesh reachable without a patch instance, which is the only mesh an editor
+/// preview outside the world can draw. The canvas keeps deciding what renders in world.
 public final class EntityModelComponentHolder extends ComponentDataHolder<EntityModelComponent>
     implements RootAttachableComponent
 {
@@ -44,36 +52,54 @@ public final class EntityModelComponentHolder extends ComponentDataHolder<Entity
         instance -> instance.group(
             ScriptGraphData.CODEC.optionalFieldOf("mesh_getter", ScriptGraphData.EMPTY)
                 .forGetter(h -> h.meshGetter),
+            EditorAssetAccessors.SKELETAL_MESH_CODEC.optionalFieldOf("default_mesh")
+                .forGetter(h -> Optional.of(h.defaultMesh)),
             StringRepresentable.fromEnum(EntityModelComponent.Renderer::values).fieldOf("renderer")
                 .forGetter(EntityModelComponentHolder::getRenderer)
-        ).apply(instance, EntityModelComponentHolder::new)
+        ).apply(instance, (meshGetter, defaultMesh, renderer) -> new EntityModelComponentHolder(
+            meshGetter,
+            defaultMesh.orElseGet(() -> EditorAssetAccessors.skeletalMesh(DataHolder.EMPTY_REFERENCE)),
+            renderer))
     );
 
     /// Yields the mesh to skin. An empty canvas leaves the entity on its vanilla model.
     @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_MESH_GETTER, order = 0)
     @EditorNodeGraph(
-        contextParams = MeshGetter.OWNER_PARAM,
+        contextParams = EntityModelComponent.OWNER_PARAM,
         contextParamTypes = EntityPatch.class,
         resultType = AssetAccessor.class
     )
     private ScriptGraphData meshGetter;
 
+    /// The mesh drawn when [#meshGetter] answers nothing. The [DataHolder#EMPTY_REFERENCE] placeholder
+    /// displays as `<none>` and lowers to no default at all.
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_DEFAULT_MESH, order = 1)
+    private AssetAccessor<? extends Mesh<?>> defaultMesh;
+
     /// Which renderer draws the mesh, picked from [#rendererCandidates].
     @EditorEditable(
         label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_RENDERER,
-        order = 1,
+        order = 2,
         candidates = "rendererCandidates"
     )
     private EntityModelComponent.Renderer renderer;
 
-    public EntityModelComponentHolder(ScriptGraphData meshGetter, EntityModelComponent.Renderer renderer) {
+    public EntityModelComponentHolder(
+        ScriptGraphData meshGetter,
+        AssetAccessor<? extends Mesh<?>> defaultMesh,
+        EntityModelComponent.Renderer renderer
+    ) {
         this.meshGetter = meshGetter;
+        this.defaultMesh = defaultMesh;
         this.renderer = renderer;
     }
 
     /// A freshly added entity model component, with an empty canvas that draws nothing.
     public static EntityModelComponentHolder createDefault() {
-        return new EntityModelComponentHolder(ScriptGraphData.EMPTY, EntityModelComponent.Renderer.DEFAULT);
+        return new EntityModelComponentHolder(
+            ScriptGraphData.EMPTY,
+            EditorAssetAccessors.skeletalMesh(DataHolder.EMPTY_REFERENCE),
+            EntityModelComponent.Renderer.DEFAULT);
     }
 
     /// [#renderer]'s [EditorEditable#candidates] source: every [EntityModelComponent.Renderer], minus
@@ -92,12 +118,26 @@ public final class EntityModelComponentHolder extends ComponentDataHolder<Entity
         return meshGetter;
     }
 
+    /// The authored default mesh, or null while the row is on the `<none>` placeholder. The trimmed id
+    /// is what the accessor was issued for — [MeshManager#DIRECTORY] is not part of an authored id.
+    public @Nullable AssetAccessor<? extends Mesh<?>> getDefaultMesh() {
+        Identifier id = defaultMesh.identifier();
+        Identifier trimmed = Identifier.fromNamespaceAndPath(
+            id.getNamespace(), id.getPath().replace(MeshManager.DIRECTORY, ""));
+
+        return trimmed.equals(DataHolder.EMPTY_REFERENCE) ? null : defaultMesh;
+    }
+
     public EntityModelComponent.Renderer getRenderer() {
         return renderer;
     }
 
     public void setMeshGetter(ScriptGraphData meshGetter) {
         this.meshGetter = meshGetter;
+    }
+
+    public void setDefaultMesh(AssetAccessor<? extends Mesh<?>> defaultMesh) {
+        this.defaultMesh = defaultMesh;
     }
 
     public void setRenderer(EntityModelComponent.Renderer renderer) {
@@ -109,18 +149,21 @@ public final class EntityModelComponentHolder extends ComponentDataHolder<Entity
         // Runtime PureNode trees cannot be decompiled back into editor canvases, so an imported
         // component opens with an empty canvas.
         meshGetter = ScriptGraphData.EMPTY;
+        defaultMesh = object.defaultMesh() == null
+            ? EditorAssetAccessors.skeletalMesh(DataHolder.EMPTY_REFERENCE)
+            : object.defaultMesh();
         renderer = object.renderer();
     }
 
     @Override
     public EntityModelComponent makeObject() {
-        return new EntityModelComponent(new MeshGetter(compileGetter(), null), renderer);
+        return new EntityModelComponent(compileGetter(), getDefaultMesh(), renderer, null);
     }
 
     /// The canvas lowered to its headless tree, or null while nothing is wired into the result. The
     /// owner type fills unwired owner slots; the canvas' own owner pin is a context read.
     private @Nullable PureNode compileGetter() {
-        return ConditionGraphCompiler.compileOptional(meshGetter, EntityPatch.class, MeshGetter.OWNER_PARAM);
+        return ConditionGraphCompiler.compileOptional(meshGetter, EntityPatch.class, EntityModelComponent.OWNER_PARAM);
     }
 
     /// An [EntityModelComponent] is its own blueprint — it builds itself.
@@ -129,10 +172,12 @@ public final class EntityModelComponentHolder extends ComponentDataHolder<Entity
         return EntityModelComponent.class;
     }
 
-    /// The mesh assets this canvas' nodes bind.
+    /// The mesh assets this canvas' nodes bind, plus the default mesh when it is a project asset.
     @Override
     public Stream<EditorReference> referencedReferences() {
-        return meshGetter.referencedReferences();
+        return Stream.concat(
+            meshGetter.referencedReferences(),
+            defaultMesh instanceof EditorReference ref ? Stream.of(ref) : Stream.empty());
     }
 
     /// The first canvas node the decode guard could not resolve, if any.
@@ -152,14 +197,18 @@ public final class EntityModelComponentHolder extends ComponentDataHolder<Entity
 
     /// Tokens for `components/entity_model.ftl`: the compiled getter tree from
     /// [NodeTreeSourceRenderer#pure] behind a `has_mesh_getter` flag the fragment turns into an
-    /// unbound getter, plus the renderer's enum constant name.
+    /// unbound getter, the default mesh behind a `has_default_mesh` flag, and the renderer's enum
+    /// constant name.
     @Override
     public Map<String, Object> getDTO() {
         PureNode getter = compileGetter();
+        AssetAccessor<? extends Mesh<?>> mesh = getDefaultMesh();
 
         Map<String, Object> dto = new HashMap<>();
         dto.put("has_mesh_getter", getter != null);
         dto.put("mesh_getter", getter == null ? "null" : NodeTreeSourceRenderer.pure(getter, 5));
+        dto.put("has_default_mesh", mesh != null);
+        dto.put("default_mesh", mesh == null ? "null" : NodeTreeSourceRenderer.meshAccessor(mesh));
         dto.put("renderer", renderer.name());
 
         return dto;

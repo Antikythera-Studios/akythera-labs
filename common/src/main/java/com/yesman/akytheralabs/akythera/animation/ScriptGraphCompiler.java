@@ -359,12 +359,20 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
         return value != null ? value : SelfNode.INSTANCE;
     }
 
-    /// A stand-in for an unwired input: `self` when the owner fits the pin, else a default literal of
-    /// the expected script type when one exists, else [SelfNode].
+    /// A stand-in for an unwired input: `self` when the owner fits the pin — through a
+    /// [TypeConvertNode] when it only fits after a cast — else a default literal of the expected
+    /// script type when one exists, else [SelfNode].
     @Override
     public PureNode defaultValue(@Nullable Class<?> expectedType) {
         if (expectedType == null || expectedType == Object.class) return SelfNode.INSTANCE;
-        if (ownerSatisfies(expectedType)) return SelfNode.INSTANCE;
+        if (expectedType.isAssignableFrom(ownerType)) return SelfNode.INSTANCE;
+
+        ScriptType owner = ScriptType.of(ownerType);
+        ScriptType expected = ScriptType.of(expectedType);
+
+        if (owner != null && expected != null && owner.implicitlyCastableTypes().containsKey(expected.type())) {
+            return new TypeConvertNode(owner, expected, SelfNode.INSTANCE);
+        }
 
         for (ScriptType st : AkytheraRegistries.Frozen.SCRIPT_TYPE) {
             if (sameType(st.type(), expectedType) && st.codec() != null) {
@@ -378,10 +386,6 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
     // ***************************************************************
     // Helpers
     // ***************************************************************
-
-    private boolean ownerSatisfies(@Nullable Class<?> expectedType) {
-        return expectedType != null && expectedType != Object.class && expectedType.isAssignableFrom(ownerType);
-    }
 
     private int consumerCount(int fromId, int fromPin) {
         return outgoing.getOrDefault(key(fromId, fromPin), List.of()).size();

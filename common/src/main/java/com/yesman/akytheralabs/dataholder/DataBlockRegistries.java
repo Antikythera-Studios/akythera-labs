@@ -1,14 +1,18 @@
 package com.yesman.akytheralabs.dataholder;
 
 import com.mojang.serialization.Codec;
+import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
+import com.yesman.akythera.api.world.patch.item.WeaponStance;
 import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.datablock.GuardedDataBlockCodec;
+import com.yesman.akytheralabs.akythera.dataholder.datablock.AnimationInterfaceKeyHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.AnimationLayerSignatureHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.FSMAnimationStateHolder;
+import com.yesman.akytheralabs.akythera.dataholder.datablock.WeaponStanceHolder;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.panel.main.processors.DataBlockResourceProcessor;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
@@ -19,6 +23,7 @@ import org.jspecify.annotations.Nullable;
 import java.lang.reflect.ParameterizedType;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -31,8 +36,10 @@ import java.util.function.Supplier;
 /// (`ResourceKey<Registry<T>>`, path `datablock/<enumName>`) — used as the `ProjectObjectRegistry`
 /// key and the on-disk `data/<path>/` directory.
 ///
-/// Adding a new editable type (a new `EnumerableDataBlockSync#LISTENERS` entry) means adding a
-/// [DataBlockHolder] subclass and a [#register] line here.
+/// **Open registry**: external mods (compat plugins) register their own data block types through
+/// [#register] during client init, alongside their component holders — before the first project is
+/// created or loaded, which is when [#all] is first read. Built-ins register from this class's static
+/// initializer.
 public final class DataBlockRegistries {
     private DataBlockRegistries() {}
 
@@ -93,38 +100,48 @@ public final class DataBlockRegistries {
         throw new IllegalArgumentException(holderClass.getName() + " does not extend DataBlockHolder");
     }
 
-    private static @Nullable Map<ResourceKey<? extends Registry<?>>, Entry<?, ?>> entries;
+    /// Insertion-ordered, so the explorer tree lists built-ins before addon types.
+    private static final Map<ResourceKey<? extends Registry<?>>, Entry<?, ?>> ENTRIES = new LinkedHashMap<>();
 
-    /// Synchronized: the catalogue is built lazily and [GuardedDataBlockCodec] reaches it from
-    /// whichever worker thread `RegistryDataLoader` decodes a data pack registry on.
-    private static synchronized Map<ResourceKey<? extends Registry<?>>, Entry<?, ?>> entries() {
-        if (entries == null) {
-            Map<ResourceKey<? extends Registry<?>>, Entry<?, ?>> built = new LinkedHashMap<>();
-            register(built, FSMAnimationState.ENUM_MANAGER, FSMAnimationStateHolder::new, FSMAnimationStateHolder.CODEC);
-            register(built, AnimationLayerSignature.ENUM_MANAGER, AnimationLayerSignatureHolder::new, AnimationLayerSignatureHolder.CODEC);
-            entries = built;
-        }
-
-        return entries;
+    static {
+        register(FSMAnimationState.ENUM_MANAGER, FSMAnimationStateHolder::new, FSMAnimationStateHolder.CODEC);
+        register(AnimationLayerSignature.ENUM_MANAGER, AnimationLayerSignatureHolder::new, AnimationLayerSignatureHolder.CODEC);
+        register(AnimationInterfaceKey.ENUM_MANAGER, AnimationInterfaceKeyHolder::new, AnimationInterfaceKeyHolder.CODEC);
+        register(WeaponStance.ENUM_MANAGER, WeaponStanceHolder::new, WeaponStanceHolder.CODEC);
     }
 
-    private static <T extends EnumerableDataBlock, H extends DataBlockHolder<T>> void register(
-        Map<ResourceKey<? extends Registry<?>>, Entry<?, ?>> into,
+    /// Registers the editor holder for one data block type: the engine manager the type is registered
+    /// under, a factory for freshly created entries, and the editor persistence codec.
+    ///
+    /// `manager` must carry a `MapCodec` — a type built through `EnumerableDataBlockManager(String)`
+    /// has no data pack form and cannot be authored here.
+    ///
+    /// Synchronized: [GuardedDataBlockCodec] reaches [#entryOf] from whichever worker thread
+    /// `RegistryDataLoader` decodes a data pack registry on.
+    public static synchronized <T extends EnumerableDataBlock, H extends DataBlockHolder<T>> void register(
         EnumerableDataBlockManager<T> manager,
         Supplier<H> holderFactory,
         Codec<H> codec
     ) {
-        into.put(manager.directoryKey(), new Entry<>(manager, holderFactory, codec));
+        if (manager.getMapCodec() == null) {
+            throw new IllegalArgumentException(
+                "Data block type " + manager.directoryKey().identifier() + " has no data pack codec");
+        }
+
+        if (ENTRIES.putIfAbsent(manager.directoryKey(), new Entry<>(manager, holderFactory, codec)) != null) {
+            throw new IllegalStateException(
+                "Data block holder already registered for " + manager.directoryKey().identifier());
+        }
     }
 
-    public static Collection<Entry<?, ?>> all() {
-        return entries().values();
+    public static synchronized Collection<Entry<?, ?>> all() {
+        return List.copyOf(ENTRIES.values());
     }
 
     /// The catalogue entry for a data block tree root's tag — its labs registry key. Null for any
     /// other tag.
-    public static @Nullable Entry<?, ?> entryOf(Object tag) {
-        return entries().get(tag);
+    public static synchronized @Nullable Entry<?, ?> entryOf(Object tag) {
+        return ENTRIES.get(tag);
     }
 
     /// Tag → processor dispatch for [ResourceProcessor#forTag]. The tag for a data block tree root is its

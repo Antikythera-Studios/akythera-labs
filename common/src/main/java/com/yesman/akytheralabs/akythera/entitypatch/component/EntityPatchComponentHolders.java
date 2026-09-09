@@ -1,15 +1,15 @@
 package com.yesman.akytheralabs.akythera.entitypatch.component;
 
 import com.yesman.akythera.core.Akythera;
-import com.yesman.akythera.core.blueprint.ComponentBlueprint;
+import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.dataholder.ComponentHolderRegistry;
 import net.minecraft.resources.Identifier;
 
-/// The entity-patch [ComponentHolderRegistry] — the editor holders for the component types tagged
-/// [ComponentBlueprint#ENTITY_PATCH_COMPONENT_TAG]. Register through [#REGISTRY] directly; compat plugins do
-/// so during client init.
+/// The entity-patch [ComponentHolderRegistry] — the editor holders for the component types of
+/// [AkytheraRegistries.Frozen#ENTITY_PATCH_COMPONENT_TYPES]. Register through [#REGISTRY] directly;
+/// compat plugins do so during client init.
 ///
-/// A tagged type is not automatically offerable at the root of a patch; only holders implementing
+/// A registered type is not automatically offerable at the root of a patch; only holders implementing
 /// [RootAttachableComponent] are. `akythera:bone_socket` is the standing example — an entity-patch
 /// component reachable only by attaching it under an [ArmatureComponentHolder].
 public final class EntityPatchComponentHolders {
@@ -21,18 +21,19 @@ public final class EntityPatchComponentHolders {
     public static final Identifier EQUIPMENT = Akythera.identifier("equipment");
     public static final Identifier MESH = Akythera.identifier("mesh");
 
-    public static final ComponentHolderRegistry REGISTRY = new ComponentHolderRegistry();
+    public static final ComponentHolderRegistry REGISTRY =
+        new ComponentHolderRegistry(AkytheraRegistries.Frozen.ENTITY_PATCH_COMPONENT_TYPES);
 
     static {
         REGISTRY.register(ARMATURE, ArmatureComponentHolder.class,
-            ArmatureComponentHolder::createDefault, ArmatureComponentHolder.EDITOR_CODEC);
+            _ -> ArmatureComponentHolder.createDefault(), ArmatureComponentHolder.EDITOR_CODEC);
         REGISTRY.register(BONE_SOCKET, BoneSocketHolder.class,
-            BoneSocketHolder::createDefault, BoneSocketHolder.EDITOR_CODEC);
+            _ -> BoneSocketHolder.createDefault(), BoneSocketHolder.EDITOR_CODEC);
         REGISTRY.register(ENTITY_MODEL, EntityModelComponentHolder.class,
-            EntityModelComponentHolder::createDefault, EntityModelComponentHolder.EDITOR_CODEC);
+            _ -> EntityModelComponentHolder.createDefault(), EntityModelComponentHolder.EDITOR_CODEC);
         REGISTRY.register(EQUIPMENT, EquipmentComponentHolder.class,
-            EquipmentComponentHolder::createDefault, EquipmentComponentHolder.EDITOR_CODEC);
+            _ -> EquipmentComponentHolder.createDefault(), EquipmentComponentHolder.EDITOR_CODEC);
         REGISTRY.register(MESH, MeshComponentHolder.class,
-            MeshComponentHolder::createDefault, MeshComponentHolder.EDITOR_CODEC);
+            _ -> MeshComponentHolder.createDefault(), MeshComponentHolder.EDITOR_CODEC);
     }
 }

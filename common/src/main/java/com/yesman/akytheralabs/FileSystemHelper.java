@@ -178,6 +178,26 @@ public final class FileSystemHelper {
         }
     }
 
+    /// Copies `source` onto `target` whole: one regular file, or a directory tree rebuilt under
+    /// `target`. Existing destination files are replaced. Returns `false` on IO failure (logged).
+    public static boolean copyRecursive(Path source, Path target) {
+        if (Files.isRegularFile(source)) return copyReplace(source, target);
+
+        try (Stream<Path> walk = Files.walk(source)) {
+            for (Path entry : walk.toList()) {
+                Path destination = target.resolve(source.relativize(entry).toString());
+
+                if (Files.isDirectory(entry)) Files.createDirectories(destination);
+                else copyReplace(entry, destination);
+            }
+
+            return true;
+        } catch (IOException e) {
+            AkytheraLabs.LOGGER.error("Failed to copy {} -> {}", source, target, e);
+            return false;
+        }
+    }
+
     // ---------- move ----------
 
     /// `Files.move` after ensuring the destination's parent exists. Returns

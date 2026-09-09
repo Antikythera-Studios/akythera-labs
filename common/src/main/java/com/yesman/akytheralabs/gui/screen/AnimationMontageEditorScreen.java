@@ -24,6 +24,7 @@ import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -67,6 +68,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -386,14 +388,26 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
             font,
             holder.getPreviewModel(),
             newModel -> {
-                holder.setPreviewModel(newModel);
-                EntityPreviewModel.display(model3DViewer, newModel, true, true);
-                EntityModelComponent entityModelComponent = model3DViewer.getComponent(EntityModelComponent.class);
-                if (entityModelComponent != null) installMontageAnimator(entityModelComponent);
+                EntityPreviewModel oldModel = holder.getPreviewModel();
+                if (Objects.equals(oldModel, newModel)) return;
+
+                applyPreviewModel(newModel);
+                HistoryManager.getInstance().pushHistory(
+                    new DataChange<>(oldModel, newModel, this::applyPreviewModel));
             }
         );
 
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+    }
+
+    /// Installs `model` as the previewed entity: the holder field, the viewer, and the montage
+    /// animator the new entity needs rebuilding on. Undo and redo replay it.
+    private void applyPreviewModel(@Nullable EntityPreviewModel model) {
+        holder.setPreviewModel(model);
+        EntityPreviewModel.display(model3DViewer, model, true, true);
+
+        EntityModelComponent entityModelComponent = model3DViewer.getComponent(EntityModelComponent.class);
+        if (entityModelComponent != null) installMontageAnimator(entityModelComponent);
     }
 
     private void layoutWidgets() {

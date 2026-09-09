@@ -20,6 +20,7 @@ import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -51,6 +52,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
@@ -214,13 +216,24 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
             font,
             holder.getPreviewModel(),
             newModel -> {
-                holder.setPreviewModel(newModel);
-                EntityPreviewModel.display(model3DViewer, newModel, true, true);
-                refreshPreviewAnimation();
+                EntityPreviewModel oldModel = holder.getPreviewModel();
+                if (Objects.equals(oldModel, newModel)) return;
+
+                applyPreviewModel(newModel);
+                HistoryManager.getInstance().pushHistory(
+                    new DataChange<>(oldModel, newModel, this::applyPreviewModel));
             }
         );
 
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+    }
+
+    /// Installs `model` as the previewed entity: the holder field, the viewer, and the clip replayed
+    /// on the entity the viewer built. Undo and redo replay it.
+    private void applyPreviewModel(@Nullable EntityPreviewModel model) {
+        holder.setPreviewModel(model);
+        EntityPreviewModel.display(model3DViewer, model, true, true);
+        refreshPreviewAnimation();
     }
 
     /// (Re)plays the holder's clip on the previewer's current entity component and rewires the

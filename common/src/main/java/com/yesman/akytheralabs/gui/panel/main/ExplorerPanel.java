@@ -460,6 +460,12 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         return entry != null ? entry.node : null;
     }
 
+    /// True while a tree node's rename box is open. Read by [ContentBrowserPanel], whose shortcuts
+    /// reach it through the panel manager's key fan-out even while this panel holds focus.
+    public boolean isEditingName() {
+        return treeList != null && treeList.editingEntry != null;
+    }
+
     public void setDragHighlightNode(@Nullable TreeNode node) {
         treeList.dragHighlightNode = node;
     }
@@ -478,6 +484,11 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         if (target == null
             || target.processor == null
             || !target.processor.canCreateSubDirectories()) return false;
+
+        // Same refusal the paste makes: a category whose id path opens with the entry's namespace
+        // takes no entry directly in its registry root.
+        if (target.processor.pathEncodesNamespace() && ResourceProcessor.regRootOf(target) == target) return false;
+
         return target.processor == sourceProcessor
             && (treeList.getSelected() == null || target != treeList.getSelected().node);
     }

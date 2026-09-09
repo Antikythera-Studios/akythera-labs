@@ -4,7 +4,6 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
-import com.yesman.akythera.api.world.patch.entity.PlayerPatch;
 import com.yesman.akythera.client.core.renderer.RenderUtils;
 import com.yesman.akythera.client.gui.widget.viewer.BackgroundComponent;
 import com.yesman.akythera.client.gui.widget.viewer.CameraComponent;
@@ -12,7 +11,6 @@ import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
 import com.yesman.akythera.client.gui.widget.viewer.GridFloorComponent;
 import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.core.blueprint.ComponentBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akythera.core.math.Transform;
@@ -38,7 +36,6 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.panel.components.ComponentDetailsPanel;
 import com.yesman.akytheralabs.gui.panel.components.ComponentEditorPanel;
-import com.yesman.akytheralabs.gui.panel.main.processors.EntityPatchResourceProcessor;
 import com.yesman.akytheralabs.gui.panel.script.VariableDraft;
 import com.yesman.akytheralabs.gui.panel.script.VariableEditController;
 import com.yesman.akytheralabs.gui.panel.script.VariablePanel;
@@ -66,6 +63,7 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.entity.Entity;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -78,18 +76,16 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-/// Editor screen for an [EntityPatchBlueprintHolder] (an [EntityPatchBlueprint]).
-///
-/// Modeled on Unreal's Actor Blueprint editor and on [AnimatorScriptEditorScreen]: a three-column
+/// Editor screen for an [EntityPatchBlueprintHolder] (an [EntityPatchBlueprint]): a three-column
 /// layout under the top menu bar — Components + Variables on the left, a Preview / Event Graph tab
 /// pair in the center, a Details panel on the right.
 ///
-/// The Event Graph hosts the blueprint's three entry points — `onConstruct`, `onJoinWorld`,
-/// `update` — as [EntityPatchEntryNodeWidget] nodes on one canvas. A focused component's canvas
-/// properties open beside it as their own tabs ([#openResultGraphTab]).
+/// The Event Graph hosts the blueprint's three entry points — `onConstruct`, `onJoinWorld`, `update`
+/// — as [EntityPatchEntryNodeWidget] nodes on one canvas. A focused component's canvas properties
+/// open beside it as their own tabs ([#openResultGraphTab]).
 ///
-/// `File > Change Parent` picks the [EntityPatch] subclass the engine builds this patch with; that
-/// choice is the script owner type of every canvas on the screen.
+/// `File > Change Parent` picks the [EntityPatch] subclass the engine builds this patch with, which is
+/// the script owner type of every canvas on the screen.
 public final class EntityPatchEditorScreen extends Screen
     implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost
 {
@@ -117,8 +113,8 @@ public final class EntityPatchEditorScreen extends Screen
     private final Model3DViewer model3DViewer;
     private final TabPanel centerTabs;
 
-    /// The live Event Graph canvas (hosts the three entry nodes). Flushed to the holder on save /
-    /// compile; kept so a variable retype can retarget its Get / Set nodes.
+    /// The live Event Graph canvas hosting the three entry nodes, flushed to the holder on save and
+    /// compile.
     private final ScriptNodeGraphWidget eventGraph;
 
     private final ComponentEditorPanel componentPanel;
@@ -161,7 +157,7 @@ public final class EntityPatchEditorScreen extends Screen
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
 
-        // Preview — shows the entity picked when the blueprint was created (stored on the holder).
+        // Preview: the entity picked when the blueprint was created, stored on the holder
         model3DViewer = new Model3DViewer(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -174,7 +170,7 @@ public final class EntityPatchEditorScreen extends Screen
         model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
         EntityPreviewModel.display(model3DViewer, holder.getPreviewModel(), true, true);
 
-        // Event Graph — a live node canvas seeded with the three entry nodes.
+        // Event Graph: a live node canvas seeded with the three entry nodes
         eventGraph = new ScriptNodeGraphWidget(
             minecraft.font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -196,8 +192,7 @@ public final class EntityPatchEditorScreen extends Screen
             eventGraph.addNode(new EntityPatchEntryNodeWidget(
                 minecraft.font, EntityPatchEntryNodeWidget.Kind.UPDATE, ENTRY_X, ENTRY_Y + ENTRY_GAP * 2));
         } else {
-            // The entry rows rebuild directly from their persisted kind marker, so the entry factory
-            // (used only for legacy animator-style ENTRY rows) is never consulted here.
+            // Entry rows rebuild from their persisted kind marker, so the entry factory is unused
             eventGraph.importGraph(savedEventGraph, (_, _, _) -> null);
         }
 
@@ -223,17 +218,15 @@ public final class EntityPatchEditorScreen extends Screen
             }
         };
 
-        // Components (top-left): edits the blueprint's component tree in place — the patch holder
-        // is the tree's root host. Focusing a row shows that component's editable fields in the
-        // Details panel (right).
+        // Components (top-left): edits the blueprint's component tree in place, the patch holder
+        // being the tree's root host
         componentPanel = new ComponentEditorPanel(
-            minecraft.font, this, ComponentBlueprint.ENTITY_PATCH_COMPONENT_TAG,
-            EntityPatchComponentHolders.REGISTRY, holder, RenderUtils.renderStateOf(patchedEntityTypeId()),
-            this::rebuildSocketPreviews, this::onComponentFocused);
+            minecraft.font, this, EntityPatchComponentHolders.REGISTRY, holder,
+            RenderUtils.renderStateOf(patchedEntityTypeId()),
+            Map::of, this::rebuildSocketPreviews, this::onComponentFocused);
 
-        // Variables (bottom-left): a working draft list edited inline (name + type combo per row).
-        // Variables have no Details rows of their own — the right panel shows components — so the
-        // controller's "refresh details" hook is a no-op.
+        // Variables (bottom-left): a working draft list edited inline (name + type combo per row),
+        // with no Details rows of their own
         variableDrafts = new ArrayList<>();
         for (ScriptVariables.VariableInfo info : holder.getVariables()) {
             variableDrafts.add(VariableDraft.from(info));
@@ -277,25 +270,36 @@ public final class EntityPatchEditorScreen extends Screen
     // Parent (the patch's constructor)
     // ***************************************************************
 
-    /// One choice per [ScriptFunction.Usage#ENTITY_PATCH_CTOR] function, filling the top menu's
-    /// `Change Parent` sub-list.
+    /// One choice per [ScriptFunction.Usage#ENTITY_PATCH_CTOR] function the patched entity can be
+    /// built as, filling the top menu's `Change Parent` sub-list.
     private List<UniversalMenu.Choice> parentChoices() {
+        Class<? extends Entity> entityClass = RenderUtils.entityClassOf(patchedEntityTypeId());
         List<UniversalMenu.Choice> choices = new ArrayList<>();
 
         for (ScriptFunction function : AkytheraRegistries.Frozen.SCRIPT_FUNCTION) {
             if (function.metadata().usage() != ScriptFunction.Usage.ENTITY_PATCH_CTOR) continue;
+
+            List<Class<?>> parameters = function.functionSignature().parameters();
+            if (parameters.size() < 2 || !parameters.get(1).isAssignableFrom(entityClass)) continue;
+
             choices.add(new UniversalMenu.Choice(Component.literal(function.metadata().label()), () -> changeParent(function)));
         }
 
         return choices;
     }
 
-    /// Re-parents the blueprint. The Event Graph's owner type follows, so its `self` badges and its
-    /// suggestion list re-scope to the new parent immediately.
+    /// Re-parents the blueprint, moving the script owner type of every canvas on screen with it and
+    /// re-flagging whatever the new owner can no longer reach.
     private void changeParent(ScriptFunction ctor) {
         Consumer<ScriptFunction> writer = value -> {
             holder.setCtor(value);
-            eventGraph.setScriptOwnerType(value.functionSignature().returnType());
+
+            Class<?> owner = value.functionSignature().returnType();
+
+            eventGraph.setScriptOwnerType(owner);
+            openGraphs.values().forEach(graph -> graph.setScriptOwnerType(owner));
+
+            validateLiveCanvases();
         };
 
         HistoryManager.getInstance().pushHistory(new DataChange<>(holder.getCtor(), ctor, writer));
@@ -308,8 +312,7 @@ public final class EntityPatchEditorScreen extends Screen
     }
 
     /// The entity type this patch is keyed by: its registry id's path re-read as an entity type id
-    /// (`myproject:minecraft/player` → `minecraft:player`), matching how [EntityPatchResourceProcessor]
-    /// builds it.
+    /// (`myproject:minecraft/player` → `minecraft:player`).
     private Identifier patchedEntityTypeId() {
         String path = resourceKey.identifier().getPath();
         int split = path.indexOf('/');
@@ -393,8 +396,7 @@ public final class EntityPatchEditorScreen extends Screen
     }
 
     /// Selection handler for every canvas on this screen: a node carrying its own editable properties
-    /// takes over the Details panel, the way a focused component does. Anything else hands the panel
-    /// back to the focused component.
+    /// takes over the Details panel, anything else hands the panel back to the focused component.
     private void onNodeSelected(@Nullable AbstractNodeWidget node) {
         if (node instanceof MeshLiteralNodeWidget meshLiteral) {
             detailsPanel.showComponent(meshLiteral);
@@ -404,8 +406,7 @@ public final class EntityPatchEditorScreen extends Screen
         componentPanel.refocusDetails();
     }
 
-    /// A param declared as [EntityPatch] is the owner slot: it takes this patch's parent type, so an
-    /// owner pin drag offers the parent's own methods.
+    /// A param declared as [EntityPatch] is the owner slot: it takes this patch's parent type.
     private List<ContextEntryNodeWidget.ContextParam> narrowOwnerParams(
         List<ContextEntryNodeWidget.ContextParam> params
     ) {
@@ -417,7 +418,7 @@ public final class EntityPatchEditorScreen extends Screen
     }
 
     // ***************************************************************
-    // Node suggestions (SCRIPT domain only — the Event Graph)
+    // Node suggestions (SCRIPT domain only: the Event Graph)
     // ***************************************************************
 
     /// The literal types offered when a value drag carries no concrete expected type.
@@ -427,9 +428,7 @@ public final class EntityPatchEditorScreen extends Screen
     /// The category folder member-variable getters are filed under.
     private static final String MEMBER_VARIABLES_CATEGORY = "Member Variables";
 
-    /// Routes a gesture to the matching suggestion set: an execution drag gets flow nodes, a
-    /// data-input drag gets value providers, a parameter-output drag gets consuming pure functions,
-    /// and an empty-canvas right-click gets both flow nodes and pure functions plus the member getters.
+    /// Routes a gesture to the suggestion sets its [NodeSuggestContext] asks for.
     private List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> buildNodeSuggestions(ScriptNodeGraphWidget graph, NodeSuggestContext context) {
         List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions = new ArrayList<>();
         boolean pureCanvas = context.dataFlowOnly();
@@ -438,8 +437,7 @@ public final class EntityPatchEditorScreen extends Screen
         if (context.valueProviders()) addValueProviderSuggestions(suggestions, context.expectedType(), pureCanvas);
         if (context.pureFunctions()) addPureFunctionSuggestions(suggestions, context.expectedType(), context.providedType(), context.functionFilter());
 
-        // Empty-canvas "All Actions" menu also offers the member getters (a value-consumer drag —
-        // flow + pure with a providedType — wants consumers, not getters, so it is excluded).
+        // The empty-canvas "All Actions" menu also offers the member getters
         if (context.flow() && context.pureFunctions() && context.providedType() == null && !pureCanvas) {
             addMemberVariableGetters(suggestions, null);
         }
@@ -490,8 +488,7 @@ public final class EntityPatchEditorScreen extends Screen
     }
 
     /// Value providers filling a **data input**: the Self node, an inline Literal, and a getter per
-    /// variable whose type can satisfy `expectedType`. A pure canvas has no member variables to read
-    /// — its only local is the owner the host binds — so the getters are dropped there.
+    /// variable whose type can satisfy `expectedType`. A pure canvas gets no getters.
     private void addValueProviderSuggestions(
         List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions,
         @Nullable Class<?> expectedType,
@@ -563,11 +560,15 @@ public final class EntityPatchEditorScreen extends Screen
                 "Asset"));
         }
 
-        if (AbstractNodeWidget.valueAssignable(boolean.class, expectedType)
-            && AbstractNodeWidget.valueAssignable(providedType, double.class)) {
+        if (AbstractNodeWidget.valueAssignable(boolean.class, expectedType)) {
             for (ComparatorNodeWidget.Operator op : ComparatorNodeWidget.Operator.values()) {
+                // Ordering runs on the numeric comparator; equality runs on any operand.
+                if (op != ComparatorNodeWidget.Operator.EQUAL
+                    && !AbstractNodeWidget.valueAssignable(providedType, double.class)) continue;
+
                 suggestions.add(new NodeSuggestModal.Suggestion<>(
-                    Component.literal(op.menuLabel()), (font, x, y) -> new ComparatorNodeWidget(font, op, x, y), "Math"));
+                    Component.literal(op.menuLabel()), (font, x, y) -> new ComparatorNodeWidget(font, op, x, y),
+                    op == ComparatorNodeWidget.Operator.EQUAL ? "Logic" : "Math"));
             }
         }
 
@@ -590,8 +591,7 @@ public final class EntityPatchEditorScreen extends Screen
         }
     }
 
-    /// Offers explicit numeric type-conversion entries for a pin dropped on empty canvas (mirrors the
-    /// animator-script editor's [TypeConvertNodeWidget] offering).
+    /// Offers explicit numeric type-conversion entries for a pin dropped on empty canvas.
     private void addTypeConvertSuggestions(
         List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions,
         NodeSuggestContext context
@@ -600,7 +600,7 @@ public final class EntityPatchEditorScreen extends Screen
         if (provided != null) {
             ScriptType from = scriptTypeOf(provided);
             if (from == null) return;
-            for (Class<?> target : from.explicitCastableTypes().keySet()) {
+            for (Class<?> target : from.implicitlyCastableTypes().keySet()) {
                 suggestions.add(new NodeSuggestModal.Suggestion<>(
                     Component.literal("Convert to " + TypeConvertNodeWidget.typeName(target)),
                     (font, x, y) -> new TypeConvertNodeWidget(font, provided, target, x, y)));
@@ -612,7 +612,7 @@ public final class EntityPatchEditorScreen extends Screen
         if (expected == null) return;
         Class<?> expectedBoxed = boxedType(expected);
         for (ScriptType st : AkytheraRegistries.Frozen.SCRIPT_TYPE) {
-            if (!st.explicitCastableTypes().containsKey(expectedBoxed)) continue;
+            if (!st.implicitlyCastableTypes().containsKey(expectedBoxed)) continue;
             Class<?> source = st.type();
             suggestions.add(new NodeSuggestModal.Suggestion<>(
                 Component.literal("Convert " + TypeConvertNodeWidget.typeName(source)
@@ -625,13 +625,13 @@ public final class EntityPatchEditorScreen extends Screen
         return function.functionSignature().parameters().stream().anyMatch(Comparator.class::isAssignableFrom);
     }
 
-    /// Whether `function` can be called on this patch: a member function's receiver slot (parameter 0) has to
-    /// accept the parent type, so [PlayerPatch]'s methods are offered only to a patch parented on it.
+    /// Whether `function` can be called on this patch: a member function's receiver slot (parameter 0)
+    /// has to accept the parent type.
     private boolean ownerAccepts(ScriptFunction function) {
         if (!function.isMember()) return true;
 
         List<Class<?>> parameters = function.functionSignature().parameters();
-        return !parameters.isEmpty() && parameters.getFirst().isAssignableFrom(ownerType());
+        return !parameters.isEmpty() && ScriptType.castable(ownerType(), parameters.getFirst());
     }
 
     private NodeSuggestModal.Suggestion<NodeWidgetFactory> literalSuggestion(Class<?> type) {
@@ -743,9 +743,8 @@ public final class EntityPatchEditorScreen extends Screen
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
-    /// Compiles the live canvas into the runtime blueprint in memory only, so the author can sanity
-    /// check that the graph lowers cleanly. Marks any invalid nodes (red ERROR banner) and aborts on
-    /// the first failure, mirroring [AnimatorScriptEditorScreen]'s compile step.
+    /// Compiles the live canvas into the runtime blueprint in memory only. Marks any invalid node with
+    /// a red ERROR banner and aborts on the first failure.
     private void compile() {
         flushToHolder();
 
@@ -754,8 +753,7 @@ public final class EntityPatchEditorScreen extends Screen
             return;
         }
 
-        // Unresolved (failed-decode) nodes are a hard compile error — report each row instead of
-        // letting the compiler gate's throw surface as a bare exception.
+        // Unresolved (failed-decode) nodes are a hard compile error
         if (!holder.getEventGraph().failedNodes().isEmpty()) {
             for (ScriptGraphData.FailedNode f : holder.getEventGraph().failedNodes()) {
                 AkytheraLabs.LOGGER.warn("Compile of entity patch '{}' aborted — unresolved node (id {}): {}",
@@ -773,9 +771,8 @@ public final class EntityPatchEditorScreen extends Screen
     }
 
     /// Validates every canvas with widgets on screen — the Event Graph plus each open result /
-    /// condition sub-tab — and returns whether any failed. Every canvas is validated even once one has
-    /// failed: [ScriptNodeGraphWidget#validate] is what paints a node's red "ERROR!" banner, so
-    /// stopping early would leave the offending node on a later tab unmarked.
+    /// condition sub-tab — and returns whether any failed. [ScriptNodeGraphWidget#validate] paints a
+    /// node's red "ERROR!" banner, so no canvas is skipped once one has failed.
     private boolean validateLiveCanvases() {
         boolean failed = !eventGraph.validate().isEmpty();
 
@@ -787,17 +784,15 @@ public final class EntityPatchEditorScreen extends Screen
     }
 
     /// Writes the Event Graph, the variables and any open canvas tab back onto the holder. Components
-    /// need no flush: the Components panel attaches, renames and removes on the holder's own tree,
-    /// exactly as the Details panel already writes component values straight into their holders.
-    /// Discarding is the quit path's reload-from-disk.
+    /// are edited on the holder's own tree and need no flush.
     private void flushToHolder() {
         holder.setEventGraph(eventGraph.exportGraph());
         holder.setVariables(variableDrafts.stream().map(VariableDraft::toInfo).toList());
         graphFlushes.forEach(Runnable::run);
     }
 
-    /// [ComponentEditorPanel] focus callback → the Details panel (right). `host` rides along as the
-    /// rows' context: a bone socket's bone list comes off the armature component it is attached to.
+    /// [ComponentEditorPanel] focus callback: shows the component in the Details panel, with `host` as
+    /// its rows' context.
     private void onComponentFocused(
         @Nullable ComponentDataHolder<?> component, @Nullable ComponentAttachableHolder host
     ) {
@@ -806,11 +801,9 @@ public final class EntityPatchEditorScreen extends Screen
         model3DViewer.focus(component instanceof BoneSocketHolder socket ? previewOf(socket) : null);
     }
 
-    /// Rebuilds the preview's component stand-ins from the component tree, which they mirror rather
-    /// than keeping a list of their own.
+    /// Rebuilds the preview's component stand-ins from the component tree.
     private void rebuildSocketPreviews() {
-        // They are replaced wholesale, so the focused socket is carried across by holder and
-        // re-focused on its new marker — a rename would otherwise drop the gizmo.
+        // The markers are replaced wholesale, so the focus is carried across by socket holder
         BoneSocketHolder refocus = model3DViewer.getFocused() instanceof BoneSocketPreviewComponent preview
             ? preview.getSocket()
             : null;
@@ -831,8 +824,8 @@ public final class EntityPatchEditorScreen extends Screen
         if (refocus != null) model3DViewer.focus(previewOf(refocus));
     }
 
-    /// One socket's marker, plus an item model for every equipment component attached under it —
-    /// drawn right at the marker, which is the whole placement an equipment component has.
+    /// One socket's marker, plus an item model drawn at the marker for every equipment component
+    /// attached under it.
     private void addSocketPreview(BoneSocketHolder socket, EntityModelComponent model) {
         BoneSocketPreviewComponent marker = new BoneSocketPreviewComponent(
             socket, model,
@@ -866,7 +859,7 @@ public final class EntityPatchEditorScreen extends Screen
         }
     }
 
-    /// The component `socket` is attached under, for the Details rows' candidate lists.
+    /// The component `socket` is attached under.
     private @Nullable ComponentAttachableHolder hostOf(BoneSocketHolder socket) {
         return ComponentAttachableHolder.flatten(holder)
             .filter(ComponentAttachableHolder.class::isInstance)

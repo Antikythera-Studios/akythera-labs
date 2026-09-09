@@ -5,7 +5,7 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.data.modularize.AkytheraScriptTypes;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
-import com.yesman.akythera.api.data.modularize.impl.NumericComparators;
+import com.yesman.akythera.api.data.modularize.impl.ScriptComparators;
 import com.yesman.akythera.api.data.modularize.node.LiteralNode;
 import com.yesman.akythera.api.data.modularize.node.PureFunctionNode;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
@@ -19,9 +19,10 @@ import java.util.List;
 import java.util.stream.IntStream;
 
 /// Compares the two values on data inputs 0 and 1, yielding a boolean. Lowers to the matching
-/// `MathUtils` comparison [ScriptFunction] over the type-agnostic
-/// [NumericComparators#NUMBER_COMPARATOR], so it needs no operand type (which the editor's
-/// type-detecting widget decides but never persists).
+/// `MathUtils` comparison [ScriptFunction] over one of the [ScriptComparators] singletons:
+/// [ScriptComparators#EQUALITY_COMPARATOR] for `==`, which answers for any operand type, and
+/// [ScriptComparators#NUMBER_COMPARATOR] for the ordering operators. Either way the operand type
+/// itself is not needed, which is why the editor's type-detecting widget never persists it.
 public record ComparatorNodeData(ComparatorNodeWidget.Operator operator) implements NodeData {
     public static final MapCodec<ComparatorNodeData> CODEC = RecordCodecBuilder.mapCodec(
         instance ->
@@ -54,7 +55,11 @@ public record ComparatorNodeData(ComparatorNodeWidget.Operator operator) impleme
         return new PureFunctionNode(
             comparisonFunction(),
             List.of(
-                new LiteralNode<>(AkytheraScriptTypes.NUMERIC_COMPARATOR.value(), NumericComparators.NUMBER_COMPARATOR),
+                new LiteralNode<>(
+                    AkytheraScriptTypes.NUMERIC_COMPARATOR.value(),
+                    operator == ComparatorNodeWidget.Operator.EQUAL
+                        ? ScriptComparators.EQUALITY_COMPARATOR
+                        : ScriptComparators.NUMBER_COMPARATOR),
                 in.valueOr(0, null),
                 in.valueOr(1, null)),
             in.id());

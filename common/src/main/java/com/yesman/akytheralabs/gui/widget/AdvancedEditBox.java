@@ -31,7 +31,7 @@ import java.util.function.Predicate;
 
 /// Modeled after [EditBox] with extra functionality and switchable background style via [EditBoxTheme].
 public final class AdvancedEditBox<T> extends AbstractWidget
-    implements AnchoredWidget, DataBoundWidget<T>, ThemeApplicableWidget<EditBoxTheme>, WarningMarkableWidget<T>
+    implements AnchoredWidget, PlaceholderExpressionWidget<T>, ThemeApplicableWidget<EditBoxTheme>, WarningMarkableWidget<T>
 {
     private static final int TEXT_PADDING = 4;
     private static final int CURSOR_BLINK_INTERVAL_MS = 600;
@@ -110,6 +110,12 @@ public final class AdvancedEditBox<T> extends AbstractWidget
 
     private @Nullable T value;
     private String text = "";
+
+    /// Drawn grey in place of [#getMessage] while [#value] is unset. Null = no placeholder.
+    private @Nullable T placeholderValue;
+
+    /// Overrides the text color the editable state would pick. Null leaves it to that state.
+    private @Nullable Integer textColor;
 
     /// Called when editing is done (focus-loss / Enter), not per keystroke. Receives the value
     /// bound at focus-gain (the `old` argument) and the freshly committed value (`new`). Fires on
@@ -193,7 +199,12 @@ public final class AdvancedEditBox<T> extends AbstractWidget
 
         if (text.isEmpty() && !focused) {
             // Placeholder message
-            graphics.text(font, getMessage(), x + TEXT_PADDING, textY, 0xFF555555, false);
+            // The installed placeholder value, else the box's own message.
+            Component placeholder = hasPlaceholderValue()
+                ? Component.literal(serializer.apply(placeholderValue))
+                : getMessage();
+
+            graphics.text(font, placeholder, x + TEXT_PADDING, textY, 0xFF555555, false);
         } else {
             // Clamp displayOffset so the active end of input — the editing caret, or the dragged end
             // of a selection — stays visible. The view therefore follows the drag.
@@ -203,7 +214,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
             // are re-clamped against the drawn string rather than driving it.
             String display = displayText();
             int from = Math.min(displayOffset, display.length());
-            String visible = font.plainSubstrByWidth(display.substring(from), w - TEXT_PADDING * 2);
+            String visible = font.plainSubstrByWidth(display.substring(from), textAreaWidth());
 
             // Selection highlight (drawn under the text).
             if (hasSelection()) {
@@ -217,8 +228,8 @@ public final class AdvancedEditBox<T> extends AbstractWidget
                 }
             }
 
-            int textColor = editable ? 0xFFCCCCCC : 0xFF7A7A7A;
-            graphics.text(font, visible, x + TEXT_PADDING, textY, textColor, false);
+            int color = textColor != null ? textColor : editable ? 0xFFCCCCCC : 0xFF7A7A7A;
+            graphics.text(font, visible, x + TEXT_PADDING, textY, color, false);
 
             // Blinking cursor (only when editable + focused — where display is the raw text)
             if (editable && focused && cursorBlinkOn()) {
@@ -226,6 +237,11 @@ public final class AdvancedEditBox<T> extends AbstractWidget
                 graphics.fill(cursorScreenX, textY - 1, cursorScreenX + 1, textY + 9, 0xFFCCCCCC);
             }
         }
+    }
+
+    /// The width text may use: the box minus its padding.
+    private int textAreaWidth() {
+        return getWidth() - TEXT_PADDING * 2;
     }
 
     /// The string that actually reaches the screen: [#text] through [#formatter], if one is set.
@@ -253,7 +269,7 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         cursorPos = Math.clamp(cursorPos, 0, len);
         displayOffset = Math.clamp(displayOffset, 0, cursorPos);
 
-        int innerWidth = getWidth() - TEXT_PADDING * 2;
+        int innerWidth = textAreaWidth();
         if (innerWidth <= 0) return; // not laid out yet — don't scroll text off-screen
 
         if (font.width(text.substring(displayOffset, cursorPos)) > innerWidth) {
@@ -686,9 +702,10 @@ public final class AdvancedEditBox<T> extends AbstractWidget
     }
 
     /// Sets the value from a typed T, updating both internal state and display text.
-    public void setValue(T value) {
+    /// Null is the unset state, where the box empties and [#placeholderValue] takes over.
+    public void setValue(@Nullable T value) {
         this.value = value;
-        this.text = serializer.apply(value);
+        this.text = value == null ? "" : serializer.apply(value);
         moveCursor(cursorPos, false);
         this.displayOffset = 0;
     }
@@ -727,6 +744,12 @@ public final class AdvancedEditBox<T> extends AbstractWidget
         return editable;
     }
 
+    public AdvancedEditBox<T> setTextColor(@Nullable Integer textColor) {
+        this.textColor = textColor;
+
+        return this;
+    }
+
     public @Nullable T getValue() {
         return value;
     }
@@ -748,6 +771,27 @@ public final class AdvancedEditBox<T> extends AbstractWidget
     public void unmark() {
         warned = false;
     }
+
+    // ***************************************************************
+    // [PlaceholderExpressionWidget] implementations
+    // ***************************************************************
+    @Override
+    public @Nullable T getPlaceholderValue() {
+        return placeholderValue;
+    }
+
+    @Override
+    public void setPlaceholderValue(@Nullable T value) {
+        this.placeholderValue = value;
+    }
+
+    /// [#value] is the unset test, not [#text]: a box cleared back to empty holds `""`. Whether the
+    /// state reaches the screen is [#extractWidgetRenderState]'s empty-and-unfocused branch.
+    @Override
+    public boolean hasPlaceholderValue() {
+        return placeholderValue != null && value == null;
+    }
+
 
     // ***************************************************************
     // [ThemeApplicableWidget] implementations

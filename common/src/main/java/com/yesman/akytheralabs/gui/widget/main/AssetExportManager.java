@@ -378,10 +378,15 @@ public final class AssetExportManager {
 
         for (int i = 0; i < 3; i++) AkAssetWriter.writeFloat(out, 1.0F);    // sca
 
+        AkAssetWriter.writeFloat(out, 0.0F);                                // to_tail, straight up
+        AkAssetWriter.writeFloat(out, ArmatureLoader.GENERATED_ROOT_TAIL_HEIGHT);
+        AkAssetWriter.writeFloat(out, 0.0F);
+
         AkAssetWriter.writeInt(out, childCount);
     }
 
-    /// Writes one bone record — name, loc / rot / sca, child count — then recurses into `children`.
+    /// Writes one bone record — name, loc / rot / sca / to_tail, child count — then recurses into
+    /// `children`.
     ///
     /// Mirrors `JsonArmatureLoader`'s workaround for a mis-declared `armature_format`: the element's
     /// own shape wins, and the corrected format carries down the subtree.
@@ -442,6 +447,12 @@ public final class AssetExportManager {
         AkAssetWriter.writeFloat(out, (float) transform.sca().x);
         AkAssetWriter.writeFloat(out, (float) transform.sca().y);
         AkAssetWriter.writeFloat(out, (float) transform.sca().z);
+
+        float[] tail = ParseUtils.jsonArrayToPrimitiveFloat(GsonHelper.getAsJsonArray(bone, "to_tail"));
+
+        AkAssetWriter.writeFloat(out, tail[0]);
+        AkAssetWriter.writeFloat(out, tail[1]);
+        AkAssetWriter.writeFloat(out, tail[2]);
 
         JsonArray children = bone.has("children") ? GsonHelper.getAsJsonArray(bone, "children") : new JsonArray();
         AkAssetWriter.writeInt(out, children.size());

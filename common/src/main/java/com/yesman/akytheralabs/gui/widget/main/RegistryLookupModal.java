@@ -4,13 +4,8 @@ import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
-import com.yesman.akytheralabs.gui.widget.DropdownSizeMemory;
-import com.yesman.akytheralabs.gui.widget.FrameResizer;
-import com.yesman.akytheralabs.gui.widget.Modal;
-import com.yesman.akytheralabs.gui.widget.PopupBox;
-import com.yesman.akytheralabs.gui.widget.ResizableFrame;
+import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
+import com.yesman.akytheralabs.gui.widget.*;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -28,25 +23,15 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
 
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /// Search-and-pick modal over registry entries, managed as [ResourceKey]s. Opens at the cursor (no dimmer, no
 /// centering — behaves like [ContextMenuContainer]). Single-click on a list row confirms.
-///
-/// Two entry sources: a frozen [Registry] (the value-confirming constructor), or data pack entries
-/// via [#dataPackEntries] — the current project's entries, optionally merged with everything the
-/// loaded world's registry access carries.
-///
-/// The page is **resizable** by dragging its frame ([FrameResizer]); [#MODAL_W] / [#MODAL_H] are only its
-/// opening size and its floor. The size the user drags to outlives the modal when it drops from a
-/// [DropdownSizeMemory] anchor — a [PopupBox] remembers it, so the next press on the same cell opens at that
-/// size.
 public final class RegistryLookupModal<T> extends AbstractContainerWidget
-    implements Modal, AnchoredWidget, ResizableFrame {
-
+    implements Modal, AnchoredWidget, ResizableFrame
+{
     private static final int TITLE_H = 18;
     private static final int SEARCH_H = 16;
     private static final int ROW_H = 14;
@@ -58,6 +43,9 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
     private final Consumer<ResourceKey<T>> onConfirm;
     private final AdvancedEditBox<String> searchBox;
     private final EntryList list;
+
+    /// Whether the entries span more than one registry.
+    private final boolean multiRegistry;
 
     private final FrameResizer resizer = new FrameResizer(this, MODAL_W, MODAL_H);
 
@@ -86,6 +74,7 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
 
         this.font = font;
         this.onConfirm = onConfirm;
+        this.multiRegistry = entries.stream().map(ResourceKey::registryKey).distinct().count() > 1;
         this.list = new EntryList(entries);
         this.list.rebuild("");
 
@@ -109,13 +98,33 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
         Component title,
         ResourceKey<? extends Registry<T>> registryKey,
         boolean loadProjectEntriesOnly,
+        Set<String> excluded,
         Consumer<ResourceKey<T>> onConfirm
     ) {
         AkytheraProject project = AkytheraProject.getCurrentProject();
 
-        List<ResourceKey<T>> keys = loadProjectEntriesOnly
-            ? project.getModifiableEntries(registryKey).stream().map(Map.Entry::getKey).toList()
-            : project.getMergedEntries(registryKey).stream().map(Map.Entry::getKey).toList();
+        List<ResourceKey<T>> projectKeys = project.getModifiableEntries(registryKey).stream()
+            .map(Map.Entry::getKey)
+            .filter(key -> !excluded.contains(ResourceProcessor.displayId(key)))
+            .toList();
+
+        if (loadProjectEntriesOnly) {
+            return new RegistryLookupModal<>(font, title, projectKeys, onConfirm);
+        }
+
+        Set<String> owned = projectKeys.stream()
+            .map(ResourceProcessor::displayId)
+            .collect(Collectors.toSet());
+
+        List<ResourceKey<T>> keys = new ArrayList<>(projectKeys);
+
+        project.getMergedEntries(registryKey).stream()
+            .map(Map.Entry::getKey)
+            .filter(key -> {
+                String id = ResourceProcessor.displayId(key);
+                return !owned.contains(id) && !excluded.contains(id);
+            })
+            .forEach(keys::add);
 
         return new RegistryLookupModal<>(font, title, keys, onConfirm);
     }
@@ -238,10 +247,22 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
 
             String lower = query.toLowerCase();
 
-            entries.stream()
-                .filter(key -> lower.isEmpty() || key.identifier().toString().toLowerCase().contains(lower))
-                .sorted(Comparator.comparing(key -> key.identifier().toString()))
-                .forEach(key -> addEntry(new Entry(key)));
+            // Grouping yields no empty group, so a registry the query filtered out drops its category
+            // row with its entries.
+            SequencedMap<ResourceKey<? extends Registry<T>>, List<ResourceKey<T>>> byRegistry = entries.stream()
+                .filter(key -> lower.isEmpty() || ResourceProcessor.displayId(key).toLowerCase().contains(lower))
+                .collect(Collectors.groupingBy(
+                    ResourceKey::registryKey,
+                    () -> new TreeMap<>(Comparator.comparing(registry -> registry.identifier().toString())),
+                    Collectors.toList()));
+
+            byRegistry.forEach((registryKey, keys) -> {
+                if (multiRegistry) addEntry(new CategoryEntry(registryKey.identifier().getPath()));
+
+                keys.stream()
+                    .sorted(Comparator.comparing(ResourceProcessor::displayId))
+                    .forEach(key -> addEntry(new KeyEntry(key)));
+            });
 
             setScrollAmount(0.0D);
             updateSizeAndPosition(getWidth(), getHeight(), getX(), getY());
@@ -303,10 +324,34 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
         protected void updateWidgetNarration(@NonNull NarrationElementOutput n) {
         }
 
-        final class Entry extends AbstractSelectionList.Entry<@NonNull Entry> {
+        abstract class Entry extends AbstractSelectionList.Entry<@NonNull Entry> {
+        }
+
+        /// The registry a run of [KeyEntry] rows belongs to. Takes no input.
+        final class CategoryEntry extends Entry {
+            private final String label;
+
+            CategoryEntry(String label) {
+                this.label = label;
+            }
+
+            @Override
+            public void extractContent(@NonNull GuiGraphicsExtractor g, int mx, int my, boolean hovered, float a) {
+                g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), 0xFF141414);
+                g.text(font, Component.literal(label), getX() + 6,
+                    getY() + (getHeight() - font.lineHeight) / 2, 0xFF888888, false);
+            }
+
+            @Override
+            public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClicked) {
+                return false;
+            }
+        }
+
+        final class KeyEntry extends Entry {
             private final ResourceKey<T> key;
 
-            Entry(ResourceKey<T> key) {
+            KeyEntry(ResourceKey<T> key) {
                 this.key = key;
             }
 
@@ -318,8 +363,8 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
 
                 g.text(
                     font,
-                    Component.literal(key.identifier().toString()),
-                    getX() + 6,
+                    Component.literal(ResourceProcessor.displayId(key)),
+                    getX() + (multiRegistry ? 12 : 6),
                     getY() + (getHeight() - font.lineHeight) / 2,
                     getSelected() == this ? 0xFFFFFFFF : 0xFFCCCCCC,
                     false

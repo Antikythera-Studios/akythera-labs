@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.gui.widget.common.PlaceholderExpressionWidget;
 import com.yesman.akythera.client.gui.widget.common.PressableWidget;
 import com.yesman.akythera.client.gui.widget.common.ThemeApplicableWidget;
 import com.yesman.akythera.client.gui.widget.common.WarningMarkableWidget;
@@ -31,7 +32,7 @@ import java.util.function.Function;
 
 /// Modal-driven combo box used inside the Akythera Labs editor.
 public final class AdvancedComboBox<T> extends AbstractWidget
-    implements AnchoredWidget, WarningMarkableWidget<T>, PressableWidget, ThemeApplicableWidget<ComboBoxTheme> {
+    implements AnchoredWidget, WarningMarkableWidget<T>, PlaceholderExpressionWidget<T>, PressableWidget, ThemeApplicableWidget<ComboBoxTheme> {
 
     private static final int ENTRY_H = 14;
 
@@ -56,6 +57,11 @@ public final class AdvancedComboBox<T> extends AbstractWidget
 
     @Nullable
     private T selected;
+
+    /// Drawn greyed in the label slot while nothing is selected. Null = no placeholder.
+    @Nullable
+    private T placeholderValue;
+
     private boolean marked;
 
     public AdvancedComboBox(
@@ -103,13 +109,15 @@ public final class AdvancedComboBox<T> extends AbstractWidget
     public void extractWidgetRenderState(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
         theme.renderBackground(this, g, mouseX, mouseY, a);
 
-        String display = displayString();
-        Component placeholder = display.isEmpty() ? emptyMessageIfNothingToPick() : null;
-        int fontColor = !isActive() ? 0xFF404040 : placeholder != null ? 0xFF888888 : 0xFFFFFFFF;
+        T placeholder = hasPlaceholderValue() ? placeholderValue : null;
+        String display = placeholder != null ? displayStringMapper.apply(placeholder) : displayString();
+        Component emptyMessage = display.isEmpty() ? emptyMessageIfNothingToPick() : null;
+        int fontColor = !isActive() ? 0xFF404040 : placeholder != null || emptyMessage != null ? 0xFF888888 : 0xFFFFFFFF;
 
         theme.renderText(
             g, font, getX(), getY(), getWidth(), getHeight(),
-            placeholder != null ? placeholder.getString() : display, indicatorColor(), fontColor, true
+            emptyMessage != null ? emptyMessage.getString() : display,
+            indicatorColorFor(placeholder != null ? placeholder : selected), fontColor, true
         );
     }
 
@@ -130,13 +138,6 @@ public final class AdvancedComboBox<T> extends AbstractWidget
     @Nullable
     Component emptyMessageIfNothingToPick() {
         return items.isEmpty() ? emptyMessage : null;
-    }
-
-    /// The type-indicator color for the current selection, or null when no mapper is set
-    /// or nothing is selected. Resolved through [#indicatorColorFor].
-    @Nullable
-    public Integer indicatorColor() {
-        return indicatorColorFor(selected);
     }
 
     /// The indicator color for an arbitrary `value` (used by the dropdown rows), or null when
@@ -218,6 +219,25 @@ public final class AdvancedComboBox<T> extends AbstractWidget
     @Override
     protected void updateWidgetNarration(@NonNull NarrationElementOutput n) {
     }
+
+    // *****************************************************************
+    // [PlaceholderExpressionWidget] implementations
+    // *****************************************************************
+    @Override
+    public @Nullable T getPlaceholderValue() {
+        return placeholderValue;
+    }
+
+    @Override
+    public void setPlaceholderValue(@Nullable T value) {
+        this.placeholderValue = value;
+    }
+
+    @Override
+    public boolean hasPlaceholderValue() {
+        return selected == null && placeholderValue != null;
+    }
+
 
     // *****************************************************************
     // [DataBoundWidget] implementations

@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.akythera.entitypatch.component;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.yesman.akythera.api.component.ComponentAttachable;
+import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.core.asset.armature.BoneSocket;
 import com.yesman.akythera.core.blueprint.ComponentBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
@@ -12,7 +13,9 @@ import com.yesman.akytheralabs.dataholder.ComponentHolderRegistry;
 import com.yesman.akytheralabs.dataholder.FailedComponentHolder;
 import com.yesman.akytheralabs.gui.panel.components.ComponentEditorPanel;
 import net.minecraft.resources.Identifier;
+import org.jspecify.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +36,9 @@ import java.util.stream.Stream;
 /// Which children may be **added** is declared by [#attachableTypes]; a root host lists
 /// [RootAttachableComponent], which is what confines a bone socket to living under an armature.
 public interface ComponentAttachableHolder {
+    /// The JSON field [#componentsField] stores a host's children under.
+    String CHILDREN_FIELD = "components";
+
     /// Holder classes that may be attached under this component. A component type is offered in
     /// this host's attach menu when its registered holder class
     /// ([ComponentHolderRegistry#holderClass]) is assignable to one of these — so an interface
@@ -52,6 +58,42 @@ public interface ComponentAttachableHolder {
     /// An empty, insertion-ordered map for a host to back [#getComponents] with.
     static SequencedMap<String, ComponentDataHolder<?>> newComponentMap() {
         return new LinkedHashMap<>();
+    }
+
+    /// `hosts`' components folded root-first into one map, the nearest declaration of a merge
+    /// identity winning. The inherited-component listing an editor shows above a patch's own.
+    ///
+    /// The holder-side counterpart of [PatchComponent#fold], deliberately apart from it: this side
+    /// lists what is inherited and displays an overridden component from the local holder, so it has
+    /// no [PatchComponent#overwrite] step and never builds a component neither host declared.
+    static SequencedMap<String, ComponentDataHolder<?>> foldChain(List<? extends ComponentAttachableHolder> hosts) {
+        SequencedMap<String, ComponentDataHolder<?>> folded = newComponentMap();
+        Map<Object, String> slotsByMergeKey = new HashMap<>();
+
+        for (ComponentAttachableHolder host : hosts) {
+            host.getComponents().forEach((name, holder) -> {
+                Object mergeKey = holder.mergeKey();
+                String slot = mergeKey == null ? name : slotsByMergeKey.computeIfAbsent(mergeKey, _ -> name);
+                folded.put(slot, holder);
+            });
+        }
+
+        return folded;
+    }
+
+    /// The component of `components` a local component of `holder`'s merge identity would take the
+    /// place of, or null when nothing there matches it.
+    static @Nullable ComponentDataHolder<?> matching(
+        Map<String, ComponentDataHolder<?>> components, String name, ComponentDataHolder<?> holder
+    ) {
+        Object mergeKey = holder.mergeKey();
+
+        if (mergeKey == null) return components.get(name);
+
+        return components.values().stream()
+            .filter(candidate -> mergeKey.equals(candidate.mergeKey()))
+            .findFirst()
+            .orElse(null);
     }
 
     /// The persisted `components` field of one host — a name → component object map, so the engine's
@@ -83,17 +125,20 @@ public interface ComponentAttachableHolder {
     /// nor takes its children with it: a known type opens with default values, marked failed and
     /// healed on the next save; an unknown type becomes a [FailedComponentHolder] round-tripping its
     /// raw JSON.
+    ///
+    /// Both `xmap` ends copy through a [LinkedHashMap], so the order the editor lists a host's
+    /// children in is the order the file stores them in.
     static MapCodec<Optional<SequencedMap<String, ComponentDataHolder<?>>>> componentsField(
         Supplier<ComponentHolderRegistry> registry
     ) {
         return Codec.lazyInitialized(() -> {
             ComponentHolderRegistry resolved = registry.get();
             Codec<ComponentDataHolder<?>> component = AbstractDataHolder.guardedComponent(
-                resolved.codec(), resolved::createDefault, FailedComponentHolder::new);
+                resolved.codec(), id -> resolved.createDefault(id, null), FailedComponentHolder::new);
 
             return Codec.unboundedMap(Codec.STRING, component)
-                .<SequencedMap<String, ComponentDataHolder<?>>>xmap(LinkedHashMap::new, Map::copyOf);
-        }).optionalFieldOf("components");
+                .<SequencedMap<String, ComponentDataHolder<?>>>xmap(LinkedHashMap::new, LinkedHashMap::new);
+        }).optionalFieldOf(CHILDREN_FIELD);
     }
 
     /// Encode side of [#componentsField]: a host's children, or empty when it has none so the
@@ -125,6 +170,33 @@ public interface ComponentAttachableHolder {
     /// → `bone_socket` — de-duplicated against the host's existing children.
     static String defaultName(Identifier typeId, Set<String> taken) {
         return uniqueName(typeId.getPath(), taken);
+    }
+
+    /// Inverse of [#lowerComponents] for one host level: rebuilds fresh editor holders from runtime
+    /// blueprints, keyed the same, against `registry`. A blueprint whose type has no registered holder
+    /// is skipped — the editor has nothing to show it in.
+    ///
+    /// Replaces the host's current children.
+    @SuppressWarnings("unchecked")
+    static void readComponents(
+        ComponentAttachableHolder host,
+        ComponentHolderRegistry registry,
+        Map<String, ? extends ComponentBlueprint<?, ?>> blueprints
+    ) {
+        host.getComponents().clear();
+
+        blueprints.forEach((name, blueprint) -> {
+            Identifier typeId = registry.blueprintTypeId(blueprint);
+            if (typeId == null) return;
+
+            ComponentDataHolder<?> holder = registry.createDefault(typeId, null);
+            if (holder == null) return;
+
+            // The runtime component records are their own blueprints, so a holder's readFrom takes one
+            // directly. The cast recovers what the wildcard erased.
+            ((ComponentDataHolder<ComponentBlueprint<?, ?>>)holder).readFrom(blueprint);
+            host.getComponents().put(name, holder);
+        });
     }
 
     /// One host's children lowered to their runtime blueprints, keyed by the same names — the shape

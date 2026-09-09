@@ -10,6 +10,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
+import com.yesman.akytheralabs.editor.ContentClipboard;
 import com.yesman.akytheralabs.editor.historytrack.FileCreation;
 import com.yesman.akytheralabs.editor.historytrack.FileDeletion;
 import com.yesman.akytheralabs.editor.historytrack.FileMove;
@@ -66,6 +67,9 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             new UniversalMenu.OptionRow<>(ContentContextOption.NEW_FOLDER),
             new UniversalMenu.OptionRow<>(ContentContextOption.NEW_ITEM)
         )),
+        new UniversalMenu.OptionRow<>(ContentContextOption.CUT),
+        new UniversalMenu.OptionRow<>(ContentContextOption.COPY),
+        new UniversalMenu.OptionRow<>(ContentContextOption.PASTE),
         new UniversalMenu.OptionRow<>(ContentContextOption.RENAME),
         new UniversalMenu.OptionRow<>(ContentContextOption.DELETE_SELECTED)
     );
@@ -471,8 +475,9 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         ContentWidget<?> editing = grid.getFocused();
 
         // While a rename box is open the panel yields the whole keyboard to it — the shortcuts
-        // below overlap what a text field does with the same keys.
-        if (editing != null && editing.isEditing()) {
+        // below overlap what a text field does with the same keys. The explorer's tree rename box
+        // counts as well: key presses fan out to every panel, focused or not.
+        if ((editing != null && editing.isEditing()) || isExplorerEditingName()) {
             return super.keyPressed(event);
         }
 
@@ -488,6 +493,18 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             return true;
         }
 
+        if (EditorKeyMappings.COPY.matches(event)) {
+            return putSelectionOnClipboard(false);
+        }
+
+        if (EditorKeyMappings.CUT.matches(event)) {
+            return putSelectionOnClipboard(true);
+        }
+
+        if (EditorKeyMappings.PASTE.matches(event)) {
+            return pasteInto(getBrowsedDirectory());
+        }
+
         // Rename the single selected widget (skipped for multi-select / non-editable).
         if (EditorKeyMappings.RENAME.matches(event) && selectedWidgets.size() == 1) {
             ContentWidget<?> target = selectedWidgets.iterator().next();
@@ -501,6 +518,15 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         }
 
         return super.keyPressed(event);
+    }
+
+    private boolean isExplorerEditingName() {
+        MutableBoolean editing = new MutableBoolean(false);
+
+        AkytheraEditorLayoutManager.getInstance().<MainEditorScreen>ifLastScreen(mainEditorScreen ->
+            editing.setValue(mainEditorScreen.explorerPanel.isEditingName()));
+
+        return editing.booleanValue();
     }
 
     @Override
@@ -619,6 +645,118 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         shiftSelectAnchor = null;
     }
 
+    // ******************************** Clipboard ********************************
+
+    /// The directory the grid is listing, or null while no node is selected.
+    public @Nullable Path getBrowsedDirectory() {
+        return selectedNode == null ? null : selectedNode.directoryPath;
+    }
+
+    /// Whether the selection can be cut. One grid shows one category, so this asks the browsed node
+    /// once rather than each widget.
+    public boolean canCutSelection() {
+        return selectedNode != null && selectedNode.processor != null && !selectedWidgets.isEmpty();
+    }
+
+    /// Whether the selection can be copied — [ResourceProcessor#canDuplicate] on top of a cut's rule.
+    public boolean canCopySelection() {
+        return canCutSelection() && selectedNode.processor.canDuplicate();
+    }
+
+    /// Puts the selection on [ContentClipboard]. Returns whether anything was put, so the shortcut
+    /// falls through to the other panels when it wasn't.
+    public boolean putSelectionOnClipboard(boolean cut) {
+        if (cut ? !canCutSelection() : !canCopySelection()) return false;
+
+        List<Path> paths = getSelectedWidgets().stream()
+            .map(ContentWidget::getPath)
+            .filter(Files::exists)
+            .toList();
+
+        if (paths.isEmpty()) return false;
+
+        ContentClipboard.getInstance().put(paths, cut, selectedNode.processor);
+
+        return true;
+    }
+
+    /// Whether the clipboard can land in `targetDir`: the browsed category owns the copied entries,
+    /// the target is a real directory outside everything being pasted, and a directory on the
+    /// clipboard needs a category that takes subdirectories.
+    public boolean canPasteInto(@Nullable Path targetDir) {
+        ContentClipboard clipboard = ContentClipboard.getInstance();
+
+        if (targetDir == null || clipboard.isEmpty()) return false;
+        if (selectedNode == null || selectedNode.processor != clipboard.processor()) return false;
+        if (!Files.isDirectory(targetDir)) return false;
+
+        // A category whose id path opens with the entry's namespace has no room for an entry
+        // directly in its registry root.
+        if (selectedNode.processor.pathEncodesNamespace()) {
+            ExplorerPanel.TreeNode regRoot = ResourceProcessor.regRootOf(selectedNode);
+
+            if (regRoot != null && targetDir.equals(regRoot.directoryPath)) return false;
+        }
+
+        for (Path source : clipboard.paths()) {
+            if (targetDir.startsWith(source)) return false;
+            if (Files.isDirectory(source) && !selectedNode.processor.canCreateSubDirectories()) return false;
+        }
+
+        return true;
+    }
+
+    /// Pastes the clipboard into `targetDir`. A cut runs the drag-drop move and empties the
+    /// clipboard; a copy duplicates each entry under a free name and pushes one [FileCreation] for
+    /// the batch, so a single Ctrl+Z takes the whole paste back.
+    public boolean pasteInto(@Nullable Path targetDir) {
+        if (!canPasteInto(targetDir)) return false;
+
+        ContentClipboard clipboard = ContentClipboard.getInstance();
+        List<Path> sources = clipboard.paths().stream().filter(Files::exists).toList();
+
+        if (sources.isEmpty()) return false;
+
+        if (clipboard.isCut()) {
+            List<Path> toMove = sources.stream().filter(p -> !targetDir.equals(p.getParent())).toList();
+
+            if (!toMove.isEmpty()) movePathsTo(toMove, toMove.getFirst().getParent(), targetDir);
+
+            clipboard.clear();
+
+            return true;
+        }
+
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        List<Path> pasted = new ArrayList<>(sources.size());
+
+        for (Path source : sources) {
+            Path created = project.copyInto(source, targetDir);
+            if (created != null) pasted.add(created);
+        }
+
+        if (pasted.isEmpty()) return false;
+
+        // Captured AFTER the register walk, so the closures hold the registered holder / accessor
+        // instances and a redo brings the same ones back.
+        List<Runnable> restores = pasted.stream().map(project::buildRestoreFor).toList();
+
+        HistoryManager.getInstance().pushHistory(new FileCreation(
+            () -> {
+                restores.forEach(Runnable::run);
+                refreshAndSelect(targetDir, pasted);
+            },
+            () -> {
+                pasted.forEach(project::deletePathRecursive);
+                refreshExplorerAndBrowser(targetDir);
+            }
+        ));
+
+        refreshAndSelect(targetDir, pasted);
+
+        return true;
+    }
+
     private void showDeleteSelectedPopup() {
         int count = selectedWidgets.size();
         int popupW = 300;
@@ -715,8 +853,8 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                 )
                 .footerButton(
                     AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_MESSAGE_BUTTON_MOVE), _ -> {
-                        moveSelectedItemsTo(destNode.directoryPath);
                         AkytheraEditorLayoutManager.getInstance().closeModal();
+                        moveSelectedItemsTo(destNode.directoryPath);
                     })
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                     .build(),
@@ -800,7 +938,16 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         Path destination = session.targetDir.resolve(source.getFileName().toString());
 
         if (Files.exists(destination) && !session.overwriteAll) {
-            showDuplicatePopup(session, source, destination);
+            showDuplicatePopup(
+                source.getFileName().toString(),
+                session.allowOverwriteAll,
+                () -> finishImport(session),
+                () -> importCurrentAndAdvance(session, source, destination),
+                () -> {
+                    session.overwriteAll = true;
+                    importCurrentAndAdvance(session, source, destination);
+                }
+            );
         } else {
             importCurrentAndAdvance(session, source, destination);
         }
@@ -846,10 +993,12 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
-    private void showDuplicatePopup(ImportSession session, Path source, Path destination) {
-        String fileName = source.getFileName().toString();
-        boolean allowAll = session.allowOverwriteAll;
-
+    /// The "file already exists" prompt: `Overwrite`, `Overwrite All` while `allowAll`, and `Cancel`,
+    /// which abandons the rest of the batch. Every button closes the modal before its handler runs,
+    /// so only one is ever open at a time.
+    private void showDuplicatePopup(
+        String fileName, boolean allowAll, Runnable onCancel, Runnable onOverwrite, Runnable onOverwriteAll
+    ) {
         int popupW = allowAll ? 360 : 300;
         int btnW = WidgetContainerModal.evenButtonWidth(popupW, allowAll ? 3 : 2);
 
@@ -858,40 +1007,25 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             .textLines(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DUPLICATE_BODY, fileName))
             // Footer buttons render right-to-left in insertion order, so add Cancel first
             // (rightmost) and Overwrite last (leftmost) to read "Overwrite ... Cancel".
-            .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ -> {
-                        AkytheraEditorLayoutManager.getInstance().closeModal();
-                        finishImport(session);
-                    })
-                    .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
-                    .build(),
-                btnW
-            );
+            .footerButton(closingFooterButton(LangKeys.GUI_CANCEL, onCancel), btnW);
 
         if (allowAll) {
-            builder.footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_MESSAGE_BUTTON_OVERWRITE_ALL), _ -> {
-                        AkytheraEditorLayoutManager.getInstance().closeModal();
-                        session.overwriteAll = true;
-                        importCurrentAndAdvance(session, source, destination);
-                    })
-                    .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
-                    .build(),
-                btnW
-            );
+            builder.footerButton(closingFooterButton(LangKeys.GUI_MESSAGE_BUTTON_OVERWRITE_ALL, onOverwriteAll), btnW);
         }
 
-        builder.footerButton(
-            AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_MESSAGE_BUTTON_OVERWRITE), _ -> {
-                    AkytheraEditorLayoutManager.getInstance().closeModal();
-                    importCurrentAndAdvance(session, source, destination);
-                })
-                .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
-                .build(),
-            btnW
-        );
+        builder.footerButton(closingFooterButton(LangKeys.GUI_MESSAGE_BUTTON_OVERWRITE, onOverwrite), btnW);
 
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(builder.build());
+    }
+
+    /// A modal footer button that closes its modal, then runs `onPress`.
+    private AnchoredButton closingFooterButton(String langKey, Runnable onPress) {
+        return AnchoredButton.buttonBuilder(font, Component.translatable(langKey), _ -> {
+                AkytheraEditorLayoutManager.getInstance().closeModal();
+                onPress.run();
+            })
+            .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+            .build();
     }
 
     private void showLoadErrorPopup(@Nullable String message, Runnable onAcknowledge) {
@@ -933,40 +1067,122 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         if (selectedNode == null || selectedNode.directoryPath == null || destinationPath == null) return;
 
         Path sourceDir = selectedNode.directoryPath;
-        AkytheraProject project = AkytheraProject.getCurrentProject();
+        List<Path> sources = selectedWidgets.stream()
+            .map(widget -> findMatchingPath(sourceDir, widget.getContentName()))
+            .filter(Objects::nonNull)
+            .toList();
 
-        // Collect (src, dst) pairs that actually moved, then push ONE FileMove for
-        // the whole batch so a single Ctrl+Z moves every file back to its origin.
-        List<Pair<Path, Path>> moved = new ArrayList<>();
+        movePathsTo(sources, sourceDir, destinationPath);
+    }
 
-        for (ContentWidget<?> widget : selectedWidgets) {
-            Path sourcePath = findMatchingPath(sourceDir, widget.getContentName());
-            if (sourcePath == null) continue;
+    /// Drives one batch of moves through the duplicate prompts. Held mutable across the modal chain,
+    /// like [ImportSession], so each resumed callback knows where it left off.
+    private static final class MoveSession {
+        private final List<Path> sources;
+        private final Path sourceDir;
+        private final Path targetDir;
+        private final boolean allowOverwriteAll;
+        /// The pairs that landed, and — at the same index — the restore of whatever each one
+        /// overwrote. A free destination captures an empty closure.
+        private final List<Pair<Path, Path>> moved = new ArrayList<>();
+        private final List<Runnable> overwritten = new ArrayList<>();
+        private int index;
+        private boolean overwriteAll;
 
-            Path destPath = destinationPath.resolve(sourcePath.getFileName());
-
-            if (doMove(project, sourcePath, destPath)) {
-                moved.add(Pair.of(sourcePath, destPath));
-            }
+        MoveSession(List<Path> sources, Path sourceDir, Path targetDir) {
+            this.sources = sources;
+            this.sourceDir = sourceDir;
+            this.targetDir = targetDir;
+            // "Overwrite (to All)" is only meaningful when more than one file is being moved.
+            this.allowOverwriteAll = sources.size() > 1;
         }
+    }
+
+    /// Moves `sources` into `destinationPath`, prompting per occupied name, and pushes one [FileMove]
+    /// for whatever landed — so a single Ctrl+Z puts every file back and restores what it overwrote.
+    private void movePathsTo(List<Path> sources, Path sourceDir, Path destinationPath) {
+        moveNext(new MoveSession(sources, sourceDir, destinationPath));
+    }
+
+    private void moveNext(MoveSession session) {
+        if (session.index >= session.sources.size()) {
+            finishMove(session);
+            return;
+        }
+
+        Path source = session.sources.get(session.index);
+        Path destination = session.targetDir.resolve(source.getFileName());
+
+        if (Files.exists(destination) && !session.overwriteAll) {
+            showDuplicatePopup(
+                source.getFileName().toString(),
+                session.allowOverwriteAll,
+                () -> finishMove(session),
+                () -> moveCurrentAndAdvance(session, source, destination),
+                () -> {
+                    session.overwriteAll = true;
+                    moveCurrentAndAdvance(session, source, destination);
+                }
+            );
+        } else {
+            moveCurrentAndAdvance(session, source, destination);
+        }
+    }
+
+    private void moveCurrentAndAdvance(MoveSession session, Path source, Path destination) {
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        session.index++;
+
+        // Captured before the destination is cleared, so undo can bring back what this overwrote.
+        Runnable restore = project.buildRestoreFor(destination);
+        project.deletePathRecursive(destination);
+
+        if (doMove(project, source, destination)) {
+            session.moved.add(Pair.of(source, destination));
+            session.overwritten.add(restore);
+        } else {
+            restore.run();
+        }
+
+        moveNext(session);
+    }
+
+    private void finishMove(MoveSession session) {
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        List<Pair<Path, Path>> moved = List.copyOf(session.moved);
+        List<Runnable> overwritten = List.copyOf(session.overwritten);
+        Path sourceDir = session.sourceDir;
+        Path targetDir = session.targetDir;
 
         if (!moved.isEmpty()) {
             HistoryManager.getInstance().pushHistory(new FileMove(
                 () -> {
-                    for (var p : moved) doMove(project, p.getFirst(), p.getSecond());
-                    refreshAfterMoveAndSelect(destinationPath, moved.stream().map(Pair::getSecond).toList());
+                    for (Pair<Path, Path> pair : moved) {
+                        // The undo put the overwritten file back; clear it again before re-moving.
+                        project.deletePathRecursive(pair.getSecond());
+                        doMove(project, pair.getFirst(), pair.getSecond());
+                    }
+
+                    refreshAndSelect(targetDir, moved.stream().map(Pair::getSecond).toList());
                 },
                 () -> {
-                    for (var p : moved) doMove(project, p.getSecond(), p.getFirst());
-                    refreshAfterMoveAndSelect(sourceDir, moved.stream().map(Pair::getFirst).toList());
+                    for (int i = 0; i < moved.size(); i++) {
+                        // Restore only once the moved file has vacated the destination.
+                        if (doMove(project, moved.get(i).getSecond(), moved.get(i).getFirst())) {
+                            overwritten.get(i).run();
+                        }
+                    }
+
+                    refreshAndSelect(sourceDir, moved.stream().map(Pair::getFirst).toList());
                 }
             ));
         }
 
-        refreshAfterMove(moved.isEmpty() ? sourceDir : destinationPath);
+        refreshAfterMove(moved.isEmpty() ? sourceDir : targetDir);
     }
 
-    private void refreshAfterMoveAndSelect(@Nullable Path focusDir, List<Path> toSelect) {
+    /// Rebuilds the tree, focuses `focusDir` and selects `toSelect` in the grid.
+    private void refreshAndSelect(@Nullable Path focusDir, List<Path> toSelect) {
         AkytheraEditorLayoutManager.getInstance().<MainEditorScreen>ifLastScreen(mainEditorScreen -> {
             mainEditorScreen.explorerPanel.rebuildTree();
             if (focusDir != null) mainEditorScreen.explorerPanel.focusNodeByPath(focusDir);

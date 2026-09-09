@@ -14,4 +14,4 @@ ArmatureManager.accessor("${armature_namespace}", "${armature_path}", Armature::
 <#if script_kind == "class">, new ArmatureComponentBlueprint.ByClass(AkytheraRegistries.Frozen.SCRIPT_TYPE.getValue(Identifier.parse("${script_id}")))<#t>
 <#else>, new ArmatureComponentBlueprint.ByDataPack(ResourceKey.create(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, Identifier.parse("${script_id}")))<#t>
 </#if>, ${use_root_motion?c}<#t>
-<#if (sockets?size > 0)>, <@tpl.componentMap sockets "    "/></#if>)<#t>
+<#if (sockets?size > 0)>, <@tpl.componentMap sockets "    " "BoneSocket"/></#if>)<#t>

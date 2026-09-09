@@ -645,7 +645,7 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     /// opaque slot) auto-default to self.
     private boolean isSelfCapable(Pin pin) {
         if (pin.exec() || scriptOwnerType == null || pin.type() == null || pin.type() == Object.class) return false;
-        return pin.type().isAssignableFrom(boxed(scriptOwnerType));
+        return ScriptType.castable(scriptOwnerType, pin.type());
     }
 
     /// Whether input pin `index` should render the `self` badge: a self-capable pin left

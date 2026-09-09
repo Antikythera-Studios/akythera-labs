@@ -1,22 +1,36 @@
 package com.yesman.akytheralabs.gui.screen;
 
+import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.world.patch.item.ItemPatch;
+import com.yesman.akythera.client.core.asset.mesh.Mesh;
+import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
+import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akythera.client.gui.widget.viewer.BackgroundComponent;
 import com.yesman.akythera.client.gui.widget.viewer.CameraComponent;
+import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
 import com.yesman.akythera.client.gui.widget.viewer.GridFloorComponent;
 import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.core.blueprint.ComponentBlueprint;
+import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.BoneSocketHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.EntityModelComponentHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.EquipmentComponentHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHolders;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -24,24 +38,33 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.panel.components.ComponentDetailsPanel;
 import com.yesman.akytheralabs.gui.panel.components.ComponentEditorPanel;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
+import com.yesman.akytheralabs.gui.widget.main.ItemSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
+import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -52,15 +75,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-/// Editor screen for an [ItemPatchBlueprintHolder] (an [ItemPatchBlueprint]).
+/// Editor screen for an [ItemPatchBlueprintHolder] (an [ItemPatchBlueprint]): two side columns —
+/// Components (left), Details (right) — around a center Preview / graph [TabPanel].
 ///
-/// Modeled on [EntityPatchEditorScreen], minus the script surface: two side columns — Components
-/// (left), Details (right) — around a center Preview / graph [TabPanel]. Item patches have no
-/// flows or variables, so there is no seeded Event Graph; graph tabs open per component property
-/// holding a canvas ([#openResultGraphTab]). With no component focused, the Details panel shows the
-/// blueprint's own fields (the parent reference).
+/// Item patches have no flows or variables, so no Event Graph is seeded; graph tabs open per component
+/// property holding a canvas ([#openResultGraphTab]). With no component focused, the Details panel
+/// shows the blueprint's own fields (the parent reference).
 public final class ItemPatchEditorScreen extends Screen
-    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost
+    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost, AnimationPreviewHost
 {
     private static final int TOP_BAR_H = 22;
 
@@ -78,6 +100,12 @@ public final class ItemPatchEditorScreen extends Screen
     private static final int RESULT_ROOT_X = 120;
     private static final int RESULT_ROOT_Y = 0;
 
+    /// The project entry path a player entity patch lives at.
+    private static final String PLAYER_PATCH_PATH = "minecraft/player";
+
+    /// Width of the preview warning popup.
+    private static final int WARNING_POPUP_W = 300;
+
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
     private final Model3DViewer model3DViewer;
@@ -86,8 +114,8 @@ public final class ItemPatchEditorScreen extends Screen
     private final ComponentEditorPanel componentPanel;
     private final ComponentDetailsPanel detailsPanel;
 
-    /// Open pure-node graph tabs by property key, plus their flush-back hooks (run on tab close
-    /// and on save) — the [AnimatorScriptEditorScreen] pattern.
+    /// Open pure-node graph tabs by property key, plus their flush-back hooks (run on tab close and
+    /// on save).
     private final Map<String, ScriptNodeGraphWidget> openGraphs = new HashMap<>();
     private final List<Runnable> graphFlushes = new ArrayList<>();
 
@@ -118,12 +146,12 @@ public final class ItemPatchEditorScreen extends Screen
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
+                .on(TopMenuOption.SELECT_PREVIEW_ITEM, this::isMetaPatch, this::openPreviewItemSelectModal)
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
 
-        // The engine previewer has no item or static-mesh component, so the preview carries only
-        // the camera, the background and the grid floor.
+        // Preview: the camera, the background and the grid floor only
         model3DViewer = new Model3DViewer(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -134,6 +162,7 @@ public final class ItemPatchEditorScreen extends Screen
         model3DViewer.addComponent(new CameraComponent(true));
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
+        buildPreview();
 
         centerTabs = new TabPanel(
             minecraft.font,
@@ -155,14 +184,15 @@ public final class ItemPatchEditorScreen extends Screen
             }
         };
 
-        // Components (left): edits the blueprint's component tree in place — the patch holder is
-        // the tree's root host, see EntityPatchEditorScreen.
+        // Components (left): edits the blueprint's component tree in place, the patch holder being
+        // the tree's root host
         componentPanel = new ComponentEditorPanel(
-            minecraft.font, this, ComponentBlueprint.ITEM_PATCH_COMPONENT_TAG,
-            ItemPatchComponentHolders.REGISTRY, holder, null, () -> {}, this::onComponentFocused);
+            minecraft.font, this, ItemPatchComponentHolders.REGISTRY, holder, null,
+            holder::inheritedComponents,
+            () -> {}, this::onComponentFocused);
 
-        detailsPanel = new ComponentDetailsPanel(minecraft.font, this);
-        // Nothing focused yet → blueprint-level fields (the parent reference).
+        detailsPanel = new ComponentDetailsPanel(minecraft.font, this, this::onDetailsChanged);
+        // Nothing focused yet: the blueprint's own fields
         detailsPanel.showComponent(holder);
 
         panelManager = new AdjustablePanelManager(
@@ -185,6 +215,254 @@ public final class ItemPatchEditorScreen extends Screen
 
         topMenuBar.setDirtyChecker(this::hasUnsavedChanges);
         savePoint = HistoryManager.getInstance().currentSavePoint();
+    }
+
+    // ***************************************************************
+    // Preview
+    // ***************************************************************
+
+    /// Installs the preview: the player model the project's `minecraft:player` entity patch describes,
+    /// with this patch's item at the socket that patch equips the main hand from. Whatever that patch
+    /// does not define raises the warning card instead.
+    ///
+    /// The mesh is the entity model component's default one: its getter is a tree over the patch's
+    /// owning entity, and an editor preview has none.
+    private void buildPreview() {
+        EntityPatchBlueprintHolder patch = AkytheraProject.getCurrentProject()
+            .<EntityPatchBlueprint, EntityPatchBlueprintHolder>getDataHolder(playerPatchKey())
+            .orElse(null);
+
+        if (patch == null) {
+            showPreviewWarning(
+                Component.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_MISSING_PATCH),
+                Component.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_CREATE_PATCH),
+                this::createPlayerPatch);
+            return;
+        }
+
+        ArmatureComponentHolder armature = rootComponent(patch, ArmatureComponentHolder.class);
+
+        if (armature == null) {
+            showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_ARMATURE);
+            return;
+        }
+
+        EntityModelComponentHolder entityModel = rootComponent(patch, EntityModelComponentHolder.class);
+
+        if (entityModel == null) {
+            showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_ENTITY_MODEL);
+            return;
+        }
+
+        AssetAccessor<? extends Mesh<?>> mesh = entityModel.getDefaultMesh();
+
+        if (mesh == null || !mesh.checkType(AssetAccessor.Type.SKELETAL_MESH)) {
+            showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_DEFAULT_MESH);
+            return;
+        }
+
+        BoneSocketHolder socket = null;
+        EquipmentComponentHolder equipment = null;
+
+        for (ComponentDataHolder<?> attached : armature.getComponents().values()) {
+            if (!(attached instanceof BoneSocketHolder candidate)) continue;
+
+            equipment = candidate.getComponents().values().stream()
+                .filter(EquipmentComponentHolder.class::isInstance)
+                .map(EquipmentComponentHolder.class::cast)
+                .filter(e -> e.getEquipmentSlot() == EquipmentSlot.MAINHAND)
+                .findFirst()
+                .orElse(null);
+
+            if (equipment != null) {
+                socket = candidate;
+                break;
+            }
+        }
+
+        if (socket == null || equipment == null) {
+            showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_EQUIPMENT_SOCKET);
+            return;
+        }
+
+        @SuppressWarnings("unchecked")
+        EntityModelComponent model = new EntityModelComponent(
+            (AssetAccessor<SkeletalMesh>) mesh, armature.getArmature());
+
+        // A non-null animator is what makes the component rewrite its bone transforms each frame, and
+        // the headless one holds the bind pose.
+        model.setSimplePlayingAnimation(null);
+        model3DViewer.addComponent(model);
+        model3DViewer.frameCamera(
+            Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.width(),
+            Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.height());
+
+        BoneSocketHolder placement = socket;
+        EquipmentComponentHolder displayContext = equipment;
+
+        ItemModelComponent itemModel = new ItemModelComponent(this::previewItem);
+        itemModel.setDisplayContextSource(displayContext::getItemDisplayContext);
+        itemModel.placeUnder(
+            () -> model.getArmatureComponent().getBoneModelTransform(placement.getBoneName()),
+            placement.getLocalTransform(),
+            null);
+
+        model3DViewer.addComponent(itemModel);
+    }
+
+    /// [AnimationPreviewHost]: plays `clip` on the preview model and brings the Preview tab forward,
+    /// so pressing an animation row in the Details panel shows it straight away. No-op before the
+    /// preview is built — a patch whose player entity patch is missing has no model to pose.
+    @Override
+    public void previewAnimation(AssetAccessor<AnimationClip> clip) {
+        EntityModelComponent entityModel = model3DViewer.getComponent(EntityModelComponent.class);
+        if (entityModel == null) return;
+
+        centerTabs.setActiveIndex(centerTabs.indexOfContent(model3DViewer));
+        entityModel.setSimplePlayingAnimation(clip, true);
+    }
+
+    /// The first component of `type` attached directly on `patch`.
+    private static <C extends ComponentDataHolder<?>> @Nullable C rootComponent(
+        EntityPatchBlueprintHolder patch, Class<C> type
+    ) {
+        return patch.getComponents().values().stream()
+            .filter(type::isInstance)
+            .map(type::cast)
+            .findFirst()
+            .orElse(null);
+    }
+
+    /// The item this patch describes: the entry id's `<itemNs>/<itemPath>` path read back as an item
+    /// id.
+    private Item patchedItem() {
+        String path = resourceKey.identifier().getPath();
+        int split = path.indexOf('/');
+
+        return split < 0
+            ? Items.AIR
+            : BuiltInRegistries.ITEM.getValue(
+                Identifier.fromNamespaceAndPath(path.substring(0, split), path.substring(split + 1)));
+    }
+
+    /// Whether this patch targets no item of its own — a **meta** patch, reached only through a child
+    /// patch's parent reference. Its entry id names the project instead of an item, so
+    /// [#patchedItem] resolves to [Items#AIR].
+    private boolean isMetaPatch() {
+        return patchedItem() == Items.AIR;
+    }
+
+    /// The item the preview draws: the patched item, or the holder's stand-in for a meta patch.
+    /// [Items#AIR] draws nothing.
+    private Item previewItem() {
+        Item patched = patchedItem();
+
+        return patched == Items.AIR ? ParseUtils.nvl(holder.getPreviewItem(), Items.AIR) : patched;
+    }
+
+    /// `View > Select Preview Item`, offered on a meta patch only. The pick lands on the undo stack:
+    /// it writes a holder field, so the title's `*` follows it like any other edit.
+    private void openPreviewItemSelectModal() {
+        ItemSelectModal modal = new ItemSelectModal(minecraft.font, item -> {
+            AkytheraEditorLayoutManager.getInstance().closeModal();
+
+            Item previous = holder.getPreviewItem();
+            if (item == previous) return;
+
+            holder.setPreviewItem(item);
+            HistoryManager.getInstance().pushHistory(new DataChange<>(previous, item, holder::setPreviewItem));
+        });
+
+        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+    }
+
+    private static ResourceKey<EntityPatchBlueprint> playerPatchKey() {
+        return ResourceKey.create(
+            AkytheraRegistries.DataPack.ENTITY_PATCH_KEY,
+            Identifier.fromNamespaceAndPath(AkytheraProject.getCurrentProject().getProjectName(), PLAYER_PATCH_PATH));
+    }
+
+    /// The warning for one piece the player's entity patch does not define, pointing at that patch's
+    /// own editor.
+    private void showMissingComponent(String componentKey) {
+        showPreviewWarning(
+            Component.translatable(
+                LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_MISSING_COMPONENT, Component.translatable(componentKey)),
+            Component.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_OPEN_PATCH),
+            () -> {
+                ResourceKey<EntityPatchBlueprint> key = playerPatchKey();
+
+                openPlayerPatch(key, AkytheraProject.getCurrentProject().getDataHolderOrThrow(key));
+            });
+    }
+
+    /// Leaves this screen for the player entity patch's editor, asking to save first. Both answers
+    /// land on the patch editor; cancelling keeps this screen.
+    ///
+    /// Deferred a tick. The press is still dispatching through the viewer's overlay widget list, and
+    /// [#onClose] destroys the viewer that owns it — which is the path taken with nothing to save, where
+    /// the prompt is skipped and the quit runs straight away.
+    private void openPlayerPatch(ResourceKey<EntityPatchBlueprint> key, EntityPatchBlueprintHolder holder) {
+        minecraft.execute(() -> askToSave(() -> {
+            onClose();
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new EntityPatchEditorScreen(key, holder));
+        }));
+    }
+
+    /// Raises the warning: the reason over a Cancel and the one button acting on it. Cancel leaves the
+    /// empty preview standing.
+    ///
+    /// Deferred a tick. This runs from the constructor, and
+    /// [AkytheraEditorLayoutManager#openNewScreen] closes every open modal before pushing the screen it
+    /// was called for.
+    private void showPreviewWarning(Component reason, Component action, Runnable onAction) {
+        minecraft.execute(() -> {
+            int buttonWidth = WidgetContainerModal.evenButtonWidth(WARNING_POPUP_W, 2);
+
+            WidgetContainerModal popup = WidgetContainerModal
+                .builder(minecraft.font, Component.empty(), WARNING_POPUP_W)
+                .textLines(reason)
+                .footerButton(
+                    AnchoredButton.buttonBuilder(
+                            minecraft.font,
+                            Component.translatable(LangKeys.GUI_CANCEL),
+                            _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                        .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+                        .build(),
+                    buttonWidth
+                )
+                .footerButton(
+                    AnchoredButton.buttonBuilder(
+                            minecraft.font,
+                            action,
+                            // Closed first: the prompt the action raises refuses to open over a modal.
+                            _ -> {
+                                AkytheraEditorLayoutManager.getInstance().closeModal();
+                                onAction.run();
+                            })
+                        .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+                        .build(),
+                    buttonWidth
+                )
+                .build();
+
+            AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        });
+    }
+
+    /// Creates the project's entity patch for the player and opens it.
+    private void createPlayerPatch() {
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        ResourceKey<EntityPatchBlueprint> key = project.createEntry(
+            AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, PLAYER_PATCH_PATH, true);
+
+        EntityPatchBlueprintHolder holder = project.getDataHolderOrThrow(key);
+        holder.setPreviewModel(new EntityPreviewModel(
+            BuiltInRegistries.ENTITY_TYPE.getKey(EntityTypes.PLAYER),
+            EntityModelComponent.ModelType.VANILLA_ENTITY));
+        project.saveEntry(key);
+
+        openPlayerPatch(key, holder);
     }
 
     // ***************************************************************
@@ -290,8 +568,7 @@ public final class ItemPatchEditorScreen extends Screen
         centerTabs.setActiveIndex(centerTabs.indexOfContent(graph));
     }
 
-    /// Pure-only suggestions: literals, pure SCRIPT functions, type converts arrive with the first
-    /// real use. No flow nodes and no variables — item patches have no script surface.
+    /// Pure-only suggestions: literals, pure SCRIPT functions and the Math / Logic nodes.
     private List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> buildNodeSuggestions(ScriptNodeGraphWidget graph, NodeSuggestContext context) {
         List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions = new ArrayList<>();
 
@@ -306,8 +583,7 @@ public final class ItemPatchEditorScreen extends Screen
         for (ScriptFunction function : AkytheraRegistries.Frozen.SCRIPT_FUNCTION) {
             if (!function.isPure()) continue;
             if (function.metadata().usage() != ScriptFunction.Usage.SCRIPT) continue;
-            // Comparison functions are surfaced as dedicated type-detecting comparator nodes
-            // (appended below) instead of plain pure-function nodes.
+            // Comparison functions are surfaced as the type-detecting comparator nodes below
             if (function.functionSignature().parameters().stream().anyMatch(java.util.Comparator.class::isAssignableFrom)) continue;
             if (!context.functionFilter().test(function)) continue;
             Class<?> returnType = function.functionSignature().returnType();
@@ -319,18 +595,20 @@ public final class ItemPatchEditorScreen extends Screen
                 function.metadata().category()));
         }
 
-        // The "Math" / "Logic" nodes follow, gated like the animator screen's
-        // addPureFunctionSuggestions: output must fit the target slot, dragged value (if any) must
-        // be a valid operand.
+        // Math / Logic nodes: the output must fit the target slot and the dragged value, if any,
+        // must be a valid operand
         Class<?> providedType = context.providedType();
 
-        if (AbstractNodeWidget.valueAssignable(boolean.class, expectedType)
-            && AbstractNodeWidget.valueAssignable(providedType, double.class)) {
+        if (AbstractNodeWidget.valueAssignable(boolean.class, expectedType)) {
             for (ComparatorNodeWidget.Operator op : ComparatorNodeWidget.Operator.values()) {
+                // Ordering runs on the numeric comparator; equality runs on any operand.
+                if (op != ComparatorNodeWidget.Operator.EQUAL
+                    && !AbstractNodeWidget.valueAssignable(providedType, double.class)) continue;
+
                 suggestions.add(new NodeSuggestModal.Suggestion<>(
                     Component.literal(op.menuLabel()),
                     (font, x, y) -> new ComparatorNodeWidget(font, op, x, y),
-                    "Math"));
+                    op == ComparatorNodeWidget.Operator.EQUAL ? "Logic" : "Math"));
             }
         }
 
@@ -411,8 +689,8 @@ public final class ItemPatchEditorScreen extends Screen
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
-    /// Builds the runtime blueprint in memory only — surfaces dangling references / bad modifier
-    /// ids before export, mirroring the entity screen's compile step.
+    /// Builds the runtime blueprint in memory only, surfacing dangling references and bad modifier ids
+    /// before export.
     private void compile() {
         flushToHolder();
 
@@ -430,9 +708,8 @@ public final class ItemPatchEditorScreen extends Screen
     }
 
     /// Validates every canvas with widgets on screen — each open result / condition sub-tab — and
-    /// returns whether any failed. Every canvas is validated even once one has failed:
-    /// [ScriptNodeGraphWidget#validate] is what paints a node's red "ERROR!" banner, so stopping early
-    /// would leave the offending node on a later tab unmarked.
+    /// returns whether any failed. [ScriptNodeGraphWidget#validate] paints a node's red "ERROR!"
+    /// banner, so no canvas is skipped once one has failed.
     private boolean validateLiveCanvases() {
         boolean failed = false;
 
@@ -443,18 +720,33 @@ public final class ItemPatchEditorScreen extends Screen
         return failed;
     }
 
-    /// Flushes any open graph tabs. Components and the parent reference are edited on the holder
-    /// in place, see [EntityPatchEditorScreen]'s flush.
+    /// Flushes any open graph tabs. Components and the parent reference are edited on the holder in
+    /// place and need no flush. An override that matches what it overrides is dropped here rather than
+    /// written out.
     private void flushToHolder() {
         graphFlushes.forEach(Runnable::run);
+        componentPanel.dropUnchangedOverrides();
     }
 
-    /// Focus routes to the Details panel; nothing focused shows the blueprint's own fields. `host` is
-    /// the shown component's context, see [EntityPatchEditorScreen#onComponentFocused].
+    /// [ComponentEditorPanel] focus callback: shows the component in the Details panel, with `host` as
+    /// its rows' context and whatever it overrides behind it. A component the patch does not hold yet
+    /// carries the hook that attaches it, see [ComponentEditorPanel#onDetailsWrite]. Nothing focused
+    /// shows the blueprint's own fields.
     private void onComponentFocused(
         @Nullable ComponentDataHolder<?> component, @Nullable ComponentAttachableHolder host
     ) {
-        detailsPanel.showComponent(component == null ? holder : component, host);
+        if (component == null) {
+            detailsPanel.showComponent(holder);
+        } else {
+            detailsPanel.showComponent(
+                component, host, componentPanel.inheritedBehind(component), componentPanel::onDetailsWrite);
+        }
+    }
+
+    /// The Details panel re-rendered itself: an override that matches what it overrides again is no
+    /// override.
+    private void onDetailsChanged() {
+        componentPanel.dropUnchangedOverrides();
     }
 
     private boolean hasUnsavedChanges() {
@@ -462,21 +754,27 @@ public final class ItemPatchEditorScreen extends Screen
     }
 
     // ***************************************************************
-    // Screen lifecycle / input — mirrors EntityPatchEditorScreen
+    // Screen lifecycle / input
     // ***************************************************************
     @Override
     public void handleQuitRequest() {
+        askToSave(this::onClose);
+    }
+
+    /// The ask-to-save prompt, then `after` on either answer — saved, or reverted to what is on disk.
+    /// Cancelling keeps the screen and runs nothing.
+    private void askToSave(Runnable after) {
         SafeCloseScreen.openQuiteScreen(
             minecraft.font,
             Component.translatable(LangKeys.GUI_MESSAGE_ASK_TO_SAVE, topMenuBar.getMessage()),
             hasUnsavedChanges(),
             () -> {
                 AkytheraEditorLayoutManager.getInstance().closeModal();
-                save().thenRun(this::onClose);
+                save().thenRun(after);
             },
             () -> {
                 if (hasUnsavedChanges()) AkytheraProject.getCurrentProject().reloadEntryFromDisk(resourceKey);
-                onClose();
+                after.run();
             }
         );
     }

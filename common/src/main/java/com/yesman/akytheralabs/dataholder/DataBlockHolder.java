@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.dataholder;
 
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akytheralabs.AkytheraLabs;
@@ -9,14 +10,18 @@ import net.minecraft.core.Holder;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 
+import java.util.List;
+
 /// Editor-side holder for one editable [EnumerableDataBlock] type (those registered in
-/// `EnumerableDataBlockSync#LISTENERS` — currently `FSMAnimationState` and
-/// `AnimationLayerSignature`).
+/// `EnumerableDataBlockSync#LISTENERS` — currently `FSMAnimationState`, `AnimationLayerSignature`
+/// and `AnimationInterfaceKey`).
 ///
-/// A data block is property-less: its identity *is* its [Identifier]. [#makeObject] builds the real engine
-/// object **once**; that object reads its id **live** from this holder's own registry key (see [#currentId]),
-/// so a rename (which only re-keys the holder via [ProjectObjectRegistry#rekey]) is reflected by the *same*
-/// instance — a pure name change, no object regeneration.
+/// A data block's identity *is* its [Identifier]. [#makeObject] builds the real engine object **once**;
+/// that object reads its id **live** from this holder's own registry key (see [#currentId]), so a
+/// rename (which only re-keys the holder via [ProjectObjectRegistry#rekey]) is reflected by the *same*
+/// instance — a pure name change, no object regeneration. A type that also carries properties reads
+/// those live off its holder the same way, and declares them for source export through
+/// [#sourceProperties].
 ///
 /// These holders live only inside the project's `ProjectObjectRegistry` while the editor is open —
 /// they are never pushed into the engine `EnumerableDataBlockManager`. The editor lists data blocks
@@ -25,9 +30,23 @@ public abstract class DataBlockHolder<T extends EnumerableDataBlock> extends Abs
     /// Fallback id used only before the holder is bound to a registry key.
     private static final Identifier UNBOUND = AkytheraLabs.identifier("unbound_data_block");
 
+    /// One authored property of a data block as the generated enum carries it: the field a constant
+    /// stores it in, the interface method that reads it back, and the Java expression this holder's own
+    /// value lowers to.
+    public record SourceProperty(String type, String field, String accessor, String value) {}
+
     @Override
     public void readFrom(final T object) {
-        // No editable properties — identity is the identifier, owned by the registry.
+        // A property-less block's identity is the identifier, owned by the registry.
+    }
+
+    /// The properties the generated enum carries beyond its identifier, in constructor-parameter
+    /// order. Empty — the default — is the property-less form, whose export is unchanged.
+    ///
+    /// `FreemarkerExporter` takes the field / accessor shape from a default instance of the type and
+    /// each [SourceProperty#value] from the constant it belongs to.
+    public List<SourceProperty> sourceProperties() {
+        return List.of();
     }
 
     @Override
@@ -62,5 +81,31 @@ public abstract class DataBlockHolder<T extends EnumerableDataBlock> extends Abs
             // Encode via the key (works even for an unbound holder — a block deleted mid-session —
             // so saving never throws); fall back to value() for a keyless engine direct holder.
             h -> h.unwrapKey().map(ResourceKey::identifier).orElseGet(() -> h.value().identifier()));
+    }
+
+    /// `Identifier` &lt;-&gt; data block **value** codec, for a holder field that stores the block itself
+    /// rather than a [Holder] of it. Resolves through **project &cup; manager** the way
+    /// [#holderCodec] does.
+    ///
+    /// Unlike [#holderCodec] this cannot dangle — there is no value to stand in for a missing block —
+    /// so an unresolved id fails the decode and the referring component is salvaged by the decode
+    /// guard.
+    public static <V extends EnumerableDataBlock> Codec<V> blockCodec(final EnumerableDataBlockManager<V> manager) {
+        return Identifier.CODEC.flatXmap(
+            id -> {
+                Holder<V> holder = AkytheraProject.getCurrentProject().getDataBlockHolder(manager, id);
+
+                return holder == null
+                    ? DataResult.error(() -> "Unknown data block " + id + " in " + manager.directoryKey().identifier())
+                    : DataResult.success(holder.value());
+            },
+            block -> {
+                Identifier id = block.identifier();
+
+                return id == null
+                    ? DataResult.error(() -> "Data block is no longer registered in " + manager.directoryKey().identifier())
+                    : DataResult.success(id);
+            }
+        );
     }
 }

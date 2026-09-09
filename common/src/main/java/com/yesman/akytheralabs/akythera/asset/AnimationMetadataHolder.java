@@ -3,8 +3,11 @@ package com.yesman.akytheralabs.akythera.asset;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.api.asset.armature.ArmatureManager;
 import com.yesman.akythera.api.lifecycle.ComponentsFactory;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
+import com.yesman.akythera.core.animation.keyframe.AnimationMirror;
+import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akythera.core.util.helper.ParseUtils;
@@ -32,6 +35,22 @@ public final class AnimationMetadataHolder {
     @EditorEditable(label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_REFERENCE_POSE, order = 1)
     private ReferencePose referencePose;
 
+    /// The armature this clip was authored against. Its sidecar carries the bone pairs a mirrored
+    /// bake moves tracks along.
+    @EditorEditable(
+        label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_MIRROR_VENDOR,
+        category = LangKeys.GUI_ANIMATION_ASSET_SCREEN_CATEGORY_MIRRORING,
+        order = 2
+    )
+    private AssetAccessor<? extends Armature> vendor;
+
+    @EditorEditable(
+        label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_ENABLE_MIRRORING,
+        category = LangKeys.GUI_ANIMATION_ASSET_SCREEN_CATEGORY_MIRRORING,
+        order = 3
+    )
+    private boolean enableMirroring;
+
     /// The animation this sidecar describes. A rename mutates the id in place on this instance, so
     /// the holder keeps pointing at the file.
     private final AkytheraProject.EditorAnimationAccessor accessor;
@@ -41,11 +60,14 @@ public final class AnimationMetadataHolder {
 
     private AnimationMetadataHolder(
         final AkytheraProject.EditorAnimationAccessor accessor,
-        final AnimationLoader.Metadata metadata
+        final AnimationLoader.Metadata metadata,
+        final AnimationMirror.Setup mirror
     ) {
         this.accessor = accessor;
         importType = metadata.importType();
         referencePose = new ReferencePose(metadata.refPoseProvider(), metadata.refPoseTimeStamp());
+        vendor = mirror.vendor() == null ? ArmatureManager.EMPTY_ARMATURE_ACCESSOR : mirror.vendor();
+        enableMirroring = mirror.enabled();
     }
 
     /// The sidecar of `accessor` as it stands on disk, or the defaults when the file is absent.
@@ -53,7 +75,7 @@ public final class AnimationMetadataHolder {
         return readSidecar(
             accessor.identifier(),
             editorCodec(accessor),
-            new AnimationMetadataHolder(accessor, AnimationLoader.Metadata.DEFAULT)
+            new AnimationMetadataHolder(accessor, AnimationLoader.Metadata.DEFAULT, AnimationMirror.Setup.DISABLED)
         );
     }
 
@@ -94,10 +116,11 @@ public final class AnimationMetadataHolder {
             instance ->
                 instance.group(
                     EditorAssetAccessors.ANIMATION_METADATA_MAP_CODEC.forGetter(AnimationMetadataHolder::makeMetadata),
+                    EditorAssetAccessors.ANIMATION_MIRROR_MAP_CODEC.forGetter(AnimationMetadataHolder::makeMirrorSetup),
                     EntityPreviewModel.CODEC.optionalFieldOf("preview_model")
                         .forGetter(ParseUtils.provideOptional(AnimationMetadataHolder::getPreviewModel))
-                ).apply(instance, (metadata, previewModel) -> {
-                    AnimationMetadataHolder holder = new AnimationMetadataHolder(accessor, metadata);
+                ).apply(instance, (metadata, mirror, previewModel) -> {
+                    AnimationMetadataHolder holder = new AnimationMetadataHolder(accessor, metadata, mirror);
                     previewModel.ifPresent(holder::setPreviewModel);
 
                     return holder;
@@ -125,6 +148,10 @@ public final class AnimationMetadataHolder {
 
     public AnimationLoader.Metadata makeMetadata() {
         return new AnimationLoader.Metadata(importType, referencePose.clip(), referencePose.timeStamp());
+    }
+
+    public AnimationMirror.Setup makeMirrorSetup() {
+        return new AnimationMirror.Setup(vendor, enableMirroring);
     }
 
     /// Writes the sidecar next to its asset, then drops the parsed clip: the metadata decides
@@ -156,6 +183,22 @@ public final class AnimationMetadataHolder {
 
     public void setReferencePose(final ReferencePose referencePose) {
         this.referencePose = referencePose;
+    }
+
+    public AssetAccessor<? extends Armature> getVendor() {
+        return vendor;
+    }
+
+    public void setVendor(final AssetAccessor<? extends Armature> vendor) {
+        this.vendor = vendor;
+    }
+
+    public boolean getEnableMirroring() {
+        return enableMirroring;
+    }
+
+    public void setEnableMirroring(final boolean enableMirroring) {
+        this.enableMirroring = enableMirroring;
     }
 
     public AkytheraProject.EditorAnimationAccessor getAccessor() {

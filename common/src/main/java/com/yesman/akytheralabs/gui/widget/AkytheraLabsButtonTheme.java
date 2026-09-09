@@ -15,13 +15,14 @@ import java.util.function.Function;
 public enum AkytheraLabsButtonTheme implements ButtonTheme {
     AKYTHERA_EDITOR_BUTTON(
         (widget, graphics, _, _, _) -> {
-            int color = widget.isHighlighted() ? 0xFF1E4D72
+            int color = !widget.active ? 0xFF1A1A1A
+                : widget.isHighlighted() ? 0xFF1E4D72
                 : widget.isHoveredOrFocused() ? 0xFF333333
                 : 0xFF282828;
 
             graphics.fill(widget.getX(), widget.getY(), widget.getX() + widget.getWidth(), widget.getY() + widget.getHeight(), color);
         },
-        widget -> widget.isHighlighted() ? 0xFFFFFFFF : widget.active ? 0xFFB6B6B6 : 0xFF1A1A1A
+        widget -> !widget.active ? 0xFF5A5A5A : widget.isHighlighted() ? 0xFFFFFFFF : 0xFFB6B6B6
     ),
 
     /// Style for primary action buttons (e.g. "Open"). Always rendered in accent blue.

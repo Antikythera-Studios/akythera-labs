@@ -1,5 +1,9 @@
 package com.yesman.akytheralabs.gui.screen;
 
+import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.api.asset.SingletonAccessor;
+import com.yesman.akythera.api.asset.armature.ArmatureManager;
+import com.yesman.akythera.client.gui.widget.AnchoredButton;
 import com.yesman.akythera.client.gui.widget.WidgetTable;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.client.gui.widget.viewer.BackgroundComponent;
@@ -7,17 +11,23 @@ import com.yesman.akythera.client.gui.widget.viewer.CameraComponent;
 import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
 import com.yesman.akythera.client.gui.widget.viewer.GridFloorComponent;
 import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
+import com.yesman.akythera.core.animation.keyframe.AnimationClip;
+import com.yesman.akythera.core.animation.keyframe.AnimationMirror;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
+import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
@@ -26,15 +36,18 @@ import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /// Edits an animation asset's sidecar metadata: its [AnimationLoader.ImportType] and, for an
@@ -48,11 +61,18 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
     private final Model3DViewer model3DViewer;
     private final WidgetTable propertiesTable;
     private final PanelHeader propertiesHeader;
+
+    /// Switches the previewer between the clip on disk and its reflection.
+    private final AnchoredButton mirrorPreviewButton;
+
     /// The sidecar view, taken off the accessor so both screens on the same animation share one —
     /// and so the preview model chosen here survives a close and reopen.
     private final AnimationMetadataHolder holder;
 
     private @Nullable WorkHistory savePoint;
+
+    /// Whether the previewer is playing the mirrored bake rather than the source clip.
+    private boolean previewingMirror;
 
     /// Set when the View menu picks a preview model. That write lands on the holder rather than on
     /// [HistoryManager], so it carries its own unsaved-changes bit.
@@ -90,6 +110,19 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
         model3DViewer.addComponent(new CameraComponent(true));
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
+
+        mirrorPreviewButton = AnchoredButton
+            .buttonBuilder(minecraft.font, Component.empty(), _ -> toggleMirrorPreview())
+            .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
+            .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H))
+            .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT)
+            .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
+            .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+            .build();
+
+        mirrorPreviewButton.setTooltip(
+            Tooltip.create(Component.translatable(LangKeys.GUI_MESSAGE_MIRROR_PREVIEW_NEEDS_VENDOR)));
+
         EntityPreviewModel.display(model3DViewer, holder.getPreviewModel(), true, true);
         refreshPreviewAnimation();
 
@@ -105,6 +138,8 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
         );
 
         new EditorWidgetFactory(minecraft.font).fillWidgetTable(propertiesTable, holder);
+
+        propertiesTable.newRow().addWidget(mirrorPreviewButton);
 
         panelManager = new AdjustablePanelManager(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -146,21 +181,70 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
     private void openPreviewModelSelectModal() {
         ModelSelectModal modal = new ModelSelectModal(font, holder.getPreviewModel(), newModel -> {
-            holder.setPreviewModel(newModel);
-            previewModelDirty = true;
-            EntityPreviewModel.display(model3DViewer, newModel, true, true);
-            refreshPreviewAnimation();
+            EntityPreviewModel oldModel = holder.getPreviewModel();
+            if (Objects.equals(oldModel, newModel)) return;
+
+            applyPreviewModel(newModel);
+            HistoryManager.getInstance().pushHistory(
+                new DataChange<>(oldModel, newModel, this::applyPreviewModel));
         });
 
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+    }
+
+    /// Installs `model` as the previewed entity: the holder field, the viewer, and the clip replayed
+    /// on the entity the viewer built. Undo and redo replay it.
+    private void applyPreviewModel(@Nullable EntityPreviewModel model) {
+        holder.setPreviewModel(model);
+        previewModelDirty = true;
+        EntityPreviewModel.display(model3DViewer, model, true, true);
+        refreshPreviewAnimation();
+    }
+
+    /// Plays the reflection in place of the source clip, or the source back. A vendor is what the
+    /// bake moves tracks along, so with the slot empty there is nothing to switch to.
+    private void toggleMirrorPreview() {
+        if (!previewingMirror && holder.getVendor() == ArmatureManager.EMPTY_ARMATURE_ACCESSOR) {
+            return;
+        }
+
+        previewingMirror = !previewingMirror;
+        refreshPreviewAnimation();
+    }
+
+    /// The mirrored clip as something the previewer can play, baked on the spot. Null when the
+    /// armature or the clip cannot be read, which leaves the source playing.
+    private @Nullable AssetAccessor<AnimationClip> bakeMirror() {
+        Identifier sourceId = holder.getAccessor().identifier();
+
+        try {
+            return new SingletonAccessor<>(
+                Identifier.fromNamespaceAndPath(
+                    sourceId.getNamespace(), sourceId.getPath() + AnimationMirror.IDENTIFIER_SUFFIX),
+                AnimationMirror.mirror(holder.getAccessor().get(), holder.getVendor().get()),
+                AssetAccessor.Type.ANIMATION
+            );
+        } catch (ResourceLoadingFailureException e) {
+            AkytheraLabs.LOGGER.error("Failed at baking the mirror of '{}'", sourceId, e);
+
+            return null;
+        }
     }
 
     /// (Re)plays the edited clip on the previewer's current entity component. Safe to call after any
     /// `displayEntity` — the freshly created component is fetched from the previewer.
     private void refreshPreviewAnimation() {
         EntityModelComponent component = model3DViewer.getComponent(EntityModelComponent.class);
+        AssetAccessor<AnimationClip> mirror = previewingMirror ? bakeMirror() : null;
+        previewingMirror = mirror != null;
 
-        if (component != null) component.setSimplePlayingAnimation(holder.getAccessor());
+        if (component != null) {
+            component.setSimplePlayingAnimation(previewingMirror ? mirror : holder.getAccessor());
+        }
+
+        mirrorPreviewButton.setMessage(Component.translatable(previewingMirror
+            ? LangKeys.GUI_ANIMATION_ASSET_SCREEN_BUTTON_PREVIEW_SOURCE
+            : LangKeys.GUI_ANIMATION_ASSET_SCREEN_BUTTON_PREVIEW_MIRROR));
     }
 
     private void save() {
@@ -199,7 +283,8 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
     @Override
     public void extractBackground(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
-        // Draw nothing
+        // No background of its own; the per-frame hook the vendor slot is polled on
+        mirrorPreviewButton.active = previewingMirror || holder.getVendor() != ArmatureManager.EMPTY_ARMATURE_ACCESSOR;
     }
 
     @Override

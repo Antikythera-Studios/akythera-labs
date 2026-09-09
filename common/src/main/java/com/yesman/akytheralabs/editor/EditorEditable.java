@@ -64,6 +64,9 @@ public @interface EditorEditable {
     /// the elements this editor creates — a first-registered `EnumerableDataBlock`, a dangling project
     /// `Holder` — come from neither a `Class` literal nor a no-argument constructor.
     ///
+    /// The named method may answer null, meaning there is nothing to build an element from yet. The
+    /// `+` then reports [#emptyCandidates] instead of adding a row.
+    ///
     /// Left blank, the list renders read-only: its elements are still shown and editable, but without
     /// the `+` / `✕` buttons.
     String defaultElement() default "";
@@ -74,9 +77,17 @@ public @interface EditorEditable {
     /// being the shown holder's parent.
     String candidates() default "";
 
-    /// Lang key shown in place of an empty [#candidates] dropdown — the reason there is nothing to pick.
-    /// Blank falls back to a generic "no options" message.
+    /// Lang key naming the reason there is nothing to pick: shown in place of an empty [#candidates]
+    /// dropdown, and by a list row's `+` when [#defaultElement] answers null. Blank falls back to a
+    /// generic message.
     String emptyCandidates() default "";
+
+    /// For [net.minecraft.core.Holder] slots. Names the **static, no-argument method** — resolved
+    /// like [#setter], on the class declaring the field — returning the registries the slot's search
+    /// picker lists, as a `List<ResourceKey<? extends Registry<?>>>`.
+    ///
+    /// Blank — the default — lists only the registry the slot's current key addresses.
+    String registries() default "";
 
     /// Whether the value reaches [#setter] only once the row commits — an edit box losing focus, or
     /// taking Enter — instead of on every keystroke. The widget keeps the in-flight value meanwhile,
@@ -98,4 +109,19 @@ public @interface EditorEditable {
     /// Display order — ascending. Equal values are tie-broken by declaration
     /// order within a class.
     int order() default 0;
+
+    /// Whether this row takes part in inheritance when the block is shown over an inherited
+    /// counterpart ([EditorWidgetFactory#fillWidgetTable]): its label greys while it holds what the
+    /// counterpart holds. Reverting is a whole-component gesture in the Components panel, so the row
+    /// carries nothing of its own for it.
+    ///
+    /// A field that can be unset also draws the inherited value as its widget's placeholder while it
+    /// is.
+    boolean inheritable() default false;
+
+    /// Whether the field belongs to the patch that first declared the component. A patch overriding
+    /// that component copies the value verbatim, draws the row grey and takes no input on it —
+    /// changing it would re-point which declaration is being overridden. With nothing inherited
+    /// behind the block, the row is editable like any other.
+    boolean declarerOwned() default false;
 }

@@ -1,21 +1,17 @@
 <#--
   Lowers a list of { name, source } component rows into a Java Map expression — the shape a
-  ComponentAttachable keys its components by. `Map.of` tops out at ten key/value pairs, so a host
-  with more components than that falls back to `Map.ofEntries`.
+  ComponentAttachable keys its components by. Guava's ImmutableMap keeps insertion order, which a
+  host resolving the *first* matching component reads as priority order.
 
-  @param rows    the component rows, each { name, source }
-  @param indent  spaces to indent each entry line by; the closing paren lands four columns left
---><#macro componentMap rows indent><#t>
-<#if rows?size == 0>Map.of()<#t>
-<#elseif (rows?size <= 10)>Map.of(
+  @param rows       the component rows, each { name, source }
+  @param indent     spaces to indent each entry line by; the closing call lands four columns left
+  @param valueType  the map's value type, for the builder's explicit type arguments
+--><#macro componentMap rows indent valueType="ComponentBlueprint<?, ?>"><#t>
+<#if rows?size == 0>ImmutableMap.<String, ${valueType}>of()<#t>
+<#else>ImmutableMap.<String, ${valueType}>builder()
 <#list rows as row>
-${indent}"${row.name}", ${row.source}<#sep>,</#sep>
+${indent}.put("${row.name}", ${row.source})
 </#list>
-${indent?substring(4)})<#t>
-<#else>Map.ofEntries(
-<#list rows as row>
-${indent}Map.entry("${row.name}", ${row.source})<#sep>,</#sep>
-</#list>
-${indent?substring(4)})<#t>
+${indent?substring(4)}.build()<#t>
 </#if>
 </#macro>

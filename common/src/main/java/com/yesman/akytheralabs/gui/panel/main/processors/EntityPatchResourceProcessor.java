@@ -44,6 +44,18 @@ public final class EntityPatchResourceProcessor implements ResourceProcessor<Ent
         return false;
     }
 
+    /// An entity patch is keyed by the entity type it targets and there is no form bound to none, so
+    /// a duplicate would target nothing.
+    @Override
+    public boolean canDuplicate() {
+        return false;
+    }
+
+    @Override
+    public boolean pathEncodesNamespace() {
+        return true;
+    }
+
     @Override
     public void onPressAddButton(ContentBrowserPanel browser, ExplorerPanel.TreeNode selected) {
         AkytheraProject project = AkytheraProject.getCurrentProject();

@@ -8,7 +8,6 @@ import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.client.api.component.impl.MeshComponent;
 import com.yesman.akythera.client.api.component.impl.MeshComponentBlueprint;
-import com.yesman.akythera.client.api.component.impl.MeshGetter;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.ConditionGraphCompiler;
@@ -30,7 +29,7 @@ import java.util.stream.Stream;
 /// reachable through the attach menu of a [BoneSocketHolder].
 ///
 /// [#meshGetter] is a raw [ScriptGraphData] canvas edited in a center tab, stored the way
-/// [AnimatorScriptHolder] stores its canvases. Its [MeshGetter#OWNER_PARAM] entry pin carries the owning
+/// [AnimatorScriptHolder] stores its canvases. Its [MeshComponent#OWNER_PARAM] entry pin carries the owning
 /// patch, typed by the patch's parent, so a player-parented patch can read the skin off it; its result root
 /// takes an [AssetAccessor].
 public final class MeshComponentHolder extends ComponentDataHolder<MeshComponentBlueprint> {
@@ -43,7 +42,7 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
 
     @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_MESH_GETTER, order = 0)
     @EditorNodeGraph(
-        contextParams = MeshGetter.OWNER_PARAM,
+        contextParams = MeshComponent.OWNER_PARAM,
         contextParamTypes = EntityPatch.class,
         resultType = AssetAccessor.class
     )
@@ -81,7 +80,7 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
     /// The canvas lowered to its headless tree, or null while nothing is wired into the result. The
     /// owner type fills unwired owner slots; the canvas' own owner pin is a context read.
     private @Nullable PureNode compileGetter() {
-        return ConditionGraphCompiler.compileOptional(meshGetter, EntityPatch.class, MeshGetter.OWNER_PARAM);
+        return ConditionGraphCompiler.compileOptional(meshGetter, EntityPatch.class, MeshComponent.OWNER_PARAM);
     }
 
     @Override

@@ -2,7 +2,6 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.datafixers.util.Pair;
-import com.mojang.serialization.Codec;
 import com.yesman.akythera.api.data.modularize.AkytheraScriptFunctions;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
@@ -974,7 +973,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// Classifies an `output -> input` pin pairing. Execution pins only pair exec↔exec. Typed data pins are
     /// [LinkKind#DIRECT] when the value is assignable (same type, or a widening like `float -> double`,
     /// resolved via the target type's narrowing map) and [LinkKind#CONVERT] when only an explicit narrowing
-    /// cast applies (the source type's [ScriptType#explicitCastableTypes()] names the target). A null type on
+    /// cast applies (the source type's [ScriptType#implicitlyCastableTypes()] names the target). A null type on
     /// either side is treated as a wildcard ([LinkKind#DIRECT]).
     private LinkKind linkKind(AbstractNodeWidget.Pin output, AbstractNodeWidget.Pin input) {
         if (output.exec() || input.exec()) {
@@ -987,12 +986,12 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         if (wrap(expected).isAssignableFrom(wrap(provided))) return LinkKind.DIRECT;
 
         ScriptType providedType = AbstractNodeWidget.scriptTypeOf(provided);
-        if (providedType != null && providedType.explicitCastableTypes().containsKey(wrap(expected))) {
+        if (providedType != null && providedType.implicitlyCastableTypes().containsKey(wrap(expected))) {
             return LinkKind.CONVERT; // explicit narrowing (e.g. double -> float)
         }
 
         ScriptType expectedType = AbstractNodeWidget.scriptTypeOf(expected);
-        if (expectedType != null && expectedType.explicitCastableTypes().containsKey(wrap(provided))) {
+        if (expectedType != null && expectedType.implicitlyCastableTypes().containsKey(wrap(provided))) {
             return LinkKind.DIRECT; // implicit widening (e.g. float -> double)
         }
 

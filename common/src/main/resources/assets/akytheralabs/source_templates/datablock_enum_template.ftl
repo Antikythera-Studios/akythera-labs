@@ -50,17 +50,30 @@ package ${package};
 
 public enum ${className} implements ${blockType} {
 <#list constants as constant>
-    ${constant.name}("${constant.path}")<#if constant_has_next>,<#else>;</#if>
+    ${constant.name}("${constant.path}"<#list constant.args as arg>, ${arg}</#list>)<#if constant_has_next>,<#else>;</#if>
 </#list>
 
     final int id;
+<#list properties as p>
+    final ${p.type} ${p.field};
+</#list>
 
-    ${className}(final String identifierPath) {
+    ${className}(final String identifierPath<#list properties as p>, final ${p.type} ${p.field}</#list>) {
         this.id = ${managerAccess}.assign(this, identifierPath);
+<#list properties as p>
+        this.${p.field} = ${p.field};
+</#list>
     }
 
     @Override
     public int universalOrdinal() {
         return this.id;
     }
+<#list properties as p>
+
+    @Override
+    public ${p.type} ${p.accessor}() {
+        return this.${p.field};
+    }
+</#list>
 }

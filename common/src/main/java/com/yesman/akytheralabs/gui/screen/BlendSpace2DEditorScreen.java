@@ -24,7 +24,7 @@ import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
-import com.yesman.akytheralabs.editor.historytrack.PreviewModelChange;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -301,17 +301,21 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
                 EntityPreviewModel oldModel = blendSpaceHolder.getPreviewModel();
                 if (Objects.equals(oldModel, newModel)) return;
 
-                blendSpaceHolder.setPreviewModel(newModel);
-                EntityPreviewModel.display(model3DViewer, newModel, true, true);
-                installBlendAnimator();
-
-                HistoryManager.getInstance().pushHistory(new PreviewModelChange(
-                    blendSpaceHolder, model3DViewer, oldModel, newModel
-                ));
+                applyPreviewModel(newModel);
+                HistoryManager.getInstance().pushHistory(
+                    new DataChange<>(oldModel, newModel, this::applyPreviewModel));
             }
         );
 
         AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+    }
+
+    /// Installs `model` as the previewed entity: the holder field, the viewer, and the blend animator
+    /// the new entity needs rebuilding on. Undo and redo replay it.
+    private void applyPreviewModel(@Nullable EntityPreviewModel model) {
+        blendSpaceHolder.setPreviewModel(model);
+        EntityPreviewModel.display(model3DViewer, model, true, true);
+        installBlendAnimator();
     }
 
     private void onNodeSelected(BlendSpace2DHolder.@Nullable MutableAnimNode node) {

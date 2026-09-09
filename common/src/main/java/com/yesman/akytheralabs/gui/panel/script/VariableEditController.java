@@ -3,7 +3,7 @@ package com.yesman.akytheralabs.gui.panel.script;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.JsonOps;
 import com.yesman.akythera.api.data.modularize.ScriptType;
-import com.yesman.akythera.api.data.modularize.impl.NumericComparators;
+import com.yesman.akythera.api.data.modularize.impl.ScriptComparators;
 import com.yesman.akythera.client.gui.widget.CheckBox;
 import com.yesman.akythera.client.gui.widget.ClampedNumberBox;
 import com.yesman.akythera.client.gui.widget.Static;
@@ -490,7 +490,7 @@ public final class VariableEditController {
         if (c == boolean.class) return false;
         if (c == String.class) return "";
         if (c == Vec3.class) return Vec3.ZERO;
-        if (c == Comparator.class) return NumericComparators.INTEGER_COMPARATOR;
+        if (c == Comparator.class) return ScriptComparators.INTEGER_COMPARATOR;
         return null;
     }
 }

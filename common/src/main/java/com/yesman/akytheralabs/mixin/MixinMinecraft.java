@@ -49,7 +49,9 @@ public abstract class MixinMinecraft {
         cancellable = true
     )
     private void onHandleGlobalKeyPress(InputConstants.Key key, boolean controlDown, CallbackInfoReturnable<Boolean> callbackInfo) {
-        if (AkytheraEditorLayoutManager.getInstance().isActive() && options.keyScreenshot.matches(key)) {
+        if (AkytheraEditorLayoutManager.getInstance().isActive()
+            && (options.keyScreenshot.matches(key) || options.keyFriends.matches(key))
+        ) {
             callbackInfo.setReturnValue(false);
         }
     }

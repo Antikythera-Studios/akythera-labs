@@ -585,7 +585,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             ScriptType from = scriptTypeOf(provided);
             if (from == null) return;
 
-            for (Class<?> target : from.explicitCastableTypes().keySet()) {
+            for (Class<?> target : from.implicitlyCastableTypes().keySet()) {
                 suggestions.add(new NodeSuggestModal.Suggestion<>(
                     Component.literal("Convert to " + TypeConvertNodeWidget.typeName(target)),
                     (font, x, y) -> new TypeConvertNodeWidget(font, provided, target, x, y)));
@@ -600,7 +600,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         Class<?> expectedBoxed = ParseUtils.box(expected);
 
         for (ScriptType st : AkytheraRegistries.Frozen.SCRIPT_TYPE) {
-            if (!st.explicitCastableTypes().containsKey(expectedBoxed)) continue;
+            if (!st.implicitlyCastableTypes().containsKey(expectedBoxed)) continue;
             Class<?> source = st.type();
             suggestions.add(
                 new NodeSuggestModal.Suggestion<>(
@@ -923,7 +923,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             current,
             id -> AkytheraProject.getCurrentProject().hasEntry(registryKey, id),
             box -> openPickerUnder(box, RegistryLookupModal.dataPackEntries(
-                font, Component.translatable(labelKey), registryKey, false,
+                font, Component.translatable(labelKey), registryKey, false, Set.of(),
                 key -> commitNodeIdentifier(current, apply, key.identifier(), box)))
         );
     }
@@ -1584,17 +1584,19 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         // The "Math" nodes (comparators / arithmetic operators / NOT / logic) follow, on the same
         // SCRIPT-accepting canvases (guarded at the top of this method).
 
-        // Comparator nodes compare two numeric operands and return boolean, so offer them only
-        // when their boolean output fits the target input slot (`expectedType`) AND the dragged
-        // value, if any, is a valid numeric operand (`providedType`). The operand check is what
-        // keeps them out of a non-numeric output drag such as a Vec3 (Vec3 is not a Number).
-        if (AbstractNodeWidget.valueAssignable(boolean.class, expectedType)
-            && AbstractNodeWidget.valueAssignable(providedType, double.class)) {
+        // Comparator nodes return boolean, so they are offered only when that output fits the
+        // target input slot (`expectedType`). The ordering operators additionally require the
+        // dragged value, if any, to be a valid numeric operand (`providedType`), which keeps them
+        // out of a non-numeric output drag such as a Vec3 (Vec3 is not a Number).
+        if (AbstractNodeWidget.valueAssignable(boolean.class, expectedType)) {
             for (ComparatorNodeWidget.Operator op : ComparatorNodeWidget.Operator.values()) {
+                if (op != ComparatorNodeWidget.Operator.EQUAL
+                    && !AbstractNodeWidget.valueAssignable(providedType, double.class)) continue;
+
                 suggestions.add(new NodeSuggestModal.Suggestion<>(
                     Component.literal(op.menuLabel()),
                     (font, x, y) -> new ComparatorNodeWidget(font, op, x, y),
-                    "Math"
+                    op == ComparatorNodeWidget.Operator.EQUAL ? "Logic" : "Math"
                 ));
             }
         }

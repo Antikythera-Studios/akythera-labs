@@ -44,6 +44,7 @@ public record LiteralNodeData(ScriptType literalType, String literalValue) imple
     /// Parses a literal's raw text into a value of `type`, falling back to a type-appropriate zero on
     /// malformed input so the emitted [LiteralNode] always carries a value of the right runtime class.
     /// Also the source of the typed empty literal the compilers use for an unwired input.
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public static @Nullable Object parse(Class<?> type, String raw) {
         try {
             if (type == boolean.class || type == Boolean.class) return Boolean.parseBoolean(raw);
@@ -54,9 +55,23 @@ public record LiteralNodeData(ScriptType literalType, String literalValue) imple
             if (type == float.class || type == Float.class)     return Float.parseFloat(raw);
             if (type == double.class || type == Double.class)   return Double.parseDouble(raw);
             if (type == char.class || type == Character.class)  return raw.isEmpty() ? ' ' : raw.charAt(0);
+            if (type.isEnum()) return enumOf((Class<? extends Enum>) type, raw);
             return raw; // String and anything else round-tripped verbatim
         } catch (NumberFormatException e) {
             return zeroOf(type);
+        }
+    }
+
+    /// The constant `raw` names, or the type's first constant when it names none — the same fallback
+    /// [com.yesman.akytheralabs.gui.widget.script.LiteralValueSupport#defaultValue] seeds a fresh
+    /// enum literal with.
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static @Nullable Object enumOf(Class<? extends Enum> type, String raw) {
+        try {
+            return Enum.valueOf(type, raw);
+        } catch (IllegalArgumentException e) {
+            Object[] constants = type.getEnumConstants();
+            return constants.length == 0 ? null : constants[0];
         }
     }
 
