@@ -37,6 +37,7 @@ import com.yesman.akytheralabs.gui.widget.main.ReferencePoseSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.RegistryLookupModal;
 import com.yesman.akytheralabs.gui.widget.script.ContextEntryNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -113,7 +114,7 @@ public final class EditorWidgetFactory {
     /// [#type] is the **declared** type — the runtime value cannot supply it, an enum constant with
     /// a body reporting its anonymous subclass and a `Holder<T>`'s `T` being erased. [#owner] is the
     /// holder in both cases, never the element.
-    public sealed interface ValueSlot permits FieldSlot, ElementSlot, WritingSlot {
+    public sealed interface ValueSlot permits FieldSlot, ElementSlot, WritingSlot, RebuildingSlot {
         Class<?> type();
 
         EditorEditable annotation();
@@ -287,6 +288,58 @@ public final class EditorWidgetFactory {
         public void set(Object value) {
             onWrite.run();
             delegate.set(value);
+        }
+
+        @Override
+        public int rightGutter() {
+            return delegate.rightGutter();
+        }
+    }
+
+    /// A slot that re-renders its block after every write, see [EditorEditable#rebuildOnWrite].
+    ///
+    /// The rebuild is deferred a tick: the write arrives from inside the row widget's own callback,
+    /// and the rebuild replaces that widget.
+    public record RebuildingSlot(ValueSlot delegate, Runnable rebuild) implements ValueSlot {
+        @Override
+        public Class<?> type() {
+            return delegate.type();
+        }
+
+        @Override
+        public EditorEditable annotation() {
+            return delegate.annotation();
+        }
+
+        @Override
+        public String label() {
+            return delegate.label();
+        }
+
+        @Override
+        public Component labelComponent() {
+            return delegate.labelComponent();
+        }
+
+        @Override
+        public Object owner() {
+            return delegate.owner();
+        }
+
+        @Override
+        public @Nullable Field field() {
+            return delegate.field();
+        }
+
+        @Override
+        public Object get() {
+            return delegate.get();
+        }
+
+        @Override
+        public void set(Object value) {
+            delegate.set(value);
+            Minecraft.getInstance().execute(rebuild);
         }
 
         @Override
@@ -495,7 +548,11 @@ public final class EditorWidgetFactory {
     /// `raw`, or the wrapper that reports this fill's writes. Every slot the factory builds goes
     /// through here.
     private ValueSlot slot(ValueSlot raw) {
-        return onWrite == null ? raw : new WritingSlot(raw, onWrite);
+        ValueSlot reported = onWrite == null ? raw : new WritingSlot(raw, onWrite);
+
+        return rebuild != null && reported.annotation().rebuildOnWrite()
+            ? new RebuildingSlot(reported, rebuild)
+            : reported;
     }
 
     /// Folds the class's fields into the [EditorEditable#category] tree, then flattens it into a
@@ -621,26 +678,30 @@ public final class EditorWidgetFactory {
 
         if (producer == null) {
             // Nested editor object: a header label, then the value's own @EditorEditable rows one
-            // level deeper. The declared type only gates detection; the recursion dispatches on
-            // the runtime class.
-            if (!EditorFieldScanner.fieldsOf(f.getType()).isEmpty()) {
-                return (table, inst, indentLevel, rebuild) -> {
-                    table.newRow((indentLevel + depth) * INDENT).addWidget(headerLabel(Component.translatable(labelText)));
+            // level deeper. The runtime value decides — a field declared as an abstract carrier owns
+            // no rows itself, and the recursion dispatches on the runtime class anyway.
+            return (table, inst, indentLevel, rebuild) -> {
+                Object nested = tryGet(f, inst);
 
-                    Object nested = tryGet(f, inst);
-                    if (nested == null) return;
+                if (nested == null || EditorFieldScanner.fieldsOf(nested.getClass()).isEmpty()) {
+                    // TODO: editor for f.getType()
+                    ValueSlot slot = slot(new FieldSlot(editorField, inst));
+                    table.newRow((indentLevel + depth) * INDENT)
+                        .addWidget(slotLabel(slot))
+                        .addWidget(readOnlyDisplay(slot));
+                    return;
+                }
 
-                    Object nestedInherited = inherited == null ? null : tryGet(f, inherited);
-                    appendObject(table, nested, nestedInherited, indentLevel + depth + 1, rebuild);
-                };
-            }
+                table.newRow((indentLevel + depth) * INDENT).addWidget(headerLabel(Component.translatable(labelText)));
 
-            // TODO: editor for f.getType()
-            return (table, inst, indentLevel, _) -> {
-                ValueSlot slot = slot(new FieldSlot(editorField, inst));
-                table.newRow((indentLevel + depth) * INDENT)
-                    .addWidget(slotLabel(slot))
-                    .addWidget(readOnlyDisplay(slot));
+                Object nestedInherited = inherited == null ? null : tryGet(f, inherited);
+
+                appendObject(
+                    table,
+                    nested,
+                    nestedInherited != null && nestedInherited.getClass() == nested.getClass() ? nestedInherited : null,
+                    indentLevel + depth + 1,
+                    rebuild);
             };
         }
 

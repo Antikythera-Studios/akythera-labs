@@ -101,6 +101,13 @@ public @interface EditorEditable {
     /// the same motion, and write through either way.
     boolean setOnCommit() default false;
 
+    /// Whether a write into this row re-renders the block it sits in. Set it where the value decides
+    /// which other rows exist — a shape combo whose pick swaps the dimensions block under it.
+    ///
+    /// Honored only in a fill that was given a rebuild callback, see
+    /// [EditorWidgetFactory#fillWidgetTable].
+    boolean rebuildOnWrite() default false;
+
     /// For numeric types only; ignored otherwise.
     float min() default -Float.MAX_VALUE;
 

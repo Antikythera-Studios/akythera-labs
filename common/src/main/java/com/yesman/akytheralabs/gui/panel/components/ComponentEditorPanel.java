@@ -36,6 +36,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /// "Components" panel: a [PanelHeader] with a `+` add button over a [WidgetTable] listing the patch's
 /// component tree, one row per component indented under the [ComponentAttachable] it is attached to.
@@ -291,6 +292,33 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
             .findFirst()
             .map(Row::shadowed)
             .orElse(null);
+    }
+
+    /// One listed component: the holder, and whether it comes from an ancestor patch with no
+    /// override of its own here.
+    public record ListedComponent(ComponentDataHolder<?> holder, boolean inherited) {}
+
+    /// Every component this panel lists, in row order: this patch's own, plus the inherited ones it
+    /// declares no override for.
+    ///
+    /// A row being previewed through a claim reports the **copy** [#prepareClaim] set aside, marked
+    /// as the patch's own — that copy is what the Details rows edit, and what anything else showing
+    /// the row has to edit with them.
+    public Stream<ListedComponent> listedComponents() {
+        return rows.stream().map(row -> pending.stream()
+            .filter(claim -> claim.inherited() == row.holder())
+            .<ListedComponent>map(claim -> new ListedComponent(claim.holder(), false))
+            .findFirst()
+            .orElseGet(() -> new ListedComponent(row.holder(), row.inherited())));
+    }
+
+    /// Focuses the row `holder` is listed in — the 3D preview's counterpart of clicking that row,
+    /// claim and all, where [#focusComponent] goes straight to [#select] and would hand an inherited
+    /// component over as the ancestor's own.
+    public void focusListedComponent(ComponentDataHolder<?> holder) {
+        Row row = rowOf(holder);
+
+        if (row != null) selectRow(row);
     }
 
     /// Re-keys every fixed-name component in the tree whose key no longer matches the name it derives,

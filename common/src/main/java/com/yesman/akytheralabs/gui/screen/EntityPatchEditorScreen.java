@@ -26,6 +26,7 @@ import com.yesman.akytheralabs.akythera.entitypatch.component.EquipmentComponent
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
+import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.EntityPatchComponentHolders;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
@@ -46,6 +47,7 @@ import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.VariableDropModal;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.viewer.BoneSocketPreviewComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.ColliderPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
@@ -798,19 +800,27 @@ public final class EntityPatchEditorScreen extends Screen
     ) {
         detailsPanel.showComponent(component, host);
 
-        model3DViewer.focus(component instanceof BoneSocketHolder socket ? previewOf(socket) : null);
+        model3DViewer.focus(switch (component) {
+            case BoneSocketHolder socket -> previewOf(socket);
+            case ColliderComponentHolder collider -> colliderPreviewOf(collider);
+            case null, default -> null;
+        });
     }
 
     /// Rebuilds the preview's component stand-ins from the component tree.
     private void rebuildSocketPreviews() {
-        // The markers are replaced wholesale, so the focus is carried across by socket holder
-        BoneSocketHolder refocus = model3DViewer.getFocused() instanceof BoneSocketPreviewComponent preview
-            ? preview.getSocket()
-            : null;
+        // The stand-ins are replaced wholesale, so the focus is carried across by the holder each one
+        // stands for
+        ComponentDataHolder<?> refocus = switch (model3DViewer.getFocused()) {
+            case BoneSocketPreviewComponent preview -> preview.getSocket();
+            case ColliderPreviewComponent preview -> preview.getCollider();
+            case null, default -> null;
+        };
 
         model3DViewer.focus(null);
         model3DViewer.removeAllComponents(BoneSocketPreviewComponent.class);
         model3DViewer.removeAllComponents(ItemModelComponent.class);
+        model3DViewer.removeAllComponents(ColliderPreviewComponent.class);
 
         EntityModelComponent model = model3DViewer.getComponent(EntityModelComponent.class);
 
@@ -821,7 +831,43 @@ public final class EntityPatchEditorScreen extends Screen
             .map(BoneSocketHolder.class::cast)
             .forEach(socket -> addSocketPreview(socket, model));
 
-        if (refocus != null) model3DViewer.focus(previewOf(refocus));
+        // After the markers: a collider's placement is the marker of the socket hosting it.
+        ComponentAttachableHolder.flatten(holder)
+            .filter(ColliderComponentHolder.class::isInstance)
+            .map(ColliderComponentHolder.class::cast)
+            .forEach(this::addColliderPreview);
+
+        switch (refocus) {
+            case BoneSocketHolder socket -> model3DViewer.focus(previewOf(socket));
+            case ColliderComponentHolder collider -> model3DViewer.focus(colliderPreviewOf(collider));
+            case null, default -> {}
+        }
+    }
+
+    /// One collider's wireframe, at the marker of the socket hosting it. A drag writes its pivot
+    /// transform. Nothing is drawn for a socket the preview raised no marker for.
+    private void addColliderPreview(ColliderComponentHolder collider) {
+        BoneSocketPreviewComponent marker = hostOf(collider) instanceof BoneSocketHolder socket
+            ? previewOf(socket)
+            : null;
+
+        if (marker == null) return;
+
+        model3DViewer.addComponent(ColliderPreviewComponent.editable(
+            collider,
+            marker::worldTransform,
+            () -> detailsPanel.showComponent(collider, hostOf(collider)),
+            componentPanel::focusListedComponent));
+    }
+
+    /// The wireframe standing for `collider`, or null when the preview holds none.
+    private @Nullable ColliderPreviewComponent colliderPreviewOf(ColliderComponentHolder collider) {
+        for (int i = 0; ; i++) {
+            ColliderPreviewComponent preview = model3DViewer.getComponent(ColliderPreviewComponent.class, i);
+
+            if (preview == null) return null;
+            if (preview.getCollider() == collider) return preview;
+        }
     }
 
     /// One socket's marker, plus an item model drawn at the marker for every equipment component
@@ -859,12 +905,12 @@ public final class EntityPatchEditorScreen extends Screen
         }
     }
 
-    /// The component `socket` is attached under.
-    private @Nullable ComponentAttachableHolder hostOf(BoneSocketHolder socket) {
+    /// The component `component` is attached under.
+    private @Nullable ComponentAttachableHolder hostOf(ComponentDataHolder<?> component) {
         return ComponentAttachableHolder.flatten(holder)
             .filter(ComponentAttachableHolder.class::isInstance)
             .map(ComponentAttachableHolder.class::cast)
-            .filter(host -> host.getComponents().containsValue(socket))
+            .filter(host -> host.getComponents().containsValue(component))
             .findFirst()
             .orElse(null);
     }

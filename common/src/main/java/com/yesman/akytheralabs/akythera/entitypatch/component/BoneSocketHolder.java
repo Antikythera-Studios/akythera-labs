@@ -6,6 +6,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.core.asset.armature.BoneSocket;
 import com.yesman.akythera.core.math.Transform;
+import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
@@ -105,10 +106,11 @@ public final class BoneSocketHolder extends ComponentDataHolder<BoneSocket> impl
     }
 
     /// What a socket hosts on the bone it rides: an [EquipmentComponentHolder] drawing one equipment
-    /// slot's item, and a [MeshComponentHolder] drawing a scripted mesh.
+    /// slot's item, a [MeshComponentHolder] drawing a scripted mesh, and a [ColliderComponentHolder]
+    /// placed by the bone.
     @Override
     public List<Class<?>> attachableTypes() {
-        return List.of(EquipmentComponentHolder.class, MeshComponentHolder.class);
+        return List.of(EquipmentComponentHolder.class, MeshComponentHolder.class, ColliderComponentHolder.class);
     }
 
     @Override

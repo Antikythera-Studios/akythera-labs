@@ -15,11 +15,13 @@ import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
 import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
+import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.BoneSocketHolder;
@@ -50,6 +52,7 @@ import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
+import com.yesman.akytheralabs.gui.widget.viewer.ColliderPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -74,6 +77,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /// Editor screen for an [ItemPatchBlueprintHolder] (an [ItemPatchBlueprint]): two side columns —
 /// Components (left), Details (right) — around a center Preview / graph [TabPanel].
@@ -125,6 +129,11 @@ public final class ItemPatchEditorScreen extends Screen
     /// History stack top at the last save (or screen open); the title shows a `*` while the live
     /// top differs from it.
     private @Nullable WorkHistory savePoint;
+
+    /// The space this patch's colliders sit in: the socket the preview item is drawn at, which is the
+    /// transform `ColliderDebugRenderer` places them by in game. Null while the preview raised its
+    /// warning card instead.
+    private @Nullable Supplier<Transform> colliderPlacement;
 
     public ItemPatchEditorScreen(ResourceKey<ItemPatchBlueprint> resourceKey, ItemPatchBlueprintHolder holder) {
         super(Component.literal(resourceKey.identifier().toString()));
@@ -189,7 +198,9 @@ public final class ItemPatchEditorScreen extends Screen
         componentPanel = new ComponentEditorPanel(
             minecraft.font, this, ItemPatchComponentHolders.REGISTRY, holder, null,
             holder::inheritedComponents,
-            () -> {}, this::onComponentFocused);
+            this::rebuildColliderPreviews, this::onComponentFocused);
+
+        rebuildColliderPreviews();
 
         detailsPanel = new ComponentDetailsPanel(minecraft.font, this, this::onDetailsChanged);
         // Nothing focused yet: the blueprint's own fields
@@ -308,6 +319,76 @@ public final class ItemPatchEditorScreen extends Screen
             null);
 
         model3DViewer.addComponent(itemModel);
+
+        // bone x socket offset. The item's own `display` transform is no part of where a collider
+        // sits, and `placeUnder` keeps it out of this one.
+        colliderPlacement = itemModel::worldTransform;
+    }
+
+    /// Rebuilds the preview's collider wireframes from the components the panel lists, keeping the
+    /// wireframe that holds the focus. One this patch declares is draggable; one it inherits is drawn
+    /// dim until a pick claims it.
+    private void rebuildColliderPreviews() {
+        rebuildColliderPreviews(model3DViewer.getFocused() instanceof ColliderPreviewComponent preview
+            ? preview.getCollider()
+            : null);
+    }
+
+    /// [#rebuildColliderPreviews], ending focused on `focus`'s wireframe — on nothing when it is null.
+    ///
+    /// A focus change supplies the component it is moving to, and runs this because a pick on a dim
+    /// wireframe claims the component: the claim's copy is what the panel lists from then on. It
+    /// cannot keep the old focus instead — a wireframe taking the focus reports itself to the
+    /// Components tree, which would pull the selection back off the component being focused here.
+    private void rebuildColliderPreviews(@Nullable ColliderComponentHolder focus) {
+        model3DViewer.focus(null);
+        model3DViewer.removeAllComponents(ColliderPreviewComponent.class);
+
+        Supplier<Transform> placement = colliderPlacement;
+
+        if (placement == null) return;
+
+        componentPanel.listedComponents().forEach(listed -> {
+            if (!(listed.holder() instanceof ColliderComponentHolder collider)) return;
+
+            model3DViewer.addComponent(listed.inherited()
+                ? ColliderPreviewComponent.inherited(collider, placement, this::onColliderPicked)
+                : ColliderPreviewComponent.editable(
+                    collider, placement, this::onColliderDragCommitted, this::onColliderPicked));
+        });
+
+        if (focus != null) model3DViewer.focus(previewOf(focus));
+    }
+
+    /// Moves the Components tree onto a picked wireframe, claiming an inherited collider the way
+    /// clicking its row does.
+    ///
+    /// Deferred a tick: the claim rebuilds the previews, and the pick is still running inside the one
+    /// being replaced.
+    private void onColliderPicked(ColliderComponentHolder collider) {
+        minecraft.execute(() -> componentPanel.focusListedComponent(collider));
+    }
+
+    /// Takes a claimed collider into the patch and re-reads the Details rows, once a drag is
+    /// released. The drag wrote into the claim's copy, which no patch held until here.
+    ///
+    /// Deferred a tick: attaching rebuilds the previews, and the release is still running inside the
+    /// one being replaced.
+    private void onColliderDragCommitted() {
+        minecraft.execute(() -> {
+            componentPanel.onDetailsWrite();
+            componentPanel.refocusDetails();
+        });
+    }
+
+    /// The wireframe standing for `collider`, or null when the preview holds none.
+    private @Nullable ColliderPreviewComponent previewOf(ColliderComponentHolder collider) {
+        for (int i = 0; ; i++) {
+            ColliderPreviewComponent preview = model3DViewer.getComponent(ColliderPreviewComponent.class, i);
+
+            if (preview == null) return null;
+            if (preview.getCollider() == collider) return preview;
+        }
     }
 
     /// [AnimationPreviewHost]: plays `clip` on the preview model and brings the Preview tab forward,
@@ -741,6 +822,10 @@ public final class ItemPatchEditorScreen extends Screen
             detailsPanel.showComponent(
                 component, host, componentPanel.inheritedBehind(component), componentPanel::onDetailsWrite);
         }
+
+        // A focus on an inherited row is a focus on the claim's copy, which the panel lists from here
+        // on, so the wireframes are re-read before this focus lands on one of them.
+        rebuildColliderPreviews(component instanceof ColliderComponentHolder collider ? collider : null);
     }
 
     /// The Details panel re-rendered itself: an override that matches what it overrides again is no
