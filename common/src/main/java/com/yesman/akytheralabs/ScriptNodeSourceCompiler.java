@@ -115,6 +115,7 @@ public final class ScriptNodeSourceCompiler {
                 if (fn.nextNode() != null) statements(fn.nextNode(), out, indent);
             }
             case ScriptVariableSetterNode setter -> out.add(line(indent, assignment(setter)));
+            case ReturnNode ret -> out.add(line(indent, returnStatement(ret)));
             default -> out.add(line(indent, "// TODO: unsupported flow node " + node.getClass().getSimpleName()));
         }
     }
@@ -128,6 +129,10 @@ public final class ScriptNodeSourceCompiler {
                 if (blocks.isEmpty()) return false;
                 for (int i = 0; i < blocks.size() - 1; i++) statements(blocks.get(i), out, indent);
                 return returningStatements(blocks.getLast(), out, indent);
+            }
+            case ReturnNode ret -> {
+                out.add(line(indent, returnStatement(ret)));
+                return true;
             }
             case FlowFunctionNode fn -> {
                 if (fn.nextNode() != null) {
@@ -146,6 +151,20 @@ public final class ScriptNodeSourceCompiler {
 
     /// A [ScriptVariableSetterNode] as one statement: member variables assign their generated field;
     /// anything else is a Java local — declared with `var` on its first assignment in this method.
+    /// A [ReturnNode] as one statement. A node carrying no value returns nothing.
+    private String returnStatement(ReturnNode node) {
+        return node.value().map(value -> "return " + expr(value) + ";").orElse("return;");
+    }
+
+    /// A [CallbackAdapterNode] as a `Runnable` lambda holding its sub-flow.
+    private String callbackExpr(CallbackAdapterNode node) {
+        List<String> body = new ArrayList<>();
+
+        statements(node.child(), body, 0);
+
+        return body.isEmpty() ? "() -> {}" : "() -> { " + String.join(" ", body) + " }";
+    }
+
     private String assignment(ScriptVariableSetterNode setter) {
         String name = setter.variableName();
         String value = expr(setter.valueProvider());
@@ -171,6 +190,7 @@ public final class ScriptNodeSourceCompiler {
             case LogicalOperationNode op -> logicalExpr(op);
             case InvertBooleanNode invert -> "!(" + expr(invert.child()) + ")";
             case SupplierAdapterNode supplier -> "() -> " + expr(supplier.child());
+            case CallbackAdapterNode callback -> callbackExpr(callback);
             case TypeConvertNode convert -> "(" + primitiveName(convert.to().type()) + ") (" + expr(convert.input()) + ")";
             case CachedPoseReferenceNode pose -> "new CachedPoseReference(" + quote(pose.poseCacheName())
                 + ", " + selfExpr + ", " + valueLiteral(pose.controlReferenceDriver()) + ")";

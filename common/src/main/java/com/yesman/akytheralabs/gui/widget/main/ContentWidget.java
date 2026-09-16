@@ -11,6 +11,10 @@ import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
+import com.yesman.akythera.api.input.InputAction;
+import com.yesman.akythera.api.world.ability.AbilityEffect;
+import com.yesman.akythera.core.blueprint.AbilityBlueprint;
+import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
@@ -24,6 +28,10 @@ import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akytheralabs.dataholder.DataBlockHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
+import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
+import com.yesman.akytheralabs.akythera.ability.AbilityCueBlueprintHolder;
+import com.yesman.akytheralabs.akythera.ability.AbilityEffectHolder;
+import com.yesman.akytheralabs.akythera.ability.InputActionHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
@@ -48,6 +56,9 @@ import com.yesman.akytheralabs.gui.screen.DataBlockEditorScreen;
 import com.yesman.akytheralabs.gui.screen.EntityPatchEditorScreen;
 import com.yesman.akytheralabs.gui.screen.ItemPatchEditorScreen;
 import com.yesman.akytheralabs.gui.screen.BlendSpace2DEditorScreen;
+import com.yesman.akytheralabs.gui.screen.AbilityGraphEditorScreen;
+import com.yesman.akytheralabs.gui.screen.AbilityPropertiesEditorScreen;
+import com.yesman.akytheralabs.gui.widget.script.AbilityEntryPointNodeWidget;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.screen.MeshAssetEditorScreen;
 import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
@@ -897,6 +908,108 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             AkytheraEditorLayoutManager.getInstance().<MainEditorScreen>ifLastScreen(mainEditorScreen ->
                 mainEditorScreen.explorerPanel.focusNodeByPath(path)
             );
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class AbilityContent extends DataDrivenObjectContent<AbilityBlueprint, AbilityBlueprintHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/script");
+
+        public AbilityContent(Font font, ResourceKey<@NonNull AbilityBlueprint> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AbilityBlueprintHolder holder =
+                AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey);
+            List<AbilityGraphEditorScreen.Canvas> canvases = new ArrayList<>();
+
+            for (AbilityBlueprintHolder.Graph graph : AbilityBlueprintHolder.Graph.values()) {
+                canvases.add(new AbilityGraphEditorScreen.Canvas(
+                    Component.literal(graph.fieldName()),
+                    holder.getGraph(graph),
+                    AbilityEntryPointNodeWidget.EntryKind.ABILITY,
+                    data -> holder.setGraph(graph, data)
+                ));
+            }
+
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityGraphEditorScreen(
+                resourceKey, holder, canvases, holder.getVariables(), holder::setVariables));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class AbilityCueContent extends DataDrivenObjectContent<AbilityCueBlueprint, AbilityCueBlueprintHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/script");
+
+        public AbilityCueContent(Font font, ResourceKey<@NonNull AbilityCueBlueprint> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AbilityCueBlueprintHolder holder =
+                AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey);
+
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityGraphEditorScreen(
+                resourceKey,
+                holder,
+                List.of(new AbilityGraphEditorScreen.Canvas(
+                    Component.literal("on_execute"),
+                    holder.getOnExecuteGraph(),
+                    AbilityEntryPointNodeWidget.EntryKind.CUE,
+                    holder::setOnExecuteGraph
+                )),
+                holder.getVariables(),
+                holder::setVariables
+            ));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class AbilityEffectContent extends DataDrivenObjectContent<AbilityEffect, AbilityEffectHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/data_block");
+
+        public AbilityEffectContent(Font font, ResourceKey<@NonNull AbilityEffect> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityPropertiesEditorScreen(
+                resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class InputActionContent extends DataDrivenObjectContent<InputAction, InputActionHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/data_block");
+
+        public InputActionContent(Font font, ResourceKey<@NonNull InputAction> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityPropertiesEditorScreen(
+                resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
         }
 
         @Override

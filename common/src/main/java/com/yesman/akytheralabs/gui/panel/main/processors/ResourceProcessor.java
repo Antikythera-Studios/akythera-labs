@@ -41,16 +41,20 @@ public interface ResourceProcessor<T> {
     /// Tag → processor singleton dispatch. The tag is whatever the project
     /// enumerates per registry root: [String] for asset folders
     /// (e.g. [AnimationManager#DIRECTORY]), or [ResourceKey] for datapack registries.
-    Map<Object, ResourceProcessor<?>> BY_TAG = Map.of(
-        ArmatureManager.DIRECTORY,                       ArmatureResourceProcessor.INSTANCE,
-        MeshManager.DIRECTORY,                           MeshResourceProcessor.INSTANCE,
-        AnimationManager.DIRECTORY,                      AnimationAssetResourceProcessor.INSTANCE,
-        AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY,    AnimMontageResourceProcessor.INSTANCE,
-        AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY,   AnimSequenceResourceProcessor.INSTANCE,
-        AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY,  BlendSpace2DResourceProcessor.INSTANCE,
-        AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, AnimatorScriptResourceProcessor.INSTANCE,
-        AkytheraRegistries.DataPack.ITEM_PATCH_KEY,      ItemPatchResourceProcessor.INSTANCE,
-        AkytheraRegistries.DataPack.ENTITY_PATCH_KEY,    EntityPatchResourceProcessor.INSTANCE
+    Map<Object, ResourceProcessor<?>> BY_TAG = Map.ofEntries(
+        Map.entry(ArmatureManager.DIRECTORY,                       ArmatureResourceProcessor.INSTANCE),
+        Map.entry(MeshManager.DIRECTORY,                           MeshResourceProcessor.INSTANCE),
+        Map.entry(AnimationManager.DIRECTORY,                      AnimationAssetResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY,    AnimMontageResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY,   AnimSequenceResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY,  BlendSpace2DResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, AnimatorScriptResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.ITEM_PATCH_KEY,      ItemPatchResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY,    EntityPatchResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.ABILITY_KEY,         AbilityResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.ABILITY_CUE_KEY,     AbilityCueResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY,  AbilityEffectResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.INPUT_ACTION_KEY,    InputActionResourceProcessor.INSTANCE)
     );
 
     static @Nullable ResourceProcessor<?> forTag(@Nullable Object tag) {
