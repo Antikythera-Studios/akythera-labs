@@ -20,10 +20,14 @@ import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.client.core.renderer.RenderUtils;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.akythera.physics.BrushSettings;
+import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import it.unimi.dsi.fastutil.floats.FloatArrayList;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 import net.minecraft.client.renderer.BindGroupLayouts;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -31,32 +35,79 @@ import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
+import java.util.function.IntConsumer;
+import java.util.function.UnaryOperator;
 import java.util.function.Supplier;
 
-/// Paints cloth simulation weights onto a skeletal mesh's bind pose with a [BrushSettings] brush.
+/// Paints one weight per vertex onto a skeletal mesh's bind pose with a [BrushSettings] brush.
 ///
-/// A weight draws white at 1, black near 0 and green at an absolute 0. The offset vertex of a pair draws
-/// green too and takes no paint. [ViewMode#WIREFRAME] fills each triangle with them under white edges;
-/// [ViewMode#TEXTURED] draws the textured mesh with them on its edges.
+/// A weight draws white at 1, black near 0 and green at an absolute 0. With [#setHeatColors] on it draws
+/// from blue at 0 through green and yellow to red at 1 instead. The offset vertex of a pair draws green and
+/// takes no paint. [ViewMode#WIREFRAME] draws them on the edges alone,
+/// [ViewMode#WEIGHT_PAINT] fills each triangle with them under white edges, and [ViewMode#TEXTURED] draws
+/// the textured mesh with them on its edges.
 ///
 /// [BrushSettings.Mode#GRADATION] paints along a line dragged from any press in the viewer, drawn over
 /// the scene while it is dragged. The camera does not rotate in that mode.
-public final class ClothWeightPaintComponent implements Model3DViewerComponent {
+///
+/// With a vertex listener set ([#setOnVertexPicked]), the brush paints in [ViewMode#WEIGHT_PAINT] only. In
+/// the other views a left press picks the vertex under the cursor, and the next one of a stack of vertices
+/// sharing that place when one of them is already picked. An orange dot marks it.
+///
+/// With [#setPoser] set, the mesh is drawn, picked and painted where the poser puts its vertices.
+public final class WeightPaintComponent implements Model3DViewerComponent {
     /// How the mesh and its weights are drawn.
     public enum ViewMode {
-        WIREFRAME, TEXTURED
+        WIREFRAME(AkytheraLabsButtonTheme.CLOTH_WIREFRAME_BUTTON, LangKeys.GUI_CLOTH_PHYSICS_SCREEN_VIEW_WIREFRAME),
+        WEIGHT_PAINT(AkytheraLabsButtonTheme.WEIGHT_PAINT_BUTTON, LangKeys.GUI_CLOTH_PHYSICS_SCREEN_VIEW_WEIGHT_PAINT),
+        TEXTURED(AkytheraLabsButtonTheme.CLOTH_TEXTURED_BUTTON, LangKeys.GUI_CLOTH_PHYSICS_SCREEN_VIEW_TEXTURED);
+
+        private final AkytheraLabsButtonTheme buttonTheme;
+        private final Tooltip tooltip;
+
+        ViewMode(final AkytheraLabsButtonTheme buttonTheme, final String nameKey) {
+            this.buttonTheme = buttonTheme;
+            this.tooltip = Tooltip.create(Component.translatable(nameKey));
+        }
+
+        /// The icon a button showing this mode draws.
+        public AkytheraLabsButtonTheme buttonTheme() {
+            return buttonTheme;
+        }
+
+        /// This mode's name.
+        public Tooltip tooltip() {
+            return tooltip;
+        }
+
+        /// The mode a view button moves to from this one.
+        public ViewMode next() {
+            return values()[(ordinal() + 1) % values().length];
+        }
     }
 
     private static final int COLOR_KINEMATIC = 0xFF33CC66;
     private static final int COLOR_EDGE = 0xFFFFFFFF;
     private static final int COLOR_CURSOR = 0xFFFFA028;
+    private static final int COLOR_PICKED = 0xFFFFA028;
     private static final int CURSOR_SEGMENTS = 32;
+
+    /// How far from the cursor a press still picks a vertex, in widget pixels.
+    private static final float PICK_PIXELS = 8.0F;
+
+    /// Half the side of the dot marking the picked vertex, in widget pixels.
+    private static final int PICKED_DOT_PIXELS = 2;
+
+    /// Distance under which two vertices share one place, in viewer world units.
+    private static final float SAME_PLACE = 1.0E-4F;
 
     /// Cursor travel between two dabs of one stroke, as a fraction of the brush size.
     private static final float DAB_SPACING = 0.25F;
@@ -67,7 +118,6 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
     /// Share of the camera distance a triangle may sit in front of a vertex and still not hide it.
     private static final float VISIBILITY_TOLERANCE = 1.0E-3F;
 
-    private static final float RAY_EPSILON = 1.0E-6F;
 
     /// Vanilla's `debug_quads` pipeline with depth writes on. That one only tests depth, so the filled
     /// triangles would draw through each other and through the edges.
@@ -84,7 +134,7 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
         .withCull(false)
         .build();
 
-    /// Weight-colored triangle fills of [ViewMode#WIREFRAME], each a quad with its last corner repeated.
+    /// Weight-colored triangle fills of [ViewMode#WEIGHT_PAINT], each a quad with its last corner repeated.
     private static final RenderType FILL_TYPE = RenderType.create(
         AkytheraLabs.MODID + ":cloth_weight_fill", RenderSetup.builder(FILL_PIPELINE).createRenderSetup()
     );
@@ -104,7 +154,13 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
     private @Nullable SkeletalMesh builtMesh;
 
     /// Bind-pose position per mesh position index, in viewer world space.
+    private Vector3f[] bindPositions = new Vector3f[0];
+
+    /// Where each mesh position is drawn this frame: [#bindPositions], or what [#poser] made of them.
     private Vector3f[] positions = new Vector3f[0];
+
+    /// Moves the bind-pose positions to where the mesh stands, read per frame. Null draws the bind pose.
+    private @Nullable UnaryOperator<Vector3f[]> poser;
 
     /// Position-index triples.
     private int[] triangles = new int[0];
@@ -123,9 +179,21 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
     /// Where the gradation line ends, in widget pixels.
     private final Vector2f gradationEnd = new Vector2f();
 
-    private ViewMode viewMode = ViewMode.WIREFRAME;
+    private ViewMode viewMode = ViewMode.WEIGHT_PAINT;
 
-    public ClothWeightPaintComponent(
+    /// Whether a weight draws on the blue to red ramp, not from black to white.
+    private boolean heatColors;
+
+    /// Whether the brush may paint right now.
+    private BooleanSupplier paintable = () -> true;
+
+    /// Receives the mesh position index a press picked.
+    private @Nullable IntConsumer onVertexPicked;
+
+    /// The mesh position index marked in the view, -1 for none.
+    private int pickedVertex = -1;
+
+    public WeightPaintComponent(
         final AssetAccessor<? extends SkeletalMesh> mesh,
         final Supplier<float[]> weights,
         final Supplier<int[]> offsetPairs,
@@ -151,11 +219,14 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
         if (skeletalMesh != builtMesh) {
             ClothMeshGeometry geometry = ClothMeshGeometry.of(skeletalMesh);
 
-            positions = geometry.positions();
+            bindPositions = geometry.positions();
             triangles = geometry.triangles();
             edges = geometry.edges();
             builtMesh = skeletalMesh;
+            pickedVertex = -1;
         }
+
+        positions = poser == null ? bindPositions : poser.apply(bindPositions);
 
         Ray probe = viewer.buildRay(viewer.getX(), viewer.getY());
 
@@ -170,13 +241,35 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
             Identifier texture = skeletalMesh.getMetadata().texture();
             BufferBuilder textured = new BufferBuilder(byteBuffer, PrimitiveTopology.TRIANGLES, DefaultVertexFormat.ENTITY);
 
-            skeletalMesh.draw(
-                pose, textured,
-                Mesh.DrawingFunction.NEW_ENTITY,
-                Model3DViewer.FULL_BRIGHT,
-                1.0F, 1.0F, 1.0F, 1.0F,
-                OverlayTexture.NO_OVERLAY
-            );
+            Vector2f uv = new Vector2f();
+
+            for (SkeletalMesh.SkeletalMeshPart part : skeletalMesh.getParts().values()) {
+                for (int v = 0; v + 2 < part.vertexCount(); v += 3) {
+                    Vector3f first = positions[part.getPositionIndex(v)];
+                    Vector3f normal = positions[part.getPositionIndex(v + 1)].sub(first, new Vector3f())
+                        .cross(positions[part.getPositionIndex(v + 2)].sub(first, new Vector3f()));
+
+                    // A triangle with no area has no face to draw
+                    if (normal.lengthSquared() < 1.0E-12F) continue;
+
+                    pose.transformNormal(normal.normalize(), normal);
+
+                    for (int corner = 0; corner < 3; corner++) {
+                        Vector3f position = pose.pose().transformPosition(positions[part.getPositionIndex(v + corner)], new Vector3f());
+
+                        skeletalMesh.getUv(part.getUvIndex(v + corner), uv);
+                        Mesh.DrawingFunction.NEW_ENTITY.draw(
+                            textured,
+                            position.x, position.y, position.z,
+                            normal.x, normal.y, normal.z,
+                            Model3DViewer.FULL_BRIGHT,
+                            1.0F, 1.0F, 1.0F, 1.0F,
+                            uv.x, uv.y,
+                            OverlayTexture.NO_OVERLAY
+                        );
+                    }
+                }
+            }
 
             MeshData texturedData = textured.build();
 
@@ -185,7 +278,7 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
                     RenderTypes.entityTranslucent(texture == null ? MissingTextureAtlasSprite.getLocation() : texture), texturedData
                 );
             }
-        } else {
+        } else if (viewMode == ViewMode.WEIGHT_PAINT) {
             BufferBuilder fills = new BufferBuilder(byteBuffer, FILL_TYPE.primitiveTopology(), FILL_TYPE.format());
 
             for (int t = 0; t + 2 < triangles.length; t += 3) {
@@ -210,8 +303,8 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
         for (int e = 0; e + 1 < edges.length; e += 2) {
             int from = edges[e];
             int to = edges[e + 1];
-            int fromColor = viewMode == ViewMode.WIREFRAME ? COLOR_EDGE : colorOf(shown, offsets, from);
-            int toColor = viewMode == ViewMode.WIREFRAME ? COLOR_EDGE : colorOf(shown, offsets, to);
+            int fromColor = viewMode == ViewMode.WEIGHT_PAINT ? COLOR_EDGE : colorOf(shown, offsets, from);
+            int toColor = viewMode == ViewMode.WEIGHT_PAINT ? COLOR_EDGE : colorOf(shown, offsets, to);
 
             ClothMeshGeometry.emitLine(
                 builder, pose, ClothMeshGeometry.lifted(positions[from], eye), fromColor, ClothMeshGeometry.lifted(positions[to], eye), toColor
@@ -222,7 +315,12 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
         Vector3f surfaceNormal = new Vector3f();
         float hit = cursorRay == null ? -1.0F : nearestHit(cursorRay, surfaceNormal);
 
-        if (cursorRay != null && hit >= 0.0F && brush.getMode() != BrushSettings.Mode.GRADATION) {
+        if (cursorRay != null
+            && hit >= 0.0F
+            && brush.getMode() != BrushSettings.Mode.GRADATION
+            && !isPickingVertices()
+            && paintable.getAsBoolean()
+        ) {
             Vector3f center = cursorRay.at(hit);
             float radius = worldPerPixel(viewer, center) * brush.getSize();
 
@@ -239,14 +337,27 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
             }
         }
 
+
         MeshData meshData = builder.build();
 
         if (meshData != null) RenderUtils.drawImmediate(renderType, meshData);
     }
 
-    /// The gradation line being dragged, with a tick across each end.
+    /// The dot on the picked vertex, and the gradation line being dragged, with a tick across each end.
     @Override
     public void extractOverlay(final GuiGraphicsExtractor graphics, final Model3DViewer viewer, final int mouseX, final int mouseY, final float a) {
+        Vector3f picked = pickedVertex >= 0 && pickedVertex < positions.length ? viewer.projectToWidget(positions[pickedVertex]) : null;
+
+        if (picked != null) {
+            graphics.enableScissor(viewer.getX(), viewer.getY(), viewer.getRight(), viewer.getBottom());
+            graphics.fill(
+                Math.round(picked.x) - PICKED_DOT_PIXELS, Math.round(picked.y) - PICKED_DOT_PIXELS,
+                Math.round(picked.x) + PICKED_DOT_PIXELS + 1, Math.round(picked.y) + PICKED_DOT_PIXELS + 1,
+                COLOR_PICKED
+            );
+            graphics.disableScissor();
+        }
+
         if (gradationStart == null) return;
 
         float dx = gradationEnd.x - gradationStart.x;
@@ -278,9 +389,35 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
 
     /// Starts a stroke when the press lands on the mesh or has vertices under the brush. A
     /// [BrushSettings.Mode#GRADATION] stroke starts on any press.
+    ///
+    /// While vertices are picked instead, picks the one [#vertexAt] the press.
     @Override
     public boolean onMouseDown(final Model3DViewer owner, final MouseButtonEvent event) {
         if (event.button() != 0) return false;
+
+        if (isPickingVertices()) {
+            int nearest = vertexAt(owner, event.x(), event.y());
+
+            if (nearest < 0) return false;
+
+            if (pickedVertex >= 0 && pickedVertex < positions.length && positions[pickedVertex].distance(positions[nearest]) <= SAME_PLACE) {
+                for (int step = 1; step <= positions.length; step++) {
+                    int candidate = (pickedVertex + step) % positions.length;
+
+                    if (positions[candidate].distance(positions[nearest]) <= SAME_PLACE) {
+                        nearest = candidate;
+                        break;
+                    }
+                }
+            }
+
+            pickedVertex = nearest;
+            onVertexPicked.accept(nearest);
+
+            return true;
+        }
+
+        if (!paintable.getAsBoolean()) return false;
 
         float[] base = weights.get();
         float[] working = Arrays.copyOf(base, positions.length);
@@ -363,6 +500,7 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
         gradationStart = null;
     }
 
+
     @Override
     public int drawOrder() {
         return 20; // after grid (1) and the preview model (10)
@@ -374,6 +512,46 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
 
     public void setViewMode(final ViewMode viewMode) {
         this.viewMode = viewMode;
+    }
+
+    public void setOnVertexPicked(final IntConsumer onVertexPicked) {
+        this.onVertexPicked = onVertexPicked;
+    }
+
+    public void setHeatColors(final boolean heatColors) {
+        this.heatColors = heatColors;
+    }
+
+    public void setPoser(final @Nullable UnaryOperator<Vector3f[]> poser) {
+        this.poser = poser;
+    }
+
+    /// The mesh position index nearest the camera among those within [#PICK_PIXELS] of the widget position
+    /// (`x`, `y`), -1 for none. Depth compares under reversed-Z: greater is nearer.
+    public int vertexAt(final Model3DViewer owner, final double x, final double y) {
+        int nearest = -1;
+        float nearestDepth = -Float.MAX_VALUE;
+
+        for (int i = 0; i < positions.length; i++) {
+            Vector3f projected = owner.projectToWidget(positions[i]);
+
+            if (projected == null || projected.z <= nearestDepth) continue;
+            if (Math.hypot(projected.x - x, projected.y - y) > PICK_PIXELS) continue;
+
+            nearest = i;
+            nearestDepth = projected.z;
+        }
+
+        return nearest;
+    }
+
+    public void setPaintable(final BooleanSupplier paintable) {
+        this.paintable = paintable;
+    }
+
+    /// Whether a left press picks a vertex instead of painting.
+    public boolean isPickingVertices() {
+        return onVertexPicked != null && viewMode != ViewMode.WEIGHT_PAINT;
     }
 
     /// Applies one dab at the widget position (`x`, `y`) to `working`. True when the press belongs to
@@ -435,46 +613,21 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
         return !indices.isEmpty() || surfaceHit >= 0.0F;
     }
 
-    /// Distance along `ray` to the nearest mesh triangle, -1 for a miss. Möller–Trumbore, both faces.
+    /// Distance along `ray` to the nearest mesh triangle, -1 for a miss.
     /// `normalOut`, when given, takes that triangle's unit normal.
     private float nearestHit(final Ray ray, final @Nullable Vector3f normalOut) {
         float nearest = Float.MAX_VALUE;
-        Vector3f edge1 = new Vector3f();
-        Vector3f edge2 = new Vector3f();
-        Vector3f p = new Vector3f();
-        Vector3f s = new Vector3f();
-        Vector3f q = new Vector3f();
 
         for (int t = 0; t + 2 < triangles.length; t += 3) {
             Vector3f a = positions[triangles[t]];
+            Vector3f b = positions[triangles[t + 1]];
+            Vector3f c = positions[triangles[t + 2]];
+            float distance = ClothMeshGeometry.rayTriangle(ray, a, b, c);
 
-            positions[triangles[t + 1]].sub(a, edge1);
-            positions[triangles[t + 2]].sub(a, edge2);
-            ray.direction().cross(edge2, p);
-
-            float determinant = edge1.dot(p);
-
-            if (Math.abs(determinant) < RAY_EPSILON) continue;
-
-            float inverse = 1.0F / determinant;
-            ray.origin().sub(a, s);
-
-            float u = s.dot(p) * inverse;
-
-            if (u < 0.0F || u > 1.0F) continue;
-
-            s.cross(edge1, q);
-
-            float v = ray.direction().dot(q) * inverse;
-
-            if (v < 0.0F || u + v > 1.0F) continue;
-
-            float distance = edge2.dot(q) * inverse;
-
-            if (distance > RAY_EPSILON && distance < nearest) {
+            if (distance >= 0.0F && distance < nearest) {
                 nearest = distance;
 
-                if (normalOut != null) edge1.cross(edge2, normalOut).normalize();
+                if (normalOut != null) b.sub(a, new Vector3f()).cross(c.sub(a, new Vector3f()), normalOut).normalize();
             }
         }
 
@@ -525,10 +678,14 @@ public final class ClothWeightPaintComponent implements Model3DViewerComponent {
         return mask;
     }
 
-    private static int colorOf(final float[] shown, final boolean[] offsets, final int position) {
+    private int colorOf(final float[] shown, final boolean[] offsets, final int position) {
         float weight = position < shown.length ? shown[position] : 0.0F;
 
-        if (weight == 0.0F || position < offsets.length && offsets[position]) return COLOR_KINEMATIC;
+        if (position < offsets.length && offsets[position]) return COLOR_KINEMATIC;
+
+        // Hue runs from blue down to red as the weight rises
+        if (heatColors) return 0xFF000000 | Mth.hsvToRgb((1.0F - Math.clamp(weight, 0.0F, 1.0F)) * 2.0F / 3.0F, 1.0F, 1.0F);
+        if (weight == 0.0F) return COLOR_KINEMATIC;
 
         int gray = Math.round(Math.clamp(weight, 0.0F, 1.0F) * 255.0F);
 

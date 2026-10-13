@@ -76,6 +76,7 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
                 .on(TopMenuOption.ENTITY_PREVIEW_MODEL_MAPPING, () -> EntityPreviewModelMappingModal.open(font))
                 .on(TopMenuOption.ANIMATION_RETARGET, () -> AnimationRetargetModal.open(font))
                 .on(TopMenuOption.MODEL_TRANSFORMER, () -> ModelTransformerModal.open(font))
+                .on(TopMenuOption.MODEL_SKINNING, () -> AkytheraEditorLayoutManager.getInstance().openNewScreen(new ModelSkinningScreen()))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})

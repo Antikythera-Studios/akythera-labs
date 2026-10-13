@@ -9,6 +9,8 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.client.core.asset.loader.MeshLoader;
+import com.yesman.akythera.client.core.asset.loader.VertexBuilder;
+import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.BoneAnimationTrack;
 import com.yesman.akythera.core.animation.keyframe.Keyframe;
@@ -333,6 +335,60 @@ public final class AssetExportManager {
 
         if (vertices.has("indices")) {
             writer.addSubmesh(MeshLoader.UNGROUPED_PART_NAME, intArrayOf(vertices, "indices"));
+        }
+
+        return writer.toBytes();
+    }
+
+    /// Encodes a skeletal mesh as it was built in memory as a skeletal-mesh `.akasset` stream.
+    ///
+    /// Positions and normals are turned from the Y-up space a builder holds to the Z-up space the file is
+    /// read in, undoing the conversion `BinaryMeshLoader` runs.
+    public byte[] encodeMesh(SkeletalMesh.SkeletalMeshBuilder builder) {
+        AkAssetWriter writer = new AkAssetWriter();
+        float[] positions = builder.positions.clone();
+        float[] normals = builder.normals.clone();
+
+        for (float[] vectors : List.of(positions, normals)) {
+            for (int i = 0; i + 2 < vectors.length; i += 3) {
+                float y = vectors[i + 1];
+
+                vectors[i + 1] = -vectors[i + 2];
+                vectors[i + 2] = y;
+            }
+        }
+
+        int[] boneCounts = new int[builder.deformationFromToArray.length / 2];
+        int[] boneWeightIndices = new int[builder.affectingBoneIdArray.length * 2];
+
+        for (int i = 0; i < boneCounts.length; i++) {
+            boneCounts[i] = builder.deformationFromToArray[i * 2 + 1] - builder.deformationFromToArray[i * 2];
+        }
+
+        for (int i = 0; i < builder.affectingBoneIdArray.length; i++) {
+            boneWeightIndices[i * 2] = builder.affectingBoneIdArray[i];
+            boneWeightIndices[i * 2 + 1] = builder.affectingWeightIndexArray[i];
+        }
+
+        writer.addFloatArray(DataType.MESH_POSITIONS, positions);
+        writer.addFloatArray(DataType.MESH_UVS, builder.uvs);
+        writer.addFloatArray(DataType.MESH_NORMALS, normals);
+        writer.addIntArray(DataType.MESH_BONE_COUNTS, boneCounts);
+        writer.addIntArray(DataType.MESH_BONE_WEIGHT_INDICES, boneWeightIndices);
+        writer.addFloatArray(DataType.MESH_WEIGHTS, builder.weights);
+
+        for (Map.Entry<String, List<VertexBuilder>> part : builder.partBuilders.entrySet()) {
+            int[] drawIndices = new int[part.getValue().size() * 3];
+
+            for (int i = 0; i < part.getValue().size(); i++) {
+                VertexBuilder vertex = part.getValue().get(i);
+
+                drawIndices[i * 3] = vertex.position();
+                drawIndices[i * 3 + 1] = vertex.uv();
+                drawIndices[i * 3 + 2] = vertex.normal();
+            }
+
+            writer.addSubmesh(part.getKey(), drawIndices);
         }
 
         return writer.toBytes();

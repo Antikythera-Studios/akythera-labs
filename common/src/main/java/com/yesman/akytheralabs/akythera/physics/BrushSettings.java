@@ -5,6 +5,8 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import it.unimi.dsi.fastutil.floats.FloatList;
 import it.unimi.dsi.fastutil.ints.IntList;
 
+import java.util.List;
+
 /// The weight brush the Paint Tool Panel edits.
 public final class BrushSettings {
     /// Lowest weight [Type#SUBTRACT] leaves on a simulated vertex; [Type#SET] and [Type#ERASE] reach an absolute 0.
@@ -29,8 +31,11 @@ public final class BrushSettings {
         ERASE
     }
 
-    @EditorEditable(label = LangKeys.GUI_CLOTH_BRUSH_MODE, order = 0)
+    @EditorEditable(label = LangKeys.GUI_CLOTH_BRUSH_MODE, order = 0, candidates = "modes")
     private Mode mode = Mode.SCREEN;
+
+    /// The modes the brush offers.
+    private final List<Mode> modes;
 
     @EditorEditable(label = LangKeys.GUI_CLOTH_BRUSH_TYPE, order = 1)
     private Type type = Type.ADD;
@@ -45,6 +50,14 @@ public final class BrushSettings {
     /// 0 is a hard brush, 1 fades linearly from the centre to the edge
     @EditorEditable(label = LangKeys.GUI_CLOTH_BRUSH_FALLOFF, order = 4, min = 0.0F, max = 1.0F)
     private float falloff = 0.5F;
+
+    public BrushSettings(final Mode... modes) {
+        this.modes = List.of(modes);
+    }
+
+    private List<Mode> modes() {
+        return modes;
+    }
 
     public Mode getMode() {
         return mode;

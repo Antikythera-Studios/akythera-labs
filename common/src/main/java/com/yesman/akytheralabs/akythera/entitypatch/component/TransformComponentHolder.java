@@ -20,7 +20,7 @@ public interface TransformComponentHolder {
     TransformInheritPolicy getTransformInheritPolicy();
 
     /// The spaces of one previewed patch's holders, resolved by [TransformComponent]'s rules: a socket on an armature
-    /// rides its bone, a skeletal mesh sits in its armature's space, anything else in its nearest
+    /// rides its bone, a skeletal mesh and a worn equipment piece sit in their armature's space, anything else in its nearest
     /// [TransformComponentHolder] host's space, and the patch root gives [#rootTransform].
     ///
     /// @param hostOf        the holder a component holder is attached under
@@ -44,7 +44,10 @@ public interface TransformComponentHolder {
                 return modelTransform(armature).mul(boneTransform.apply(socket.getBoneName()));
             }
 
-            if (holder instanceof MeshComponentHolder mesh && mesh.getMesh() != null && !mesh.getMesh().checkType(AssetAccessor.Type.STATIC_MESH)) {
+            if (holder instanceof MeshComponentHolder mesh && mesh.getMesh() != null && !mesh.getMesh().checkType(AssetAccessor.Type.STATIC_MESH)
+                || holder instanceof SkinnedArmorRendererHolder
+                || holder instanceof ItemInSlotRendererHolder item && item.isModel3d()
+            ) {
                 for (ComponentAttachableHolder walked = host; walked != null; walked = walked instanceof ComponentDataHolder<?> data ? hostOf.apply(data) : null) {
                     if (walked instanceof ArmatureComponentHolder armature) return modelTransform(armature);
                 }

@@ -230,7 +230,7 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
         _ -> 0xFFFFFFFF
     ),
 
-    /// Wireframe view of the cloth weight painter
+    /// Wireframe view of the weight painter
     CLOTH_WIREFRAME_BUTTON(
         iconBoxRenderer(new WidgetSprites(
             AkytheraLabs.identifier("widget/wireframe"),
@@ -239,7 +239,16 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
         _ -> 0xFFFFFFFF
     ),
 
-    /// Textured view of the cloth weight painter
+    /// Weight-paint view of the weight painter
+    WEIGHT_PAINT_BUTTON(
+        iconBoxRenderer(new WidgetSprites(
+            AkytheraLabs.identifier("widget/weight_paint"),
+            AkytheraLabs.identifier("widget/weight_paint")
+        )),
+        _ -> 0xFFFFFFFF
+    ),
+
+    /// Textured view of the weight painter
     CLOTH_TEXTURED_BUTTON(
         iconBoxRenderer(new WidgetSprites(
             AkytheraLabs.identifier("widget/textured"),

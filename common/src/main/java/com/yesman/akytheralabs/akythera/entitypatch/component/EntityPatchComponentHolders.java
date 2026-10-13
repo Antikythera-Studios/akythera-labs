@@ -17,7 +17,7 @@ import net.minecraft.resources.Identifier;
 /// compat plugins do so during client init.
 ///
 /// A registered type is not automatically offerable at the root of a patch; only holders implementing
-/// [RootAttachableComponent] are. `akythera:equipment` is the standing example — an entity-patch
+/// [RootAttachableComponent] are. `akythera:item_in_slot` is the standing example — an entity-patch
 /// component reachable only by attaching it under a [TransformSocketHolder].
 public final class EntityPatchComponentHolders {
     private EntityPatchComponentHolders() {}
@@ -27,7 +27,8 @@ public final class EntityPatchComponentHolders {
     public static final Identifier ABILITY_SYSTEM = Akythera.identifier("ability_system");
     public static final Identifier TRANSFORM_SOCKET = Akythera.identifier("transform_socket");
     public static final Identifier COLLIDER = Akythera.identifier("collider");
-    public static final Identifier EQUIPMENT = Akythera.identifier("equipment");
+    public static final Identifier ITEM_IN_SLOT = Akythera.identifier("item_in_slot");
+    public static final Identifier SKINNED_ARMOR = Akythera.identifier("skinned_armor");
     public static final Identifier MESH = Akythera.identifier("mesh");
     public static final Identifier PAL_POSE_BINDER = Akythera.identifier("pal_pose_binder");
 
@@ -55,8 +56,10 @@ public final class EntityPatchComponentHolders {
             (host, _) -> host instanceof TransformSocketHolder
                 ? null
                 : Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MENU_REFUSED_COLLIDER_HOST));
-        REGISTRY.register(EQUIPMENT, EquipmentComponentHolder.class,
-            _ -> EquipmentComponentHolder.createDefault(), EquipmentComponentHolder.EDITOR_CODEC);
+        REGISTRY.register(ITEM_IN_SLOT, ItemInSlotRendererHolder.class,
+            _ -> ItemInSlotRendererHolder.createDefault(), ItemInSlotRendererHolder.EDITOR_CODEC);
+        REGISTRY.register(SKINNED_ARMOR, SkinnedArmorRendererHolder.class,
+            _ -> SkinnedArmorRendererHolder.createDefault(), SkinnedArmorRendererHolder.EDITOR_CODEC);
         REGISTRY.register(MESH, MeshComponentHolder.class,
             _ -> MeshComponentHolder.createDefault(), MeshComponentHolder.EDITOR_CODEC);
         // The vanilla model is posed by Player Animation Library, so without that mod the component

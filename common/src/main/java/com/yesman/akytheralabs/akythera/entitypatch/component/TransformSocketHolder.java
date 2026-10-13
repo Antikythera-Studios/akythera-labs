@@ -140,12 +140,15 @@ public final class TransformSocketHolder extends ComponentDataHolder<TransformSo
         this.localTransform = localTransform;
     }
 
-    /// What a socket hosts: an [EquipmentComponentHolder] drawing one equipment slot's item, a
-    /// [MeshComponentHolder] drawing a mesh, and a [ColliderComponentHolder]. Whichever of them the
-    /// patch kind does not register is simply never offered.
+    /// What a socket hosts: an [ItemInSlotRendererHolder] drawing one equipment slot's item, a
+    /// [SkinnedArmorRendererHolder] drawing one armor slot's piece, a [MeshComponentHolder] drawing a mesh,
+    /// and a [ColliderComponentHolder]. Whichever of them the patch kind does not register is simply never
+    /// offered.
     @Override
     public List<Class<?>> attachableTypes() {
-        return List.of(EquipmentComponentHolder.class, MeshComponentHolder.class, ColliderComponentHolder.class);
+        return List.of(
+            ItemInSlotRendererHolder.class, SkinnedArmorRendererHolder.class, MeshComponentHolder.class, ColliderComponentHolder.class
+        );
     }
 
     @Override

@@ -198,11 +198,12 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
         this.transformInheritPolicy = transformInheritPolicy;
     }
 
-    /// What an armature hosts: a [TransformSocketHolder] binding a bone, and the entity's own model
-    /// — [MeshComponentHolder]s drawing meshes, or a [PALPoseBinderHolder] leaving it to PAL.
+    /// What an armature hosts: a [TransformSocketHolder] binding a bone, the entity's own model
+    /// — [MeshComponentHolder]s drawing meshes, or a [PALPoseBinderHolder] leaving it to PAL — and a
+    /// [SkinnedArmorRendererHolder] drawing what one armor slot wears over it.
     @Override
     public List<Class<?>> attachableTypes() {
-        return List.of(TransformSocketHolder.class, MeshComponentHolder.class, PALPoseBinderHolder.class);
+        return List.of(TransformSocketHolder.class, MeshComponentHolder.class, PALPoseBinderHolder.class, SkinnedArmorRendererHolder.class);
     }
 
     @Override

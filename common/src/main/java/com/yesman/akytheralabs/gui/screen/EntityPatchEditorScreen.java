@@ -10,6 +10,7 @@ import com.yesman.akythera.api.data.modularize.node.ScriptCaller;
 import com.yesman.akythera.api.data.modularize.node.ScriptFailure;
 import com.yesman.akythera.api.data.modularize.node.ScriptRecorder;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
+import com.yesman.akythera.client.api.component.impl.SkinnedArmorRenderer;
 import com.yesman.akythera.client.api.gui.ContextMenuContainer;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
@@ -23,6 +24,7 @@ import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.core.asset.mesh.Mesh;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.client.core.asset.mesh.StaticMesh;
+import com.yesman.akythera.client.core.asset.mesh.VanillaModelBaker;
 import com.yesman.akythera.client.core.renderer.RenderUtils;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.asset.armature.Armature;
@@ -46,8 +48,9 @@ import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentH
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.EntityPatchComponentHolders;
-import com.yesman.akytheralabs.akythera.entitypatch.component.EquipmentComponentHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.ItemInSlotRendererHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.MeshComponentHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.SkinnedArmorRendererHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformSocketHolder;
 import com.yesman.akytheralabs.akythera.physics.ClothPhysicsDataHolder;
@@ -87,6 +90,7 @@ import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.StaticMeshPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.TransformComponentPreviewComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.resources.model.EquipmentClientInfo;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
@@ -96,6 +100,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -143,12 +150,12 @@ public final class EntityPatchEditorScreen extends Screen
     private final Map<String, ScriptNodeGraphWidget> openGraphs = new HashMap<>();
     private final List<Runnable> graphFlushes = new ArrayList<>();
 
-    /// The skinned stand-in of every mesh component that carries no cloth. Held because the body is an
-    /// [EntityModelComponent] too, so these cannot be dropped by type.
+    /// The skinned stand-in of every mesh component that carries no cloth, and of every worn equipment piece.
+    /// Held because the body is an [EntityModelComponent] too, so these cannot be dropped by type.
     private final List<EntityModelComponent> meshPreviews = new ArrayList<>();
 
-    /// The item model drawn for each equipment component, which a focus on that component drags.
-    private final Map<EquipmentComponentHolder, ItemModelComponent> equipmentPreviews = new IdentityHashMap<>();
+    /// The item model drawn for each item renderer that draws one, which a focus on that component drags.
+    private final Map<ItemInSlotRendererHolder, ItemModelComponent> equipmentPreviews = new IdentityHashMap<>();
 
     /// The marker raised for the focused armature or mesh, neither of which has a stand-in of its own. Null while the
     /// focus is elsewhere.
@@ -767,11 +774,14 @@ public final class EntityPatchEditorScreen extends Screen
 
     /// [ComponentEditorPanel] focus callback: shows the component in the Details panel, with `host` as
     /// its rows' context, or the parent's properties when none is focused. A mesh's stand-in is built
-    /// from the mesh it names, so a write into one rebuilds the stand-ins once the write lands.
+    /// from the mesh it names and an equipment component's from its slot and preview item, so a write
+    /// into one rebuilds the stand-ins once the write lands.
     private void onComponentFocused(
         @Nullable ComponentDataHolder<?> component, @Nullable ComponentAttachableHolder host
     ) {
         Runnable onWrite = component instanceof MeshComponentHolder
+            || component instanceof ItemInSlotRendererHolder
+            || component instanceof SkinnedArmorRendererHolder
             ? () -> minecraft.execute(this::rebuildSocketPreviews)
             : null;
 
@@ -786,8 +796,8 @@ public final class EntityPatchEditorScreen extends Screen
         focusPreviewOf(component);
     }
 
-    /// Focuses the preview's stand-in for `component`. An armature or a mesh has none of its own, so a
-    /// marker is raised for it while it holds the focus.
+    /// Focuses the preview's stand-in for `component`. An armature, a mesh, an armor piece or an item drawn as
+    /// its 3D model has none of its own, so a marker is raised for it while it holds the focus.
     private void focusPreviewOf(@Nullable ComponentDataHolder<?> component) {
         TransformComponentPreviewComponent<?> previousMarker = focusMarker;
 
@@ -795,7 +805,9 @@ public final class EntityPatchEditorScreen extends Screen
         model3DViewer.focus(switch (component) {
             case TransformSocketHolder socket -> previewOf(socket);
             case ColliderComponentHolder collider -> colliderPreviewOf(collider);
-            case EquipmentComponentHolder equipment -> equipmentPreviews.get(equipment);
+            case SkinnedArmorRendererHolder armor -> addFocusMarker(armor);
+            case ItemInSlotRendererHolder item when item.isModel3d() -> addFocusMarker(item);
+            case ItemInSlotRendererHolder item -> equipmentPreviews.get(item);
             case ArmatureComponentHolder armature -> addFocusMarker(armature);
             case MeshComponentHolder mesh -> addFocusMarker(mesh);
             case null, default -> null;
@@ -904,8 +916,14 @@ public final class EntityPatchEditorScreen extends Screen
                 componentPanel::focusListedComponent)));
 
         ComponentAttachableHolder.flattenEnabled(holder)
-            .filter(EquipmentComponentHolder.class::isInstance)
-            .map(EquipmentComponentHolder.class::cast)
+            .filter(SkinnedArmorRendererHolder.class::isInstance)
+            .map(SkinnedArmorRendererHolder.class::cast)
+            .forEach(armor -> addWornPreview(armor, model));
+
+        ComponentAttachableHolder.flattenEnabled(holder)
+            .filter(ItemInSlotRendererHolder.class::isInstance)
+            .map(ItemInSlotRendererHolder.class::cast)
+            .filter(equipment -> !equipment.isModel3d())
             .forEach(equipment -> {
                 ItemModelComponent itemModel = new ItemModelComponent(equipment::getPreviewItem);
 
@@ -1015,6 +1033,78 @@ public final class EntityPatchEditorScreen extends Screen
         preview.setPoseSource(poseSource);
         preview.setTransformSource(() -> space.modelTransform(meshComponent));
 
+        model3DViewer.addComponent(preview);
+    }
+
+    /// One worn armor piece: the model the previewed entity's renderer wears the preview item with, rebuilt on
+    /// the first skeletal mesh its armature holds and skinned by the body's pose. A preview item that is not worn in
+    /// the slot raises nothing, and neither does an armature holding no such mesh.
+    @SuppressWarnings("unchecked")
+    private void addWornPreview(SkinnedArmorRendererHolder equipment, EntityModelComponent model) {
+        AssetAccessor<? extends Armature> armature = model.getArmature();
+        EntityType<?> entityType = EntityPreviewModelMapping.typeOf(holder.getPreviewEntityType());
+        EquipmentSlot slot = equipment.getEquipmentSlot();
+        ItemStack stack = new ItemStack(equipment.getPreviewItem());
+        SkinnedArmorRenderer.WornModel wornModel = entityType == null
+            ? null
+            : SkinnedArmorRenderer.wornModel(RenderUtils.rendererOf(entityType), stack, slot, false);
+        ComponentAttachableHolder armatureHolder = hostOf(equipment);
+
+        while (armatureHolder instanceof ComponentDataHolder<?> walked && !(walked instanceof ArmatureComponentHolder)) {
+            armatureHolder = hostOf(walked);
+        }
+
+        if (armature == null || wornModel == null || !(armatureHolder instanceof ArmatureComponentHolder)) return;
+
+        List<EquipmentClientInfo.Layer> layers = SkinnedArmorRenderer.wornLayers(stack, slot, wornModel.layerType());
+
+        if (layers.isEmpty()) return;
+
+        AssetAccessor<? extends SkeletalMesh> body = armatureHolder.getComponents().values().stream()
+            .filter(MeshComponentHolder.class::isInstance)
+            .map(component -> ((MeshComponentHolder) component).getMesh())
+            .filter(mesh -> mesh != null && !mesh.checkType(AssetAccessor.Type.STATIC_MESH))
+            .map(mesh -> (AssetAccessor<? extends SkeletalMesh>) mesh)
+            .findFirst()
+            .orElse(null);
+
+        if (body == null) return;
+
+        Identifier texture = layers.getFirst().getTextureLocation(wornModel.layerType());
+        EntityModelComponent preview = new EntityModelComponent(
+            new AssetAccessor<SkeletalMesh>() {
+                @Override
+                public @Nullable SkeletalMesh get() {
+                    Armature resolvedArmature = armature.get();
+                    Object bodyMesh = body.get();
+
+                    return resolvedArmature == null || !(bodyMesh instanceof SkeletalMesh skeletal)
+                        ? null
+                        : VanillaModelBaker.bake(wornModel.model(), resolvedArmature, skeletal, stack.getItem(), slot);
+                }
+
+                @Override
+                public Type type() {
+                    return Type.SKELETAL_MESH;
+                }
+
+                @Override
+                public Identifier identifier() {
+                    return body.identifier();
+                }
+            },
+            armature
+        );
+
+        preview.setPoseSource(() -> {
+            Animator animator = model.getAnimator();
+
+            return animator == null ? null : animator.getPose();
+        });
+        preview.setTransformSource(() -> space.modelTransform(equipment));
+        preview.setPreviewTexture(() -> texture);
+
+        meshPreviews.add(preview);
         model3DViewer.addComponent(preview);
     }
 

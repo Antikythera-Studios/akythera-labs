@@ -27,7 +27,7 @@ import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
-import com.yesman.akytheralabs.akythera.entitypatch.component.EquipmentComponentHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.ItemInSlotRendererHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformSocketHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
@@ -275,14 +275,14 @@ public final class ItemPatchEditorScreen extends Screen
         }
 
         TransformSocketHolder socket = null;
-        EquipmentComponentHolder equipment = null;
+        ItemInSlotRendererHolder equipment = null;
 
         for (ComponentDataHolder<?> attached : armature.getComponents().values()) {
             if (!(attached instanceof TransformSocketHolder candidate)) continue;
 
             equipment = candidate.getComponents().values().stream()
-                .filter(EquipmentComponentHolder.class::isInstance)
-                .map(EquipmentComponentHolder.class::cast)
+                .filter(ItemInSlotRendererHolder.class::isInstance)
+                .map(ItemInSlotRendererHolder.class::cast)
                 .filter(e -> e.getEquipmentSlot() == EquipmentSlot.MAINHAND)
                 .findFirst()
                 .orElse(null);
@@ -302,7 +302,7 @@ public final class ItemPatchEditorScreen extends Screen
             Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.width(),
             Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.height());
 
-        EquipmentComponentHolder anchor = equipment;
+        ItemInSlotRendererHolder anchor = equipment;
         TransformComponentHolder.Space playerSpace = new TransformComponentHolder.Space(
             component -> ComponentAttachableHolder.hostOf(patch, component),
             bone -> model.getArmatureComponent().getBoneModelTransform(bone),

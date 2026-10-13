@@ -52,10 +52,10 @@ import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.viewer.ClothParticleMappingComponent;
-import com.yesman.akytheralabs.gui.widget.viewer.ClothWeightPaintComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.WeightPaintComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.Tooltip;
+
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
@@ -81,7 +81,7 @@ public final class ClothPhysicsDataEditorScreen extends Screen implements ModalA
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
     private static final int OVERLAY_PAD = 4; // gap between an overlay widget and the viewer's edge
-    private static final int VIEW_BUTTON = 20; // side of a view-mode button
+    private static final int VIEW_BUTTON = 20; // side of the view-mode button
     private static final int VIEW_BUTTON_GAP = 2;
     private static final int SIMULATE_W = 100;
     private static final int SIMULATE_H = 20;
@@ -97,15 +97,18 @@ public final class ClothPhysicsDataEditorScreen extends Screen implements ModalA
     private final WidgetTable parametersTable;
     private final AkytheraButton simulateButton;
 
+    /// Steps the painter through its views, drawn as the one it is in.
+    private AkytheraButton viewModeButton;
+
     /// Switches the paint table between weight painting and particle mapping.
     private AkytheraButton mappingButton;
 
     /// The mesh's cloth, taken off the project so a reopened screen continues the same edit.
     private final ClothPhysicsDataHolder holder;
-    private final BrushSettings brush = new BrushSettings();
+    private final BrushSettings brush = new BrushSettings(BrushSettings.Mode.values());
     private final ParticleMappingSettings mappingSettings = new ParticleMappingSettings();
 
-    private @Nullable ClothWeightPaintComponent painter;
+    private @Nullable WeightPaintComponent painter;
 
     private @Nullable ClothParticleMappingComponent mapper;
 
@@ -165,14 +168,22 @@ public final class ClothPhysicsDataEditorScreen extends Screen implements ModalA
         model3DViewer.addComponent(new CameraComponent(true));
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(1.0F, 16, 68, 68, 68, 255));
-        model3DViewer.addOverlayWidget(viewModeButton(
-            ClothWeightPaintComponent.ViewMode.WIREFRAME, AkytheraLabsButtonTheme.CLOTH_WIREFRAME_BUTTON,
-            LangKeys.GUI_CLOTH_PHYSICS_SCREEN_VIEW_WIREFRAME, OVERLAY_PAD
-        ));
-        model3DViewer.addOverlayWidget(viewModeButton(
-            ClothWeightPaintComponent.ViewMode.TEXTURED, AkytheraLabsButtonTheme.CLOTH_TEXTURED_BUTTON,
-            LangKeys.GUI_CLOTH_PHYSICS_SCREEN_VIEW_TEXTURED, OVERLAY_PAD + VIEW_BUTTON + VIEW_BUTTON_GAP
-        ));
+
+        viewModeButton = AkytheraButton
+            .buttonBuilder(minecraft.font, LocalizedMessage.EMPTY, () -> {
+                if (painter == null) return;
+
+                painter.setViewMode(painter.getViewMode().next());
+                viewModeButton.setTheme(painter.getViewMode().buttonTheme());
+            })
+            .xUnits(AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(VIEW_BUTTON))
+            .yUnits(AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(VIEW_BUTTON))
+            .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH)
+            .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
+            .theme(WeightPaintComponent.ViewMode.WEIGHT_PAINT.buttonTheme())
+            .tooltip(_ -> painter == null ? null : painter.getViewMode().tooltip())
+            .build();
+        model3DViewer.addOverlayWidget(viewModeButton);
 
         CheckBox previewModelCheckBox = new CheckBox(
             minecraft.font,
@@ -360,7 +371,7 @@ public final class ClothPhysicsDataEditorScreen extends Screen implements ModalA
 
         holder.fitWeights(resolvedMesh.getPositionCount());
 
-        painter = new ClothWeightPaintComponent(mesh, holder::getWeights, holder::getOffsetPairs, brush, this::commitStroke);
+        painter = new WeightPaintComponent(mesh, holder::getWeights, holder::getOffsetPairs, brush, this::commitStroke);
         mapper = new ClothParticleMappingComponent(mesh, holder::getOffsetPairs, (before, after) -> {
             holder.setOffsetPairs(after);
             HistoryManager.getInstance().pushHistory(new DataChange<>(before, after, holder::setOffsetPairs));
@@ -479,25 +490,6 @@ public final class ClothPhysicsDataEditorScreen extends Screen implements ModalA
         }));
     }
 
-    /// One sprite button picking `mode`, highlighted while it is the painter's view.
-    private AkytheraButton viewModeButton(
-        final ClothWeightPaintComponent.ViewMode mode, final AkytheraLabsButtonTheme theme, final String tooltipKey, final int offsetX
-    ) {
-        Tooltip tooltip = Tooltip.create(Component.translatable(tooltipKey));
-
-        return AkytheraButton
-            .buttonBuilder(minecraft.font, LocalizedMessage.EMPTY, () -> {
-                if (painter != null) painter.setViewMode(mode);
-            })
-            .xUnits(AnchoredWidget.pixel(offsetX), AnchoredWidget.pixel(VIEW_BUTTON))
-            .yUnits(AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(VIEW_BUTTON))
-            .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH)
-            .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
-            .theme(theme)
-            .tooltip(_ -> tooltip)
-            .isHighlighted(_ -> painter != null && painter.getViewMode() == mode)
-            .build();
-    }
 
     /// Replaces the weights with a finished stroke's and files the swap whole on the history.
     private void commitStroke(final float[] before, final float[] after) {
