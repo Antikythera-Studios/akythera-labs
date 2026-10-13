@@ -1,13 +1,15 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.ImageUploader;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import net.minecraft.client.gui.Font;
@@ -45,7 +47,7 @@ public final class ProjectSetupModalGenerator {
         // Holder so the confirm-button lambda can reference the popup created below.
         WidgetContainerModal[] popupRef = new WidgetContainerModal[1];
 
-        AnchoredButton saveBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_SAVE), _ -> {
+        AkytheraButton saveBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_SAVE), () -> {
             nameRow.errorMessage = null;
             versionRow.errorMessage = null;
 
@@ -62,12 +64,12 @@ public final class ProjectSetupModalGenerator {
             }
 
             activeIconRow = null;
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
         }).build();
 
-        AnchoredButton cancelBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ -> {
+        AkytheraButton cancelBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL), () -> {
             activeIconRow = null;
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
         }).build();
 
         int btnW = WidgetContainerModal.evenButtonWidth(POPUP_W, 2);
@@ -83,7 +85,7 @@ public final class ProjectSetupModalGenerator {
 
         popupRef[0] = popup;
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     /// Routes file-drop events from [MainEditorScreen#onFilesDrop] to the active icon uploader.
@@ -150,13 +152,13 @@ public final class ProjectSetupModalGenerator {
         private static final int BOX_H = 20;
 
         private final Font font;
-        private final AdvancedEditBox<String> nameBox;
+        private final EditorEditBox<String> nameBox;
         @Nullable
         private Component errorMessage = null;
 
         ProjectNameRow(Font font, AkytheraProject project) {
             this.font = font;
-            this.nameBox = AdvancedEditBox.filteredStringBox(
+            this.nameBox = EditorEditBox.filteredStringBox(
                 font,
                 s -> s.matches("[a-z0-9_]*"),
                 Component.literal("project_name"),
@@ -217,21 +219,21 @@ public final class ProjectSetupModalGenerator {
         private Component errorMessage = null;
 
         private final Font font;
-        private final AdvancedEditBox<String> majorBox;
-        private final AdvancedEditBox<String> minorBox;
-        private final AdvancedEditBox<String> patchBox;
-        private final AdvancedEditBox<String> preBox;
-        private final AnchoredButton questionButton;
+        private final EditorEditBox<String> majorBox;
+        private final EditorEditBox<String> minorBox;
+        private final EditorEditBox<String> patchBox;
+        private final EditorEditBox<String> preBox;
+        private final AkytheraButton questionButton;
 
         VersionContainerRow(Font font, AkytheraProject project) {
             this.font = font;
 
             Predicate<String> digitsOnly = s -> s.matches("\\d*");
 
-            majorBox = AdvancedEditBox.filteredStringBox(font, digitsOnly, Component.empty());
-            minorBox = AdvancedEditBox.filteredStringBox(font, digitsOnly, Component.empty());
-            patchBox = AdvancedEditBox.filteredStringBox(font, digitsOnly, Component.empty());
-            preBox   = AdvancedEditBox.filteredStringBox(font, s -> s.matches("[a-zA-Z0-9.]*"), Component.empty());
+            majorBox = EditorEditBox.filteredStringBox(font, digitsOnly, Component.empty());
+            minorBox = EditorEditBox.filteredStringBox(font, digitsOnly, Component.empty());
+            patchBox = EditorEditBox.filteredStringBox(font, digitsOnly, Component.empty());
+            preBox   = EditorEditBox.filteredStringBox(font, s -> s.matches("[a-zA-Z0-9.]*"), Component.empty());
 
             AkytheraProject.SemanticVersioning v = project.getVersion();
             majorBox.setValueByString(String.valueOf(v.major()));
@@ -248,7 +250,7 @@ public final class ProjectSetupModalGenerator {
             pinAt(patchBox, x, BOX_W); x += BOX_W + SEP_W;
             pinAt(preBox,   x, PRE_W); x += PRE_W + 4;
 
-            questionButton = AnchoredButton.buttonBuilder(font, Component.literal("?"), _ -> {})
+            questionButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.handwritten("?"), () -> {})
                 .xUnits(AnchoredWidget.pixel(x), AnchoredWidget.pixel(QUESTION_W))
                 .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(QUESTION_W))
                 .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH)
@@ -262,7 +264,7 @@ public final class ProjectSetupModalGenerator {
             addWidget(questionButton);
         }
 
-        private static void pinAt(AdvancedEditBox<?> box, int x1, int width) {
+        private static void pinAt(EditorEditBox<?> box, int x1, int width) {
             box.setX1(AnchoredWidget.pixel(x1));
             box.setX2(AnchoredWidget.pixel(width));
             box.setY1(AnchoredWidget.pixel(0));

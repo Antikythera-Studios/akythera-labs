@@ -1,5 +1,7 @@
 package com.yesman.akytheralabs.akythera.collider;
 
+import com.mojang.serialization.MapCodec;
+import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.math.physics.collider.AkytheraColliderType;
 import com.yesman.akythera.core.math.physics.collider.Collider;
@@ -11,9 +13,19 @@ import net.minecraft.world.phys.Vec3;
 
 /// Dimensions of an [OrientedBoxCollider].
 public final class OrientedBoxShapeHolder extends ColliderShapeHolder {
+    public static final MapCodec<OrientedBoxShapeHolder> EDITOR_CODEC =
+        Vec3.CODEC.fieldOf("length").xmap(OrientedBoxShapeHolder::new, OrientedBoxShapeHolder::getLength);
+
     /// Full length along each of the box's own axes, before the pivot's scale.
     @EditorEditable(label = LangKeys.GUI_COLLIDER_LENGTH, order = 0)
     private Vec3 length = new Vec3(1.0D, 1.0D, 1.0D);
+
+    public OrientedBoxShapeHolder() {
+    }
+
+    public OrientedBoxShapeHolder(final Vec3 length) {
+        this.length = length;
+    }
 
     public Vec3 getLength() {
         return length;
@@ -34,8 +46,12 @@ public final class OrientedBoxShapeHolder extends ColliderShapeHolder {
     }
 
     @Override
-    public OrientedBoxCollider makeCollider(final Transform pivotTransform) {
-        return new OrientedBoxCollider(pivotTransform, length);
+    public OrientedBoxCollider makeCollider(
+        final Transform pivotTransform,
+        final TransformInheritPolicy transformInheritPolicy,
+        final boolean enabled
+    ) {
+        return new OrientedBoxCollider(pivotTransform, transformInheritPolicy, length, enabled);
     }
 
     @Override

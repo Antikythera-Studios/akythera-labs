@@ -3,6 +3,7 @@ package com.yesman.akytheralabs;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.mojang.datafixers.util.Pair;
@@ -23,6 +24,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -153,6 +155,20 @@ public final class FileSystemHelper {
         } catch (IOException | JsonParseException e) {
             AkytheraLabs.LOGGER.error("Failed to read {}", file, e);
             return orElse;
+        }
+    }
+
+    /// `file` parsed as a json object, or null when it is missing, unreadable or not an object.
+    public static @Nullable JsonObject readJsonObject(Path file) {
+        if (!Files.isRegularFile(file)) return null;
+
+        try (BufferedReader reader = Files.newBufferedReader(file)) {
+            JsonElement root = JsonParser.parseReader(reader);
+
+            return root.isJsonObject() ? root.getAsJsonObject() : null;
+        } catch (IOException | JsonParseException e) {
+            AkytheraLabs.LOGGER.error("Failed to read {}", file, e);
+            return null;
         }
     }
 
@@ -294,16 +310,16 @@ public final class FileSystemHelper {
         Map<String, byte[]> literalEntries,
         List<Pair<String, Path>> trees
     ) {
-        return zip(zipFile, literalEntries, trees, _ -> true);
+        return zip(zipFile, literalEntries, trees, FileSystemHelper::readBytes);
     }
 
-    /// [#zip] where `treeFilter` decides which of the walked files become entries. Literal entries
-    /// are not offered to it — they have no file to test.
+    /// [#zip] where `treeContent` supplies each walked file's bytes, or null to leave it out — so a
+    /// file can be rewritten on its way into the archive. Literal entries are not offered to it.
     public static boolean zip(
         Path zipFile,
         Map<String, byte[]> literalEntries,
         List<Pair<String, Path>> trees,
-        Predicate<Path> treeFilter
+        Function<Path, byte @Nullable []> treeContent
     ) {
         try {
             Path parent = zipFile.getParent();
@@ -323,12 +339,15 @@ public final class FileSystemHelper {
 
                     List<Path> files;
                     try (Stream<Path> walk = Files.walk(dir)) {
-                        files = walk.filter(Files::isRegularFile).filter(treeFilter).toList();
+                        files = walk.filter(Files::isRegularFile).toList();
                     }
 
                     for (Path file : files) {
+                        byte[] content = treeContent.apply(file);
+                        if (content == null) continue;
+
                         zos.putNextEntry(new ZipEntry(prefix + "/" + relativeIdPath(dir, file)));
-                        zos.write(Files.readAllBytes(file));
+                        zos.write(content);
                         zos.closeEntry();
                     }
                 }

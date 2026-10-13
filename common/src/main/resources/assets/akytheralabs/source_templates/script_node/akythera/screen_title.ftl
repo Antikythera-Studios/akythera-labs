@@ -1,0 +1,2 @@
+<#-- akythera:screen_title (screen) -> LocalizedMessage; client implementation --><#t>
+(${params[0]} == null || ${params[0]}.getBlueprint() == null ? LocalizedMessage.EMPTY : ${params[0]}.getBlueprint().value().title())<#t>

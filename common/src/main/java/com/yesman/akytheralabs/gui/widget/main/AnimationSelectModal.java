@@ -3,19 +3,19 @@ package com.yesman.akytheralabs.gui.widget.main;
 import com.mojang.blaze3d.platform.Window;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
-import com.yesman.akythera.client.api.mesh.MeshManager;
-import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
-import com.yesman.akythera.client.gui.widget.*;
-import com.yesman.akythera.client.gui.widget.viewer.*;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.*;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.viewer.*;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -27,19 +27,14 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
-import net.minecraft.client.renderer.entity.LivingEntityRenderer;
-import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.EntityTypes;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -47,7 +42,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /// A modal that picks an existing [AnimationClip] from the project's known
 /// animation accessors. The model list on the left lets the user pick which
@@ -75,13 +69,13 @@ public final class AnimationSelectModal extends OverlayingWindowModal
     private final OnConfirmed onAnimationsConfirmed;
     /// Whether the animation list accumulates rows or keeps only the clicked one.
     private final boolean multiSelect;
-    private final AdvancedEditBox<String> modelSearchBox;
-    private final AdvancedEditBox<String> animationSearchBox;
+    private final EditorEditBox<String> modelSearchBox;
+    private final EditorEditBox<String> animationSearchBox;
     private final ModelList modelList;
     private final AnimList animList;
     private final Model3DViewer preview;
-    private final AnchoredButton closeScreenButton;
-    private final AnchoredButton confirmButton;
+    private final AkytheraButton closeScreenButton;
+    private final AkytheraButton confirmButton;
 
     /// The animations `OK` reports, in click order.
     private final Set<AssetAccessor<AnimationClip>> selectedAnimations = new LinkedHashSet<>();
@@ -89,27 +83,27 @@ public final class AnimationSelectModal extends OverlayingWindowModal
     /// Row a shift-click measures its range from.
     private AnimList.@Nullable AnimEntry rangeAnchor;
 
-    /// Currently-highlighted model in the left list — reported alongside the animation on confirm so
-    /// callers can persist it as the new entry's preview model. Null until the user picks a model.
-    @Nullable private EntityPreviewModel selectedModel;
+    /// Currently-highlighted entity type in the left list — reported alongside the animation on
+    /// confirm so callers can persist it as the new entry's preview entity. Null until one is picked.
+    @Nullable private Identifier selectedEntityType;
 
-    /// Confirm callback: the chosen animations in click order, plus the preview model the user had
-    /// selected (null if they never picked one).
+    /// Confirm callback: the chosen animations in click order, plus the preview entity type the user
+    /// had selected (null if they never picked one).
     @FunctionalInterface
     public interface OnConfirmed {
-        void accept(List<AssetAccessor<AnimationClip>> animClips, @Nullable EntityPreviewModel previewModel);
+        void accept(List<AssetAccessor<AnimationClip>> animClips, @Nullable Identifier previewEntityType);
     }
 
-    /// `initialModel` (nullable): pre-selects that model in the left list — so the previewer shows
-    /// the caller's current preview model on open — instead of starting with nothing selected.
-    public AnimationSelectModal(Font font, @Nullable EntityPreviewModel initialModel, OnConfirmed onAnimationsConfirmed) {
-        this(font, initialModel, false, onAnimationsConfirmed);
+    /// `initialType` (nullable): pre-selects that entity type in the left list — so the previewer
+    /// shows the caller's current preview entity on open — instead of starting with nothing selected.
+    public AnimationSelectModal(Font font, @Nullable Identifier initialType, OnConfirmed onAnimationsConfirmed) {
+        this(font, initialType, false, onAnimationsConfirmed);
     }
 
     /// `multiSelect` lets the animation list hold more than one row, so one confirm reports a batch.
     public AnimationSelectModal(
         Font font,
-        @Nullable EntityPreviewModel initialModel,
+        @Nullable Identifier initialType,
         boolean multiSelect,
         OnConfirmed onAnimationsConfirmed
     ) {
@@ -128,7 +122,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         this.animList = new AnimList();
         this.animList.rebuild("");
 
-        this.modelSearchBox = AdvancedEditBox.stringBox(
+        this.modelSearchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.fraction(MODEL_LIST_PCT),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -138,7 +132,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
             Component.translatable(LangKeys.GUI_MESSAGE_EMPTY_SEARCHBAR)
         );
 
-        this.animationSearchBox = AdvancedEditBox.stringBox(
+        this.animationSearchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.fraction(MODEL_LIST_PCT), AnchoredWidget.fraction(ANIM_LIST_PCT),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -160,8 +154,8 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         preview.addComponent(new BackgroundComponent(18, 18, 18, 255));
         preview.addComponent(new GridFloorComponent(1.0F, 6, 68, 68, 68, 255));
 
-        this.closeScreenButton = AnchoredButton
-            .buttonBuilder(font, Component.literal("X"), _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+        this.closeScreenButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.handwritten("X"), () -> ModalManager.getInstance().closeModal())
             .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(TITLE_H))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(TITLE_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -169,8 +163,8 @@ public final class AnimationSelectModal extends OverlayingWindowModal
             .theme(AkytheraLabsButtonTheme.TOP_MENU_BUTTON)
             .build();
 
-        this.confirmButton = AnchoredButton
-            .buttonBuilder(font, Component.translatable(LangKeys.GUI_OK), _ -> confirm())
+        this.confirmButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_OK), () -> confirm())
             .xUnits(AnchoredWidget.pixel(6), AnchoredWidget.pixel(BUTTON_W))
             .yUnits(AnchoredWidget.pixel(4), AnchoredWidget.pixel(FOOTER_H - 10))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -179,8 +173,8 @@ public final class AnimationSelectModal extends OverlayingWindowModal
             .build();
 
         // After the previewer exists — selecting a row displays the model on it.
-        if (initialModel != null) {
-            getModelRowById(initialModel).ifPresent(modelList::setSelected);
+        if (initialType != null) {
+            getModelRowById(initialType).ifPresent(modelList::setSelected);
         }
     }
 
@@ -192,6 +186,27 @@ public final class AnimationSelectModal extends OverlayingWindowModal
     @Override
     public void destroy() {
         preview.destroy();
+    }
+
+    @Override
+    public EditorEditBox<String> searchBox() {
+        return animationSearchBox;
+    }
+
+    @Override
+    public boolean confirmSoleResult() {
+        List<AnimList.AnimEntry> rows = animList.children().stream()
+            .filter(AnimList.AnimEntry.class::isInstance)
+            .map(AnimList.AnimEntry.class::cast)
+            .toList();
+
+        if (rows.size() != 1) return false;
+
+        selectedAnimations.clear();
+        selectedAnimations.add(rows.getFirst().accessor());
+        confirm();
+
+        return true;
     }
 
     @Override
@@ -214,7 +229,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
         if (!super.isMouseOver(event.x(), event.y())) {
             // Close modal if pressed out of the box
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -233,7 +248,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -340,121 +355,36 @@ public final class AnimationSelectModal extends OverlayingWindowModal
     private void confirm() {
         if (selectedAnimations.isEmpty()) return;
 
-        onAnimationsConfirmed.accept(List.copyOf(selectedAnimations), selectedModel);
-        AkytheraEditorLayoutManager.getInstance().closeModal();
+        onAnimationsConfirmed.accept(List.copyOf(selectedAnimations), selectedEntityType);
+        ModalManager.getInstance().closeModal();
     }
 
     /// ---------------- Model rows ----------------
 
-    private sealed interface ModelRow permits TitleRow, SkeletalMeshRow, VanillaModelRow {
-        Component label();
+    /// Entity types the previewer can draw, filtered by `query`. What each is drawn with comes from
+    /// [EntityPreviewModelMapping].
+    private static List<EntityType<?>> buildModelCatalog(String query) {
+        String lower = ParseUtils.toLowerCase(query);
 
-        boolean selectable();
-    }
-
-    private record TitleRow(Component label) implements ModelRow {
-        @Override
-        public boolean selectable() {
-            return false;
-        }
-    }
-
-    private record SkeletalMeshRow(AssetAccessor<SkeletalMesh> accessor) implements ModelRow {
-        @Override
-        public Component label() {
-            return Component.literal(accessor.identifier().toString());
-        }
-
-        @Override
-        public boolean selectable() {
-            return true;
-        }
-    }
-
-    private record VanillaModelRow(EntityType<?> type, LivingEntityRenderer<?, ?, ?> renderer) implements ModelRow {
-        @Override
-        public Component label() {
-            Identifier id = BuiltInRegistries.ENTITY_TYPE.getKey(type);
-            return Component.literal(id.getPath());
-        }
-
-        @Override
-        public boolean selectable() {
-            return true;
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<ModelRow> buildModelCatalog(String query) {
-        String lower = query.toLowerCase();
-        List<ModelRow> rows = new ArrayList<>();
-
-        List<SkeletalMeshRow> skeletal = Stream.concat(
-                MeshManager.getInstance().listRegisteredAccessors(),
-                AkytheraProject.getCurrentProject().listIssuedEditorMeshAccessors()
-            )
-            .filter(acc -> acc.checkType(AssetAccessor.Type.SKELETAL_MESH))
-            .collect(Collectors.toMap(AssetAccessor::identifier, acc -> acc, (a, _b) -> a, LinkedHashMap::new))
-            .values().stream()
-            .map(acc -> new SkeletalMeshRow((AssetAccessor<SkeletalMesh>) acc))
-            .filter(row -> lower.isEmpty() || row.accessor().identifier().toString().toLowerCase().contains(lower))
-            .sorted(Comparator.comparing(row -> row.accessor().identifier().toString()))
+        return EntityPreviewModelMapping.previewableTypes().stream()
+            .filter(type -> lower.isEmpty() || EntityPreviewModelMapping.label(type).toLowerCase().contains(lower))
             .toList();
-
-        if (!skeletal.isEmpty()) {
-            rows.add(new TitleRow(Component.translatable(LangKeys.GUI_PREVIEW_MODEL_SELECT_MODAL_CATEGORY_SKELETAL)));
-            rows.addAll(skeletal);
-        }
-
-        EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
-        List<VanillaModelRow> vanilla =
-            Stream.concat(
-                dispatcher.renderers.entrySet().stream()
-                    .filter(e -> e.getValue() instanceof LivingEntityRenderer<?, ?, ?>)
-                    .map(e -> new VanillaModelRow(e.getKey(), (LivingEntityRenderer<?, ?, ?>) e.getValue())),
-                Stream.of(new VanillaModelRow(EntityTypes.PLAYER, dispatcher.playerRenderers.get(DefaultPlayerSkin.getDefaultSkin().model())))
-            )
-            .filter(row -> lower.isEmpty() || row.label().getString().toLowerCase().contains(lower))
-            .sorted(Comparator.comparing(row -> row.label().getString()))
-            .toList();
-
-        if (!vanilla.isEmpty()) {
-            rows.add(new TitleRow(Component.translatable(LangKeys.GUI_PREVIEW_MODEL_SELECT_MODAL_CATEGORY_VANILLA)));
-            rows.addAll(vanilla);
-        }
-
-        return rows;
     }
 
-    /// Model-list row matching an [EntityPreviewModel] (mirrors [ModelSelectModal]'s `getRowById`).
-    private Optional<ModelList.@NonNull Entry> getModelRowById(EntityPreviewModel model) {
-        return modelList.children().stream().filter(e ->
-            switch (model.modelType()) {
-                case SKELETAL_MESH ->
-                    e.getRow() instanceof SkeletalMeshRow(AssetAccessor<SkeletalMesh> accessor)
-                        && accessor.identifier().equals(model.modelId());
-                case VANILLA_ENTITY ->
-                    e.getRow() instanceof VanillaModelRow vanillaModelRow
-                        && BuiltInRegistries.ENTITY_TYPE.getKey(vanillaModelRow.type()).equals(model.modelId());
-            }).findFirst();
+    private Optional<ModelList.@NonNull Entry> getModelRowById(Identifier entityTypeId) {
+        return modelList.children().stream()
+            .filter(e -> BuiltInRegistries.ENTITY_TYPE.getKey(e.type()).equals(entityTypeId))
+            .findFirst();
     }
 
-    private void onSelectModelRow(ModelRow row) {
-        switch (row) {
-            case SkeletalMeshRow sr -> {
-                selectedModel = new EntityPreviewModel(sr.accessor().identifier(), EntityModelComponent.ModelType.SKELETAL_MESH);
-                EntityPreviewModel.display(preview, selectedModel, true, true);
-            }
-            case VanillaModelRow vr -> {
-                selectedModel = new EntityPreviewModel(BuiltInRegistries.ENTITY_TYPE.getKey(vr.type()), EntityModelComponent.ModelType.VANILLA_ENTITY);
-                EntityPreviewModel.display(preview, selectedModel, true, true);
-            }
-            case TitleRow _ -> {}
-        }
+    private void onSelectModelRow(EntityType<?> type) {
+        selectedEntityType = BuiltInRegistries.ENTITY_TYPE.getKey(type);
+        EntityPreviewModelMapping.display(preview, selectedEntityType, true, true);
 
         // Re-apply the currently-selected animation onto the new model.
         replaySelectedAnimation();
     }
+
 
     private final class ModelList extends AbstractSelectionList<ModelList.@NonNull Entry> implements AnchoredWidget {
         ModelList() {
@@ -464,9 +394,8 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         void rebuild(String query) {
             clearEntries();
 
-            for (ModelRow row : buildModelCatalog(query)) {
-                if (row instanceof TitleRow tr) addEntry(new TitleEntry(tr));
-                else addEntry(new ModelEntry(row));
+            for (EntityType<?> type : buildModelCatalog(query)) {
+                addEntry(new Entry(type));
             }
 
             // Effectively calls repositionEntries
@@ -533,46 +462,22 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         @Override
         public void setSelected(@Nullable Entry selected) {
             super.setSelected(selected);
-            if (selected != null) onSelectModelRow(selected.getRow());
+            if (selected != null) onSelectModelRow(selected.type());
         }
 
         @Override
         protected void updateWidgetNarration(@NonNull NarrationElementOutput n) {
         }
 
-        abstract static class Entry extends AbstractSelectionList.Entry<@NonNull Entry> {
-            abstract ModelRow getRow();
-        }
+        final class Entry extends AbstractSelectionList.Entry<@NonNull Entry> {
+            private final EntityType<?> type;
 
-        final class TitleEntry extends Entry {
-            private final TitleRow row;
-
-            TitleEntry(TitleRow row) {
-                this.row = row;
+            Entry(EntityType<?> type) {
+                this.type = type;
             }
 
-            @Override
-            public void extractContent(@NonNull GuiGraphicsExtractor g, int mx, int my, boolean hovered, float a) {
-                g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), 0xFF141414);
-                g.text(font, row.label(), getX() + 6, getY() + (getHeight() - 8) / 2, 0xFF888888, false);
-            }
-
-            @Override
-            public boolean mouseClicked(@NonNull MouseButtonEvent ev, boolean dc) {
-                return false;
-            }
-
-            @Override
-            public ModelRow getRow() {
-                return row;
-            }
-        }
-
-        final class ModelEntry extends Entry {
-            private final ModelRow row;
-
-            ModelEntry(ModelRow row) {
-                this.row = row;
+            EntityType<?> type() {
+                return type;
             }
 
             @Override
@@ -581,18 +486,17 @@ public final class AnimationSelectModal extends OverlayingWindowModal
                     g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), 0xFF262626);
                 }
 
-                g.text(font, row.label(), getX() + 6, getY() + (getHeight() - 8) / 2, getSelected() == this ? 0xFFFFFFFF : 0xFFCCCCCC, false);
+                // An entity with no mesh bound cannot be previewed, so it reads dim.
+                boolean bound = EntityPreviewModelMapping.getMesh(type) != null;
+                int color = getSelected() == this ? 0xFFFFFFFF : bound ? 0xFFCCCCCC : 0xFF777777;
+
+                g.text(font, EntityPreviewModelMapping.label(type), getX() + 6, getY() + (getHeight() - 8) / 2, color, false);
             }
 
             @Override
             public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClicked) {
                 setSelected(this);
                 return true;
-            }
-
-            @Override
-            public ModelRow getRow() {
-                return row;
             }
         }
 
@@ -603,8 +507,8 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         private Unit x2 = AnchoredWidget.fraction(MODEL_LIST_PCT);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);
         private Unit y2 = AnchoredWidget.pixel(FOOTER_H);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -616,6 +520,8 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 
     private final class AnimList extends AbstractSelectionList<AnimList.@NonNull Entry> implements AnchoredWidget {
@@ -775,8 +681,8 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         private Unit x2 = AnchoredWidget.fraction(ANIM_LIST_PCT);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);
         private Unit y2 = AnchoredWidget.pixel(FOOTER_H);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -788,5 +694,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 }

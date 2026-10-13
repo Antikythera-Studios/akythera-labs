@@ -3,7 +3,9 @@ package com.yesman.akytheralabs.akythera.animation.notify.impl;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.animation.notify.impl.LogNotifyState;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.util.LogicalSide;
+import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
 
@@ -41,6 +43,21 @@ public final class LogNotifyStateHolder extends AnimationNotifyStateHolder<LogNo
     @Override
     public String notifyName() {
         return LogNotifyState.class.getSimpleName();
+    }
+
+    @Override
+    public void simulateBegin(Model3DViewer previewer) {
+        AkytheraLabs.LOGGER.info("Debug notify state: begin notified in previewer");
+    }
+
+    @Override
+    public void simulateTick(Model3DViewer previewer, float prevElapsedTime, float currentElapsedTime) {
+        AkytheraLabs.LOGGER.info("Debug notify state: tick notified in previewer at: prev = {}, current = {}", prevElapsedTime, currentElapsedTime);
+    }
+
+    @Override
+    public void simulateEnd(Model3DViewer previewer) {
+        AkytheraLabs.LOGGER.info("Debug notify state: end notified in previewer");
     }
 
     @Override

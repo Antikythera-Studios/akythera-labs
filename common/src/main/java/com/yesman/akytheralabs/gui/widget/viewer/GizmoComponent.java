@@ -4,12 +4,13 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
+import com.yesman.akythera.client.api.gui.viewer.Ray;
 import com.yesman.akythera.client.core.renderer.RenderUtils;
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewerComponent;
-import com.yesman.akythera.client.gui.widget.viewer.Ray;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.util.helper.VectorUtils;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -31,8 +32,10 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /// A transform picker in 3D space.
 ///
@@ -134,13 +137,15 @@ public final class GizmoComponent implements Model3DViewerComponent {
 
     /// The orientation toggle among [#modeButtons], held to disable it in [Mode#SCALE].
     @Nullable
-    private AnchoredButton orientationButton;
+    private AkytheraButton orientationButton;
 
     public void bind(@Nullable LocatableComponent target) {
         abortTransform();
 
         this.target = target;
         this.hovered = null;
+
+        if (!allowedModes().contains(mode)) setMode(allowedModes().iterator().next());
     }
 
     public @Nullable LocatableComponent getTarget() {
@@ -743,8 +748,10 @@ public final class GizmoComponent implements Model3DViewerComponent {
         Quaterniond worldRotation = new Quaterniond().rotateAxis(angle, normal.x, normal.y, normal.z);
 
         // `world.rot = parent.rot × local.rot`, so pre-multiplying a world rotation lands in local
-        // space conjugated by the parent.
-        Quaterniond parentRotation = target.parentTransform().rot();
+        // space conjugated by the parent. The parent rotation is read off the two: the inherit policy
+        // decides how much of the parent's own rotation reaches the target.
+        Quaterniond parentRotation = target.worldTransform().rot()
+            .mul(target.localTransform().rot().conjugate(new Quaterniond()), new Quaterniond());
         Quaterniond localRotation = parentRotation.conjugate(new Quaterniond())
             .mul(worldRotation, new Quaterniond())
             .mul(parentRotation, new Quaterniond())
@@ -830,11 +837,26 @@ public final class GizmoComponent implements Model3DViewerComponent {
     /// [Mode#TRANSLATE] — the camera-facing plane — and [Handle#VIEW] for the other two, view-axis
     /// rotation and uniform scale.
     ///
+    /// Also puts one part of the target back to rest, see [#keyedReset].
+    ///
     /// Only taken while the cursor is over the viewer: an editor key reaches every panel, these bindings are
     /// unmodified, and `Tab` is what [Screen] navigates focus with.
     @Override
     public boolean onKeyPressed(final Model3DViewer viewer, final KeyEvent event) {
         if (target == null || !viewer.isMouseOver(lastMouseX, lastMouseY)) return false;
+
+        // Not mid-gesture: the transform in flight owns the target until it ends.
+        if (!capturing && active == null) {
+            Transform reset = keyedReset(event, target.localTransform());
+
+            if (reset != null) {
+                // A live step and its commit, the pair a one-step drag makes — a target's history
+                // takes its undo baseline from the live one.
+                target.applyLocalTransform(reset, true);
+                target.applyLocalTransform(reset, false);
+                return true;
+            }
+        }
 
         if (capturing) {
             int axis = keyedAxis(event);
@@ -861,7 +883,7 @@ public final class GizmoComponent implements Model3DViewerComponent {
 
         Mode keyed = keyedMode(event);
 
-        if (keyed == null) return false;
+        if (keyed == null || !allowedModes().contains(keyed)) return false;
 
         setMode(keyed);
         focusButton(modeButtonsByMode.get(keyed));
@@ -910,6 +932,16 @@ public final class GizmoComponent implements Model3DViewerComponent {
         return null;
     }
 
+    /// `local` with the part a reset binding names put back to rest — zero location, no rotation,
+    /// unit scale — and the other two kept. Null when the press is none of the three bindings.
+    private static @Nullable Transform keyedReset(KeyEvent event, Transform local) {
+        if (EditorKeyMappings.GIZMO_RESET_TRANSLATION.matches(event)) return new Transform(Vec3.ZERO, local.rot(), local.sca());
+        if (EditorKeyMappings.GIZMO_RESET_ROTATION.matches(event)) return new Transform(local.loc(), new Quaterniond(), local.sca());
+        if (EditorKeyMappings.GIZMO_RESET_SCALE.matches(event)) return new Transform(local.loc(), local.rot(), new Vec3(1.0, 1.0, 1.0));
+
+        return null;
+    }
+
     /// The axis a key press limits to, -1 when it is none of the three bindings.
     private static int keyedAxis(KeyEvent event) {
         if (EditorKeyMappings.GIZMO_AXIS_X.matches(event)) return 0;
@@ -943,15 +975,29 @@ public final class GizmoComponent implements Model3DViewerComponent {
     // Mode buttons
     // ***************************************************************
 
-    /// Installs the Translate / Rotate / Scale buttons and the orientation toggle along the viewer's
-    /// top edge.
+    /// Installs a button for each of the target's [LocatableComponent#gizmoModes] — Translate / Rotate /
+    /// Scale — and the orientation toggle along the viewer's top edge.
     public void installModeButtons(Model3DViewer viewer) {
         if (!modeButtons.isEmpty()) return;
 
-        addModeButton(viewer, Mode.TRANSLATE, AkytheraLabsButtonTheme.GIZMO_TRANSLATE_BUTTON, "Move", 4);
-        addModeButton(viewer, Mode.ROTATE, AkytheraLabsButtonTheme.GIZMO_ROTATE_BUTTON, "Rotate", 4 + BUTTON + BUTTON_GAP);
-        addModeButton(viewer, Mode.SCALE, AkytheraLabsButtonTheme.GIZMO_SCALE_BUTTON, "Scale", 4 + (BUTTON + BUTTON_GAP) * 2);
-        addOrientationButton(viewer, 4 + (BUTTON + BUTTON_GAP) * 3 + BUTTON_GROUP_GAP);
+        int offsetX = 4;
+
+        for (Mode buttonMode : allowedModes()) {
+            switch (buttonMode) {
+                case TRANSLATE -> addModeButton(viewer, buttonMode, AkytheraLabsButtonTheme.GIZMO_TRANSLATE_BUTTON, "Move", offsetX);
+                case ROTATE -> addModeButton(viewer, buttonMode, AkytheraLabsButtonTheme.GIZMO_ROTATE_BUTTON, "Rotate", offsetX);
+                case SCALE -> addModeButton(viewer, buttonMode, AkytheraLabsButtonTheme.GIZMO_SCALE_BUTTON, "Scale", offsetX);
+            }
+
+            offsetX += BUTTON + BUTTON_GAP;
+        }
+
+        addOrientationButton(viewer, offsetX + BUTTON_GROUP_GAP);
+    }
+
+    /// The modes the bound target takes, every mode while none is bound.
+    private Set<Mode> allowedModes() {
+        return target == null ? EnumSet.allOf(Mode.class) : target.gizmoModes();
     }
 
     public void removeModeButtons(Model3DViewer viewer) {
@@ -964,8 +1010,8 @@ public final class GizmoComponent implements Model3DViewerComponent {
     private void addModeButton(Model3DViewer viewer, Mode buttonMode, AkytheraLabsButtonTheme theme, String tooltip, int offsetX) {
         Tooltip label = Tooltip.create(Component.literal(tooltip));
 
-        AnchoredButton button = AnchoredButton
-            .buttonBuilder(Minecraft.getInstance().font, Component.empty(), _ -> setMode(buttonMode))
+        AkytheraButton button = AkytheraButton
+            .buttonBuilder(Minecraft.getInstance().font, LocalizedMessage.EMPTY, () -> setMode(buttonMode))
             .xUnits(AnchoredWidget.pixel(offsetX), AnchoredWidget.pixel(BUTTON))
             .yUnits(AnchoredWidget.pixel(4), AnchoredWidget.pixel(BUTTON))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH)
@@ -984,8 +1030,8 @@ public final class GizmoComponent implements Model3DViewerComponent {
     /// Highlighted stands for [Orientation#GLOBAL], and both it and the tooltip read
     /// [#effectiveOrientation] so they name the basis the handles are really on.
     private void addOrientationButton(Model3DViewer viewer, int offsetX) {
-        AnchoredButton button = AnchoredButton
-            .buttonBuilder(Minecraft.getInstance().font, Component.empty(), _ -> toggleOrientation())
+        AkytheraButton button = AkytheraButton
+            .buttonBuilder(Minecraft.getInstance().font, LocalizedMessage.EMPTY, () -> toggleOrientation())
             .xUnits(AnchoredWidget.pixel(offsetX), AnchoredWidget.pixel(BUTTON))
             .yUnits(AnchoredWidget.pixel(4), AnchoredWidget.pixel(BUTTON))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH)

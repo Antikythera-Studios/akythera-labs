@@ -5,6 +5,7 @@ import com.yesman.akythera.core.reflection.FunctionSignature;
 import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.reflect.TypeVariable;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -95,14 +96,16 @@ public record NodeSuggestContext(
     }
 
     /// A function filter matching any function with a parameter slot that accepts `type`,
-    /// boxing- and Number-coercion-aware via [FunctionSignature#isParameterCompatible]. A
-    /// null type (untyped pin) matches every function.
+    /// boxing- and Number-coercion-aware via [FunctionSignature#isParameterCompatible]. A slot
+    /// declared as a type variable, e.g. the key of `Map<K, V>`, is bound by another parameter and
+    /// never matches. A null type (untyped pin) matches every function.
     private static Predicate<ScriptFunction> acceptsParameter(@Nullable Class<?> type) {
         if (type == null) return _ -> true;
 
         return function -> {
             FunctionSignature signature = function.functionSignature();
             for (int i = 0; i < signature.parameters().size(); i++) {
+                if (signature.genericParameters().get(i) instanceof TypeVariable<?>) continue;
                 if (signature.isParameterCompatible(type, i)) return true;
             }
             return false;

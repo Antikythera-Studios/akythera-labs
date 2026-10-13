@@ -1,22 +1,21 @@
 package com.yesman.akytheralabs.gui.panel.script;
 
-import com.yesman.akythera.client.gui.widget.CheckBox;
-import com.yesman.akythera.client.gui.widget.ClampedNumberBox;
-import com.yesman.akythera.client.gui.widget.Static;
-import com.yesman.akythera.client.gui.widget.WidgetTable;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.BuiltInEditBoxTheme;
+import com.yesman.akythera.client.api.gui.CheckBox;
+import com.yesman.akythera.client.api.gui.ClampedNumberBox;
+import com.yesman.akythera.client.api.gui.Static;
+import com.yesman.akythera.client.api.gui.WidgetTable;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.editor.EditorEditable;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.screen.AnimatorScriptEditorScreen;
-import com.yesman.akytheralabs.gui.widget.AdvancedComboBox;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
-import com.yesman.akytheralabs.gui.widget.AkytheraLabsEditBoxTheme;
-import com.yesman.akytheralabs.gui.widget.PanelHeader;
-import com.yesman.akytheralabs.gui.widget.PopupBox;
+import com.yesman.akytheralabs.gui.widget.*;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
@@ -35,7 +34,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /// "Details" panel: editors for the variable selected in the [VariablePanel] —
-/// name, type, and (for codec types) default value. Rebuilt on every selection or
+/// name, type and default value. Rebuilt on every selection or
 /// model change via [#showVariable]. All editors are produced by the shared
 /// [VariableEditController].
 public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelArea {
@@ -43,6 +42,7 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
     private final VariableEditController controller;
     private final PanelHeader header;
     private final WidgetTable table;
+    private final EditorWidgetFactory factory;
 
     @Nullable
     private ScreenRectangle lastRect;
@@ -59,6 +59,8 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
             VariableEditController.ROW_H
         );
+        this.table.setMinTitleWidth(VariableEditController.LABEL_W);
+        this.factory = new EditorWidgetFactory(font);
 
         addWidget(header);
         addWidget(table);
@@ -79,32 +81,40 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
                 Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_PANEL_DETAILS_HINT)
             ));
         } else {
-            table.newRow()
-                .addWidget(controller.label(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VARIABLE_NAME))
-                .addWidget(controller.nameBox(
-                    draft,
-                    AnchoredWidget.pixel(VariableEditController.LABEL_W + 2), AnchoredWidget.pixel(VariableEditController.INDENT),
-                    AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
-                    AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
-                    AnchoredWidget.VerticalAnchorType.TOP_HEIGHT
-                ));
-
-            table.newRow()
-                .addWidget(controller.label(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VARIABLE_TYPE))
-                .addWidget(controller.typeCombo(
-                    draft,
-                    AnchoredWidget.pixel(VariableEditController.LABEL_W + 2), AnchoredWidget.pixel(VariableEditController.INDENT),
-                    AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
-                    AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
-                    AnchoredWidget.VerticalAnchorType.TOP_HEIGHT
-                ));
-
-            if (draft.getType().codec() != null) {
-                controller.addDefaultValueRow(table, draft);
-            }
+            controller.addSharedRows(table, draft);
         }
 
         table.initialize(false);
+        if (lastRect != null) table.relocate(lastRect);
+    }
+
+    /// Shows `instance`'s [EditorEditable] rows. `afterChange` runs each time the rows re-render after a
+    /// write.
+    public void showEditable(Object instance, Runnable afterChange) {
+        factory.fillWidgetTable(table, instance, () -> {
+            showEditable(instance, afterChange);
+            afterChange.run();
+        });
+
+        if (lastRect != null) table.relocate(lastRect);
+    }
+
+    /// Shows one row per slot, replacing whatever the panel held. An element added to or removed from a
+    /// slot's value re-fills the rows.
+    public void showSlots(List<? extends EditorWidgetFactory.ValueSlot> slots) {
+        factory.fillSlots(table, slots, () -> showSlots(slots));
+
+        if (lastRect != null) table.relocate(lastRect);
+    }
+
+    /// Adds one row per slot under the rows on display. The rows of a list are not re-filled after an element
+    /// is added or removed, so a slot here holds a single value.
+    public void appendSlots(List<? extends EditorWidgetFactory.ValueSlot> slots) {
+        if (slots.isEmpty()) return;
+
+        factory.appendSlots(table, slots, () -> {});
+        table.initialize(false);
+
         if (lastRect != null) table.relocate(lastRect);
     }
 
@@ -115,23 +125,22 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
     public void showNameRow(String labelKey, Supplier<String> name, Predicate<String> rename) {
         table.clearWidgets();
 
-        AdvancedEditBox<String> box = new AdvancedEditBox<>(
+        EditorEditBox<String> box = new EditorEditBox<>(
             font,
-            AnchoredWidget.pixel(VariableEditController.LABEL_W + 2), AnchoredWidget.pixel(VariableEditController.INDENT),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.INDENT),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT, AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             name::get, _ -> {}, _ -> true, s -> s, s -> s, Component.empty()
         );
         // Label until focused — matches the variable name box (UE-style inline rename).
-        box.setTheme(AkytheraLabsEditBoxTheme.DEFAULT_EDIT_BOX);
+        box.setTheme(BuiltInEditBoxTheme.DEFAULT_EDIT_BOX);
         box.setOnCommitted((_, _) -> {
             String now = box.getText().trim();
             if (now.equals(name.get())) return;
             if (!rename.test(now)) box.setValue(name.get()); // rejected: revert display
         });
 
-        table.newRow()
-            .addWidget(controller.label(labelKey))
+        table.newRow(EditorWidgetFactory.makeTranslatableLabel(font, labelKey))
             .addWidget(box);
 
         table.initialize(false);
@@ -170,7 +179,7 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
         table.clearWidgets();
 
         for (ValueRow row : rows) {
-            table.newRow().addWidget(controller.label(row.labelKey()));
+            table.newRow(EditorWidgetFactory.makeTranslatableLabel(font, row.labelKey()));
 
             switch (row) {
                 case FloatRow floatRow -> table.addWidget(numberBox(
@@ -196,7 +205,7 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
     ) {
         ClampedNumberBox<T> box = new ClampedNumberBox<>(
             font,
-            AnchoredWidget.pixel(VariableEditController.LABEL_W + 2), AnchoredWidget.pixel(VariableEditController.INDENT),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.INDENT),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT, AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             current::get, apply, Component.empty(), false,
@@ -224,7 +233,7 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
 
         CheckBox box = new CheckBox(
             font,
-            AnchoredWidget.pixel(VariableEditController.LABEL_W + 2), AnchoredWidget.pixel(CHECK_BOX_SIZE),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(CHECK_BOX_SIZE),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(CHECK_BOX_SIZE),
             AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH, AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             row.current()::get,
@@ -242,8 +251,9 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
 
     /// One identifier-valued property of the selected node, shown as a [PopupBox] row: the label to
     /// name it by, the value it displays (null renders as `<none>`), whether that value still resolves
-    /// — an invalid one marks the box red, matching the node's own `No such asset` error — and the
-    /// picker its magnifier opens.
+    /// — an invalid one marks the box red, matching the node's own `No such asset` error — the
+    /// picker its magnifier opens, and the [PopupBox#setOnCleared] action, null for a property that
+    /// cannot be left unset.
     ///
     /// The row never writes the node itself: `openPicker` gets the box, and the modal it opens commits the
     /// pick and pushes the new value back through [PopupBox#setValue] (see [AnimatorScriptEditorScreen]).
@@ -251,7 +261,8 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
         String labelKey,
         Supplier<@Nullable Identifier> current,
         Predicate<Identifier> valid,
-        Consumer<PopupBox<Identifier>> openPicker
+        Consumer<PopupBox<Identifier>> openPicker,
+        @Nullable Consumer<PopupBox<Identifier>> clear
     ) {}
 
     /// Shows one [PopupBox] row per identifier property of the selected node — a pose player's bound
@@ -263,7 +274,7 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
         for (IdentifierRow row : rows) {
             PopupBox<Identifier> box = new PopupBox<>(
                 font,
-                AnchoredWidget.pixel(VariableEditController.LABEL_W + 2), AnchoredWidget.pixel(VariableEditController.INDENT),
+                AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.INDENT),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
                 AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT, AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
                 row.current()::get,
@@ -271,13 +282,12 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
                 Identifier::toString,
                 Component.empty(),
                 row.openPicker()
-            ).withValidator(row.valid());
+            ).withValidator(row.valid()).setOnCleared(row.clear());
 
             // The table's initialize doesn't push bound values, so seed the display (and its red mark).
             box.setValue(row.current().get());
 
-            table.newRow()
-                .addWidget(controller.label(row.labelKey()))
+            table.newRow(EditorWidgetFactory.makeTranslatableLabel(font, row.labelKey()))
                 .addWidget(box);
         }
 
@@ -291,8 +301,8 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
     /// — already stripped of the reserved Entry / Exit states and of every signature another state on
     /// the same machine already carries, so the list can never introduce a duplicate. `current` reads
     /// the state's present signature; `onPicked` is handed the chosen id and returns false to reject it
-    /// — a rejected pick (including the `(none)` row, since a state must keep a signature) reverts the
-    /// box to `current`.
+    /// — a rejected pick reverts the box to `current`. A state must keep a signature, so the box has no
+    /// "(none)" row.
     public void showAnimationState(
         List<Identifier> options,
         Supplier<@Nullable Identifier> current,
@@ -302,10 +312,10 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
 
         // The change consumer needs to revert the box on a rejected pick, so it must reference the box
         // it is being wired into — resolved through this holder set right after construction.
-        AtomicReference<AdvancedComboBox<Identifier>> ref = new AtomicReference<>();
-        AdvancedComboBox<Identifier> box = new AdvancedComboBox<>(
+        AtomicReference<EditorComboBox<Identifier>> ref = new AtomicReference<>();
+        EditorComboBox<Identifier> box = new EditorComboBox<>(
             font,
-            AnchoredWidget.pixel(VariableEditController.LABEL_W + 2), AnchoredWidget.pixel(VariableEditController.INDENT),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.INDENT),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT, AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             current::get,
@@ -315,10 +325,11 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
             8, Component.empty(), options, Identifier::toString
         );
         ref.set(box);
+        box.setClearable(false);
+        box.setSearchable(true);
         box.setValueQuiet(current.get());
 
-        table.newRow()
-            .addWidget(controller.label(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_ANIMATION_STATE))
+        table.newRow(EditorWidgetFactory.makeTranslatableLabel(font, LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_ANIMATION_STATE))
             .addWidget(box);
 
         table.initialize(false);

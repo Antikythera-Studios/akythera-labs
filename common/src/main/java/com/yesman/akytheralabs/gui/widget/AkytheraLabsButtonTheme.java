@@ -1,8 +1,8 @@
 package com.yesman.akytheralabs.gui.widget;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.ButtonTheme;
-import com.yesman.akythera.client.gui.widget.common.WidgetTheme;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.ButtonTheme;
+import com.yesman.akythera.client.api.gui.common.WidgetTheme;
 import com.yesman.akytheralabs.AkytheraLabs;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.WidgetSprites;
@@ -158,6 +158,21 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
         _ -> 0xFFFFFFFF
     ),
 
+    /// ■ Stop button for the sound play track. Drawn square.
+    SOUND_TRACK_STOP_BUTTON(
+        (widget, graphics, _, _, _) -> {
+            int color = widget.isHighlighted() || widget.isHovered() ? 0xFF575757 : 0xFF383838;
+            graphics.fill(widget.getX(), widget.getY(), widget.getX() + widget.getWidth(), widget.getY() + widget.getHeight(), color);
+
+            int half = 3;
+            int cx = widget.getX() + widget.getWidth() / 2;
+            int cy = widget.getY() + widget.getHeight() / 2;
+
+            graphics.fill(cx - half, cy - half, cx + half, cy + half, 0xFFD0D0D0);
+        },
+        _ -> 0xFFFFFFFF
+    ),
+
     /// Folder-picker button next to the export path field
     EXPORT_PATH_BROWSE_BUTTON(
         spriteRenderer(new WidgetSprites(
@@ -213,20 +228,38 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
             AkytheraLabs.identifier("widget/world_space")
         ),
         _ -> 0xFFFFFFFF
+    ),
+
+    /// Wireframe view of the cloth weight painter
+    CLOTH_WIREFRAME_BUTTON(
+        iconBoxRenderer(new WidgetSprites(
+            AkytheraLabs.identifier("widget/wireframe"),
+            AkytheraLabs.identifier("widget/wireframe")
+        )),
+        _ -> 0xFFFFFFFF
+    ),
+
+    /// Textured view of the cloth weight painter
+    CLOTH_TEXTURED_BUTTON(
+        iconBoxRenderer(new WidgetSprites(
+            AkytheraLabs.identifier("widget/textured"),
+            AkytheraLabs.identifier("widget/textured")
+        )),
+        _ -> 0xFFFFFFFF
     );
 
     /// Side of the icon drawn by [#iconBoxRenderer] and [#iconToggleRenderer], in widget pixels.
     private static final int ICON = 16;
 
     /// Mono-tone box behind a [GizmoComponent] overlay button, keyed on its highlighted state.
-    private static int boxColor(AnchoredButton widget) {
+    private static int boxColor(AkytheraButton widget) {
         return widget.isHighlighted() ? 0xFF575757
             : widget.isHoveredOrFocused() ? 0xFF3F3F3F
             : 0xFF282828;
     }
 
     /// Box behind a toggle-style overlay button: dark while disabled, else keyed on hover.
-    private static int toggleBoxColor(AnchoredButton widget) {
+    private static int toggleBoxColor(AkytheraButton widget) {
         return !widget.active ? 0xFF1A1A1A
             : widget.isHoveredOrFocused() ? 0xFF3F3F3F
             : 0xFF282828;
@@ -262,7 +295,7 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
     }
 
     /// Draws `icon` at [#ICON] size, centered in the widget.
-    private static void blitIcon(GuiGraphicsExtractor graphics, AnchoredButton widget, Identifier icon) {
+    private static void blitIcon(GuiGraphicsExtractor graphics, AkytheraButton widget, Identifier icon) {
         graphics.blitSprite(
             RenderPipelines.GUI_TEXTURED,
             icon,
@@ -273,22 +306,22 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
     }
 
     final ButtonRenderer buttonRenderer;
-    final Function<AnchoredButton, Integer> fontColorProvider;
+    final Function<AkytheraButton, Integer> fontColorProvider;
     final int id;
 
-    AkytheraLabsButtonTheme(ButtonRenderer buttonRenderer, Function<AnchoredButton, Integer> fontColorProvider) {
+    AkytheraLabsButtonTheme(ButtonRenderer buttonRenderer, Function<AkytheraButton, Integer> fontColorProvider) {
         this.buttonRenderer = buttonRenderer;
         this.fontColorProvider = fontColorProvider;
         this.id = WidgetTheme.ENUM_MANAGER.assign(this);
     }
 
     @Override
-    public void renderBackground(AnchoredButton widget, final GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
+    public void renderBackground(AkytheraButton widget, final GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
         this.buttonRenderer.renderBackground(widget, graphics, mouseX, mouseY, a);
     }
 
     @Override
-    public int getFontColor(AnchoredButton widget) {
+    public int getFontColor(AkytheraButton widget) {
         return fontColorProvider.apply(widget);
     }
 

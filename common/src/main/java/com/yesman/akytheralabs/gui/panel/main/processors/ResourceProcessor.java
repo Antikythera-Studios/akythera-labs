@@ -2,7 +2,10 @@ package com.yesman.akytheralabs.gui.panel.main.processors;
 
 import com.yesman.akythera.api.asset.animation.AnimationManager;
 import com.yesman.akythera.api.asset.armature.ArmatureManager;
+import com.yesman.akythera.api.asset.physics.ArmaturePhysicsManager;
 import com.yesman.akythera.client.api.mesh.MeshManager;
+import com.yesman.akythera.client.core.asset.loader.binary.ClothPhysicsLoader;
+import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -45,6 +48,10 @@ public interface ResourceProcessor<T> {
         Map.entry(ArmatureManager.DIRECTORY,                       ArmatureResourceProcessor.INSTANCE),
         Map.entry(MeshManager.DIRECTORY,                           MeshResourceProcessor.INSTANCE),
         Map.entry(AnimationManager.DIRECTORY,                      AnimationAssetResourceProcessor.INSTANCE),
+        Map.entry(ArmaturePhysicsManager.DIRECTORY,                ArmaturePhysicsResourceProcessor.INSTANCE),
+        Map.entry(ClothPhysicsLoader.DIRECTORY,                    ClothPhysicsResourceProcessor.INSTANCE),
+        Map.entry(AkytheraProject.TEXTURES_DIRECTORY,              TextureResourceProcessor.INSTANCE),
+        Map.entry(AkytheraProject.SOUNDS_DIRECTORY,                SoundResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY,    AnimMontageResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY,   AnimSequenceResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY,  BlendSpace2DResourceProcessor.INSTANCE),
@@ -54,7 +61,10 @@ public interface ResourceProcessor<T> {
         Map.entry(AkytheraRegistries.DataPack.ABILITY_KEY,         AbilityResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.ABILITY_CUE_KEY,     AbilityCueResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY,  AbilityEffectResourceProcessor.INSTANCE),
-        Map.entry(AkytheraRegistries.DataPack.INPUT_ACTION_KEY,    InputActionResourceProcessor.INSTANCE)
+        Map.entry(AkytheraRegistries.DataPack.INPUT_ACTION_KEY,    InputActionResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.WIDGET_KEY,          WidgetBlueprintResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY,  ParticlePieceResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, ParticleSystemResourceProcessor.INSTANCE)
     );
 
     static @Nullable ResourceProcessor<?> forTag(@Nullable Object tag) {
@@ -147,6 +157,25 @@ public interface ResourceProcessor<T> {
         return null;
     }
 
+    /// Whether `file`, from outside the project, is one this category imports through the `+` button's
+    /// file dialog or a drop onto the editor. `batch` is every file picked or dropped with it, `file`
+    /// included.
+    default boolean canImport(Path file, List<Path> batch) {
+        return false;
+    }
+
+    /// Copies the external `source` onto `destination` and loads it into the project. Only called for a
+    /// file [#canImport] accepts.
+    default AkytheraProject.AssetLoadResult<?> importFile(Path source, Path destination) {
+        throw new UnsupportedOperationException(getClass().getSimpleName() + " imports no files");
+    }
+
+    /// Whether `file` is an engine asset file: binary, or json.
+    static boolean isAssetFile(Path file) {
+        String fileName = file.getFileName().toString();
+        return fileName.endsWith("." + AssetLoader.BINARY_EXTENSION) || fileName.endsWith(".json");
+    }
+
     /// Pressing the green `+` button in [ContentBrowserPanel].
     /// `selected` is the user-focused tree node (may equal the registry root or
     /// a descendant). The registry root is reachable via [#regRootOf].
@@ -180,8 +209,8 @@ public interface ResourceProcessor<T> {
             .on(ContentContextOption.CUT, browser::canCutSelection, () -> browser.putSelectionOnClipboard(true))
             .on(ContentContextOption.COPY, browser::canCopySelection, () -> browser.putSelectionOnClipboard(false))
             .on(ContentContextOption.PASTE, () -> browser.canPasteInto(folder), () -> browser.pasteInto(folder))
-            .on(ContentContextOption.RENAME, rightPressed::startEditing)
-            .on(ContentContextOption.DELETE_SELECTED, browser::triggerDeleteSelected);
+            .on(ContentContextOption.RENAME, rightPressed::isEditable, rightPressed::startEditing)
+            .on(ContentContextOption.DELETE_SELECTED, browser::canDeleteSelection, browser::triggerDeleteSelected);
     }
 
     /// The options every content widget answers, each resolved off what the widget already carries:
@@ -202,7 +231,7 @@ public interface ResourceProcessor<T> {
             .on(ContentContextOption.CUT, browser::canCutSelection, () -> browser.putSelectionOnClipboard(true))
             .on(ContentContextOption.COPY, browser::canCopySelection, () -> browser.putSelectionOnClipboard(false))
             .on(ContentContextOption.PASTE, () -> browser.canPasteInto(browsedDir), () -> browser.pasteInto(browsedDir))
-            .on(ContentContextOption.DELETE_SELECTED, browser::triggerDeleteSelected);
+            .on(ContentContextOption.DELETE_SELECTED, browser::canDeleteSelection, browser::triggerDeleteSelected);
 
         if (rightPressed.isOpenable()) {
             actions.on(ContentContextOption.OPEN, rightPressed::onDoubleClicked);

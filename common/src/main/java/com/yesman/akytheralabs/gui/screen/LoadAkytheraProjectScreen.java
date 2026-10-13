@@ -1,9 +1,13 @@
 package com.yesman.akytheralabs.gui.screen;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.BuiltInButtonTheme;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.component.PatchComponent;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.BuiltInButtonTheme;
+import com.yesman.akythera.client.api.gui.BuiltInEditBoxTheme;
+import com.yesman.akythera.client.api.gui.Grid;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -67,10 +71,10 @@ public final class LoadAkytheraProjectScreen extends Screen {
     private static final int NEW_PROJECT_BOX_W = 240;
 
     private final PanelHeader header;
-    private final Grid<AbstractWidget> projectGrid;
-    private final AnchoredButton closeScreenButton;
-    private final AnchoredButton openButton;
-    private final AnchoredButton cancelButton;
+    private final Grid projectGrid;
+    private final AkytheraButton closeScreenButton;
+    private final AkytheraButton openButton;
+    private final AkytheraButton cancelButton;
 
     /// This modal is not controlled by [AkytheraEditorLayoutManager] since this screen is opened before any Akythera
     /// project is loaded.
@@ -90,8 +94,8 @@ public final class LoadAkytheraProjectScreen extends Screen {
 
         header = new PanelHeader(font, Component.translatable(LangKeys.GUI_PROJECT_LOAD_SCREEN_TITLE));
 
-        closeScreenButton = AnchoredButton
-            .buttonBuilder(font, Component.literal("X"), _ -> onClose())
+        closeScreenButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.handwritten("X"), () -> onClose())
             .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(HEADER_H - 1))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(HEADER_H - 1))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -99,8 +103,8 @@ public final class LoadAkytheraProjectScreen extends Screen {
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
             .build();
 
-        openButton = AnchoredButton
-            .buttonBuilder(font, Component.translatable(LangKeys.GUI_PROJECT_LOAD_SCREEN_WIDGET_OPEN), _ -> openSelectedProject())
+        openButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_PROJECT_LOAD_SCREEN_WIDGET_OPEN), () -> openSelectedProject())
             .xUnits(AnchoredWidget.pixel(2 * FOOTER_PAD + FOOTER_BTN_W), AnchoredWidget.pixel(FOOTER_BTN_W))
             .yUnits(AnchoredWidget.pixel(FOOTER_PAD), AnchoredWidget.pixel(FOOTER_BTN_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -110,8 +114,8 @@ public final class LoadAkytheraProjectScreen extends Screen {
 
         openButton.active = false;
 
-        cancelButton = AnchoredButton
-            .buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ -> onClose())
+        cancelButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL), () -> onClose())
             .xUnits(AnchoredWidget.pixel(FOOTER_PAD), AnchoredWidget.pixel(FOOTER_BTN_W))
             .yUnits(AnchoredWidget.pixel(FOOTER_PAD), AnchoredWidget.pixel(FOOTER_BTN_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -119,16 +123,16 @@ public final class LoadAkytheraProjectScreen extends Screen {
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
             .build();
 
-        projectGrid = new Grid<>(
+        projectGrid = new Grid(
             AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(HEADER_H + GRID_PADDING),
             AnchoredWidget.pixel(FOOTER_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
-            _ -> CELL_W,
-            _ -> CELL_H,
-            _ -> GRID_PAD,
+            CELL_W,
+            CELL_H,
+            GRID_PAD,
             Comparator.<AbstractWidget, Boolean>comparing(w -> w instanceof AddProjectCell)
                 .thenComparing(w -> ((ProjectCell)w).lastEditTime, String.CASE_INSENSITIVE_ORDER)
         );
@@ -165,16 +169,16 @@ public final class LoadAkytheraProjectScreen extends Screen {
 
     private void populateGrid() {
         releaseLogoTextures();
-        projectGrid.clearChildren();
+        projectGrid.clearComponents();
 
         List<Path> projects = AkytheraProject.discoverProjects();
 
         projects.stream()
             .sorted(Comparator.comparing(ProjectCell::readLastEditInstant, Comparator.reverseOrder()))
-            .map(p -> (AbstractWidget) new ProjectCell(p))
-            .forEach(projectGrid::addChild);
+            .map(ProjectCell::new)
+            .forEach(cell -> projectGrid.addComponent(cell.projectPath.toString(), cell));
 
-        projectGrid.addChild(new AddProjectCell());
+        projectGrid.addComponent("add_project", new AddProjectCell());
     }
 
     private void releaseLogoTextures() {
@@ -196,30 +200,30 @@ public final class LoadAkytheraProjectScreen extends Screen {
     }
 
     private void openNewProjectPopup() {
-        AdvancedEditBox<String> nameBox = AdvancedEditBox.filteredStringBox(
+        EditorEditBox<String> nameBox = EditorEditBox.filteredStringBox(
             font,
             s -> s.chars().allMatch(c -> isValidProjectNameChar((char) c)),
             Component.literal("edit_box.project_name"),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT, AnchoredWidget.VerticalAnchorType.CENTER_HEIGHT
         );
-        nameBox.setTheme(AkytheraLabsEditBoxTheme.DEFAULT_EDIT_BOX);
+        nameBox.setTheme(BuiltInEditBoxTheme.DEFAULT_EDIT_BOX);
         nameBox.setX1(AnchoredWidget.pixel(4));
         nameBox.setX2(AnchoredWidget.pixel(4));
         nameBox.setY2(AnchoredWidget.pixel(13));
         nameBox.addCharReplacement(' ', '_');
 
-        AnchoredButton cancelButton = AnchoredButton
-            .buttonBuilder(font, Component.translatable("gui.cancel"), _ -> closeModal())
+        AkytheraButton cancelButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable("gui.cancel"), () -> closeModal())
             .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
             .theme(BuiltInButtonTheme.VANILLA_BUTTON)
             .build();
 
-        AnchoredButton okButton = AnchoredButton
+        AkytheraButton okButton = AkytheraButton
             .buttonBuilder(
                 font,
-                Component.translatable("gui.ok"),
-                _ -> {
+                LocalizedMessage.translatable("gui.ok"),
+                () -> {
                     String name = nameBox.getText().trim();
                     if (!name.isEmpty()) {
                         AkytheraProject.startNewProject(name);
@@ -253,18 +257,18 @@ public final class LoadAkytheraProjectScreen extends Screen {
             cell.projectName
         );
 
-        AnchoredButton cancelButton = AnchoredButton
-            .buttonBuilder(font, Component.translatable("gui.cancel"), _ -> closeModal())
+        AkytheraButton cancelButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable("gui.cancel"), () -> closeModal())
             .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
             .theme(BuiltInButtonTheme.VANILLA_BUTTON)
             .build();
 
-        AnchoredButton yesButton = AnchoredButton
+        AkytheraButton yesButton = AkytheraButton
             .buttonBuilder(
                 font,
-                Component.translatable("gui.ok"),
-                _ -> {
+                LocalizedMessage.translatable("gui.ok"),
+                () -> {
                     deleteProject(cell.projectPath);
                     closeModal();
                 }
@@ -369,7 +373,7 @@ public final class LoadAkytheraProjectScreen extends Screen {
         releaseLogoTextures();
     }
 
-    private class ProjectCell extends AbstractWidget {
+    private class ProjectCell extends AbstractWidget implements PatchComponent {
         private static final DateTimeFormatter EDIT_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
         private static final int DELETE_BTN_SIZE = 9;
@@ -567,7 +571,7 @@ public final class LoadAkytheraProjectScreen extends Screen {
         }
     }
 
-    private class AddProjectCell extends AbstractWidget {
+    private class AddProjectCell extends AbstractWidget implements PatchComponent {
         AddProjectCell() {
             super(0, 0, CELL_W, CELL_H, Component.empty());
             setTooltip(Tooltip.create(Component.translatable(

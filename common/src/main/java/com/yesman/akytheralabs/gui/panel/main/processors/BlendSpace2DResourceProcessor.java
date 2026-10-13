@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.panel.main.processors;
 
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
@@ -10,9 +11,10 @@ import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
+import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
-import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import net.minecraft.client.gui.Font;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -34,8 +36,8 @@ public final class BlendSpace2DResourceProcessor implements ResourceProcessor<Bl
         ExplorerPanel.TreeNode regRoot = ResourceProcessor.regRootOf(selected);
         if (regRoot == null) return;
 
-        // Pick a preview model
-        ModelSelectModal modal = new ModelSelectModal(browser.getFont(), null, previewModel -> {
+        // Pick a preview entity
+        EntityTypeSelectModal modal = new EntityTypeSelectModal(browser.getFont(), null, previewEntityType -> {
             String subPath = ResourceProcessor.buildSubPath(regRoot, selected);
             AkytheraProject project = AkytheraProject.getCurrentProject();
 
@@ -44,7 +46,7 @@ public final class BlendSpace2DResourceProcessor implements ResourceProcessor<Bl
             ResourceKey<@NonNull BlendSpace2D> key = project.createEntry(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY, idPath, true);
 
             BlendSpace2DHolder holder = project.getDataHolderOrThrow(key);
-            holder.setPreviewModel(previewModel);
+            holder.setPreviewEntityType(previewEntityType);
             project.saveEntry(key);
 
             int lastSlash = idPath.lastIndexOf('/');
@@ -59,10 +61,10 @@ public final class BlendSpace2DResourceProcessor implements ResourceProcessor<Bl
                 mainScreen.explorerPanel.focusNodeByPath(focusDir);
             });
 
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
         });
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     @Override

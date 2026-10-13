@@ -8,9 +8,6 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.BranchingNodeWidget;
 import net.minecraft.network.chat.Component;
-import org.jspecify.annotations.Nullable;
-
-import java.util.List;
 
 /// Runs one of two execution chains by the boolean on data input 1. Input 0 and outputs 0 / 1 are
 /// execution pins ("True" / "False").
@@ -46,14 +43,6 @@ public record BranchNodeData() implements FlowNodeData {
         PureNode condition = emitter.compileInputOr(self.nodeId(), CONDITION_PIN, boolean.class);
 
         return new BranchNode(
-            condition, arm(emitter, self.child(0)), arm(emitter, self.child(1)), self.nodeId());
-    }
-
-    /// A branch arm as the list [BranchNode] wants — emitted as one node so any values hoisted at the
-    /// arm are applied; an empty arm yields no nodes.
-    private static List<FlowNode> arm(FlowEmitter emitter, @Nullable FlowStatement arm) {
-        if (arm == null || emitter.isEmpty(arm)) return List.of();
-
-        return List.of(emitter.emit(arm));
+            condition, emitter.emitArm(self.child(0)), emitter.emitArm(self.child(1)), self.nodeId());
     }
 }

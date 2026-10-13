@@ -12,6 +12,7 @@
 /// the script class to AkytheraLabs, listing your animator scripts in
 /// entity patch script > armature patchComponent
 
+<#import "method_list.ftl" as methodList>
 package ${package};
 
 // Import section is empty. Use auto import feature in IDE
@@ -24,21 +25,7 @@ public final class ${className} implements AnimatorScript {
 </#list>
     /// The script owner, captured at construct time (the node graphs' `self`).
     private BlendingAnimator animator;
-
-    @Override
-    public void construct(final Map<AnimationLayerSignature, AnimationLayer> animLayerMap, final Map<String, AnimationDriver> poseCaches, final BlendingAnimator animator) {
-        this.animator = animator;
-<#list constructBody as line>
-        ${line}
-</#list>
-    }
-
-    @Override
-    public void update(final float frameTime, final float partialTick) {
-<#list updateBody as line>
-        ${line}
-</#list>
-    }
+<@methodList.methodList methods/>
 
     @Override
     public Pose getFinalPose(final Map<AnimationLayerSignature, AnimationLayer> layers) {

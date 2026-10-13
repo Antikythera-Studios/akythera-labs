@@ -1,7 +1,10 @@
 package com.yesman.akytheralabs.gui.panel.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
@@ -16,11 +19,8 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
-import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
-import com.yesman.akytheralabs.gui.widget.UniversalMenu;
-import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
+import com.yesman.akytheralabs.gui.widget.*;
+import com.yesman.akytheralabs.gui.widget.RefusalPopup;
 import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -71,9 +71,9 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
     private final Font font;
     private final List<TreeNode> roots;
 
-    private final AdvancedEditBox<String> searchBox;
-    private final AnchoredButton addButton;
-    private final AnchoredButton removeButton;
+    private final EditorEditBox<String> searchBox;
+    private final AkytheraButton addButton;
+    private final AkytheraButton removeButton;
     private TreeList treeList;
 
     private boolean lockNextFocus;
@@ -83,7 +83,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         this.roots = buildTree();
         applyFolderStates(roots, AkytheraProject.getCurrentProject().getSavedFolderStates());
 
-        this.searchBox = AdvancedEditBox.stringBox(
+        this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(1),
             AnchoredWidget.pixel(HEADER_H), AnchoredWidget.pixel(SEARCH_H),
@@ -94,7 +94,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             Component.translatable(LangKeys.GUI_MESSAGE_EMPTY_SEARCHBAR)
         );
 
-        this.addButton = AnchoredButton.buttonBuilder(font, Component.literal("+"), _ -> onAddPressed())
+        this.addButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.handwritten("+"), () -> onAddPressed())
             .xUnits(AnchoredWidget.pixel(BTN_RIGHT + BTN_PAD * 2 + BTN_W), AnchoredWidget.pixel(BTN_W))
             .yUnits(AnchoredWidget.pixel((HEADER_H - BTN_H) / 2), AnchoredWidget.pixel(BTN_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -102,7 +102,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EXPLORER_BUTTON)
             .build();
 
-        this.removeButton = AnchoredButton.buttonBuilder(font, Component.literal("-"), _ -> onRemovePressed())
+        this.removeButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.handwritten("-"), () -> onRemovePressed())
             .xUnits(AnchoredWidget.pixel(BTN_RIGHT + BTN_PAD), AnchoredWidget.pixel(BTN_W))
             .yUnits(AnchoredWidget.pixel((HEADER_H - BTN_H) / 2), AnchoredWidget.pixel(BTN_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -211,6 +211,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             });
 
         AkytheraProject.DATAPACK_REGISTRIES.stream()
+            .filter(key -> !AkytheraProject.EXPLORER_HIDDEN_REGISTRIES.contains(key))
             .sorted(Comparator.comparing(key -> key.identifier().getPath()))
             .forEach(key -> {
                 Path registryDir = projectRoot.resolve("data").resolve(key.identifier().getPath());
@@ -277,12 +278,14 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
     private static void scanSubDirectories(Path dir, @Nullable ResourceProcessor<?> inheritedProcessor, TreeNode parent) {
         if (!Files.isDirectory(dir)) return;
 
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+
         try (Stream<Path> entries = Files.list(dir)) {
             entries.filter(Files::isDirectory)
                 .sorted(Comparator.comparing(p -> p.getFileName().toString()))
                 .forEach(subdir -> {
                     String name = subdir.getFileName().toString();
-                    TreeNode child = new TreeNode(name, true, subdir, inheritedProcessor);
+                    TreeNode child = new TreeNode(name, !project.isReservedDirectory(subdir), subdir, inheritedProcessor);
                     child.parentNode = parent;
                     scanSubDirectories(subdir, inheritedProcessor, child);
                     parent.children.add(child);
@@ -435,6 +438,14 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
     }
 
     @Override
+    public boolean mouseClicked(final @NonNull MouseButtonEvent event, final boolean doubleClick) {
+        boolean handled = super.mouseClicked(event, doubleClick);
+        AkytheraProject.getCurrentProject().saveExplorerState(collectFolderStates(), getFocusedPath());
+
+        return handled;
+    }
+
+    @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.key() == GLFW.GLFW_KEY_F2) {
             TreeNode selected = getSelected();
@@ -521,15 +532,15 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         WidgetContainerModal popup = WidgetContainerModal.builder(font, Component.translatable(LangKeys.GUI_MAIN_SCREEN_EXPLORER_POPUP_REMOVE_DIR_TITLE), popupW)
             .textLines(Component.translatable(LangKeys.GUI_MAIN_SCREEN_EXPLORER_POPUP_REMOVE_DIR_BODY, fileCount))
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                        _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                        () -> ModalManager.getInstance().closeModal())
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EXPLORER_BUTTON)
                     .build(),
                 btnW
             )
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_MESSAGE_BUTTON_REMOVE), _ -> {
-                    AkytheraEditorLayoutManager.getInstance().closeModal();
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_MESSAGE_BUTTON_REMOVE), () -> {
+                    ModalManager.getInstance().closeModal();
                     if (selected.directoryPath == null) return;
 
                     Path dirPath = selected.directoryPath;
@@ -563,7 +574,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             )
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     private static TreeNode findSavedParent(TreeNode from) {
@@ -620,14 +631,14 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
 
         private final Font font;
         private final List<TreeNode> roots;
-        private final AdvancedEditBox<String> searchBox;
+        private final EditorEditBox<String> searchBox;
         private final Consumer<@Nullable TreeNode> onSelectionChanged;
         private final ContextMenuContainer contextMenu;
 
         @Nullable TreeNode dragHighlightNode = null;
 
         /// Shared name editor, only one entry can be edited at a time.
-        private final AdvancedEditBox<String> nameEditor;
+        private final EditorEditBox<String> nameEditor;
 
         @Nullable
         private TreeEntry editingEntry;
@@ -635,7 +646,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         TreeList(
             Font font,
             List<TreeNode> roots,
-            AdvancedEditBox<String> searchBox,
+            EditorEditBox<String> searchBox,
             Consumer<@Nullable TreeNode> onSelectionChanged,
             Runnable onAddSubdirectory,
             Runnable onRemoveDirectory,
@@ -693,7 +704,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             this.onSelectionChanged = onSelectionChanged;
 
             // Anchor units unused — position is set manually in startEditing().
-            nameEditor = AdvancedEditBox.stringBox(
+            nameEditor = EditorEditBox.stringBox(
                 font,
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
@@ -824,8 +835,14 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             ) {
                 Path oldDir = node.directoryPath;
                 Path newDir = oldDir.getParent().resolve(newName);
+                String refusedTagPath = AkytheraProject.getCurrentProject().refusedTagPath(oldDir, newDir, false);
 
-                if (AkytheraProject.getCurrentProject().renameDirectory(oldDir, newDir)) {
+                if (refusedTagPath != null) {
+                    RefusalPopup.open(
+                        Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_TITLE),
+                        Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_BODY, refusedTagPath)
+                    );
+                } else if (AkytheraProject.getCurrentProject().renameDirectory(oldDir, newDir)) {
                     node.directoryPath = newDir;
                     remapChildPaths(node.children, oldDir, newDir);
                     node.name = newName;
@@ -1010,7 +1027,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
                 if (event.button() == 1 && isMouseOver(event.x(), event.y())) {
                     TreeList.this.setSelected(this);
-                    AkytheraEditorLayoutManager.getInstance().openModalWidget(
+                    ModalManager.getInstance().openModalWidget(
                         TreeList.this.contextMenu,
                         (int) event.x(),
                         (int) event.y()

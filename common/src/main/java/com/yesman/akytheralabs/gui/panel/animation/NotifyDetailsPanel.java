@@ -1,8 +1,8 @@
 package com.yesman.akytheralabs.gui.panel.animation;
 
-import com.yesman.akythera.client.gui.widget.Static;
-import com.yesman.akythera.client.gui.widget.WidgetTable;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.Static;
+import com.yesman.akythera.client.api.gui.WidgetTable;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -18,7 +18,6 @@ import org.jspecify.annotations.Nullable;
 /// mutableNotify or mutableNotify-state's editable fields, driven by [EditorWidgetFactory]
 /// and `@EditorEditable` annotations on the holder classes.
 public final class NotifyDetailsPanel extends AdjustablePanelManager.PanelArea {
-    private static final int LABEL_W = 96;
     private static final int INDENT = 8;
     private static final int ROW_H = 20;
 
@@ -83,11 +82,10 @@ public final class NotifyDetailsPanel extends AdjustablePanelManager.PanelArea {
     private void fillNotifyProperties(Object notifyInstance, Object notifyTypeHolder, String typeName) {
         table.clearWidgets();
 
-        table.newRow()
-            .addWidget(label(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_FIELD_TYPE)))
+        table.newRow(EditorWidgetFactory.makeTranslatableLabel(font, LangKeys.GUI_NOTIFY_TRACKS_FIELD_TYPE))
             .addWidget(new Static(
                 font,
-                AnchoredWidget.pixel(LABEL_W + 2), AnchoredWidget.pixel(INDENT),
+                AnchoredWidget.pixel(0), AnchoredWidget.pixel(INDENT),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
                 AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
                 AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
@@ -114,17 +112,6 @@ public final class NotifyDetailsPanel extends AdjustablePanelManager.PanelArea {
 
         table.relocate(getRectangle());
         table.initialize(false);
-    }
-
-    private Static label(Component text) {
-        return new Static(
-            font,
-            AnchoredWidget.pixel(INDENT), AnchoredWidget.pixel(LABEL_W - INDENT),
-            AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
-            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
-            AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            text
-        );
     }
 
     @Override

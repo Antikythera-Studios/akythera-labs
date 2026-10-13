@@ -1,12 +1,24 @@
 package com.yesman.akytheralabs;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonPrimitive;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.JsonOps;
+import com.yesman.akythera.api.data.serializable.RGBA;
+import com.yesman.akythera.client.api.particle.module.ParticleSystemParameterNode;
 import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
+import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.impl.ScriptComparators;
 import com.yesman.akythera.api.data.modularize.node.*;
 import com.yesman.akythera.api.data.modularize.node.animgraph.AnimationStateMachineNode;
 import com.yesman.akythera.api.data.modularize.node.animgraph.CachedPoseReferenceNode;
 import com.yesman.akythera.api.data.modularize.node.animgraph.SourceDriverNode;
+import com.yesman.akythera.api.world.ability.AbilitySlot;
+import com.yesman.akythera.api.world.ability.AbilitySlotGroup;
+import com.yesman.akythera.api.world.ability.AbilityTag;
+import com.yesman.akythera.api.world.ability.AbilityTagSet;
+import com.yesman.akythera.api.world.patch.item.WeaponStance;
 import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akythera.core.animation.FSMAnimationState;
@@ -25,22 +37,27 @@ import org.jspecify.annotations.Nullable;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /// Lowers a runtime [FlowNode]/[PureNode] tree into **Java source** for
 /// `File > Export > As Source Code`.
 ///
 /// Shape rules:
-/// - every [FlowNode] becomes one statement (terminated by `;`, or an `if` block for [BranchNode]);
+/// - every [FlowNode] becomes one statement (terminated by `;`, or an `if` block for [BranchNode] and
+///   [CastNode], the latter binding its cast value by an `instanceof` pattern);
 /// - every [PureNode] is inlined as an expression inside its consuming statement;
 /// - a [FlowFunctionNode] / [PureFunctionNode] renders through the per-function FreeMarker template
 ///   `source_templates/script_node/<namespace>/<path>.ftl`, addressed by the function's
 ///   [AkytheraRegistries.Frozen#SCRIPT_FUNCTION] id and receiving `params` — the argument
 ///   expressions, index-aligned with the function's signature. Without a template, a member function
-///   falls back to `params[0].method(params[1..])` and anything else renders a `/* TODO */` marker;
+///   falls back to `params[0].method(params[1..])`, casting a `self` receiver narrower than the self
+///   type, and anything else renders a `/* TODO */` marker;
 /// - a [ContextVariableAccessNode] renders as a bare Java identifier, so it must name one in scope:
 ///   either a context parameter, or a local declared by the first [ScriptVariableSetterNode]
 ///   assigning a non-member name (`var name = <expr>;`). Member-variable setters assign the
-///   generated `@ScriptField` field instead.
+///   generated `@ScriptField` field instead, on the member owner when the method has one;
+/// - a [ParentCallNode] renders as the `super` call of the method being compiled, a [FunctionCallNode] as a
+///   call of the generated method it names, and a blueprint field node as a read or write of the field.
 @NullMarked
 public final class ScriptNodeSourceCompiler {
     private static final String INDENT = "    ";
@@ -59,28 +76,68 @@ public final class ScriptNodeSourceCompiler {
     /// owner, `this.animator` for an animator script and `this.owner` for an entity-patch one.
     private final String selfExpr;
 
-    private ScriptNodeSourceCompiler(Collection<String> memberVariables, Collection<String> contextParams, String selfExpr) {
+    /// The declared type of [#selfExpr].
+    private final Class<?> selfType;
+
+    /// The `super` call a [ParentCallNode] renders as, or null in a method that overrides nothing.
+    private final @Nullable String parentCall;
+
+    /// The expression whose fields the member variables are, and which every [FunctionCallNode] passes
+    /// first. Null when the member variables are fields of the generated class itself.
+    private final @Nullable String memberOwner;
+
+    private ScriptNodeSourceCompiler(
+        Collection<String> memberVariables, Collection<String> contextParams, String selfExpr, Class<?> selfType,
+        @Nullable String parentCall, @Nullable String memberOwner
+    ) {
         this.memberVariables = new HashSet<>(memberVariables);
         this.scopedNames.addAll(contextParams);
         this.selfExpr = selfExpr;
+        this.selfType = selfType;
+        this.parentCall = parentCall;
+        this.memberOwner = memberOwner;
     }
 
     /// Compiles `flow` into method-body statement lines (relative indent baked in, no base indent).
     /// `contextParams` are the generated method's parameter names, `selfExpr` the owner handle a
-    /// [SelfNode] resolves to.
-    public static List<String> compileFlow(FlowNode flow, Collection<String> memberVariables, Collection<String> contextParams, String selfExpr) {
-        ScriptNodeSourceCompiler compiler = new ScriptNodeSourceCompiler(memberVariables, contextParams, selfExpr);
+    /// [SelfNode] resolves to and `selfType` its declared type.
+    public static List<String> compileFlow(
+        FlowNode flow, Collection<String> memberVariables, Collection<String> contextParams, String selfExpr, Class<?> selfType
+    ) {
+        return compileMethod(flow, memberVariables, contextParams, selfExpr, selfType, null, null, null);
+    }
+
+    /// As [#compileFlow], for the body of a method that may override one and return a value.
+    ///
+    /// @param parentCall     the `super` call a [ParentCallNode] renders as, or null for a method that
+    ///                       overrides nothing
+    /// @param fallbackReturn appended as `return <fallbackReturn>;` when the body can end without
+    ///                       returning, or null for a method that returns nothing
+    /// @param memberOwner    the expression whose fields the member variables are, passed first to every
+    ///                       declared function the body calls, or null when they are the generated class's
+    public static List<String> compileMethod(
+        FlowNode flow, Collection<String> memberVariables, Collection<String> contextParams, String selfExpr,
+        Class<?> selfType, @Nullable String parentCall, @Nullable String fallbackReturn, @Nullable String memberOwner
+    ) {
+        ScriptNodeSourceCompiler compiler =
+            new ScriptNodeSourceCompiler(memberVariables, contextParams, selfExpr, selfType, parentCall, memberOwner);
         List<String> out = new ArrayList<>();
+
         compiler.statements(flow, out, 0);
+
+        if (fallbackReturn != null && !alwaysReturns(flow)) out.add("return " + fallbackReturn + ";");
+
         return out;
     }
 
     /// As [#compileFlow], but the trailing [FlowFunctionNode]'s expression becomes the method's
     /// `return`; `fallbackReturn` is appended when the flow cannot end in a returnable expression.
     public static List<String> compileReturningFlow(
-        FlowNode flow, Collection<String> memberVariables, Collection<String> contextParams, String selfExpr, String fallbackReturn
+        FlowNode flow, Collection<String> memberVariables, Collection<String> contextParams, String selfExpr, Class<?> selfType,
+        String fallbackReturn
     ) {
-        ScriptNodeSourceCompiler compiler = new ScriptNodeSourceCompiler(memberVariables, contextParams, selfExpr);
+        ScriptNodeSourceCompiler compiler =
+            new ScriptNodeSourceCompiler(memberVariables, contextParams, selfExpr, selfType, null, null);
         List<String> out = new ArrayList<>();
 
         if (!compiler.returningStatements(flow, out, 0)) {
@@ -90,6 +147,26 @@ public final class ScriptNodeSourceCompiler {
         return out;
     }
 
+    /// Compiles a headless `node` into a [PureNode#of] expression. The lambda reads the context local
+    /// `ownerParam` into a local of `ownerType`, which also stands for `self`.
+    ///
+    /// ```java
+    /// PureNode.of(context -> {
+    ///     EntityPatch<?> owner = context.locals().getValue("owner");
+    ///
+    ///     return owner.isLogicalClient();
+    /// })
+    /// ```
+    public static String compilePureLambda(PureNode node, String ownerParam, Class<?> ownerType) {
+        ScriptNodeSourceCompiler compiler = new ScriptNodeSourceCompiler(List.of(), List.of(ownerParam), ownerParam, ownerType, null, null);
+
+        return "PureNode.of(context -> {\n"
+            + INDENT + typeName(ownerType) + " " + ownerParam + " = context.locals().getValue(" + quote(ownerParam) + ");\n"
+            + "\n"
+            + INDENT + "return " + compiler.expr(node) + ";\n"
+            + "})";
+    }
+
     // ***************************************************************
     // Flow nodes — one statement per node
     // ***************************************************************
@@ -97,7 +174,12 @@ public final class ScriptNodeSourceCompiler {
     private void statements(FlowNode node, List<String> out, int indent) {
         switch (node) {
             case SequenceNode seq -> {
-                for (FlowNode block : seq.executionBlocks()) statements(block, out, indent);
+                for (FlowNode block : seq.executionBlocks()) {
+                    statements(block, out, indent);
+
+                    // Java refuses a statement no path reaches
+                    if (alwaysReturns(block)) break;
+                }
             }
             case BranchNode branch -> {
                 out.add(line(indent, "if (" + expr(branch.boolFunction()) + ") {"));
@@ -110,14 +192,60 @@ public final class ScriptNodeSourceCompiler {
 
                 out.add(line(indent, "}"));
             }
+            case CastNode cast -> {
+                scopedNames.add(cast.castName());
+                out.add(line(indent, "if (" + expr(cast.object()) + " instanceof " + typeName(cast.type().type()) + " " + cast.castName() + ") {"));
+                for (FlowNode arm : cast.whenSucceeded()) statements(arm, out, indent + 1);
+
+                if (!cast.whenFailed().isEmpty()) {
+                    out.add(line(indent, "} else {"));
+                    for (FlowNode arm : cast.whenFailed()) statements(arm, out, indent + 1);
+                }
+
+                out.add(line(indent, "}"));
+            }
             case FlowFunctionNode fn -> {
                 out.add(line(indent, functionExpr(fn.function(), argsOf(fn.params())) + ";"));
                 if (fn.nextNode() != null) statements(fn.nextNode(), out, indent);
             }
             case ScriptVariableSetterNode setter -> out.add(line(indent, assignment(setter)));
             case ReturnNode ret -> out.add(line(indent, returnStatement(ret)));
+            case ParentCallNode _ -> out.add(line(indent, parentCallExpr() + ";"));
+            case FunctionCallNode call -> out.add(line(indent, functionCallExpr(call) + ";"));
+            case BlueprintFieldSetterNode setter ->
+                out.add(line(indent, "this." + setter.field() + " = " + expr(setter.value()) + ";"));
             default -> out.add(line(indent, "// TODO: unsupported flow node " + node.getClass().getSimpleName()));
         }
+    }
+
+    /// Whether every path through `node` ends in a [ReturnNode].
+    private static boolean alwaysReturns(FlowNode node) {
+        return switch (node) {
+            case ReturnNode _ -> true;
+            case SequenceNode seq -> seq.executionBlocks().stream().anyMatch(ScriptNodeSourceCompiler::alwaysReturns);
+            case BranchNode branch -> branch.whenTrue().stream().anyMatch(ScriptNodeSourceCompiler::alwaysReturns)
+                && branch.whenFalse().stream().anyMatch(ScriptNodeSourceCompiler::alwaysReturns);
+            case CastNode cast -> cast.whenSucceeded().stream().anyMatch(ScriptNodeSourceCompiler::alwaysReturns)
+                && cast.whenFailed().stream().anyMatch(ScriptNodeSourceCompiler::alwaysReturns);
+            case FlowFunctionNode fn -> fn.nextNode() != null && alwaysReturns(fn.nextNode());
+            default -> false;
+        };
+    }
+
+    /// The `super` call a [ParentCallNode] renders as.
+    private String parentCallExpr() {
+        return parentCall != null ? parentCall : "null /* TODO: Parent call outside an overriding method */";
+    }
+
+    /// A [FunctionCallNode] as a call of the generated method it names.
+    private String functionCallExpr(FunctionCallNode call) {
+        List<String> args = new ArrayList<>();
+
+        if (memberOwner != null) args.add(memberOwner);
+
+        args.addAll(argsOf(call.arguments()));
+
+        return "this." + call.function() + "(" + String.join(", ", args) + ")";
     }
 
     /// Emits `node` with its last flow-function expression as `return <expr>;`, returning whether a
@@ -169,7 +297,7 @@ public final class ScriptNodeSourceCompiler {
         String name = setter.variableName();
         String value = expr(setter.valueProvider());
 
-        if (memberVariables.contains(name)) return name + " = " + value + ";";
+        if (memberVariables.contains(name)) return memberExpr(name) + " = " + value + ";";
         return scopedNames.add(name) ? "var " + name + " = " + value + ";" : name + " = " + value + ";";
     }
 
@@ -181,8 +309,17 @@ public final class ScriptNodeSourceCompiler {
         return switch (node) {
             case SelfNode _ -> selfExpr;
             case LiteralNode<?> literal -> literal(literal);
+            case RegistryEntryNode entry -> BlueprintSourceWriter.propertyLiteral(entry.type(), new JsonPrimitive(entry.id().toString()));
+            case RegistryKeyNode key -> BlueprintSourceWriter.registryKey(Objects.requireNonNull(key.type().registry()), key.id().toString());
             case ContextVariableAccessNode access -> access.localVariableName();
-            case ScriptVariableGetterNode getter -> getter.variableName();
+            case ParticleSystemParameterNode parameter -> selfExpr + ".getSystem().getParameters().<"
+                + (parameter.type().container() == ScriptType.Container.SINGLE
+                    ? SourceNames.typeName(ParseUtils.box(parameter.type().type()))
+                    : SourceNames.typeName(parameter.type()))
+                + ">getValue(" + quote(parameter.parameter()) + ")";
+            case ScriptVariableGetterNode getter -> memberVariables.contains(getter.variableName())
+                ? memberExpr(getter.variableName())
+                : getter.variableName();
             case SourceDriverNode _ -> sourceDriverExpr != null ? sourceDriverExpr
                 : "null /* TODO: Source State Driver outside a transition */";
             case PureFunctionNode fn -> functionExpr(fn.function(), argsOf(fn.params()));
@@ -195,8 +332,16 @@ public final class ScriptNodeSourceCompiler {
             case CachedPoseReferenceNode pose -> "new CachedPoseReference(" + quote(pose.poseCacheName())
                 + ", " + selfExpr + ", " + valueLiteral(pose.controlReferenceDriver()) + ")";
             case AnimationStateMachineNode machine -> stateMachineExpr(machine);
+            case ParentCallNode _ -> parentCallExpr();
+            case FunctionCallNode call -> functionCallExpr(call);
+            case BlueprintFieldGetterNode getter -> "this." + getter.field();
             default -> "null /* TODO: unsupported pure node " + node.getClass().getSimpleName() + " */";
         };
+    }
+
+    /// The member variable `name` as read or written on [#memberOwner].
+    private String memberExpr(String name) {
+        return memberOwner == null ? name : memberOwner + "." + name;
     }
 
     private List<String> argsOf(List<PureNode> params) {
@@ -252,7 +397,11 @@ public final class ScriptNodeSourceCompiler {
         }
 
         String method = ParseUtils.snakeToCamel(path.substring(prefix.length()));
-        return args.getFirst() + "." + method + "(" + String.join(", ", args.subList(1, args.size())) + ")";
+        String receiver = args.getFirst().equals(selfExpr) && !receiverType.isAssignableFrom(selfType)
+            ? "((" + typeName(receiverType) + ") " + selfExpr + ")"
+            : args.getFirst();
+
+        return receiver + "." + method + "(" + String.join(", ", args.subList(1, args.size())) + ")";
     }
 
     // ***************************************************************
@@ -332,9 +481,27 @@ public final class ScriptNodeSourceCompiler {
     // ***************************************************************
 
     /// A member variable's default value as a Java field-initializer literal, or null when the
-    /// variable has no default.
+    /// variable has no default. A list, set or map is built mutable, since a script may change it in place,
+    /// and it and a registry entry are written from their codec's JSON, see [BlueprintSourceWriter#propertyLiteral].
+    @SuppressWarnings("unchecked")
     public static @Nullable String defaultValueLiteral(ScriptVariables.VariableInfo variable) {
-        return variable.defaultVal() == null ? null : valueLiteral(variable.defaultVal());
+        Object value = variable.defaultVal();
+        ScriptType type = variable.type();
+
+        if (value == null) return null;
+        if (type.container() == ScriptType.Container.SINGLE && type.registry() == null) return valueLiteral(value);
+
+        JsonElement json = ((Codec<Object>) Objects.requireNonNull(type.codec()))
+            .encodeStart(JsonOps.INSTANCE, value)
+            .getOrThrow(IllegalStateException::new);
+        String literal = BlueprintSourceWriter.propertyLiteral(type, json);
+
+        return switch (type.container()) {
+            case SINGLE -> literal;
+            case LIST -> "new ArrayList<>(" + literal + ")";
+            case SET -> "new LinkedHashSet<>(" + literal + ")";
+            case MAP -> "new LinkedHashMap<>(" + literal + ")";
+        };
     }
 
     private static String literal(LiteralNode<?> node) {
@@ -353,10 +520,19 @@ public final class ScriptNodeSourceCompiler {
             case Integer _, Short _, Byte _ -> value.toString();
             case Character c -> "'" + (c == '\'' ? "\\'" : c == '\\' ? "\\\\" : c) + "'";
             case Vec3 vec3 -> "new Vec3(" + vec3.x() + ", " + vec3.y() + ", " + vec3.z() + ")";
+            case RGBA color -> "new RGBA(" + SourceTemplateEngine.floatLiteral(color.r()) + ", " + SourceTemplateEngine.floatLiteral(color.g()) + ", "
+                + SourceTemplateEngine.floatLiteral(color.b()) + ", " + SourceTemplateEngine.floatLiteral(color.a()) + ")";
             // A comparator node's first param.
             case java.util.Comparator<?> comparator -> comparatorConstant(comparator);
             case AnimationLayerSignature signature -> dataBlockLookup("AnimationLayerSignature", signature);
             case AnimationInterfaceKey interfaceKey -> dataBlockLookup("AnimationInterfaceKey", interfaceKey);
+            case WeaponStance stance -> dataBlockLookup("WeaponStance", stance);
+            case AbilityTag tag -> dataBlockLookup("AbilityTag", tag);
+            case AbilityTagSet set -> "AbilityTagSet.of(List.of("
+                + set.tags().stream().map(tag -> dataBlockLookup("AbilityTag", tag)).collect(Collectors.joining(", ")) + "))";
+            case AbilitySlot slot -> dataBlockLookup("AbilitySlot", slot);
+            case AbilitySlotGroup group -> dataBlockLookup("AbilitySlotGroup", group);
+            case Enum<?> constant -> SourceNames.typeName(constant.getDeclaringClass()) + "." + constant.name();
             default -> "null /* TODO: unsupported literal of " + value.getClass().getSimpleName() + " */";
         };
     }
@@ -424,5 +600,12 @@ public final class ScriptNodeSourceCompiler {
 
     private static String quote(String raw) {
         return "\"" + raw.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    /// The simple name of `type`, with a `?` for each of its type parameters.
+    private static String typeName(Class<?> type) {
+        int arity = type.getTypeParameters().length;
+
+        return arity == 0 ? type.getSimpleName() : type.getSimpleName() + "<" + String.join(", ", Collections.nCopies(arity, "?")) + ">";
     }
 }

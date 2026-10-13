@@ -1,13 +1,20 @@
 package com.yesman.akytheralabs.akythera.animation;
 
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
+import com.yesman.akythera.api.data.modularize.ScriptType;
+import com.yesman.akythera.api.data.modularize.node.LiteralNode;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
+import com.yesman.akythera.api.data.modularize.node.RegistryEntryNode;
+import com.yesman.akythera.api.data.modularize.node.RegistryKeyNode;
 import com.yesman.akythera.api.data.modularize.node.ScriptNode;
+import com.yesman.akytheralabs.editor.ValueShape;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeInputs;
+import com.yesman.akytheralabs.gui.widget.script.node.PinLiteral;
 import com.yesman.akytheralabs.gui.widget.script.node.PureCompileContext;
+import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -22,7 +29,7 @@ import java.util.Map;
 ///
 /// A node's own lowering lives on its [NodeData#compilePure]. A canvas customises the shared node types by
 /// overriding the [PureCompileContext] defaults, and supplies its stand-in for an unwired input through
-/// [#defaultValue].
+/// [#defaultValue]. An unwired input holding a [PinLiteral] lowers to that value instead.
 abstract class PureGraphCompiler implements PureCompileContext {
     protected final Class<?> ownerType;
     protected final Map<Integer, GraphNode> byId = new HashMap<>();
@@ -55,7 +62,7 @@ abstract class PureGraphCompiler implements PureCompileContext {
     @Override
     public final @Nullable PureNode compileInput(int toId, int toPin) {
         long[] source = resolveReroute(incoming.get(key(toId, toPin)));
-        if (source == null) return null;
+        if (source == null) return literalAt(toId, toPin);
 
         return buildOutput((int) source[0], (int) source[1], null);
     }
@@ -63,7 +70,12 @@ abstract class PureGraphCompiler implements PureCompileContext {
     @Override
     public final PureNode compileInputOr(int toId, int toPin, @Nullable Class<?> expectedType) {
         long[] source = resolveReroute(incoming.get(key(toId, toPin)));
-        if (source == null) return defaultValue(expectedType);
+
+        if (source == null) {
+            PureNode literal = literalAt(toId, toPin);
+
+            return literal != null ? literal : defaultValue(expectedType);
+        }
 
         PureNode wired = buildOutput((int) source[0], (int) source[1], expectedType);
 
@@ -96,6 +108,30 @@ abstract class PureGraphCompiler implements PureCompileContext {
         if (source == null) return null;
 
         return source.data().compilePure(new NodeInputs(this, fromId), fromPin, expectedType);
+    }
+
+    /// The [PinLiteral] typed into data input `(toId,toPin)`, or null when it holds none. The value decodes
+    /// through its [ValueShape] as the editor reads it, so a data block only the project declares compiles
+    /// too. A registry entry is looked up by its id when the script runs, and a key of one is made from its id.
+    private @Nullable PureNode literalAt(int toId, int toPin) {
+        GraphNode node = byId.get(toId);
+        if (node == null) return null;
+
+        for (PinLiteral literal : node.literals()) {
+            if (literal.pin() != toPin) continue;
+
+            ScriptType type = literal.type();
+
+            if (literal.isKey()) return new RegistryKeyNode(type.element(), Identifier.parse(literal.value().getAsString()));
+
+            ValueShape shape = ValueShape.of(type);
+
+            return shape instanceof ValueShape.RegistryLeaf
+                ? new RegistryEntryNode(type, Identifier.parse(literal.value().getAsString()))
+                : new LiteralNode<>(type, shape.fromEditor(shape.fromJson(literal.value())));
+        }
+
+        return null;
     }
 
     /// Walks back past any chain of pass-through knots to the real source feeding a pin.

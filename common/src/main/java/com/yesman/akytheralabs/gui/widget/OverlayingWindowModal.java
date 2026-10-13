@@ -1,6 +1,8 @@
 package com.yesman.akytheralabs.gui.widget;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.Modal;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -66,7 +68,7 @@ public abstract class OverlayingWindowModal extends AbstractContainerWidget impl
 
         if ((event.x() < getX() || event.y() < getY() || event.x() > getRight() || event.y() > getBottom()) && closeOnPressBackground()) {
             // close the modal when mouse clicked outside the modal
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
         }
 
         return false;
@@ -155,8 +157,8 @@ public abstract class OverlayingWindowModal extends AbstractContainerWidget impl
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.CENTER_WIDTH;
-    private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.CENTER_HEIGHT;
+    private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.CENTER_WIDTH;
+    private VerticalAnchorType verticalAnchorType = VerticalAnchorType.CENTER_HEIGHT;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -168,6 +170,8 @@ public abstract class OverlayingWindowModal extends AbstractContainerWidget impl
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 
     /// Custom implementation: set up the window location, size fields instead of [AbstractWidget] fields
     @Override

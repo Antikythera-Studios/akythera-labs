@@ -1,18 +1,19 @@
 package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.asset.AssetAccessor;
-import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.api.world.patch.item.ItemPatch;
-import com.yesman.akythera.client.core.asset.mesh.Mesh;
-import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.viewer.BackgroundComponent;
-import com.yesman.akythera.client.gui.widget.viewer.CameraComponent;
-import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
-import com.yesman.akythera.client.gui.widget.viewer.GridFloorComponent;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.viewer.BackgroundComponent;
+import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
+import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.math.Transform;
@@ -24,14 +25,14 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentHolder;
-import com.yesman.akytheralabs.akythera.entitypatch.component.BoneSocketHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
-import com.yesman.akytheralabs.akythera.entitypatch.component.EntityModelComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.EquipmentComponentHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.TransformComponentHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.TransformSocketHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHolders;
-import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -49,11 +50,13 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ItemSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
+import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
 import com.yesman.akytheralabs.gui.widget.viewer.ColliderPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.TransformComponentPreviewComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
@@ -71,11 +74,7 @@ import net.minecraft.world.item.Items;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -130,10 +129,13 @@ public final class ItemPatchEditorScreen extends Screen
     /// top differs from it.
     private @Nullable WorkHistory savePoint;
 
-    /// The space this patch's colliders sit in: the socket the preview item is drawn at, which is the
-    /// transform `ColliderDebugRenderer` places them by in game. Null while the preview raised its
-    /// warning card instead.
-    private @Nullable Supplier<Transform> colliderPlacement;
+    /// The space this patch's root gives its components: the equipment component the preview item is
+    /// drawn at, which is the anchor an equipped item patch hangs under in game. Null while the preview
+    /// raised its warning card instead.
+    private @Nullable Supplier<Transform> rootPlacement;
+
+    /// The spaces of this patch's holders in the preview, under [#rootPlacement].
+    private final TransformComponentHolder.Space space;
 
     public ItemPatchEditorScreen(ResourceKey<ItemPatchBlueprint> resourceKey, ItemPatchBlueprintHolder holder) {
         super(Component.literal(resourceKey.identifier().toString()));
@@ -148,8 +150,9 @@ public final class ItemPatchEditorScreen extends Screen
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(TOP_BAR_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            _ -> handleQuitRequest(),
+            () -> handleQuitRequest(),
             TopMenuBar.actions()
+                .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.COMPILE, this::compile)
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
@@ -196,11 +199,22 @@ public final class ItemPatchEditorScreen extends Screen
         // Components (left): edits the blueprint's component tree in place, the patch holder being
         // the tree's root host
         componentPanel = new ComponentEditorPanel(
-            minecraft.font, this, ItemPatchComponentHolders.REGISTRY, holder, null,
-            holder::inheritedComponents,
-            this::rebuildColliderPreviews, this::onComponentFocused);
+            minecraft.font, this, Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_PANEL_COMPONENTS), ItemPatchComponentHolders.REGISTRY, holder, null,
+            holder::inheritedComponents, false,
+            this::rebuildComponentPreviews, this::onComponentFocused);
 
-        rebuildColliderPreviews();
+        space = new TransformComponentHolder.Space(
+            component -> componentPanel.listedComponents()
+                .filter(listed -> listed.holder() == component)
+                .map(ComponentEditorPanel.ListedComponent::host)
+                .filter(e -> !Objects.isNull(e))
+                .findFirst()
+                .orElse(null),
+            _ -> Transform.IDENTITY,
+            () -> rootPlacement == null ? Transform.IDENTITY : rootPlacement.get()
+        );
+
+        rebuildComponentPreviews();
 
         detailsPanel = new ComponentDetailsPanel(minecraft.font, this, this::onDetailsChanged);
         // Nothing focused yet: the blueprint's own fields
@@ -232,13 +246,15 @@ public final class ItemPatchEditorScreen extends Screen
     // Preview
     // ***************************************************************
 
-    /// Installs the preview: the player model the project's `minecraft:player` entity patch describes,
-    /// with this patch's item at the socket that patch equips the main hand from. Whatever that patch
-    /// does not define raises the warning card instead.
-    ///
-    /// The mesh is the entity model component's default one: its getter is a tree over the patch's
-    /// owning entity, and an editor preview has none.
+    /// Installs the preview: the player model [EntityPreviewModelMapping] binds, with this patch's
+    /// item at the socket the project's `minecraft:player` entity patch equips the main hand from.
+    /// An unbound player raises the mapping's own card; a missing socket raises the warning card.
     private void buildPreview() {
+        EntityModelComponent model = EntityPreviewModelMapping.displayOrWarn(
+            model3DViewer, font, BuiltInRegistries.ENTITY_TYPE.getKey(EntityTypes.PLAYER), true, false);
+
+        if (model == null) return;
+
         EntityPatchBlueprintHolder patch = AkytheraProject.getCurrentProject()
             .<EntityPatchBlueprint, EntityPatchBlueprintHolder>getDataHolder(playerPatchKey())
             .orElse(null);
@@ -246,7 +262,7 @@ public final class ItemPatchEditorScreen extends Screen
         if (patch == null) {
             showPreviewWarning(
                 Component.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_MISSING_PATCH),
-                Component.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_CREATE_PATCH),
+                LocalizedMessage.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_CREATE_PATCH),
                 this::createPlayerPatch);
             return;
         }
@@ -258,25 +274,11 @@ public final class ItemPatchEditorScreen extends Screen
             return;
         }
 
-        EntityModelComponentHolder entityModel = rootComponent(patch, EntityModelComponentHolder.class);
-
-        if (entityModel == null) {
-            showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_ENTITY_MODEL);
-            return;
-        }
-
-        AssetAccessor<? extends Mesh<?>> mesh = entityModel.getDefaultMesh();
-
-        if (mesh == null || !mesh.checkType(AssetAccessor.Type.SKELETAL_MESH)) {
-            showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_DEFAULT_MESH);
-            return;
-        }
-
-        BoneSocketHolder socket = null;
+        TransformSocketHolder socket = null;
         EquipmentComponentHolder equipment = null;
 
         for (ComponentDataHolder<?> attached : armature.getComponents().values()) {
-            if (!(attached instanceof BoneSocketHolder candidate)) continue;
+            if (!(attached instanceof TransformSocketHolder candidate)) continue;
 
             equipment = candidate.getComponents().values().stream()
                 .filter(EquipmentComponentHolder.class::isInstance)
@@ -296,85 +298,89 @@ public final class ItemPatchEditorScreen extends Screen
             return;
         }
 
-        @SuppressWarnings("unchecked")
-        EntityModelComponent model = new EntityModelComponent(
-            (AssetAccessor<SkeletalMesh>) mesh, armature.getArmature());
-
-        // A non-null animator is what makes the component rewrite its bone transforms each frame, and
-        // the headless one holds the bind pose.
-        model.setSimplePlayingAnimation(null);
-        model3DViewer.addComponent(model);
         model3DViewer.frameCamera(
             Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.width(),
             Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.height());
 
-        BoneSocketHolder placement = socket;
-        EquipmentComponentHolder displayContext = equipment;
+        EquipmentComponentHolder anchor = equipment;
+        TransformComponentHolder.Space playerSpace = new TransformComponentHolder.Space(
+            component -> ComponentAttachableHolder.hostOf(patch, component),
+            bone -> model.getArmatureComponent().getBoneModelTransform(bone),
+            () -> Transform.IDENTITY
+        );
+
+        model.setTransformSource(() -> playerSpace.modelTransform(armature));
 
         ItemModelComponent itemModel = new ItemModelComponent(this::previewItem);
-        itemModel.setDisplayContextSource(displayContext::getItemDisplayContext);
+        itemModel.setDisplayContextSource(anchor::getItemDisplayContext);
         itemModel.placeUnder(
-            () -> model.getArmatureComponent().getBoneModelTransform(placement.getBoneName()),
-            placement.getLocalTransform(),
-            null);
+            () -> playerSpace.parentTransform(anchor), anchor.getLocalTransform(), anchor::getTransformInheritPolicy, null);
 
         model3DViewer.addComponent(itemModel);
 
-        // bone x socket offset. The item's own `display` transform is no part of where a collider
-        // sits, and `placeUnder` keeps it out of this one.
-        colliderPlacement = itemModel::worldTransform;
+        // The item's own `display` transform is no part of where its components sit, and `placeUnder`
+        // keeps it out of this one.
+        rootPlacement = itemModel::worldTransform;
     }
 
-    /// Rebuilds the preview's collider wireframes from the components the panel lists, keeping the
-    /// wireframe that holds the focus. One this patch declares is draggable; one it inherits is drawn
-    /// dim until a pick claims it.
-    private void rebuildColliderPreviews() {
-        rebuildColliderPreviews(model3DViewer.getFocused() instanceof ColliderPreviewComponent preview
-            ? preview.getCollider()
-            : null);
+    /// Rebuilds the preview's socket markers and collider wireframes from the components the panel
+    /// lists, keeping the one that holds the focus. One this patch declares is draggable; an inherited
+    /// collider is drawn dim until a pick claims it, and an inherited socket raises no marker.
+    private void rebuildComponentPreviews() {
+        rebuildComponentPreviews(switch (model3DViewer.getFocused()) {
+            case ColliderPreviewComponent preview -> preview.getCollider();
+            case TransformComponentPreviewComponent<?> preview -> preview.getHolder();
+            case null, default -> null;
+        });
     }
 
-    /// [#rebuildColliderPreviews], ending focused on `focus`'s wireframe — on nothing when it is null.
+    /// [#rebuildComponentPreviews], ending focused on `focus`'s stand-in — on nothing when it has none.
     ///
     /// A focus change supplies the component it is moving to, and runs this because a pick on a dim
     /// wireframe claims the component: the claim's copy is what the panel lists from then on. It
     /// cannot keep the old focus instead — a wireframe taking the focus reports itself to the
     /// Components tree, which would pull the selection back off the component being focused here.
-    private void rebuildColliderPreviews(@Nullable ColliderComponentHolder focus) {
+    private void rebuildComponentPreviews(@Nullable ComponentDataHolder<?> focus) {
         model3DViewer.focus(null);
         model3DViewer.removeAllComponents(ColliderPreviewComponent.class);
+        model3DViewer.removeAllComponents(TransformComponentPreviewComponent.class);
 
-        Supplier<Transform> placement = colliderPlacement;
-
-        if (placement == null) return;
+        if (rootPlacement == null) return;
 
         componentPanel.listedComponents().forEach(listed -> {
-            if (!(listed.holder() instanceof ColliderComponentHolder collider)) return;
-
-            model3DViewer.addComponent(listed.inherited()
-                ? ColliderPreviewComponent.inherited(collider, placement, this::onColliderPicked)
-                : ColliderPreviewComponent.editable(
-                    collider, placement, this::onColliderDragCommitted, this::onColliderPicked));
+            switch (listed.holder()) {
+                case ColliderComponentHolder collider -> model3DViewer.addComponent(listed.inherited()
+                    ? ColliderPreviewComponent.inherited(collider, () -> space.parentTransform(collider), this::onComponentPicked)
+                    : ColliderPreviewComponent.editable(
+                        collider, () -> space.parentTransform(collider), this::onComponentDragCommitted, this::onComponentPicked));
+                case TransformSocketHolder socket when !listed.inherited() -> model3DViewer.addComponent(new TransformComponentPreviewComponent<>(
+                    socket, () -> space.parentTransform(socket), this::onComponentDragCommitted, this::onComponentPicked, null));
+                default -> {}
+            }
         });
 
-        if (focus != null) model3DViewer.focus(previewOf(focus));
+        model3DViewer.focus(switch (focus) {
+            case ColliderComponentHolder collider -> previewOf(collider);
+            case TransformSocketHolder socket -> markerOf(socket);
+            case null, default -> null;
+        });
     }
 
-    /// Moves the Components tree onto a picked wireframe, claiming an inherited collider the way
+    /// Moves the Components tree onto a picked stand-in, claiming an inherited collider the way
     /// clicking its row does.
     ///
     /// Deferred a tick: the claim rebuilds the previews, and the pick is still running inside the one
     /// being replaced.
-    private void onColliderPicked(ColliderComponentHolder collider) {
-        minecraft.execute(() -> componentPanel.focusListedComponent(collider));
+    private void onComponentPicked(ComponentDataHolder<?> component) {
+        minecraft.execute(() -> componentPanel.focusListedComponent(component));
     }
 
-    /// Takes a claimed collider into the patch and re-reads the Details rows, once a drag is
+    /// Takes a claimed component into the patch and re-reads the Details rows, once a drag is
     /// released. The drag wrote into the claim's copy, which no patch held until here.
     ///
     /// Deferred a tick: attaching rebuilds the previews, and the release is still running inside the
     /// one being replaced.
-    private void onColliderDragCommitted() {
+    private void onComponentDragCommitted() {
         minecraft.execute(() -> {
             componentPanel.onDetailsWrite();
             componentPanel.refocusDetails();
@@ -388,6 +394,16 @@ public final class ItemPatchEditorScreen extends Screen
 
             if (preview == null) return null;
             if (preview.getCollider() == collider) return preview;
+        }
+    }
+
+    /// The marker standing for `socket`, or null when the preview holds none.
+    private @Nullable TransformComponentPreviewComponent<?> markerOf(TransformSocketHolder socket) {
+        for (int i = 0; ; i++) {
+            TransformComponentPreviewComponent<?> preview = model3DViewer.getComponent(TransformComponentPreviewComponent.class, i);
+
+            if (preview == null) return null;
+            if (preview.getHolder() == socket) return preview;
         }
     }
 
@@ -445,7 +461,7 @@ public final class ItemPatchEditorScreen extends Screen
     /// it writes a holder field, so the title's `*` follows it like any other edit.
     private void openPreviewItemSelectModal() {
         ItemSelectModal modal = new ItemSelectModal(minecraft.font, item -> {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
 
             Item previous = holder.getPreviewItem();
             if (item == previous) return;
@@ -454,7 +470,7 @@ public final class ItemPatchEditorScreen extends Screen
             HistoryManager.getInstance().pushHistory(new DataChange<>(previous, item, holder::setPreviewItem));
         });
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     private static ResourceKey<EntityPatchBlueprint> playerPatchKey() {
@@ -469,7 +485,7 @@ public final class ItemPatchEditorScreen extends Screen
         showPreviewWarning(
             Component.translatable(
                 LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_MISSING_COMPONENT, Component.translatable(componentKey)),
-            Component.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_OPEN_PATCH),
+            LocalizedMessage.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_OPEN_PATCH),
             () -> {
                 ResourceKey<EntityPatchBlueprint> key = playerPatchKey();
 
@@ -496,7 +512,7 @@ public final class ItemPatchEditorScreen extends Screen
     /// Deferred a tick. This runs from the constructor, and
     /// [AkytheraEditorLayoutManager#openNewScreen] closes every open modal before pushing the screen it
     /// was called for.
-    private void showPreviewWarning(Component reason, Component action, Runnable onAction) {
+    private void showPreviewWarning(Component reason, LocalizedMessage action, Runnable onAction) {
         minecraft.execute(() -> {
             int buttonWidth = WidgetContainerModal.evenButtonWidth(WARNING_POPUP_W, 2);
 
@@ -504,21 +520,21 @@ public final class ItemPatchEditorScreen extends Screen
                 .builder(minecraft.font, Component.empty(), WARNING_POPUP_W)
                 .textLines(reason)
                 .footerButton(
-                    AnchoredButton.buttonBuilder(
+                    AkytheraButton.buttonBuilder(
                             minecraft.font,
-                            Component.translatable(LangKeys.GUI_CANCEL),
-                            _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                            LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                            () -> ModalManager.getInstance().closeModal())
                         .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                         .build(),
                     buttonWidth
                 )
                 .footerButton(
-                    AnchoredButton.buttonBuilder(
+                    AkytheraButton.buttonBuilder(
                             minecraft.font,
                             action,
                             // Closed first: the prompt the action raises refuses to open over a modal.
-                            _ -> {
-                                AkytheraEditorLayoutManager.getInstance().closeModal();
+                            () -> {
+                                ModalManager.getInstance().closeModal();
                                 onAction.run();
                             })
                         .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
@@ -527,7 +543,7 @@ public final class ItemPatchEditorScreen extends Screen
                 )
                 .build();
 
-            AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+            ModalManager.getInstance().openModalWidgetAtCenter(popup);
         });
     }
 
@@ -538,9 +554,7 @@ public final class ItemPatchEditorScreen extends Screen
             AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, PLAYER_PATCH_PATH, true);
 
         EntityPatchBlueprintHolder holder = project.getDataHolderOrThrow(key);
-        holder.setPreviewModel(new EntityPreviewModel(
-            BuiltInRegistries.ENTITY_TYPE.getKey(EntityTypes.PLAYER),
-            EntityModelComponent.ModelType.VANILLA_ENTITY));
+        holder.setPreviewEntityType(BuiltInRegistries.ENTITY_TYPE.getKey(EntityTypes.PLAYER));
         project.saveEntry(key);
 
         openPlayerPatch(key, holder);
@@ -760,8 +774,8 @@ public final class ItemPatchEditorScreen extends Screen
     }
 
     private void onSaveComplete(WidgetContainerModal awaitModal, @Nullable Throwable error) {
-        if (AkytheraEditorLayoutManager.getInstance().getModal() == awaitModal) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+        if (ModalManager.getInstance().getModal() == awaitModal) {
+            ModalManager.getInstance().closeModal();
         }
         if (error != null) {
             AkytheraLabs.LOGGER.error("Failed to save item patch '{}'", resourceKey.identifier(), error);
@@ -825,7 +839,7 @@ public final class ItemPatchEditorScreen extends Screen
 
         // A focus on an inherited row is a focus on the claim's copy, which the panel lists from here
         // on, so the wireframes are re-read before this focus lands on one of them.
-        rebuildColliderPreviews(component instanceof ColliderComponentHolder collider ? collider : null);
+        rebuildComponentPreviews(component);
     }
 
     /// The Details panel re-rendered itself: an override that matches what it overrides again is no
@@ -854,7 +868,7 @@ public final class ItemPatchEditorScreen extends Screen
             Component.translatable(LangKeys.GUI_MESSAGE_ASK_TO_SAVE, topMenuBar.getMessage()),
             hasUnsavedChanges(),
             () -> {
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 save().thenRun(after);
             },
             () -> {
@@ -921,7 +935,7 @@ public final class ItemPatchEditorScreen extends Screen
 
     @Override
     public @Nullable GuiEventListener getFocused() {
-        var modal = AkytheraEditorLayoutManager.getInstance().getModal();
+        var modal = ModalManager.getInstance().getInputModal();
         if (modal != null) return modal;
         return super.getFocused();
     }

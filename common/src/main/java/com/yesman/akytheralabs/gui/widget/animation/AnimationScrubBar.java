@@ -1,6 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
@@ -98,8 +98,8 @@ public final class AnimationScrubBar extends AbstractWidget implements AnchoredW
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final HorizontalAnchorType horizontalAnchorType;
-    private final VerticalAnchorType verticalAnchorType;
+    private HorizontalAnchorType horizontalAnchorType;
+    private VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -111,4 +111,6 @@ public final class AnimationScrubBar extends AbstractWidget implements AnchoredW
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

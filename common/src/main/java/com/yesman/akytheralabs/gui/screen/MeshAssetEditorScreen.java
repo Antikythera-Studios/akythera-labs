@@ -1,15 +1,17 @@
 package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.client.api.gui.WidgetTable;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.viewer.BackgroundComponent;
+import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
+import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.core.asset.loader.MeshLoader;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
-import com.yesman.akythera.client.gui.widget.WidgetTable;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.client.gui.widget.viewer.BackgroundComponent;
-import com.yesman.akythera.client.gui.widget.viewer.CameraComponent;
-import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
-import com.yesman.akythera.client.gui.widget.viewer.GridFloorComponent;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -24,6 +26,7 @@ import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
+import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.viewer.WireframeCuboidComponent;
@@ -69,8 +72,9 @@ public final class MeshAssetEditorScreen extends Screen implements ModalAccessib
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(TOP_BAR_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            _ -> handleQuitRequest(),
+            () -> handleQuitRequest(),
             TopMenuBar.actions()
+                .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
@@ -185,7 +189,7 @@ public final class MeshAssetEditorScreen extends Screen implements ModalAccessib
             Component.translatable(LangKeys.GUI_MESSAGE_ASK_TO_SAVE, topMenuBar.getMessage()),
             hasUnsavedChanges(),
             () -> {
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 save();
                 onClose();
             },

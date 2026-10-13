@@ -1,11 +1,13 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -70,10 +72,10 @@ public final class ItemPatchGenerateModal extends OverlayingWindowModal {
     private final Predicate<String> nameAvailable;
 
     private final ItemList itemList;
-    private final AdvancedEditBox<String> searchBox;
-    private final AdvancedEditBox<String> nameBox;
-    private final AnchoredButton selectButton;
-    private final AnchoredButton enterButton;
+    private final EditorEditBox<String> searchBox;
+    private final EditorEditBox<String> nameBox;
+    private final AkytheraButton selectButton;
+    private final AkytheraButton enterButton;
 
     /// `itemFilter` narrows the pick list. `nameAvailable` answers whether a typed meta name is still
     /// free — a taken one marks the box instead of creating anything. `onMetaCreated` receives the
@@ -103,7 +105,7 @@ public final class ItemPatchGenerateModal extends OverlayingWindowModal {
 
         this.itemList = new ItemList(allItems);
 
-        this.searchBox = AdvancedEditBox.stringBox(
+        this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -116,11 +118,11 @@ public final class ItemPatchGenerateModal extends OverlayingWindowModal {
         searchBox.setWidth(WIDTH);
         searchBox.setHeight(SEARCH_H);
 
-        this.selectButton = AnchoredButton
+        this.selectButton = AkytheraButton
             .buttonBuilder(
                 font,
-                Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_ITEM_PATCH_GENERATE_MODAL_SELECT),
-                _ -> pickSelectedItem())
+                LocalizedMessage.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_ITEM_PATCH_GENERATE_MODAL_SELECT),
+                () -> pickSelectedItem())
             .xUnits(AnchoredWidget.pixel(PAD), AnchoredWidget.pixel(BUTTON_W))
             .yUnits(AnchoredWidget.pixel(SELECT_BOTTOM), AnchoredWidget.pixel(BUTTON_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -128,7 +130,7 @@ public final class ItemPatchGenerateModal extends OverlayingWindowModal {
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
             .build();
 
-        this.nameBox = AdvancedEditBox.filteredStringBox(
+        this.nameBox = EditorEditBox.filteredStringBox(
             font,
             NAME_FILTER,
             Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_ITEM_PATCH_GENERATE_MODAL_NAME),
@@ -141,11 +143,11 @@ public final class ItemPatchGenerateModal extends OverlayingWindowModal {
         nameBox.setY1(AnchoredWidget.pixel(NAME_BOTTOM));
         nameBox.setY2(AnchoredWidget.pixel(NAME_H));
 
-        this.enterButton = AnchoredButton
+        this.enterButton = AkytheraButton
             .buttonBuilder(
                 font,
-                Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_ITEM_PATCH_GENERATE_MODAL_ENTER),
-                _ -> createMetaPatch())
+                LocalizedMessage.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_ITEM_PATCH_GENERATE_MODAL_ENTER),
+                () -> createMetaPatch())
             .xUnits(AnchoredWidget.pixel(PAD), AnchoredWidget.pixel(BUTTON_W))
             .yUnits(AnchoredWidget.pixel(ENTER_BOTTOM), AnchoredWidget.pixel(BUTTON_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -173,6 +175,11 @@ public final class ItemPatchGenerateModal extends OverlayingWindowModal {
         Item previewItem = itemList.selectedItem();
 
         onMetaCreated.accept(name, previewItem == null ? Items.AIR : previewItem);
+    }
+
+    @Override
+    public EditorEditBox<String> searchBox() {
+        return searchBox;
     }
 
     @Override
@@ -220,7 +227,7 @@ public final class ItemPatchGenerateModal extends OverlayingWindowModal {
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
             if (AkytheraEditorLayoutManager.getInstance().isActive()) {
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 return true;
             }
         }
@@ -414,8 +421,8 @@ public final class ItemPatchGenerateModal extends OverlayingWindowModal {
         private Unit x2 = AnchoredWidget.pixel(0);
         private Unit y1 = AnchoredWidget.pixel(LIST_TOP);
         private Unit y2 = AnchoredWidget.pixel(LIST_BOTTOM);
-        private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
-        private final AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
+        private AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -427,5 +434,7 @@ public final class ItemPatchGenerateModal extends OverlayingWindowModal {
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 }

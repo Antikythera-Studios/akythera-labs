@@ -1,6 +1,8 @@
 package com.yesman.akytheralabs.gui.screen;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
@@ -19,6 +21,7 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
+import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -67,8 +70,9 @@ public final class DataBlockEditorScreen extends Screen implements ModalAccessib
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(TOP_BAR_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            _ -> handleQuitRequest(),
+            () -> handleQuitRequest(),
             TopMenuBar.actions()
+                .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
@@ -118,8 +122,8 @@ public final class DataBlockEditorScreen extends Screen implements ModalAccessib
 
         return AkytheraProject.getCurrentProject().saveEntryAsync(resourceKey)
             .whenCompleteAsync((_, error) -> {
-                if (AkytheraEditorLayoutManager.getInstance().getModal() == awaitModal) {
-                    AkytheraEditorLayoutManager.getInstance().closeModal();
+                if (ModalManager.getInstance().getModal() == awaitModal) {
+                    ModalManager.getInstance().closeModal();
                 }
 
                 if (error != null) {
@@ -146,7 +150,7 @@ public final class DataBlockEditorScreen extends Screen implements ModalAccessib
             Component.translatable(LangKeys.GUI_MESSAGE_ASK_TO_SAVE, topMenuBar.getMessage()),
             hasUnsavedChanges(),
             () -> {
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 save().thenRun(this::onClose);
             },
             () -> {
@@ -212,7 +216,7 @@ public final class DataBlockEditorScreen extends Screen implements ModalAccessib
 
     @Override
     public @Nullable GuiEventListener getFocused() {
-        var modal = AkytheraEditorLayoutManager.getInstance().getModal();
+        var modal = ModalManager.getInstance().getInputModal();
         if (modal != null) return modal;
         return super.getFocused();
     }

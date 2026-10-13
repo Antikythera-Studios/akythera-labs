@@ -1,9 +1,10 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -42,12 +43,12 @@ public final class EntitySelectModal extends OverlayingWindowModal {
     private static final int ROW_H = 22;
 
     public static void open(final Font font, final Predicate<Entity> filter, final Consumer<Entity> onEntitySelected) {
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(new EntitySelectModal(font, filter, onEntitySelected));
+        ModalManager.getInstance().openModalWidgetAtCenter(new EntitySelectModal(font, filter, onEntitySelected));
     }
 
     private final Font font;
     private final Consumer<Entity> onEntitySelected;
-    private final AdvancedEditBox<String> searchBox;
+    private final EditorEditBox<String> searchBox;
     private final EntityList entityList;
 
     private EntitySelectModal(final Font font, final Predicate<Entity> filter, final Consumer<Entity> onEntitySelected) {
@@ -61,7 +62,7 @@ public final class EntitySelectModal extends OverlayingWindowModal {
         this.onEntitySelected = onEntitySelected;
         this.entityList = new EntityList(collectEntities(filter));
 
-        this.searchBox = AdvancedEditBox.stringBox(
+        this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -94,6 +95,20 @@ public final class EntitySelectModal extends OverlayingWindowModal {
         entities.sort(Comparator.comparing(Entity::getPlainTextName));
 
         return entities;
+    }
+
+    @Override
+    public EditorEditBox<String> searchBox() {
+        return searchBox;
+    }
+
+    @Override
+    public boolean confirmSoleResult() {
+        if (entityList.children().size() != 1) return false;
+
+        onSelect(entityList.children().getFirst().entity);
+
+        return true;
     }
 
     @Override
@@ -140,7 +155,7 @@ public final class EntitySelectModal extends OverlayingWindowModal {
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape() && AkytheraEditorLayoutManager.getInstance().isActive()) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -196,7 +211,7 @@ public final class EntitySelectModal extends OverlayingWindowModal {
     }
 
     private void onSelect(final Entity entity) {
-        AkytheraEditorLayoutManager.getInstance().closeModal();
+        ModalManager.getInstance().closeModal();
         onEntitySelected.accept(entity);
     }
 
@@ -315,8 +330,8 @@ public final class EntitySelectModal extends OverlayingWindowModal {
         private Unit x2 = AnchoredWidget.pixel(0);
         private Unit y1 = AnchoredWidget.pixel(LIST_TOP);
         private Unit y2 = AnchoredWidget.pixel(0);
-        private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
-        private final AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
+        private AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -328,5 +343,7 @@ public final class EntitySelectModal extends OverlayingWindowModal {
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 }

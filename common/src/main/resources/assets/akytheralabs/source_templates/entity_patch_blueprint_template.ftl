@@ -65,22 +65,18 @@ public final class ${className} extends EntityPatchBlueprintProvider {
     <#assign dto = patch.dto>
         writer.accept(
             ${patch.asVariableName},
-            new EntityPatchBlueprint(
+<#if dto.source_code_script??>
+            new SourceCodeEntityPatchBlueprint(
+                ${dto.parent},
+                ${dto.source_code_script}
+            )
+<#else>
+            new DataDrivenEntityPatchBlueprint(
                 <@tpl.componentMap dto.components "                    "/>,
                 ${dto.parent},
-                ${dto.on_construct},
-                ${dto.on_join_world},
-                ${dto.update},
-<#if dto.variables?size == 0>
-                List.of()
-<#else>
-                List.of(
-<#list dto.variables as variable>
-                    ${variable}<#sep>,</#sep>
-</#list>
-                )
-</#if>
+                ${dto.body}
             )
+</#if>
         );
 </#list>
     }

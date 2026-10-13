@@ -2,8 +2,11 @@ package com.yesman.akytheralabs.gui.panel.main;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.datafixers.util.Pair;
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.Grid;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
@@ -19,20 +22,22 @@ import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel.TreeNode;
-import com.yesman.akytheralabs.gui.panel.main.processors.AnimationAssetResourceProcessor;
-import com.yesman.akytheralabs.gui.panel.main.processors.ArmatureResourceProcessor;
-import com.yesman.akytheralabs.gui.panel.main.processors.MeshResourceProcessor;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
+import com.yesman.akytheralabs.gui.panel.main.processors.SoundResourceProcessor;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.*;
+import com.yesman.akytheralabs.gui.widget.RefusalPopup;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
-import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
+import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.util.Util;
 import org.apache.commons.lang3.mutable.MutableBoolean;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -61,7 +66,9 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         new UniversalMenu.OptionRow<>(ContentContextOption.COMPILE),
         new UniversalMenu.GroupRow<ContentContextOption>(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_CREATE), List.of(
             new UniversalMenu.OptionRow<>(ContentContextOption.CREATE_ANIM_SEQUENCE),
-            new UniversalMenu.OptionRow<>(ContentContextOption.CREATE_ANIM_MONTAGE)
+            new UniversalMenu.OptionRow<>(ContentContextOption.CREATE_ANIM_MONTAGE),
+            new UniversalMenu.OptionRow<>(ContentContextOption.CREATE_ARMATURE_PHYSICS),
+            new UniversalMenu.OptionRow<>(ContentContextOption.CREATE_CLOTH_PHYSICS)
         )),
         new UniversalMenu.GroupRow<ContentContextOption>(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_CONTEXT_ADD_NEW), List.of(
             new UniversalMenu.OptionRow<>(ContentContextOption.NEW_FOLDER),
@@ -76,9 +83,9 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
 
     private final Font font;
     private final PanelHeader header;
-    private final AdvancedEditBox<String> searchBox;
-    private final AnchoredButton addButton;
-    private final Grid<ContentWidget<?>> grid;
+    private final EditorEditBox<String> searchBox;
+    private final AkytheraButton addButton;
+    private final Grid grid;
 
     private ExplorerPanel.@Nullable TreeNode selectedNode;
     private final Set<ContentWidget<?>> selectedWidgets = new HashSet<>();
@@ -92,7 +99,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     public ContentBrowserPanel(Font font) {
         this.font = font;
         this.header = new PanelHeader(font, Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_CONTENT_BROWSER, 0));
-        this.searchBox = AdvancedEditBox.stringBox(
+        this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(ADD_BUTTON_W + PADDING + 6),
             AnchoredWidget.pixel((HEADER_H - HEADER_WIDGET_H) / 2), AnchoredWidget.pixel(HEADER_WIDGET_H),
@@ -103,8 +110,8 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             Component.translatable(LangKeys.GUI_MESSAGE_EMPTY_SEARCHBAR)
         );
 
-        this.addButton = AnchoredButton
-            .buttonBuilder(font, Component.empty(), _ -> onAddPressed())
+        this.addButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.EMPTY, () -> onAddPressed())
             .xUnits(AnchoredWidget.pixel(PADDING), AnchoredWidget.pixel(ADD_BUTTON_W))
             .yUnits(AnchoredWidget.pixel((HEADER_H - HEADER_WIDGET_H) / 2), AnchoredWidget.pixel(HEADER_WIDGET_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -112,19 +119,29 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             .theme(AkytheraLabsButtonTheme.AKYTHERA_CONTENT_ADD_BUTTON)
             .build();
 
-        this.grid = new Grid<>(
+        this.grid = new Grid(
             AnchoredWidget.pixel(GRID_PADDING),
             AnchoredWidget.pixel(GRID_PADDING),
             AnchoredWidget.pixel(GRID_PADDING + HEADER_H),
             AnchoredWidget.pixel(GRID_PADDING),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
-            rect -> Math.clamp((rect.width() - SCROLLBAR_WIDTH) / 4 - GRID_PADDING, 40, 70),
-            rect -> Math.clamp((rect.width() - SCROLLBAR_WIDTH) / 4 - GRID_PADDING, 40, 70),
-            _ -> GRID_PADDING,
-            Comparator.<ContentWidget<?>, Boolean>comparing(w -> !(w instanceof ContentWidget.FolderContent))
-                .thenComparing(ContentWidget::getContentName, String.CASE_INSENSITIVE_ORDER)
-        );
+            0,
+            0,
+            GRID_PADDING,
+            Comparator.<AbstractWidget, Boolean>comparing(w -> !(w instanceof ContentWidget.FolderContent))
+                .thenComparing(w -> ((ContentWidget<?>) w).getContentName(), String.CASE_INSENSITIVE_ORDER)
+        ) {
+            @Override
+            protected int cellWidth(ScreenRectangle gridRectangle) {
+                return Math.clamp((gridRectangle.width() - SCROLLBAR_WIDTH) / 4 - GRID_PADDING, 40, 70);
+            }
+
+            @Override
+            protected int cellHeight(ScreenRectangle gridRectangle) {
+                return cellWidth(gridRectangle);
+            }
+        };
 
         addWidget(header);
         addWidget(searchBox);
@@ -206,7 +223,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
 
             if (editPath == null) return;
 
-            for (ContentWidget<?> widget : grid.children()) {
+            for (ContentWidget<?> widget : contentWidgets()) {
                 if (!editPath.equals(widget.getPath())) continue;
 
                 pickSelections(true, editPath);
@@ -222,20 +239,34 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     /// Public accessor for processor widget menus that need to invoke the
     /// shared "Delete Selected" popup flow.
     public void triggerDeleteSelected() {
-        if (selectedWidgets.isEmpty()) return;
+        if (!canDeleteSelection()) return;
         showDeleteSelectedPopup();
+    }
+
+    /// Whether the selection can be deleted: it holds no reserved directory.
+    public boolean canDeleteSelection() {
+        return !selectedWidgets.isEmpty() && !selectionHoldsReservedDirectory();
+    }
+
+    /// Whether the selection holds one of [AkytheraProject#RESERVED_DIRECTORIES], or a directory on the
+    /// way to one.
+    private boolean selectionHoldsReservedDirectory() {
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+
+        return selectedWidgets.stream().anyMatch(widget -> project.isReservedDirectory(widget.getPath()));
     }
 
     private void rebuildGrid() {
         clearContentSelection();
-        grid.clearChildren();
+        grid.clearComponents();
         String query = searchBox.getText().toLowerCase();
 
         if (selectedNode != null && selectedNode.directoryPath != null && Files.isDirectory(selectedNode.directoryPath)) {
             List<ContentWidget<?>> folders = new ArrayList<>();
             List<ContentWidget<?>> files = new ArrayList<>();
 
-            Path assetsRoot = AkytheraProject.getCurrentProject().getProjectRoot().resolve("assets");
+            AkytheraProject project = AkytheraProject.getCurrentProject();
+            Path assetsRoot = project.getProjectRoot().resolve("assets");
 
             if (selectedNode.directoryPath.equals(assetsRoot)) {
                 collectAssetRegistryFolders(assetsRoot, query, folders);
@@ -246,15 +277,15 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                             String name = path.getFileName().toString();
 
                             if (Files.isDirectory(path)) {
-                                ContentWidget<?> w = new ContentWidget.FolderContent(font, name, path, true);
+                                ContentWidget<?> w = new ContentWidget.FolderContent(font, name, path, !project.isReservedDirectory(path));
 
                                 if (query.isEmpty() || name.toLowerCase().contains(query)) {
                                     folders.add(w);
                                 }
-                            } else if (Files.isRegularFile(path) && !name.endsWith(AssetLoader.METADATA_EXTENSION)) {
+                            } else if (Files.isRegularFile(path) && (!name.endsWith(AssetLoader.METADATA_EXTENSION) || project.isSoundEvent(path))) {
                                 // A sidecar belongs to the asset next to it, not to the grid — the
                                 // processors parse whatever file they are handed, and a sidecar is not
-                                // an asset of any of their types.
+                                // an asset of any of their types. A sound event is no sidecar.
                                 ContentWidget<?> w = null;
 
                                 if (selectedNode.processor != null) {
@@ -280,12 +311,12 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                 } catch (IOException ignored) {}
             }
 
-            folders.forEach(grid::addChild);
-            files.forEach(grid::addChild);
+            folders.forEach(widget -> grid.addComponent(widget.getPath().toString(), widget));
+            files.forEach(widget -> grid.addComponent(widget.getPath().toString(), widget));
         }
 
         grid.sort();
-        header.setMessage(Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_CONTENT_BROWSER, grid.children().size()));
+        header.setMessage(Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_CONTENT_BROWSER, contentWidgets().size()));
 
         int titleWidth = font.width(header.getMessage().getString());
         searchBox.setX1(AnchoredWidget.pixel(6 + titleWidth + 10));
@@ -332,8 +363,8 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
 
     public void addDatapackWidget(ContentWidget<?> widget) {
         widget.setSortCallback(this::sortWidgets);
-        grid.addChild(widget);
-        header.setMessage(Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_CONTENT_BROWSER, grid.children().size()));
+        grid.addComponent(widget.getPath().toString(), widget);
+        header.setMessage(Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_CONTENT_BROWSER, contentWidgets().size()));
         grid.relocate(getRectangle());
         grid.setFocused(widget);
         widget.startEditing();
@@ -377,7 +408,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                         : selectedNode.processor.contextActions(this, hovered)
                     : ResourceProcessor.backgroundActions(this);
 
-                AkytheraEditorLayoutManager.getInstance().openModalWidget(
+                ModalManager.getInstance().openModalWidget(
                     UniversalMenu.buildPage(CONTEXT_MENU_ROWS, actions, CONTEXT_MENU_W),
                     (int) event.x(),
                     (int) event.y()
@@ -404,7 +435,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
 
     @Override
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
-        if (event.button() == 0 && !selectedWidgets.isEmpty()) {
+        if (event.button() == 0 && canCutSelection()) {
             draggingContent = true;
             return true;
         }
@@ -472,7 +503,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
 
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
-        ContentWidget<?> editing = grid.getFocused();
+        ContentWidget<?> editing = (ContentWidget<?>) grid.getFocused();
 
         // While a rename box is open the panel yields the whole keyboard to it — the shortcuts
         // below overlap what a text field does with the same keys. The explorer's tree rename box
@@ -482,13 +513,13 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         }
 
         // Global shortcut: select every content widget regardless of which panel is focused.
-        if (EditorKeyMappings.SELECT_ALL.matches(event) && !grid.children().isEmpty()) {
-            for (ContentWidget<?> w : grid.children()) {
+        if (EditorKeyMappings.SELECT_ALL.matches(event) && !contentWidgets().isEmpty()) {
+            for (ContentWidget<?> w : contentWidgets()) {
                 w.setSelected(true);
                 selectedWidgets.add(w);
             }
 
-            shiftSelectAnchor = grid.children().getFirst();
+            shiftSelectAnchor = contentWidgets().getFirst();
 
             return true;
         }
@@ -573,12 +604,18 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         });
     }
 
+    /// The grid's cells, which are all [ContentWidget]s.
+    @SuppressWarnings("unchecked")
+    private List<ContentWidget<?>> contentWidgets() {
+        return (List<ContentWidget<?>>) (List<?>) grid.children();
+    }
+
     public List<ContentWidget<?>> getSelectedWidgets() {
-        return selectedWidgets.stream().sorted(Comparator.comparing(w -> grid.children().indexOf(w))).toList();
+        return selectedWidgets.stream().sorted(Comparator.comparing(w -> contentWidgets().indexOf(w))).toList();
     }
 
     public @Nullable ContentWidget<?> getHoveredContentWidget(double x, double y) {
-        for (ContentWidget<?> w : grid.children()) {
+        for (ContentWidget<?> w : contentWidgets()) {
             if (w.isMouseOver(x, y)) return w;
         }
 
@@ -588,7 +625,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     public void pickSelections(boolean removeCurrentSelections, Path path) {
         if (removeCurrentSelections) selectedWidgets.clear();
 
-        for (ContentWidget<?> w : grid.children()) {
+        for (ContentWidget<?> w : contentWidgets()) {
             if (path.equals(w.getPath())) {
                 w.setSelected(true);
                 selectedWidgets.add(w);
@@ -610,7 +647,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                 grid.setFocused(clicked);
             }
         } else if (event.hasShiftDown() && shiftSelectAnchor != null) {
-            List<ContentWidget<?>> all = grid.children();
+            List<ContentWidget<?>> all = contentWidgets();
             int from = all.indexOf(shiftSelectAnchor);
             int to = all.indexOf(clicked);
 
@@ -652,10 +689,13 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         return selectedNode == null ? null : selectedNode.directoryPath;
     }
 
-    /// Whether the selection can be cut. One grid shows one category, so this asks the browsed node
-    /// once rather than each widget.
+    /// Whether the selection can be cut, or dragged to another directory. One grid shows one category,
+    /// so this asks the browsed node once rather than each widget. A reserved directory never moves.
     public boolean canCutSelection() {
-        return selectedNode != null && selectedNode.processor != null && !selectedWidgets.isEmpty();
+        return selectedNode != null
+            && selectedNode.processor != null
+            && !selectedWidgets.isEmpty()
+            && !selectionHoldsReservedDirectory();
     }
 
     /// Whether the selection can be copied — [ResourceProcessor#canDuplicate] on top of a cut's rule.
@@ -731,6 +771,17 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         List<Path> pasted = new ArrayList<>(sources.size());
 
         for (Path source : sources) {
+            String refusedTagPath = project.refusedTagPath(source, project.copyTarget(source, targetDir), true);
+
+            if (refusedTagPath != null) {
+                RefusalPopup.open(
+                    Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_TITLE),
+                    Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_BODY, refusedTagPath)
+                );
+
+                break;
+            }
+
             Path created = project.copyInto(source, targetDir);
             if (created != null) pasted.add(created);
         }
@@ -765,16 +816,16 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         WidgetContainerModal popup = WidgetContainerModal.builder(font, Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DELETE_TITLE), popupW)
             .textLines(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DELETE_BODY, count))
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                        _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                        () -> ModalManager.getInstance().closeModal())
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                     .build(),
                 btnW
             )
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_MESSAGE_BUTTON_REMOVE), _ -> {
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_MESSAGE_BUTTON_REMOVE), () -> {
                     deleteSelectedItems();
-                    AkytheraEditorLayoutManager.getInstance().closeModal();
+                    ModalManager.getInstance().closeModal();
                 })
                 .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                 .build(),
@@ -782,7 +833,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             )
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     private void deleteSelectedItems() {
@@ -845,15 +896,15 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             WidgetContainerModal popup = WidgetContainerModal.builder(font, Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_MOVE_TITLE), popupW)
                 .textLines(Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_MOVE_BODY, count, srcPath, destPath))
                 .footerButton(
-                    AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                            _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                    AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                            () -> ModalManager.getInstance().closeModal())
                         .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                         .build(),
                     btnW
                 )
                 .footerButton(
-                    AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_MESSAGE_BUTTON_MOVE), _ -> {
-                        AkytheraEditorLayoutManager.getInstance().closeModal();
+                    AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_MESSAGE_BUTTON_MOVE), () -> {
+                        ModalManager.getInstance().closeModal();
                         moveSelectedItemsTo(destNode.directoryPath);
                     })
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
@@ -862,16 +913,11 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                 )
                 .build();
 
-            AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+            ModalManager.getInstance().openModalWidgetAtCenter(popup);
         });
     }
 
     // ******************************** External asset import ********************************
-
-    @FunctionalInterface
-    private interface AssetImporter {
-        AkytheraProject.AssetLoadResult<?> load(Path source, Path destination);
-    }
 
     /// Drives the sequential import of one batch of externally-sourced files. Held mutable
     /// across the user-driven modal chain (duplicate prompts, error prompts) so each resumed
@@ -879,18 +925,20 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     private static final class ImportSession {
         private final List<Path> sources;
         private final Path targetDir;
-        private final AssetImporter importer;
+        private final ResourceProcessor<?> processor;
         private final boolean allowOverwriteAll;
         /// The animations this batch landed, in import order.
         private final List<AkytheraProject.EditorAnimationAccessor> importedAnimations = new ArrayList<>();
+        /// The sound files this batch landed, in import order.
+        private final List<Path> importedSoundFiles = new ArrayList<>();
         private int index;
         private boolean overwriteAll;
         private boolean anyImported;
 
-        ImportSession(List<Path> sources, Path targetDir, AssetImporter importer) {
+        ImportSession(List<Path> sources, Path targetDir, ResourceProcessor<?> processor) {
             this.sources = sources;
             this.targetDir = targetDir;
-            this.importer = importer;
+            this.processor = processor;
             // "Overwrite (to All)" is only meaningful when more than one file is being imported.
             this.allowOverwriteAll = sources.size() > 1;
         }
@@ -900,32 +948,15 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     /// `+` button) into `targetDir`. Each file is copied into the project and parsed; a parse
     /// failure surfaces the loader's own message in an error modal, and a name collision in
     /// `targetDir` prompts the user to Overwrite / Overwrite-all / Cancel. Processing is
-    /// sequential because each prompt is modal. No-ops for processors that don't back a
-    /// file-based asset type.
+    /// sequential because each prompt is modal. Files `processor` doesn't
+    /// [ResourceProcessor#canImport] are left out. A copy is named in lowercase, with every character an
+    /// [Identifier] path refuses replaced by `_`.
     public void importExternalAssets(List<Path> sources, Path targetDir, ResourceProcessor<?> processor) {
-        AkytheraProject project = AkytheraProject.getCurrentProject();
-        AssetImporter importer;
-
-        if (processor == ArmatureResourceProcessor.INSTANCE) {
-            importer = project::loadArmatureToCurrentProject;
-        } else if (processor == MeshResourceProcessor.INSTANCE) {
-            importer = project::loadMeshToCurrentProject;
-        } else if (processor == AnimationAssetResourceProcessor.INSTANCE) {
-            importer = project::loadAnimationToCurrentProject;
-        } else {
-            return;
-        }
-
-        List<Path> valid = sources.stream()
-            .filter(p -> {
-                String name = p.getFileName().toString();
-                return name.endsWith("." + AssetLoader.BINARY_EXTENSION) || name.endsWith(".json");
-            })
-            .toList();
+        List<Path> valid = sources.stream().filter(file -> processor.canImport(file, sources)).toList();
 
         if (valid.isEmpty()) return;
 
-        importNext(new ImportSession(valid, targetDir, importer));
+        importNext(new ImportSession(valid, targetDir, processor));
     }
 
     private void importNext(ImportSession session) {
@@ -935,11 +966,12 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         }
 
         Path source = session.sources.get(session.index);
-        Path destination = session.targetDir.resolve(source.getFileName().toString());
+        String fileName = Util.sanitizeName(source.getFileName().toString(), Identifier::validPathChar);
+        Path destination = session.targetDir.resolve(fileName);
 
         if (Files.exists(destination) && !session.overwriteAll) {
             showDuplicatePopup(
-                source.getFileName().toString(),
+                fileName,
                 session.allowOverwriteAll,
                 () -> finishImport(session),
                 () -> importCurrentAndAdvance(session, source, destination),
@@ -954,7 +986,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     }
 
     private void importCurrentAndAdvance(ImportSession session, Path source, Path destination) {
-        AkytheraProject.AssetLoadResult<?> result = session.importer.load(source, destination);
+        AkytheraProject.AssetLoadResult<?> result = session.processor.importFile(source, destination);
         session.index++;
 
         if (result.failed()) {
@@ -967,6 +999,10 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                 session.importedAnimations.add(animation);
             }
 
+            if (result.accessor() instanceof Path file && AkytheraProject.getCurrentProject().isSoundAsset(file)) {
+                session.importedSoundFiles.add(file);
+            }
+
             importNext(session);
         }
     }
@@ -977,20 +1013,21 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
         refreshExplorerAndBrowser(session.targetDir);
 
         if (!session.importedAnimations.isEmpty()) askPreviewModelFor(session.importedAnimations);
+        if (!session.importedSoundFiles.isEmpty()) SoundResourceProcessor.askEventLayout(font, session.importedSoundFiles);
     }
 
-    /// Asks which model an animation asset screen previews `animations` on, and writes the pick
-    /// into every one of their sidecars. Dismissing the modal leaves them without a preview model.
+    /// Asks which entity an animation asset screen previews `animations` on, and writes the pick
+    /// into every one of their sidecars. Dismissing the modal leaves them without a preview entity.
     private void askPreviewModelFor(List<AkytheraProject.EditorAnimationAccessor> animations) {
-        ModelSelectModal modal = new ModelSelectModal(font, null, previewModel -> {
+        EntityTypeSelectModal modal = new EntityTypeSelectModal(font, null, previewEntityType -> {
             for (AkytheraProject.EditorAnimationAccessor animation : animations) {
                 AnimationMetadataHolder metadata = animation.metadata();
-                metadata.setPreviewModel(previewModel);
+                metadata.setPreviewEntityType(previewEntityType);
                 metadata.save();
             }
         });
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     /// The "file already exists" prompt: `Overwrite`, `Overwrite All` while `allowAll`, and `Cancel`,
@@ -1015,13 +1052,13 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
 
         builder.footerButton(closingFooterButton(LangKeys.GUI_MESSAGE_BUTTON_OVERWRITE, onOverwrite), btnW);
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(builder.build());
+        ModalManager.getInstance().openModalWidgetAtCenter(builder.build());
     }
 
     /// A modal footer button that closes its modal, then runs `onPress`.
-    private AnchoredButton closingFooterButton(String langKey, Runnable onPress) {
-        return AnchoredButton.buttonBuilder(font, Component.translatable(langKey), _ -> {
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+    private AkytheraButton closingFooterButton(String langKey, Runnable onPress) {
+        return AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(langKey), () -> {
+                ModalManager.getInstance().closeModal();
                 onPress.run();
             })
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
@@ -1036,8 +1073,8 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                 font, Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_LOAD_ERROR_TITLE), popupW)
             .textLines(Component.literal(message != null ? message : ""))
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_OK), _ -> {
-                        AkytheraEditorLayoutManager.getInstance().closeModal();
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_OK), () -> {
+                        ModalManager.getInstance().closeModal();
                         onAcknowledge.run();
                     })
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
@@ -1046,7 +1083,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
             )
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     private static String buildRelativePath(ExplorerPanel.@Nullable TreeNode node) {
@@ -1112,8 +1149,15 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
 
         Path source = session.sources.get(session.index);
         Path destination = session.targetDir.resolve(source.getFileName());
+        String refusedTagPath = AkytheraProject.getCurrentProject().refusedTagPath(source, destination, false);
 
-        if (Files.exists(destination) && !session.overwriteAll) {
+        if (refusedTagPath != null) {
+            finishMove(session);
+            RefusalPopup.open(
+                Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_TITLE),
+                Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_BODY, refusedTagPath)
+            );
+        } else if (Files.exists(destination) && !session.overwriteAll) {
             showDuplicatePopup(
                 source.getFileName().toString(),
                 session.allowOverwriteAll,

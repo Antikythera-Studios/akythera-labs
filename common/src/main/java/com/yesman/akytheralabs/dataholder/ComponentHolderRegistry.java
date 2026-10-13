@@ -6,6 +6,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.api.component.UniqueComponent;
 import com.yesman.akythera.core.blueprint.ComponentBlueprint;
@@ -23,10 +24,13 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /// Maps patch component **type ids** to their editor-side holders. One instance per patch kind, each
 /// mirroring the engine component registry of that kind — see [EntityPatchComponentHolders] and
@@ -44,7 +48,8 @@ public final class ComponentHolderRegistry {
     /// own attachment rules live.
     @FunctionalInterface
     public interface AttachRule {
-        @Nullable Component refusal(ComponentAttachableHolder host);
+        /// @param root the blueprint holder the tree `host` sits in hangs off, `host` itself at the top level
+        @Nullable Component refusal(ComponentAttachableHolder host, ComponentAttachableHolder root);
     }
 
     /// Builds a freshly added component of one type. `host` is what the component is about to be
@@ -57,6 +62,36 @@ public final class ComponentHolderRegistry {
         H create(@Nullable ComponentAttachableHolder host);
     }
 
+    /// How a registry's attach menu lists what it offers: one submenu per category, holding the types and the
+    /// ready-made components of that category.
+    public interface AttachMenu {
+        /// The categories, in the order the menu lists them.
+        List<Component> categories();
+
+        /// The one of [#categories] `typeId` is listed under, or null to leave it out of the menu.
+        @Nullable Component categoryOf(Identifier typeId);
+
+        /// The ready-made components offered in the tree hanging off `root`.
+        default List<Preset> presets(final ComponentAttachableHolder root) {
+            return List.of();
+        }
+    }
+
+    /// A ready-made component the attach menu offers beside the bare types: listed as `label` under `category`
+    /// and the title row of the mod `modId`, attaching what `factory` builds, a component of `typeId`, under `name`.
+    public record Preset(
+        Component category, String modId, Component label, Identifier typeId, String name, Supplier<? extends ComponentDataHolder<?>> factory
+    ) {
+    }
+
+    /// Why a component of `typeId` may not be attached under `host`, or null when it may. Unlike an [AttachRule],
+    /// one rule covers every type of the registry, those registered later included, see [#setCommonRule].
+    @FunctionalInterface
+    public interface TypeAttachRule {
+        /// @param root the blueprint holder the tree `host` sits in hangs off, `host` itself at the top level
+        @Nullable Component refusal(Identifier typeId, ComponentAttachableHolder host, ComponentAttachableHolder root);
+    }
+
     private record Entry(
         Class<? extends ComponentDataHolder<?>> holderClass,
         DefaultFactory<?> defaultFactory,
@@ -65,6 +100,14 @@ public final class ComponentHolderRegistry {
     ) {}
 
     private final Map<Identifier, Entry> types = new ConcurrentHashMap<>();
+
+    /// How the attach menu groups the types, see [AttachMenu]. Null lists the types alone, ungrouped.
+    @Nullable
+    private AttachMenu attachMenu;
+
+    /// Asked for every type before its own [AttachRule]. Null refuses nothing.
+    @Nullable
+    private TypeAttachRule commonRule;
 
     /// The engine registry this one mirrors: [AkytheraRegistries.Frozen#ENTITY_PATCH_COMPONENT_TYPES]
     /// or [AkytheraRegistries.Frozen#ITEM_PATCH_COMPONENT_TYPES].
@@ -109,13 +152,16 @@ public final class ComponentHolderRegistry {
     /// Registers the editor holder for the component type `typeId`: the concrete holder class (one
     /// component type per class — it keys the encode dispatch and the suggestion filters), a default
     /// factory for freshly added components, and the editor persistence codec.
+    ///
+    /// The codec is stored with [ComponentBlueprint#ENABLED_CODEC] alongside it, so every type
+    /// persists [ComponentDataHolder#isEnabled] without declaring it.
     public <H extends ComponentDataHolder<?>> void register(
         Identifier typeId,
         Class<H> holderClass,
         DefaultFactory<? extends H> defaultFactory,
-        MapCodec<? extends H> codec
+        MapCodec<H> codec
     ) {
-        register(typeId, holderClass, defaultFactory, codec, _ -> null);
+        register(typeId, holderClass, defaultFactory, codec, (_, _) -> null);
     }
 
     /// [#register] for a type that refuses some hosts — see [AttachRule].
@@ -123,10 +169,20 @@ public final class ComponentHolderRegistry {
         Identifier typeId,
         Class<H> holderClass,
         DefaultFactory<? extends H> defaultFactory,
-        MapCodec<? extends H> codec,
+        MapCodec<H> codec,
         AttachRule attachRule
     ) {
-        if (types.putIfAbsent(typeId, new Entry(holderClass, defaultFactory, codec, attachRule)) != null) {
+        MapCodec<H> switched = RecordCodecBuilder.mapCodec(
+            instance -> instance.group(
+                codec.forGetter(Function.identity()),
+                ComponentBlueprint.ENABLED_CODEC.forGetter(ComponentDataHolder::isEnabled)
+            ).apply(instance, (holder, enabled) -> {
+                holder.setEnabled(enabled);
+                return holder;
+            })
+        );
+
+        if (types.putIfAbsent(typeId, new Entry(holderClass, defaultFactory, switched, attachRule)) != null) {
             throw new IllegalStateException("Component holder already registered for " + typeId);
         }
 
@@ -221,9 +277,22 @@ public final class ComponentHolderRegistry {
         }).orElse(null);
     }
 
-    /// Why `typeId` may not be attached under `host`, or null when it may: a [UniqueComponent] the host
-    /// already carries, else the type's own [AttachRule].
-    public @Nullable Component attachRefusal(Identifier typeId, ComponentAttachableHolder host) {
+    public @Nullable AttachMenu attachMenu() {
+        return attachMenu;
+    }
+
+    public void setAttachMenu(final @Nullable AttachMenu attachMenu) {
+        this.attachMenu = attachMenu;
+    }
+
+    /// Sets [#commonRule].
+    public void setCommonRule(final @Nullable TypeAttachRule commonRule) {
+        this.commonRule = commonRule;
+    }
+
+    /// Why `typeId` may not be attached under `host` in the tree hanging off `root`, or null when it may: a
+    /// [UniqueComponent] the host already carries, else the type's own [AttachRule].
+    public @Nullable Component attachRefusal(Identifier typeId, ComponentAttachableHolder host, ComponentAttachableHolder root) {
         Entry entry = types.get(typeId);
         if (entry == null) return null;
 
@@ -235,7 +304,9 @@ public final class ComponentHolderRegistry {
             return Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MENU_REFUSED_UNIQUE);
         }
 
-        return entry.attachRule().refusal(host);
+        Component common = commonRule == null ? null : commonRule.refusal(typeId, host, root);
+
+        return common != null ? common : entry.attachRule().refusal(host, root);
     }
 
     /// The [EntityRenderState] `typeId`'s component draws through, per

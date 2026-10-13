@@ -22,6 +22,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 /// The **flattened** persisted form of a node-graph canvas (one blueprint flow entry — construct / update /
@@ -150,6 +151,22 @@ public record ScriptGraphData(List<GraphNode> nodes, List<WireData> wires, List<
     /// Every row whose payload is of `type`, in row order.
     public <D extends NodeData> Stream<GraphNode> nodesOf(Class<D> type) {
         return nodes.stream().filter(n -> type.isInstance(n.data()));
+    }
+
+    /// A copy with every row's payload replaced by what `mapper` makes of it, or `this` when `mapper`
+    /// hands every payload back unchanged.
+    public ScriptGraphData mapNodes(UnaryOperator<NodeData> mapper) {
+        List<GraphNode> mapped = new ArrayList<>(nodes.size());
+        boolean changed = false;
+
+        for (GraphNode node : nodes) {
+            NodeData data = mapper.apply(node.data());
+
+            changed |= data != node.data();
+            mapped.add(data == node.data() ? node : node.withData(data));
+        }
+
+        return changed ? new ScriptGraphData(mapped, wires, failedNodes) : this;
     }
 
     /// A copy with every cached-pose getter referencing `oldName` retargeted to `newName`, keeping the

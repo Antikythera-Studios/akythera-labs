@@ -7,23 +7,31 @@ import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.CallStack;
 import com.yesman.akythera.api.data.modularize.node.ExecutionRecord;
+import com.yesman.akythera.api.data.modularize.node.FunctionNode;
+import com.yesman.akythera.api.data.modularize.node.ScriptFailure;
 import com.yesman.akythera.api.data.modularize.node.ScriptNode;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.reflection.DataDrivenScript;
+import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintMembers;
+import com.yesman.akytheralabs.config.AkytheraLabsConfig;
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
+import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
+import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.widget.CanvasGrid;
+import com.yesman.akytheralabs.gui.widget.EmbeddedWidgetHost;
+import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
 import com.yesman.akytheralabs.gui.widget.script.node.FlowFunctionNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeBuildContext;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.PureFunctionNodeData;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
-import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
-import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
-import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
-import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
-import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
-import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
+import com.yesman.akytheralabs.mixinaccessor.GuiGraphicsExtractorAccessor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -32,11 +40,13 @@ import net.minecraft.client.gui.components.AbstractScrollArea;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import org.joml.Matrix3x2f;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
@@ -64,23 +74,23 @@ import java.util.function.Predicate;
 /// Nodes live in graph space; rendering pushes a `translate(origin) + scale(zoom)`
 /// pose so nodes draw at their graph coordinates. The grid is drawn in screen space
 /// with its spacing multiplied by `zoom`, so lines stay crisp while the cells grow
-/// and shrink with the zoom level (mirroring UE's blueprint grid).
-public final class ScriptNodeGraphWidget extends AbstractContainerWidget implements AnchoredWidget {
-    private static final int GRID = 24;
-    private static final int MAJOR_EVERY = 4;
+/// and shrink with the zoom level (mirroring UE's blueprint grid). Input handed to a node's body
+/// widgets runs inside [ModalManager#inWidgetSpace], so a modal they open lands on them.
+///
+/// Every change the canvas records is scoped to it, and so are its nodes' edits (see
+/// [AbstractNodeWidget#historyScope]), so closing the canvas' tab drops them all.
+public final class ScriptNodeGraphWidget extends AbstractContainerWidget implements AnchoredWidget, EmbeddedWidgetHost {
     private static final float MIN_ZOOM = 0.30F;
-    private static final float MAX_ZOOM = 2.50F;
+    private static final float MAX_ZOOM = 3.00F;
     private static final float ZOOM_STEP = 1.10F;
+    /// How far below a whole zoom a step may land and still stop on it.
+    private static final float WHOLE_ZOOM_EPSILON = 0.001F;
     private static final int DRAG_SNAP = 5;
     /// Screen-pixel slop a right-press may move before it counts as a pan instead of a click.
     private static final int PAN_THRESHOLD = 3;
-    /// Minimum Bézier handle length (graph space) for a wire's horizontal tangent — scaled by
-    /// [#zoom] at draw / hit-test time so the curve's bend tracks the graph scale.
-    private static final float WIRE_HANDLE_MIN = 40.0F;
+    /// Thinnest half width a wire's solid core draws at, in GUI pixels.
+    private static final float WIRE_MIN_HALF_WIDTH = 0.5F;
 
-    private static final int COLOR_BG = 0xFF161616;
-    private static final int COLOR_GRID_MINOR = 0xFF222222;
-    private static final int COLOR_GRID_MAJOR = 0xFF2E2E2E;
     private static final int COLOR_WIRE = 0xFFFFFFFF;
     private static final int COLOR_PIN_COMPATIBLE = 0xFF59FF8C;
     private static final int COLOR_MARQUEE_FILL = 0x22FFFFFF;
@@ -135,15 +145,23 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// state/transition sub-graphs. Suppresses the execution-flow constructs in the suggestion menu.
     private boolean dataFlowOnly;
 
+    /// The members of the blueprint this canvas belongs to, which shape its entry, call, parent and return
+    /// nodes as they rebuild.
+    private BlueprintMembers members = BlueprintMembers.NONE;
+
+    /// The method or function this canvas implements, or null for a canvas that implements none.
+    @Nullable
+    private String enclosingFunction;
+
     /// Invoked when an [AbstractNodeWidget#isActivatable] node is double-clicked (e.g. a
     /// [StateMachineNodeWidget] → open its sub-tab). Injected by the host screen.
     @Nullable
     private Consumer<AbstractNodeWidget> nodeActivationHandler;
 
-    /// Invoked when the selection settles, with the single selected node, or null when zero or many
-    /// are selected.
+    /// Invoked with the selected nodes whenever the selection settles, and again on every press of a node
+    /// that was selected already.
     @Nullable
-    private Consumer<AbstractNodeWidget> selectionHandler;
+    private Consumer<List<AbstractNodeWidget>> selectionHandler;
 
     /// Screen-space offset of graph origin (graph 0,0) relative to the widget's top-left.
     private float panX = 40.0F;
@@ -213,6 +231,10 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// edited afterwards.
     private Map<AbstractNodeWidget, Integer> debugIds = Map.of();
 
+    /// Whether the last capture handed to [#setDebugRecord] named rows this canvas does not have. A
+    /// banner says so over the canvas until the next capture lands.
+    private boolean debugStale;
+
     /// Input pins the user asked to show the value of. Keyed by the live widget rather than a row id,
     /// so a recording survives the edits that renumber the rows.
     private final Set<RecordedPin> recordedPins = new HashSet<>();
@@ -242,12 +264,29 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         nodes.add(node);
     }
 
-    /// The entry (event) nodes currently on the canvas, in z-order.
-    public List<EntryPointNodeWidget> entryNodes() {
+    /// The method entry nodes currently on the canvas, in z-order.
+    public List<MethodEntryNodeWidget> methodEntryNodes() {
         return nodes.stream()
-            .filter(EntryPointNodeWidget.class::isInstance)
-            .map(EntryPointNodeWidget.class::cast)
+            .filter(MethodEntryNodeWidget.class::isInstance)
+            .map(MethodEntryNodeWidget.class::cast)
             .toList();
+    }
+
+    /// Whether a node of `type` is on the canvas.
+    public boolean hasNode(Class<? extends AbstractNodeWidget> type) {
+        return nodes.stream().anyMatch(type::isInstance);
+    }
+
+    /// Sets the members of the blueprint this canvas belongs to, and the method or function it
+    /// implements. Takes effect for the nodes built afterwards.
+    public void setBlueprintMembers(BlueprintMembers members, @Nullable String enclosingFunction) {
+        this.members = members;
+        this.enclosingFunction = enclosingFunction;
+    }
+
+    /// The method or function this canvas implements, or null.
+    public @Nullable String enclosingFunction() {
+        return enclosingFunction;
     }
 
     /// The unique names of every [StateMachineNodeWidget] on this canvas.
@@ -322,16 +361,20 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         this.nodeActivationHandler = handler;
     }
 
-    /// Sets the handler fired when the selection settles (the single selected node, or null).
-    public void setSelectionHandler(@Nullable Consumer<AbstractNodeWidget> handler) {
+    /// Sets the handler fired with the selected nodes, see [#selectionHandler].
+    public void setSelectionHandler(@Nullable Consumer<List<AbstractNodeWidget>> handler) {
         this.selectionHandler = handler;
     }
 
-    /// Notifies [#selectionHandler] of the current single-selection (null when zero or many selected).
-    private void fireSelectionChanged() {
-        if (selectionHandler != null) {
-            selectionHandler.accept(selectedNodes.size() == 1 ? selectedNodes.getFirst() : null);
-        }
+    /// Hands the current selection to [#selectionHandler].
+    public void fireSelectionChanged() {
+        if (selectionHandler != null) selectionHandler.accept(List.copyOf(selectedNodes));
+    }
+
+    /// Shows `node` in the Details panel again after one of its values changed on the canvas, while it is
+    /// the only selected node.
+    void refreshDetails(AbstractNodeWidget node) {
+        if (selectedNodes.size() == 1 && selectedNodes.getFirst() == node) fireSelectionChanged();
     }
 
     // ***************************************************************
@@ -366,7 +409,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
                 continue;
             }
 
-            out.add(new GraphNode(idOf.get(node), node.getX(), node.getY(), node.toData()));
+            out.add(new GraphNode(idOf.get(node), node.getX(), node.getY(), node.toData(), node.pinLiterals()));
         }
 
         List<ScriptGraphData.WireData> wires = new ArrayList<>();
@@ -425,30 +468,34 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     // Debugging
     // ***************************************************************
 
-    /// Shows `record` on the canvas: the wires it ran thicken and every recorded pin shows the value
-    /// fed into it. Refuses a record whose ids do not describe this graph (see
-    /// [#framesDescribeGraph]) and answers false, which is the host's cue to say the pack is stale.
-    public boolean setDebugRecord(final ExecutionRecord record) {
+    /// Shows `records` on the canvas as one run: the wires they ran thicken and every recorded pin
+    /// shows the value fed into it. Refuses records whose ids do not describe this graph (see
+    /// [#framesDescribeGraph]), puts the stale banner up in their place and answers false.
+    public boolean setDebugRecord(final ExecutionRecord... records) {
         Map<Integer, CallStack> frames = new HashMap<>();
-        for (CallStack root : record.roots()) indexFrames(root, frames);
+        boolean entered = false;
+
+        for (ExecutionRecord record : records) {
+            for (CallStack root : record.roots()) indexFrames(root, frames);
+
+            entered |= !record.isEmpty();
+        }
 
         Map<AbstractNodeWidget, Integer> idOf = assignIds();
 
         // A run that entered nodes yet named none of them came from a pack built without row ids, so
         // there is nothing to map onto this canvas. Caught here because an empty frame map satisfies
         // framesDescribeGraph, which would otherwise accept it as a complete capture of nothing.
-        if (!record.isEmpty() && frames.isEmpty()) {
+        if ((entered && frames.isEmpty()) || !framesDescribeGraph(frames, idOf)) {
             clearDebugRecord();
-            return false;
-        }
+            debugStale = true;
 
-        if (!framesDescribeGraph(frames, idOf)) {
-            clearDebugRecord();
             return false;
         }
 
         debugFrames = frames;
         debugIds = idOf;
+        debugStale = false;
 
         return true;
     }
@@ -457,6 +504,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     public void clearDebugRecord() {
         debugFrames = Map.of();
         debugIds = Map.of();
+        debugStale = false;
     }
 
     private static void indexFrames(final CallStack frame, final Map<Integer, CallStack> out) {
@@ -482,12 +530,48 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
             if (node == null || node instanceof UnresolvedNodeWidget) return false;
 
-            ScriptFunction called = rowFunction(node);
-
-            if (called != null && called != entry.getValue().function()) return false;
+            if (!rowRuns(node, entry.getValue().node())) return false;
         }
 
         return true;
+    }
+
+    /// Whether `ran` can be what `node` lowered to: a row calling a function must have run that function.
+    private static boolean rowRuns(final AbstractNodeWidget node, final ScriptNode ran) {
+        ScriptFunction called = rowFunction(node);
+
+        return called == null || (ran instanceof FunctionNode functionNode && functionNode.function() == called);
+    }
+
+    /// Marks the node `failure` left with its throw, on top of the marks already placed, and answers
+    /// whether it landed. Refused, like a stale capture, when any open node of the failure names a row
+    /// this canvas does not have or runs something else.
+    public boolean markRuntimeError(final ScriptFailure failure) {
+        Map<Integer, AbstractNodeWidget> nodeById = new HashMap<>();
+        assignIds().forEach((node, id) -> nodeById.put(id, node));
+
+        AbstractNodeWidget failed = null;
+
+        for (ScriptNode open : failure.path()) {
+            if (open.nodeId() == ScriptNode.NO_NODE_ID) continue;
+
+            AbstractNodeWidget node = nodeById.get(open.nodeId());
+
+            if (node == null || node instanceof UnresolvedNodeWidget || !rowRuns(node, open)) return false;
+
+            failed = node;
+        }
+
+        if (failed == null) return false;
+
+        failed.setRuntimeError(failure.cause());
+
+        return true;
+    }
+
+    /// Drops every mark [#markRuntimeError] placed.
+    public void clearRuntimeErrors() {
+        for (AbstractNodeWidget node : nodes) node.setRuntimeError(null);
     }
 
     /// The [ScriptFunction] a row calls, or null for a row that is not a plain call — the operators,
@@ -651,7 +735,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         for (AbstractNodeWidget node : copied) {
             int id = idOf.size();
             idOf.put(node, id);
-            out.add(new GraphNode(id, node.getX(), node.getY(), node.toData()));
+            out.add(new GraphNode(id, node.getX(), node.getY(), node.toData(), node.pinLiterals()));
         }
 
         List<ScriptGraphData.WireData> wires = new ArrayList<>();
@@ -692,8 +776,9 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         Map<Integer, AbstractNodeWidget> byId = new HashMap<>();
         for (GraphNode row : data.nodes()) {
             AbstractNodeWidget widget = row.data().createWidget(
-                new NodeBuildContext(font, entryFactory, row.x(), row.y()));
+                new NodeBuildContext(font, entryFactory, members, enclosingFunction, row.x(), row.y()));
             if (widget == null) continue;
+            widget.setPinLiterals(row.literals());
             if (scriptOwnerType != null) widget.setScriptOwnerType(scriptOwnerType);
             nodes.add(widget);
             byId.put(row.id(), widget);
@@ -739,11 +824,10 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
     @Override
     protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
-        g.fill(getX(), getY(), getRight(), getBottom(), COLOR_BG);
+        CanvasGrid.extract(g, getX(), getY(), getRight(), getBottom(), getX() + panX, getY() + panY, zoom);
 
         g.enableScissor(getX(), getY(), getRight(), getBottom());
 
-        drawGrid(g);
 
         // Refresh per-node connected-pin state up front so node layout (type-detected pins,
         // self badges) is settled before either the wires or the nodes are drawn.
@@ -809,6 +893,18 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
             g.pose().popMatrix();
             g.disableScissor();
+
+            if (debugStale) {
+                Component message = Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DEBUG_STALE);
+                int bannerWidth = font.width(message) + 16;
+                int bannerHeight = font.lineHeight + 6;
+                int bannerX = getX() + (getWidth() - bannerWidth) / 2;
+                int bannerY = getY() + 4;
+
+                g.fill(bannerX, bannerY, bannerX + bannerWidth, bannerY + bannerHeight, AbstractNodeWidget.COLOR_ERROR_BANNER);
+                g.outline(bannerX, bannerY, bannerWidth, bannerHeight, AbstractNodeWidget.COLOR_ERROR_OUTLINE);
+                g.text(font, message, bannerX + 8, bannerY + 3, 0xFFFFFFFF, false);
+            }
 
             drawHeaderTooltip(g, mouseX, mouseY, graphMouseX, graphMouseY);
         });
@@ -974,11 +1070,14 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// [LinkKind#DIRECT] when the value is assignable (same type, or a widening like `float -> double`,
     /// resolved via the target type's narrowing map) and [LinkKind#CONVERT] when only an explicit narrowing
     /// cast applies (the source type's [ScriptType#implicitlyCastableTypes()] names the target). A null type on
-    /// either side is treated as a wildcard ([LinkKind#DIRECT]).
+    /// either side is treated as a wildcard ([LinkKind#DIRECT]). Two lists, sets or maps whose elements do not
+    /// fit are [LinkKind#NONE], see [AbstractNodeWidget#argumentsCompatible].
     private LinkKind linkKind(AbstractNodeWidget.Pin output, AbstractNodeWidget.Pin input) {
         if (output.exec() || input.exec()) {
             return output.exec() && input.exec() ? LinkKind.DIRECT : LinkKind.NONE;
         }
+
+        if (!AbstractNodeWidget.argumentsCompatible(output.genericType(), input.genericType())) return LinkKind.NONE;
 
         Class<?> provided = output.type();
         Class<?> expected = input.type();
@@ -1022,82 +1121,35 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         g.outline((int) cx - r, (int) cy - r, r * 2, r * 2, color);
     }
 
-    /// A horizontal-tangent cubic Bézier spline mirroring UE's blueprint wires,
-    /// approximated by short filled segments.
+    /// Draws a wire from an output pin to an input pin (screen space), run by the editor's [WireStyle].
     private void drawConnection(GuiGraphicsExtractor g, float x0, float y0, float x1, float y1, int color) {
         drawConnection(g, x0, y0, x1, y1, color, 1.0F);
     }
 
     private void drawConnection(GuiGraphicsExtractor g, float x0, float y0, float x1, float y1, int color, float weight) {
-        float handle = wireHandle(x0, x1);
-        float cx0 = x0 + handle;
-        float cx1 = x1 - handle;
+        float[] path = AkytheraLabsConfig.getWireStyle().path(x0, y0, x1, y1, zoom);
 
         // Wire weight grows with the zoom so it reads the same relative to the nodes at any scale.
-        int thickness = Math.max(1, Math.round(2 * zoom * weight));
+        float halfWidth = Math.max(WIRE_MIN_HALF_WIDTH, zoom * weight);
 
-        int segments = 32;
-        float px = x0, py = y0;
-        for (int i = 1; i <= segments; i++) {
-            float t = i / (float) segments;
-            float mt = 1.0F - t;
-            float bx = mt * mt * mt * x0 + 3 * mt * mt * t * cx0 + 3 * mt * t * t * cx1 + t * t * t * x1;
-            float by = mt * mt * mt * y0 + 3 * mt * mt * t * y0 + 3 * mt * t * t * y1 + t * t * t * y1;
-            drawThickLine(g, px, py, bx, by, color, thickness);
-            px = bx;
-            py = by;
-        }
+        // The fade spans one framebuffer pixel.
+        float feather = 1.0F / AkytheraEditorLayoutManager.getInstance().getLayoutGuiScale();
+
+        ScreenRectangle scissor = new ScreenRectangle(getX(), getY(), getWidth(), getHeight()).transformAxisAligned(g.pose());
+
+        ((GuiGraphicsExtractorAccessor) g).akytheralabs$guiRenderState()
+            .addGuiElement(new WireRenderState(new Matrix3x2f(g.pose()), path, halfWidth, feather, color, scissor));
     }
 
-    private void drawThickLine(GuiGraphicsExtractor g, float x0, float y0, float x1, float y1, int color, int thickness) {
-        float dx = x1 - x0;
-        float dy = y1 - y0;
-        // Round up so the stepped samples always reach the endpoint (a truncated count would stop a
-        // pixel short and leave a seam between this segment and the next).
-        int steps = (int) Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)));
 
-        int prevX = Math.round(x0);
-        int prevY = Math.round(y0);
-
-        if (steps <= 0) {
-            g.fill(prevX, prevY, prevX + thickness, prevY + thickness, color);
-            return;
-        }
-
-        for (int i = 1; i <= steps; i++) {
-            float t = i / (float) steps;
-            int px = Math.round(x0 + dx * t);
-            int py = Math.round(y0 + dy * t);
-            // Fill the box spanning the previous pixel to this one. The samples are ≤1px apart, so a
-            // diagonal step fills its corner pixel too — keeping a 1px wire solid (no holes) instead
-            // of the 8-connected staircase that broke apart when zoomed out, while still thinning to
-            // `thickness` (down to 1px) on the wire's flat runs.
-            g.fill(Math.min(prevX, px), Math.min(prevY, py),
-                Math.max(prevX, px) + thickness, Math.max(prevY, py) + thickness, color);
-            prevX = px;
-            prevY = py;
-        }
-    }
-
-    /// Screen-space grid: line spacing scales with zoom, line thickness stays 1px.
-    private void drawGrid(GuiGraphicsExtractor g) {
-        float step = GRID * zoom;
-        if (step < 6.0F) return; // too dense to be useful when far zoomed out
-
-        float originX = getX() + panX;
-        float originY = getY() + panY;
-
-        int kx = (int) Math.ceil((getX() - originX) / step);
-        for (float sx = originX + kx * step; sx < getRight(); sx += step, kx++) {
-            int color = Math.floorMod(kx, MAJOR_EVERY) == 0 ? COLOR_GRID_MAJOR : COLOR_GRID_MINOR;
-            g.fill((int) sx, getY(), (int) sx + 1, getBottom(), color);
-        }
-
-        int ky = (int) Math.ceil((getY() - originY) / step);
-        for (float sy = originY + ky * step; sy < getBottom(); sy += step, ky++) {
-            int color = Math.floorMod(ky, MAJOR_EVERY) == 0 ? COLOR_GRID_MAJOR : COLOR_GRID_MINOR;
-            g.fill(getX(), (int) sy, getRight(), (int) sy + 1, color);
-        }
+    /// A graph-space rectangle as it is drawn on the screen, for [ModalManager#inWidgetSpace].
+    private ScreenRectangle graphToScreen(ScreenRectangle graphRect) {
+        return new ScreenRectangle(
+            Math.round(graphToScreenX(graphRect.left())),
+            Math.round(graphToScreenY(graphRect.top())),
+            Math.round(graphRect.width() * zoom),
+            Math.round(graphRect.height() * zoom)
+        );
     }
 
     private int screenToGraphX(double screenX) {
@@ -1276,6 +1328,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         }
 
         for (AbstractNodeWidget node : nodes) {
+            node.setCanvas(this);
             node.updateConnections(
                 inputsByNode.getOrDefault(node, Map.of()),
                 outputsByNode.getOrDefault(node, Map.of()));
@@ -1322,7 +1375,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         connections.removeAll(displaced);
         connections.add(connection);
 
-        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+        HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
             @Override
             public void undo() {
                 connections.remove(connection);
@@ -1363,7 +1416,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         applyConverter(converter, displaced, in, out);
         selectOnly(converter);
 
-        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+        HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
             @Override
             public void undo() {
                 connections.remove(in);
@@ -1401,7 +1454,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
         connections.removeAll(removed);
 
-        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+        HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
             @Override
             public void undo() {
                 connections.addAll(removed);
@@ -1414,8 +1467,8 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         });
     }
 
-    /// Retargets every [VariableNodeWidget] (Get / Set) referencing `variableName` to the
-    /// java type `newType` — re-coloring / re-typing their data pins — and then drops every
+    /// Retargets every [VariableNodeWidget] (Get / Set) referencing `variableName` to
+    /// `newType` — re-coloring / re-typing their data pins — and then drops every
     /// wire on those nodes the new type can no longer satisfy.
     ///
     /// Returns a [WorkHistory] that reverses both the pin retyping and the disconnections (or
@@ -1423,7 +1476,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// stack here: the caller composes the returned handle with its own variable-type change so
     /// the whole retype is a single undo step.
     @Nullable
-    public WorkHistory retypeVariableNodes(String variableName, Class<?> newType) {
+    public WorkHistory retypeVariableNodes(String variableName, ScriptType newType) {
         List<AbstractNodeWidget> targets = new ArrayList<>();
         for (AbstractNodeWidget node : nodes) {
             if (node instanceof VariableNodeWidget v && v.variableName().equals(variableName)) targets.add(node);
@@ -1431,7 +1484,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         if (targets.isEmpty()) return null;
 
         // All nodes for one variable share its type, so a single old type reverses them all.
-        Class<?> oldType = ((VariableNodeWidget) targets.getFirst()).variableType();
+        ScriptType oldType = ((VariableNodeWidget) targets.getFirst()).variableType();
 
         retypeNodes(targets, newType);
 
@@ -1458,7 +1511,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         };
     }
 
-    private static void retypeNodes(List<AbstractNodeWidget> targets, Class<?> type) {
+    private static void retypeNodes(List<AbstractNodeWidget> targets, @Nullable ScriptType type) {
         for (AbstractNodeWidget node : targets) ((VariableNodeWidget) node).applyVariableType(type);
     }
 
@@ -1485,6 +1538,15 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         }
     }
 
+    /// Re-points every [ComponentGetterNodeWidget] at a renamed component (updating each node's title in
+    /// place), so a dropped component tracks the row it came from. No history is recorded here — the
+    /// panel's rename handling re-applies it.
+    public void renameComponentGetters(String fromPath, String toPath) {
+        for (AbstractNodeWidget node : nodes) {
+            if (node instanceof ComponentGetterNodeWidget getter) getter.renamePath(fromPath, toPath);
+        }
+    }
+
     /// Whether the screen point falls inside this canvas — used by the Variables panel to decide a
     /// dragged variable was dropped onto the graph.
     public boolean isPointInside(double screenX, double screenY) {
@@ -1503,7 +1565,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         nodes.add(created);
         selectOnly(created);
 
-        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+        HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
             @Override
             public void undo() {
                 nodes.remove(created);
@@ -1532,9 +1594,10 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
         for (GraphNode row : data.nodes()) {
             AbstractNodeWidget widget = row.data().createWidget(
-                new NodeBuildContext(font, (_, _, _) -> null, row.x(), row.y()));
+                new NodeBuildContext(font, (_, _, _) -> null, members, enclosingFunction, row.x(), row.y()));
             if (widget == null) continue;
 
+            widget.setPinLiterals(row.literals());
             widget.setX(widget.getX() + dx);
             widget.setY(widget.getY() + dy);
             if (!canPlace.test(widget)) continue;
@@ -1561,7 +1624,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         applyPaste(added, pastedWires);
         setSelection(added);
 
-        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+        HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
             @Override
             public void undo() {
                 nodes.removeAll(added);
@@ -1617,7 +1680,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
                 .done()
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, screenX, screenY);
+        ModalManager.getInstance().openModalWidget(menu, screenX, screenY);
     }
 
     /// Right-click context menu for a data input pin: offers "Record this value" / "Stop recording",
@@ -1634,7 +1697,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
                 .done()
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, screenX, screenY);
+        ModalManager.getInstance().openModalWidget(menu, screenX, screenY);
     }
 
     /// Right-click context menu for a node body: offers "Delete", which removes the whole
@@ -1647,7 +1710,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
                 .done()
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, screenX, screenY);
+        ModalManager.getInstance().openModalWidget(menu, screenX, screenY);
     }
 
     /// Deletes every deletable node in the current selection as one undoable unit.
@@ -1673,7 +1736,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
         applyDelete(victims, removed);
 
-        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+        HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
             @Override
             public void undo() {
                 // Re-insert ascending so each node lands at its original z-order index
@@ -1716,66 +1779,23 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         return true;
     }
 
-    /// The first connection whose spline passes within [#WIRE_HIT_TOLERANCE] of `(sx, sy)`, or
-    /// null. Each candidate is first rejected by a cheap bounding-box test on the spline's
-    /// control points, and only survivors pay for the per-segment distance test.
+    /// The first connection whose drawn path passes within [#WIRE_HIT_TOLERANCE] of `(sx, sy)`, or null.
     private @Nullable Connection connectionAt(double sx, double sy) {
         for (Connection c : connections) {
-            float x0 = graphToScreenX(c.fromNode().outputPinCenterX(c.fromPin()));
-            float y0 = graphToScreenY(c.fromNode().outputPinCenterY(c.fromPin()));
-            float x1 = graphToScreenX(c.toNode().inputPinCenterX(c.toPin()));
-            float y1 = graphToScreenY(c.toNode().inputPinCenterY(c.toPin()));
+            float[] path = AkytheraLabsConfig.getWireStyle().path(
+                graphToScreenX(c.fromNode().outputPinCenterX(c.fromPin())),
+                graphToScreenY(c.fromNode().outputPinCenterY(c.fromPin())),
+                graphToScreenX(c.toNode().inputPinCenterX(c.toPin())),
+                graphToScreenY(c.toNode().inputPinCenterY(c.toPin())),
+                zoom
+            );
 
-            if (!curveAabbHit(x0, y0, x1, y1, sx, sy)) continue;
-            if (curveHit(x0, y0, x1, y1, sx, sy)) return c;
+            for (int i = 2; i + 1 < path.length; i += 2) {
+                if (distanceToSegment(sx, sy, path[i - 2], path[i - 1], path[i], path[i + 1]) <= WIRE_HIT_TOLERANCE) return c;
+            }
         }
+
         return null;
-    }
-
-    /// Cheap reject: whether `(sx, sy)` lies inside the spline's control-point bounding box
-    /// (which contains the whole curve), expanded by the hit tolerance.
-    private boolean curveAabbHit(float x0, float y0, float x1, float y1, double sx, double sy) {
-        float handle = wireHandle(x0, x1);
-        float cx0 = x0 + handle;
-        float cx1 = x1 - handle;
-
-        double minX = Math.min(Math.min(x0, x1), Math.min(cx0, cx1)) - WIRE_HIT_TOLERANCE;
-        double maxX = Math.max(Math.max(x0, x1), Math.max(cx0, cx1)) + WIRE_HIT_TOLERANCE;
-        double minY = Math.min(y0, y1) - WIRE_HIT_TOLERANCE;
-        double maxY = Math.max(y0, y1) + WIRE_HIT_TOLERANCE;
-
-        return sx >= minX && sx <= maxX && sy >= minY && sy <= maxY;
-    }
-
-    /// Exact test: whether `(sx, sy)` is within [#WIRE_HIT_TOLERANCE] of the sampled spline,
-    /// using the same cubic Bézier geometry as [#drawConnection].
-    private boolean curveHit(float x0, float y0, float x1, float y1, double sx, double sy) {
-        float handle = wireHandle(x0, x1);
-        float cx0 = x0 + handle;
-        float cx1 = x1 - handle;
-
-        int segments = 24;
-        float px = x0, py = y0;
-        for (int i = 1; i <= segments; i++) {
-            float t = i / (float) segments;
-            float bx = bezier(x0, cx0, cx1, x1, t);
-            float by = bezier(y0, y0, y1, y1, t);
-            if (distanceToSegment(sx, sy, px, py, bx, by) <= WIRE_HIT_TOLERANCE) return true;
-            px = bx;
-            py = by;
-        }
-        return false;
-    }
-
-    /// Bézier handle length, mirroring [#drawConnection] so the hit-test matches what is drawn. The
-    /// minimum scales with [#zoom] so the curve's bend tracks the graph scale.
-    private float wireHandle(float x0, float x1) {
-        return Math.max(WIRE_HANDLE_MIN * zoom, Math.abs(x1 - x0) * 0.5F);
-    }
-
-    private static float bezier(float p0, float c0, float c1, float p1, float t) {
-        float mt = 1.0F - t;
-        return mt * mt * mt * p0 + 3 * mt * mt * t * c0 + 3 * mt * t * t * c1 + t * t * t * p1;
     }
 
     private static double distanceToSegment(double px, double py, double ax, double ay, double bx, double by) {
@@ -1803,7 +1823,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         applyReroute(knot, original, a, b);
         selectOnly(knot);
 
-        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+        HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
             @Override
             public void undo() {
                 nodes.remove(knot);
@@ -1876,7 +1896,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
                 if (link != null) connections.add(link);
 
                 // Spawn + wire as one undoable unit so undo doesn't strand the node.
-                HistoryManager.getInstance().pushHistory(new WorkHistory() {
+                HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
                     @Override
                     public void undo() {
                         if (link != null) connections.remove(link);
@@ -1899,7 +1919,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         // Open downward from the cursor, but flip the modal above it when it would clip off the
         // screen bottom — calculated from the available space below the press point.
         int openY = NodeSuggestModal.openYFor(screenY, editorScreenHeight());
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(modal, screenX, openY);
+        ModalManager.getInstance().openModalWidget(modal, screenX, openY);
     }
 
     /// Builds the connection from a wire-drop to a freshly spawned node, in the direction
@@ -2019,14 +2039,22 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             }
 
             // Body controls (e.g. an inline literal editor) claim the click first.
-            if (node.onBodyClick(gx, gy, event.x(), event.y())) {
+            boolean claimed = ModalManager.getInstance()
+                .inWidgetSpace(this::graphToScreen, () -> node.onBodyClick(gx, gy, event.x(), event.y()));
+
+            if (claimed) {
                 selectOnly(node);
                 return true;
             }
 
             // Clicking a node outside the current selection selects just it; clicking one
-            // already in a multi-selection keeps the group so it can be dragged as a whole.
-            if (!selectedNodes.contains(node)) selectOnly(node);
+            // already in a multi-selection keeps the group so it can be dragged as a whole. Either
+            // way the Details panel is rebuilt for the selection.
+            if (selectedNodes.contains(node)) {
+                fireSelectionChanged();
+            } else {
+                selectOnly(node);
+            }
 
             beginNodeDrag(node, gx, gy);
 
@@ -2078,6 +2106,25 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             addToSelection(node);
         }
         fireSelectionChanged();
+    }
+
+    /// Selects the node holding `widget` and focuses the widget there, ending any other node's edit, see
+    /// [AbstractNodeWidget#focusBodyWidget].
+    @Override
+    public boolean focusEmbedded(GuiEventListener widget) {
+        for (AbstractNodeWidget node : nodes) {
+            if (!node.focusBodyWidget(widget)) continue;
+
+            for (AbstractNodeWidget other : nodes) {
+                if (other != node) other.endInlineEdit();
+            }
+
+            selectOnly(node);
+
+            return true;
+        }
+
+        return false;
     }
 
     private void selectOnly(AbstractNodeWidget node) {
@@ -2293,7 +2340,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         List<Pair<Integer, Integer>> newPos = new ArrayList<>();
         for (AbstractNodeWidget n : moved) newPos.add(Pair.of(n.getX(), n.getY()));
 
-        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+        HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
             @Override
             public void undo() {
                 applyPositions(moved, oldPos);
@@ -2358,6 +2405,16 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
         float oldZoom = zoom;
         float newZoom = Math.clamp(zoom * (scrollY > 0 ? ZOOM_STEP : 1.0F / ZOOM_STEP), MIN_ZOOM, MAX_ZOOM);
+
+        // A step reaching a whole zoom stops on it, where text draws sharp.
+        if (scrollY > 0) {
+            float whole = (float) Math.floor(newZoom + WHOLE_ZOOM_EPSILON);
+            if (whole >= 1.0F && whole > oldZoom) newZoom = whole;
+        } else {
+            float whole = (float) Math.ceil(newZoom - WHOLE_ZOOM_EPSILON);
+            if (whole >= 1.0F && whole < oldZoom) newZoom = whole;
+        }
+
         if (newZoom == oldZoom) return true;
 
         // Keep the graph point under the cursor anchored while zooming.
@@ -2373,12 +2430,12 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
-        // An inline editor (e.g. a literal node being typed into) captures all keys first, so
-        // typing never triggers node shortcuts like DELETE.
+        // An inline editor (e.g. a literal node being typed into) takes keys first, so typing never
+        // triggers node shortcuts like DELETE. A key it leaves falls through to the canvas.
         AbstractNodeWidget editing = inlineEditingNode();
 
-        if (editing != null) {
-            editing.inlineKeyPressed(event);
+        if (editing != null && ModalManager.getInstance()
+            .inWidgetSpace(this::graphToScreen, () -> editing.inlineKeyPressed(event))) {
             return true;
         }
 
@@ -2396,7 +2453,11 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     @Override
     public boolean charTyped(@NonNull CharacterEvent event) {
         AbstractNodeWidget editing = inlineEditingNode();
-        if (editing != null && editing.inlineCharTyped(event)) return true;
+
+        if (editing != null && ModalManager.getInstance()
+            .inWidgetSpace(this::graphToScreen, () -> editing.inlineCharTyped(event))) {
+            return true;
+        }
 
         return super.charTyped(event);
     }
@@ -2427,8 +2488,8 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -2440,4 +2501,6 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

@@ -1,14 +1,15 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.screen.LoadAkytheraProjectScreen;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -31,7 +32,7 @@ public final class DeleteProjectModalGenerator {
         AkytheraProject project = AkytheraProject.getCurrentProject();
         String projectName = project.getProjectName();
 
-        AdvancedEditBox<String> nameBox = AdvancedEditBox.filteredStringBox(
+        EditorEditBox<String> nameBox = EditorEditBox.filteredStringBox(
             font,
             _ -> true,
             Component.literal(projectName),
@@ -47,12 +48,12 @@ public final class DeleteProjectModalGenerator {
 
         int btnW = WidgetContainerModal.evenButtonWidth(POPUP_W, 2);
 
-        AnchoredButton cancelBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+        AkytheraButton cancelBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                () -> ModalManager.getInstance().closeModal())
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
             .build();
 
-        AnchoredButton okBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_OK), _ -> {
+        AkytheraButton okBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_OK), () -> {
             // Only proceed when the typed name matches exactly; otherwise red-mark
             // the box and keep the modal open.
             if (!nameBox.getText().equals(projectName)) {
@@ -60,7 +61,7 @@ public final class DeleteProjectModalGenerator {
                 return;
             }
 
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             deleteProject(project);
             Minecraft.getInstance().gui.setScreen(new LoadAkytheraProjectScreen());
         })
@@ -77,7 +78,7 @@ public final class DeleteProjectModalGenerator {
             .footerButton(okBtn, btnW)
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     /// Closes the editor for this project, then erases its directory from disk.

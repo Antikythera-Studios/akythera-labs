@@ -276,6 +276,7 @@ public final class NotifyTrackHolder implements DTOProvider {
 
         public AnimationNotifyHolder<?> holder;
 
+        /// In seconds.
         @EditorEditable(label = "Time", min = 0F, order = 0)
         public float time;
 
@@ -296,9 +297,11 @@ public final class NotifyTrackHolder implements DTOProvider {
 
         public AnimationNotifyStateHolder<?> holder;
 
+        /// In seconds.
         @EditorEditable(label = "Begin", min = 0F, order = 0)
         public float from;
 
+        /// In seconds.
         @EditorEditable(label = "End", min = 0F, order = 1)
         public float to;
 

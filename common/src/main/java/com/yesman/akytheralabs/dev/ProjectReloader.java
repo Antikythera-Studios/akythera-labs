@@ -1,6 +1,9 @@
 package com.yesman.akytheralabs.dev;
 
+import com.yesman.akythera.api.event.BuiltInEventHooks;
+import com.yesman.akythera.api.event.entity.EntitySpawnEvent;
 import com.yesman.akythera.api.lifecycle.ComponentsFactory;
+import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.core.util.StaticRegistryAccess;
 import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -94,12 +97,21 @@ public final class ProjectReloader {
         }
     }
 
+    /// Replaces `entity`'s patch with a freshly built one and replays the join-world event on it.
     private static void renewEntityPatch(final Entity entity) {
         EntityAccessor accessor = (EntityAccessor)entity;
 
         // TODO: Fill data registries with newly generated entries in editor
 
         // Reload all components, provided by components factory to get refreshed data pack
-        accessor.akythera$setEntityPatch(ComponentsFactory.getImpl().getEntityPatch(entity));
+        EntityPatch<?> entityPatch = ComponentsFactory.getImpl().getEntityPatch(entity);
+        accessor.akythera$setEntityPatch(entityPatch);
+
+        if (entityPatch != null) {
+            BuiltInEventHooks.Entity.SPAWNED.postWithListener(
+                new EntitySpawnEvent(entityPatch, entity.level(), false),
+                entityPatch.getEntityEventListener()
+            );
+        }
     }
 }

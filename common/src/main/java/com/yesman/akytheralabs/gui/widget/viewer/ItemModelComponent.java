@@ -2,8 +2,9 @@ package com.yesman.akytheralabs.gui.widget.viewer;
 
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
+import com.yesman.akythera.api.component.TransformInheritPolicy;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.historytrack.DraggingDataChange;
@@ -44,6 +45,9 @@ public final class ItemModelComponent implements LocatableComponent {
     /// The offset inside [#parentTransform] this item is drawn at. A live editor value in the
     /// [#placeUnder] mode, which is what a gizmo drag writes into.
     private TransformHolder localTransform = TransformHolder.identity();
+
+    /// The elements of [#parentTransform] [#localTransform] takes on, resolved per frame.
+    private Supplier<TransformInheritPolicy> transformInheritPolicy = () -> TransformInheritPolicy.LOC_ROT_SCA;
 
     /// Runs when a gizmo drag on [#localTransform] is released. Null while nothing edits this item.
     private @Nullable Runnable onTransformCommitted;
@@ -157,23 +161,26 @@ public final class ItemModelComponent implements LocatableComponent {
 
         parentTransform = () -> Transform.IDENTITY;
         localTransform = TransformHolder.identity();
+        transformInheritPolicy = () -> TransformInheritPolicy.LOC_ROT_SCA;
         onTransformCommitted = null;
     }
 
     public void placeInWorld(final Transform worldTransform) {
-        placeUnder(() -> Transform.IDENTITY, TransformHolder.of(worldTransform), null);
+        placeUnder(() -> Transform.IDENTITY, TransformHolder.of(worldTransform), () -> TransformInheritPolicy.LOC_ROT_SCA, null);
     }
 
-    /// Places the item at `localTransform` inside `parentTransform`, both read per frame. Passing an
-    /// `onTransformCommitted` makes the placement gizmo-editable: a drag writes into `localTransform`
+    /// Places the item at `localTransform` inside `parentTransform` by `transformInheritPolicy`, all read per frame.
+    /// Passing an `onTransformCommitted` makes the placement gizmo-editable: a drag writes into `localTransform`
     /// — an editor holder's own — and the callback runs when it is released.
     public void placeUnder(
         final Supplier<Transform> parentTransform,
         final TransformHolder localTransform,
+        final Supplier<TransformInheritPolicy> transformInheritPolicy,
         final @Nullable Runnable onTransformCommitted
     ) {
         this.parentTransform = parentTransform;
         this.localTransform = localTransform;
+        this.transformInheritPolicy = transformInheritPolicy;
         this.onTransformCommitted = onTransformCommitted;
 
         socketName = null;
@@ -215,6 +222,11 @@ public final class ItemModelComponent implements LocatableComponent {
     @Override
     public Transform localTransform() {
         return localTransform.makeObject();
+    }
+
+    @Override
+    public TransformInheritPolicy transformInheritPolicy() {
+        return transformInheritPolicy.get();
     }
 
     /// Ignored while the placement carries no [#onTransformCommitted] — nothing owns the transform

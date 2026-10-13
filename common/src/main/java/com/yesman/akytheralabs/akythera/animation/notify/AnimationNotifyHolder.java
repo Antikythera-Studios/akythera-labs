@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.akythera.animation.notify;
 
 import com.yesman.akythera.api.animation.notify.AnimationNotify;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.util.LogicalSide;
 import com.yesman.akytheralabs.SourceTemplateEngine;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
@@ -33,6 +34,9 @@ public abstract class AnimationNotifyHolder<T extends AnimationNotify<?>> implem
 
     /// Returns the original class's simple name
     public abstract String notifyName();
+
+    /// Plays this notify in the editor's previewer when the playhead passes it.
+    public abstract void simulate(Model3DViewer previewer);
 
     /// Classpath-relative fragment template that renders this notify's constructor
     /// expression, e.g. `notify/log.ftl`.

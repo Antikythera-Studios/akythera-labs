@@ -66,9 +66,9 @@ public final class MeshLiteralNodeWidget extends AbstractNodeWidget {
         return Identifier.fromNamespaceAndPath(id.getNamespace(), id.getPath().replace(MeshManager.DIRECTORY, ""));
     }
 
-    /// Trimmed mesh id → accessor, never null — see [EditorAssetAccessors#skeletalMesh].
+    /// Trimmed mesh id → accessor, never null — see [EditorAssetAccessors#mesh].
     public static AssetAccessor<? extends Mesh<?>> resolve(Identifier trimmedId) {
-        return EditorAssetAccessors.skeletalMesh(trimmedId);
+        return EditorAssetAccessors.mesh(trimmedId);
     }
 
     private static Component title(Identifier meshId) {

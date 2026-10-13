@@ -12,7 +12,6 @@ import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.EditorReference;
-import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.resources.Identifier;
@@ -36,11 +35,11 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
             Codec.FLOAT.fieldOf("fade_out_time").forGetter(AnimationSequenceHolder::getFadeOutTime),
             Codec.BOOL.fieldOf("loops").forGetter(AnimationSequenceHolder::loops),
             Codec.BOOL.fieldOf("root_motion").forGetter(AnimationSequenceHolder::isRootMotion),
-            EntityPreviewModel.CODEC.optionalFieldOf("preview_model")
-                .forGetter(ParseUtils.provideOptional(AnimationSequenceHolder::getPreviewModel)),
+            Identifier.CODEC.optionalFieldOf("preview_entity_type")
+                .forGetter(ParseUtils.provideOptional(AnimationSequenceHolder::getPreviewEntityType)),
             NotifyTrackHolder.EDITOR_CODEC.optionalFieldOf("notify_tracks", new NotifyTrackHolder())
                 .forGetter(AnimationSequenceHolder::getNotifyTrackHolder)
-        ).apply(instance, (animClip, fadeInTime, fadeOutTime, loops, rootMotion, previewModel, notifyTrackHolder) -> {
+        ).apply(instance, (animClip, fadeInTime, fadeOutTime, loops, rootMotion, previewEntityType, notifyTrackHolder) -> {
             AnimationSequenceHolder h = new AnimationSequenceHolder();
             h.setAnimClip(animClip);
 
@@ -48,7 +47,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
             h.setFadeOutTime(fadeOutTime);
             h.setLoops(loops);
             h.setRootMotion(rootMotion);
-            previewModel.ifPresent(h::setPreviewModel);
+            previewEntityType.ifPresent(h::setPreviewEntityType);
 
             if (!notifyTrackHolder.getTracks().isEmpty()) {
                 h.notifyTrackHolder = notifyTrackHolder;
@@ -74,7 +73,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
     private boolean rootMotion;
 
     @Nullable
-    private EntityPreviewModel previewModel;
+    private Identifier previewEntityType;
 
     private NotifyTrackHolder notifyTrackHolder = new NotifyTrackHolder();
 
@@ -182,12 +181,12 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         rootMotionChangeListener = listener;
     }
 
-    public @Nullable EntityPreviewModel getPreviewModel() {
-        return previewModel;
+    public @Nullable Identifier getPreviewEntityType() {
+        return previewEntityType;
     }
 
-    public void setPreviewModel(@Nullable EntityPreviewModel previewModel) {
-        this.previewModel = previewModel;
+    public void setPreviewEntityType(@Nullable Identifier previewEntityType) {
+        this.previewEntityType = previewEntityType;
     }
 
     /// The tokens `animation_sequence_template.ftl` renders: the trimmed `animation_path` that the

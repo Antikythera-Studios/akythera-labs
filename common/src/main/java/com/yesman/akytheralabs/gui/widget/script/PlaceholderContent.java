@@ -1,6 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -66,8 +66,8 @@ public final class PlaceholderContent extends AbstractWidget implements Anchored
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -79,4 +79,6 @@ public final class PlaceholderContent extends AbstractWidget implements Anchored
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

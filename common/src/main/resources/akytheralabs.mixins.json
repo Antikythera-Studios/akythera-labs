@@ -10,11 +10,11 @@
     "BlendingAnimatorAccessor",
     "CachedPoseReferenceAccessor",
     "MixinAbstractWidget",
-    "MixinAnimationStateMachineNode",
-    "MixinDataDrivenAnimatorScript",
     "MixinGameRenderer",
     "MixinGameRendererAccessor",
+    "MixinGlyphRenderState",
     "MixinGui",
+    "MixinGuiGraphicsExtractorAccessor",
     "MixinGuiRenderer",
     "MixinHud",
     "MixinKeyboardHandler",
@@ -23,7 +23,10 @@
     "MixinMouseHandler",
     "MixinPauseScreen",
     "MixinPlayer",
-    "MixinSupplierAdapterNode"
+    "MixinSoundManager",
+    "SoundBufferLibraryAccessor",
+    "SoundEngineAccessor",
+    "SoundManagerAccessor"
   ],
   "mixins": [
     "MappedRegistryAccessor",

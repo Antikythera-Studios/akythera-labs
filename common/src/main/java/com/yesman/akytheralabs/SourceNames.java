@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs;
 
+import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.helper.ParseUtils;
@@ -10,12 +11,19 @@ import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.lang.reflect.WildcardType;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /// The Java names the source export writes: the generated key fields, and the generated
 /// [EnumerableDataBlock] enum classes with their constants. The code that writes those files
@@ -30,6 +38,52 @@ public final class SourceNames {
     /// and enum constants.
     public static String screamingSnake(String idPath) {
         return idPath.replaceAll("[^A-Za-z0-9]+", "_").toUpperCase(Locale.ROOT);
+    }
+
+    /// `type` as generated source spells it, leaving the imports to the IDE: a nested class behind its
+    /// outer class (`SystematicAbility.Tags`), type arguments and wildcards kept, and a type variable read as
+    /// its bound.
+    public static String typeName(Type type) {
+        return typeName(type, Map.of());
+    }
+
+    /// As [#typeName(Type)], but a type variable `arguments` holds is spelled as its entry.
+    public static String typeName(Type type, Map<TypeVariable<?>, String> arguments) {
+        return switch (type) {
+            case Class<?> c when c.isArray() -> typeName(c.getComponentType(), arguments) + "[]";
+            case Class<?> c when c.getEnclosingClass() != null && !c.isAnonymousClass() ->
+                typeName(c.getEnclosingClass(), arguments) + "." + c.getSimpleName();
+            case Class<?> c -> c.getSimpleName();
+            case ParameterizedType p -> typeName(p.getRawType(), arguments) + "<"
+                + Arrays.stream(p.getActualTypeArguments())
+                    .map(argument -> typeName(argument, arguments))
+                    .collect(Collectors.joining(", "))
+                + ">";
+            case WildcardType w when w.getLowerBounds().length > 0 ->
+                "? super " + typeName(w.getLowerBounds()[0], arguments);
+            case WildcardType w when w.getUpperBounds().length > 0 && w.getUpperBounds()[0] != Object.class ->
+                "? extends " + typeName(w.getUpperBounds()[0], arguments);
+            case WildcardType _ -> "?";
+            case TypeVariable<?> v when arguments.containsKey(v) -> arguments.get(v);
+            case TypeVariable<?> v -> typeName(v.getBounds()[0], arguments);
+            default -> type.getTypeName();
+        };
+    }
+
+    /// A variable of `type` as generated source spells it: a single value by its unboxed class, and a list,
+    /// set or map by its boxed parts, e.g. `Map<String, List<Integer>>`.
+    public static String typeName(ScriptType type) {
+        return switch (type.container()) {
+            case SINGLE -> typeName(ParseUtils.unbox(type.type()));
+            case LIST -> "List<" + typeArgument(type.base()) + ">";
+            case SET -> "Set<" + typeArgument(type.base()) + ">";
+            case MAP -> "Map<" + typeArgument(type.base()) + ", " + typeArgument(Objects.requireNonNull(type.element())) + ">";
+        };
+    }
+
+    /// `type` as a type argument of [#typeName(ScriptType)]: a single value by its boxed class.
+    private static String typeArgument(ScriptType type) {
+        return type.container() == ScriptType.Container.SINGLE ? typeName(ParseUtils.box(type.type())) : typeName(type);
     }
 
     /// `<PascalCaseProjectName><BlockType>` — the enum class [FreemarkerExporter#exportDataBlockEnum]

@@ -1,9 +1,9 @@
 package com.yesman.akytheralabs.akythera.entitypatch.component;
 
-import com.yesman.akythera.api.component.impl.ArmatureComponent;
 import com.yesman.akythera.api.component.ComponentAttachable;
 import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.api.component.UniqueComponent;
+import com.yesman.akythera.api.component.impl.ArmatureComponent;
 import com.yesman.akythera.core.blueprint.ComponentBlueprint;
 import com.yesman.akytheralabs.SourceTemplateEngine;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
@@ -11,10 +11,14 @@ import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.ComponentHolderRegistry;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.gui.panel.components.ComponentEditorPanel;
+import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import org.jspecify.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.UnaryOperator;
+import java.util.stream.Stream;
 
 /// Base of every patch component holder — the editor twin of one [ComponentBlueprint] type, as
 /// registered in a [ComponentHolderRegistry] and stored under a host's
@@ -31,6 +35,10 @@ import java.util.Map;
 public abstract class ComponentDataHolder<T extends ComponentBlueprint<?, ?>> extends AbstractDataHolder<T>
     implements DTOProvider
 {
+    /// Whether the built component starts switched on, see [ComponentBlueprint#enabled]. Persisted for
+    /// every registered type by [ComponentHolderRegistry#register].
+    private boolean enabled = true;
+
     /// The class this component eventually instantiates, e.g. [ArmatureComponentHolder] ->
     /// [ArmatureComponent].
     public abstract Class<? extends PatchComponent> generateEventually();
@@ -48,6 +56,24 @@ public abstract class ComponentDataHolder<T extends ComponentBlueprint<?, ?>> ex
         return null;
     }
 
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    /// The node canvases this component owns, empty for one that owns none.
+    public Stream<ScriptGraphData> canvases() {
+        return Stream.of();
+    }
+
+    /// Replaces every canvas this component owns with `mapper`'s answer. A component that owns none
+    /// takes nothing.
+    public void mapCanvases(final UnaryOperator<ScriptGraphData> mapper) {
+    }
+
     /// Classpath-relative fragment template that renders this component's constructor expression,
     /// e.g. `components/armature.ftl`. Null — the default — means the type has no source support:
     /// [#sourcesOf] emits a TODO marker in its place rather than aborting the export.
@@ -55,7 +81,8 @@ public abstract class ComponentDataHolder<T extends ComponentBlueprint<?, ?>> ex
         return null;
     }
 
-    /// The tokens [#sourceTemplate] splices in. Empty for a component that renders no source.
+    /// The tokens [#sourceTemplate] splices in, besides the ones [#sourcesOf] adds. Empty for a
+    /// component that renders nothing else.
     @Override
     public Map<String, Object> getDTO() {
         return Map.of();
@@ -65,16 +92,28 @@ public abstract class ComponentDataHolder<T extends ComponentBlueprint<?, ?>> ex
     /// constructor expression the generated `componentsToAttach()` collects. The name rides along
     /// because the engine keys a [ComponentAttachable]'s components by it, so the templates emit
     /// `Map` entries.
-    public static List<Map<String, String>> sourcesOf(Map<String, ? extends ComponentDataHolder<?>> components) {
+    ///
+    /// Every template receives the `enabled` and `hardcoded` tokens, and a [ComponentAttachableHolder]'s
+    /// template its children's rows as `components`. `hardcoded` is true for a hardcoded script class,
+    /// whose components never pass through a codec, and false for a datagen provider.
+    public static List<Map<String, String>> sourcesOf(Map<String, ? extends ComponentDataHolder<?>> components, boolean hardcoded) {
         return components.entrySet().stream()
             .map(e -> {
                 String template = e.getValue().sourceTemplate();
+
+                Map<String, Object> dto = new HashMap<>(e.getValue().getDTO());
+                dto.put("enabled", e.getValue().isEnabled());
+                dto.put("hardcoded", hardcoded);
+
+                if (e.getValue() instanceof ComponentAttachableHolder host) {
+                    dto.put("components", sourcesOf(host.getComponents(), hardcoded));
+                }
 
                 return Map.of(
                     "name", e.getKey(),
                     "source", template == null
                         ? "null /* TODO: component '" + e.getKey() + "' has no components/*.ftl source template */"
-                        : SourceTemplateEngine.render(template, e.getValue().getDTO())
+                        : SourceTemplateEngine.render(template, dto)
                 );
             })
             .toList();

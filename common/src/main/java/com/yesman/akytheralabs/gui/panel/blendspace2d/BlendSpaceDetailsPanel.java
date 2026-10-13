@@ -1,14 +1,14 @@
 package com.yesman.akytheralabs.gui.panel.blendspace2d;
 
-import com.yesman.akythera.client.gui.widget.WidgetTable;
+import com.yesman.akythera.client.api.gui.WidgetTable;
+import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
-import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.network.chat.Component;
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 
 /// Details panel for the BlendSpace2D editor.
 /// Shows global asset settings (editable via the passed WidgetTable) and
@@ -37,6 +37,6 @@ public final class BlendSpaceDetailsPanel extends AdjustablePanelManager.PanelAr
     }
 
     @Override
-    protected void updateWidgetNarration(@NotNull NarrationElementOutput narration) {
+    protected void updateWidgetNarration(@NonNull NarrationElementOutput narration) {
     }
 }

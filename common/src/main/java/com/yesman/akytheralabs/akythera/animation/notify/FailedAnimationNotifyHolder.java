@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.akythera.animation.notify;
 
 import com.google.gson.JsonElement;
 import com.yesman.akythera.api.animation.notify.AnimationNotify;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.util.LogicalSide;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import org.jspecify.annotations.Nullable;
@@ -32,6 +33,10 @@ public final class FailedAnimationNotifyHolder extends AnimationNotifyHolder<Ani
     @Override
     public String notifyName() {
         return "Unknown notify";
+    }
+
+    @Override
+    public void simulate(Model3DViewer previewer) {
     }
 
     @Override

@@ -3,12 +3,13 @@ package com.yesman.akytheralabs.gui.screen;
 import com.mojang.datafixers.util.Pair;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
-import com.yesman.akythera.client.gui.widget.viewer.*;
-import com.yesman.akythera.core.util.helper.PoseOperators;
-import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
-import com.yesman.akythera.client.gui.widget.WidgetTable;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.WidgetTable;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.viewer.*;
 import com.yesman.akythera.core.animation.driver.AnimationMontagePlayer;
+import com.yesman.akythera.core.animation.driver.BlendSpace2DDriver;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
@@ -16,15 +17,19 @@ import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.math.algorithm.DelaunayTriangulation;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akythera.core.util.helper.PoseOperators;
+import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.AnimationRef;
 import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
-import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
-import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
+import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -39,13 +44,11 @@ import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.blendspace2d.BlendSpaceNodeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
-import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
-import com.yesman.akythera.core.animation.driver.BlendSpace2DDriver;
-import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
-import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
-import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
+import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
+import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
+import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
 import com.yesman.akytheralabs.mixin.BlendSpace2DDriverAccessor;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -132,8 +135,9 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
             AnchoredWidget.pixel(TOP_BAR_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            _ -> handleQuitRequest(),
+            () -> handleQuitRequest(),
             TopMenuBar.actions()
+                .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
@@ -170,7 +174,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         model3DViewer.addComponent(new CameraComponent(true));
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
-        EntityPreviewModel.display(model3DViewer, blendSpaceHolder.getPreviewModel(), true, true);
+        EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, blendSpaceHolder.getPreviewEntityType(), true, true);
 
         installBlendAnimator();
 
@@ -294,27 +298,27 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
     }
 
     private void openPreviewModelSelectModal() {
-        ModelSelectModal modal = new ModelSelectModal(
+        EntityTypeSelectModal modal = new EntityTypeSelectModal(
             font,
-            blendSpaceHolder.getPreviewModel(),
-            newModel -> {
-                EntityPreviewModel oldModel = blendSpaceHolder.getPreviewModel();
-                if (Objects.equals(oldModel, newModel)) return;
+            blendSpaceHolder.getPreviewEntityType(),
+            newEntityType -> {
+                Identifier oldEntityType = blendSpaceHolder.getPreviewEntityType();
+                if (Objects.equals(oldEntityType, newEntityType)) return;
 
-                applyPreviewModel(newModel);
+                applyPreviewEntityType(newEntityType);
                 HistoryManager.getInstance().pushHistory(
-                    new DataChange<>(oldModel, newModel, this::applyPreviewModel));
+                    new DataChange<>(oldEntityType, newEntityType, this::applyPreviewEntityType));
             }
         );
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     /// Installs `model` as the previewed entity: the holder field, the viewer, and the blend animator
     /// the new entity needs rebuilding on. Undo and redo replay it.
-    private void applyPreviewModel(@Nullable EntityPreviewModel model) {
-        blendSpaceHolder.setPreviewModel(model);
-        EntityPreviewModel.display(model3DViewer, model, true, true);
+    private void applyPreviewEntityType(@Nullable Identifier entityType) {
+        blendSpaceHolder.setPreviewEntityType(entityType);
+        EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, entityType, true, true);
         installBlendAnimator();
     }
 
@@ -360,8 +364,8 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
     /// Render-thread completion for [#save]: closes the await modal (only if it is still the top one)
     /// and, on success, re-snapshots the save point so the title's `*` clears.
     private void onSaveComplete(WidgetContainerModal awaitModal, @Nullable Throwable error) {
-        if (AkytheraEditorLayoutManager.getInstance().getModal() == awaitModal) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+        if (ModalManager.getInstance().getModal() == awaitModal) {
+            ModalManager.getInstance().closeModal();
         }
 
         if (error != null) {
@@ -415,7 +419,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
             hasUnsavedChanges(),
             () -> {
                 // Dismiss the prompt, then save asynchronously and close only once the write finishes.
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 save().thenRun(this::onClose);
             },
             () -> {
@@ -802,8 +806,8 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         @Override @Deprecated public boolean isHardPaused() { return false; }
 
         @Override
-        public EntityPatch<Entity> getOwner() {
-            throw new UnsupportedOperationException("BlendSpaceAnimator has no owner entity");
+        public <O> O getOwner() {
+            throw new UnsupportedOperationException("BlendSpaceAnimator has no owner");
         }
 
         @Override

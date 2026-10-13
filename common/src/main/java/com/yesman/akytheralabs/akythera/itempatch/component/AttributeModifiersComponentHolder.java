@@ -82,7 +82,7 @@ public final class AttributeModifiersComponentHolder extends ComponentDataHolder
             ))
             .toList();
 
-        return new AttributeModifiersComponent(list);
+        return new AttributeModifiersComponent(list, isEnabled());
     }
 
     /// [AttributeModifiersComponent] is its own blueprint — it builds itself.

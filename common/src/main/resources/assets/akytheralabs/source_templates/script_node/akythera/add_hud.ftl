@@ -1,0 +1,3 @@
+<#-- akythera:add_hud (blueprint) -> AkytheraHUD; client implementation --><#t>
+<#-- Runtime: does nothing off the render thread, where an integrated server runs its scripts --><#t>
+(${params[0]} != null && ${params[0]}.usage() == WidgetUsage.HUD && Minecraft.getInstance().isSameThread() && BlueprintWidgets.open((Holder.Reference<WidgetBlueprint>) StaticRegistryAccess.getRegistryAccess().lookupOrThrow(AkytheraRegistries.DataPack.WIDGET_KEY).wrapAsHolder(${params[0]})) instanceof AkytheraHUD addedHud ? addedHud : null)<#t>

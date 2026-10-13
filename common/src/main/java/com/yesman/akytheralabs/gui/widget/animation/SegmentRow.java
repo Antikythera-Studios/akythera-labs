@@ -1,14 +1,14 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
 import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.math.TimeWindow;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -89,7 +89,7 @@ public final class SegmentRow extends AnimTrackEntry {
     }
 
     @Override
-    Component rowLabel() {
+    protected Component rowLabel() {
         // Bottom lane keeps a blank label so the two rows read as one merged cell.
         return lane == Lane.BOTTOM
             ? Component.translatable(LangKeys.GUI_ANIM_MONTAGE_SCREEN_ROW_SEGMENTS)
@@ -128,7 +128,7 @@ public final class SegmentRow extends AnimTrackEntry {
     }
 
     @Override
-    void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
+    protected void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
         int top = getContentY();
         int h = getContentHeight();
 
@@ -173,7 +173,7 @@ public final class SegmentRow extends AnimTrackEntry {
         }
 
         if (event.button() == 0) {
-            parent.setCurrentFrame(parent.xToFrame(event.x()));
+            parent.scrubTo(parent.xToFrame(event.x()));
             return true;
         }
 
@@ -233,7 +233,7 @@ public final class SegmentRow extends AnimTrackEntry {
 
     /// DELETE key on the selected segment row → drop the shared selected block.
     @Override
-    void deleteSelected() {
+    protected void deleteSelected() {
         if (interaction.selectedIndex >= 0) removeSegment(interaction.selectedIndex);
     }
 
@@ -325,7 +325,7 @@ public final class SegmentRow extends AnimTrackEntry {
                 interaction.selectedIndex = index;
                 menuIndex = index;
                 parent.setSelectedRow(SegmentRow.this);
-                AkytheraEditorLayoutManager.getInstance().openModalWidget(blockMenu, (int) event.x(), (int) event.y());
+                ModalManager.getInstance().openModalWidget(blockMenu, (int) event.x(), (int) event.y());
                 return true;
             }
 

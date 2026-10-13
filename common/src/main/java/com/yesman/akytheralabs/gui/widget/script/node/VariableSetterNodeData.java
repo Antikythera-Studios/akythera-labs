@@ -9,7 +9,6 @@ import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.api.data.modularize.node.ScriptVariableGetterNode;
 import com.yesman.akythera.api.data.modularize.node.ScriptVariableSetterNode;
 import com.yesman.akythera.api.data.modularize.node.SequenceNode;
-import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.ScriptVariableSetterNodeWidget;
@@ -29,7 +28,7 @@ public record VariableSetterNodeData(String variable, Optional<ScriptType> varia
         instance ->
             instance.group(
                 Codec.STRING.optionalFieldOf("variable", "").forGetter(VariableSetterNodeData::variable),
-                AkytheraRegistries.Frozen.SCRIPT_TYPE.byNameCodec().optionalFieldOf("variable_type")
+                ScriptType.CODEC.optionalFieldOf("variable_type")
                     .forGetter(VariableSetterNodeData::variableType)
             ).apply(instance, VariableSetterNodeData::new)
     );
@@ -45,7 +44,7 @@ public record VariableSetterNodeData(String variable, Optional<ScriptType> varia
     public AbstractNodeWidget createWidget(NodeBuildContext ctx) {
         return new ScriptVariableSetterNodeWidget(
             ctx.font(), Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_SET),
-            variable, variableType.<Class<?>>map(ScriptType::type).orElse(Object.class), ctx.x(), ctx.y());
+            variable, variableType.orElse(null), ctx.x(), ctx.y());
     }
 
     @Override

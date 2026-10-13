@@ -1,7 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
-import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -9,7 +8,6 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
-import org.jspecify.annotations.Nullable;
 
 /// Footer-anchored scroll/zoom bar over the notify track's visible-frame window.
 ///
@@ -34,14 +32,14 @@ public final class FrameScrollBar extends AbstractWidget implements AnchoredWidg
     /// Pixel width of each edge grip strip. Mirrors [AnimationTrackEditorPanel#EDGE_DRAG_THRESHOLD].
     private static final int EDGE_GRIP_W = 4;
 
-    private final AnimationTrackEditorPanel parent;
+    private final TrackTimeline parent;
 
     private DragKind dragKind = DragKind.NONE;
     private double pressX;
     private float dragStartVisualStart;
     private float dragStartVisualEnd;
 
-    public FrameScrollBar(AnimationTrackEditorPanel parent) {
+    public FrameScrollBar(TrackTimeline parent) {
         super(0, 0, 0, 0, Component.empty());
 
         this.parent = parent;
@@ -57,13 +55,7 @@ public final class FrameScrollBar extends AbstractWidget implements AnchoredWidg
     }
 
     private float totalFrames() {
-        EntityModelComponent.@Nullable EditorScrubAnimator a = parent.headlessAnimator();
-
-        if (a == null || a.getPreviewAnimation() == null || a.getPreviewAnimation().get() == null) {
-            return 0.0F;
-        }
-
-        return parent.totalFrames() * 60F;
+        return parent.timelineFrames();
     }
 
     private int trackWidth() {
@@ -236,8 +228,8 @@ public final class FrameScrollBar extends AbstractWidget implements AnchoredWidg
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -249,4 +241,6 @@ public final class FrameScrollBar extends AbstractWidget implements AnchoredWidg
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

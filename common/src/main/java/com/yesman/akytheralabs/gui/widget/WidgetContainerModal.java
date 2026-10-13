@@ -1,7 +1,8 @@
 package com.yesman.akytheralabs.gui.widget;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -30,7 +31,7 @@ import java.util.Optional;
 /// A modal popup box for warnings or simple user input.
 ///
 /// Always centered on screen with a full-screen dim overlay. Use [Builder] to assemble a title, body lines,
-/// child widgets, and [AnchoredButton]s.
+/// child widgets, and [AkytheraButton]s.
 ///
 /// Layout follows the [AnchoredWidget] design: each row's anchor units are written **only** during
 /// construction or [Builder#build]. [#relocate] is a pure cascade — it never writes anchor units.
@@ -247,7 +248,7 @@ public final class WidgetContainerModal extends OverlayingWindowModal {
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
             if (AkytheraEditorLayoutManager.getInstance().isActive()) {
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 return true;
             }
         }
@@ -302,7 +303,7 @@ public final class WidgetContainerModal extends OverlayingWindowModal {
         private final Font font;
         private final Component title;
         private final List<AnchoredRow> items = new ArrayList<>();
-        private final List<AnchoredButton> buttons = new ArrayList<>();
+        private final List<AkytheraButton> buttons = new ArrayList<>();
 
         /// Running cursor for the next button's `x1`. Starts at the row's left gutter ([#BUTTON_GAP])
         /// and advances by `width + BUTTON_GAP` per [#footerButton] call.
@@ -372,7 +373,7 @@ public final class WidgetContainerModal extends OverlayingWindowModal {
             return this;
         }
 
-        public Builder footerButton(AnchoredButton button, int width) {
+        public Builder footerButton(AkytheraButton button, int width) {
             button.setHorizontalAnchorType(HorizontalAnchorType.RIGHT_WIDTH);
             button.setVerticalAnchorType(VerticalAnchorType.CENTER_HEIGHT);
             button.setX1(AnchoredWidget.pixel(footerButtonX));
@@ -490,8 +491,8 @@ public final class WidgetContainerModal extends OverlayingWindowModal {
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
-        public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
-        public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 
     /// Override [AnchoredRow#extractRowContent] from subclasses to draw non-widget components
@@ -579,9 +580,9 @@ public final class WidgetContainerModal extends OverlayingWindowModal {
     public static final class FooterRow extends AnchoredRow {
         private static final int FOOTER_ROW_H = 28;
 
-        private final List<AnchoredButton> buttons;
+        private final List<AkytheraButton> buttons;
 
-        FooterRow(List<AnchoredButton> buttons) {
+        FooterRow(List<AkytheraButton> buttons) {
             this.buttons = buttons;
 
             setHorizontalAnchorType(HorizontalAnchorType.LEFT_RIGHT);

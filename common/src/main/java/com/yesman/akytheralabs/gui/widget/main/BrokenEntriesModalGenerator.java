@@ -1,7 +1,8 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -61,15 +62,15 @@ public final class BrokenEntriesModalGenerator {
             // Footer buttons render right-to-left in insertion order, so add Cancel first
             // (rightmost) and OK last (leftmost) to read "OK ... Cancel".
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                        _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                        () -> ModalManager.getInstance().closeModal())
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                     .build(),
                 btnW
             )
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_OK), _ -> {
-                        AkytheraEditorLayoutManager.getInstance().closeModal();
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_OK), () -> {
+                        ModalManager.getInstance().closeModal();
                         onProceed.run();
                     })
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
@@ -78,6 +79,6 @@ public final class BrokenEntriesModalGenerator {
             )
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 }

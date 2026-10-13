@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs;
 
 import com.google.gson.*;
+import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DynamicOps;
@@ -8,12 +9,20 @@ import com.mojang.serialization.JsonOps;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
 import com.yesman.akythera.api.asset.armature.ArmatureManager;
+import com.yesman.akythera.api.asset.physics.ArmaturePhysicsManager;
+import com.yesman.akythera.api.event.BuiltInEventHooks;
+import com.yesman.akythera.api.event.registry.RegistryEntryLookupEvent;
+import com.yesman.akythera.api.input.InputAction;
 import com.yesman.akythera.api.lifecycle.ComponentsFactory;
+import com.yesman.akythera.api.world.ability.AbilityEffect;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.loader.MeshLoader;
+import com.yesman.akythera.client.core.asset.loader.binary.ClothPhysicsLoader;
 import com.yesman.akythera.client.core.asset.mesh.Mesh;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.client.core.asset.mesh.StaticMesh;
+import com.yesman.akythera.client.core.asset.physics.ClothPhysicsData;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
@@ -25,34 +34,48 @@ import com.yesman.akythera.core.asset.loader.ArmatureLoader;
 import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
 import com.yesman.akythera.core.asset.loader.json.JsonAssetLoader;
-import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
-import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
-import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
-import com.yesman.akythera.api.input.InputAction;
-import com.yesman.akythera.api.world.ability.AbilityEffect;
+import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
 import com.yesman.akythera.core.blueprint.AbilityBlueprint;
 import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
+import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
+import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
+import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
+import com.yesman.akythera.core.blueprint.particle.ParticleInitializerScriptBlueprint;
+import com.yesman.akythera.core.blueprint.particle.ParticleSystemBlueprint;
+import com.yesman.akythera.core.blueprint.particle.ParticleUpdaterScriptBlueprint;
+import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
+import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.StaticRegistryAccess;
 import com.yesman.akythera.core.util.helper.ParseUtils;
-import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
-import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityCueBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityEffectHolder;
 import com.yesman.akytheralabs.akythera.ability.InputActionHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.ArmatureMetadataHolder;
-import com.yesman.akytheralabs.akythera.asset.MeshMetadataHolder;
-import com.yesman.akytheralabs.editor.ContentClipboard;
 import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
+import com.yesman.akytheralabs.akythera.asset.MeshMetadataHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
+import com.yesman.akytheralabs.akythera.widget.WidgetBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
+import com.yesman.akytheralabs.akythera.particle.ParticleBlueprintHolder;
+import com.yesman.akytheralabs.akythera.particle.ParticleInitializerScriptHolder;
+import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
+import com.yesman.akytheralabs.akythera.particle.ParticleUpdaterScriptHolder;
+import com.yesman.akytheralabs.akythera.physics.ArmaturePhysicsDataHolder;
+import com.yesman.akytheralabs.akythera.physics.ClothPhysicsDataHolder;
 import com.yesman.akytheralabs.dataholder.*;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
+import com.yesman.akytheralabs.dataholder.sound.SoundEventHolder;
+import com.yesman.akytheralabs.editor.ContentClipboard;
 import com.yesman.akytheralabs.editor.historytrack.FileCreation;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
@@ -62,6 +85,8 @@ import com.yesman.akytheralabs.gui.widget.main.ProjectSetupModalGenerator;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.resources.sounds.Sound;
+import net.minecraft.core.ClientAsset;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
@@ -69,6 +94,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.metadata.pack.PackFormat;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -79,6 +105,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -129,12 +156,58 @@ public final class AkytheraProject {
             .resolve(assetId.getPath() + AssetLoader.METADATA_EXTENSION);
     }
 
+    /// Where the `.json` asset `assetId` lives on disk: `assets/<path>.json` under the project its
+    /// namespace names.
+    public static Path getJsonAssetFileOf(Identifier assetId) {
+        return getProjectsRootDirectory()
+            .resolve(assetId.getNamespace())
+            .resolve("assets")
+            .resolve(assetId.getPath() + ".json");
+    }
+
+    /// Where the binary asset `assetId` lives on disk: `assets/<path>.akasset` under the project its
+    /// namespace names.
+    public static Path getBinaryAssetFileOf(Identifier assetId) {
+        return getProjectsRootDirectory()
+            .resolve(assetId.getNamespace())
+            .resolve("assets")
+            .resolve(assetId.getPath() + "." + AssetLoader.BINARY_EXTENSION);
+    }
+
+    /// The armature physics asset belonging to the armature `armatureId`: its own path under
+    /// [ArmaturePhysicsManager#DIRECTORY]. Null for an id that is not an armature's.
+    public static @Nullable Identifier armaturePhysicsIdOf(Identifier armatureId) {
+        if (!armatureId.getPath().startsWith(ArmatureManager.DIRECTORY)) return null;
+
+        return Identifier.fromNamespaceAndPath(
+            armatureId.getNamespace(),
+            ArmaturePhysicsManager.DIRECTORY + armatureId.getPath().substring(ArmatureManager.DIRECTORY.length())
+        );
+    }
+
+    /// The armature an armature physics asset belongs to — the inverse of [#armaturePhysicsIdOf].
+    /// Null for an id that is not an armature physics asset's.
+    public static @Nullable Identifier armatureIdOfPhysics(Identifier physicsId) {
+        if (!physicsId.getPath().startsWith(ArmaturePhysicsManager.DIRECTORY)) return null;
+
+        return Identifier.fromNamespaceAndPath(
+            physicsId.getNamespace(),
+            ArmatureManager.DIRECTORY + physicsId.getPath().substring(ArmaturePhysicsManager.DIRECTORY.length())
+        );
+    }
+
     /// `.../walk.akasset` → `.../walk.akmeta`. The path-side twin of [#getMetadataFileOf], for
     /// the file operations that hold a path rather than an identifier.
-    private static Path getMetadataFileBeside(Path assetFile) {
+    public static Path getMetadataFileBeside(Path assetFile) {
         return assetFile.resolveSibling(
             FileSystemHelper.stem(assetFile.getFileName().toString()) + AssetLoader.METADATA_EXTENSION
         );
+    }
+
+    /// `.../stone.png` → `.../stone.png.mcmeta`, the sidecar a resource pack reads a texture's
+    /// metadata sections from.
+    public static Path getMcmetaFileBeside(Path textureFile) {
+        return textureFile.resolveSibling(textureFile.getFileName() + PackResources.METADATA_EXTENSION);
     }
 
     @Nullable
@@ -178,6 +251,10 @@ public final class AkytheraProject {
                 Files.createDirectories(projectRoot.resolve("assets/" + directory));
             }
 
+            for (String directory : RESERVED_DIRECTORIES) {
+                Files.createDirectories(projectRoot.resolve("assets/" + directory));
+            }
+
             for (ResourceKey<?> datapackKey : DATAPACK_REGISTRIES) {
                 Files.createDirectories(projectRoot.resolve("data/" + datapackKey.identifier().getPath()));
             }
@@ -193,6 +270,7 @@ public final class AkytheraProject {
                     "version": "%s",
                     "focused": "",
                     "folder_states": {},
+                    "entity_preview_models": {},
                     "layouts": {}
                 }
             """, projectName, initVersion);
@@ -202,6 +280,7 @@ public final class AkytheraProject {
         }
 
         currentProject = new AkytheraProject(projectName, initVersion, projectRoot);
+        EntityPreviewModelMapping.fillVanillaBindings();
     }
 
     /// Loads an existing project from the given root path.
@@ -216,7 +295,7 @@ public final class AkytheraProject {
         String sourceResourcePath = "";
         Map<Class<? extends Screen>, List<Integer>> layouts = new HashMap<>();
         Map<String, Boolean> folderStates = new LinkedHashMap<>();
-        Map<String, String> armatureMappings = new LinkedHashMap<>();
+        Map<String, JsonObject> previewBindings = new LinkedHashMap<>();
 
         try {
             JsonElement root = JsonParser.parseReader(Files.newBufferedReader(settingsFile));
@@ -249,12 +328,28 @@ public final class AkytheraProject {
                 }
             }
 
-            if (obj.has("armature_mappings")) {
-                for (Map.Entry<String, JsonElement> e : obj.getAsJsonObject("armature_mappings").entrySet()) {
-                    armatureMappings.put(e.getKey(), e.getValue().getAsString());
+            if (obj.has("entity_preview_models")) {
+                for (Map.Entry<String, JsonElement> e : obj.getAsJsonObject("entity_preview_models").entrySet()) {
+                    previewBindings.put(e.getKey(), e.getValue().getAsJsonObject());
                 }
             }
         } catch (IOException ignored) {}
+
+        for (String directory : ASSETS_FOLDERS) {
+            try {
+                Files.createDirectories(projectRoot.resolve("assets/" + directory));
+            } catch (IOException e) {
+                AkytheraLabs.LOGGER.error("Failed to create asset directory {}", directory, e);
+            }
+        }
+
+        for (String directory : RESERVED_DIRECTORIES) {
+            try {
+                Files.createDirectories(projectRoot.resolve("assets/" + directory));
+            } catch (IOException e) {
+                AkytheraLabs.LOGGER.error("Failed to create reserved directory {}", directory, e);
+            }
+        }
 
         currentProject = new AkytheraProject(name, version, projectRoot, layouts, folderStates, focusedNode);
         currentProject.lastExportDataPath = exportDataPath;
@@ -263,7 +358,7 @@ public final class AkytheraProject {
         currentProject.lastSourceResourcePath = sourceResourcePath;
         currentProject.loadRegistries();
         currentProject.discoverEditorAssets();
-        currentProject.applyArmatureMappings(armatureMappings);
+        currentProject.applyPreviewBindings(previewBindings);
 
         return currentProject;
     }
@@ -282,6 +377,11 @@ public final class AkytheraProject {
         loadDatapackRegistry(AkytheraRegistries.DataPack.INPUT_ACTION_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.ABILITY_CUE_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.ABILITY_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.WIDGET_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY);
     }
 
     /// Loads every editor-editable [EnumerableDataBlock] type's entries from `data/<registryPath>/*.json`.
@@ -323,6 +423,14 @@ public final class AkytheraProject {
                 getEditorAnimationAccessorByPath(file);
             } catch (Exception e) {
                 AkytheraLabs.LOGGER.warn("Failed to register animation accessor for {}", file, e);
+            }
+        });
+
+        walkAssetFiles(ArmaturePhysicsManager.DIRECTORY, file -> {
+            try {
+                getEditorArmaturePhysicsAccessorByPath(file);
+            } catch (Exception e) {
+                AkytheraLabs.LOGGER.warn("Failed to register armature physics accessor for {}", file, e);
             }
         });
     }
@@ -372,42 +480,60 @@ public final class AkytheraProject {
     /// Finish the project without saving, and close editor layout
     public static void endProject() {
         AkytheraEditorLayoutManager.getInstance().closeEditorLayout();
-        // Entity→armature preview mappings are project state living in the engine's
-        // runtime map — drop them so they don't leak into the next project.
-        ComponentsFactory.getImpl().clearArmatureMappings();
+        // Entity preview bindings are project state living in a runtime map — drop them so they
+        // don't leak into the next project.
+        EntityPreviewModelMapping.clear();
         // The clipboard holds absolute paths of this project's files.
         ContentClipboard.getInstance().clear();
         currentProject = null;
     }
 
-    /// Re-registers [ComponentsFactory]'s entity→armature preview mappings from the saved
-    /// settings map (entity type id → armature accessor id). Clears the runtime map first,
-    /// so reloading the project reverts unsaved mapping edits. Entries whose entity type or
-    /// armature no longer resolves (removed mod, deleted asset) are skipped with a warning.
-    private void applyArmatureMappings(Map<String, String> saved) {
-        ComponentsFactory factory = ComponentsFactory.getImpl();
-        factory.clearArmatureMappings();
+    /// Re-registers [EntityPreviewModelMapping]'s bindings from the saved settings. Clears the
+    /// runtime maps first, so reloading the project reverts unsaved mapping edits. Entries whose
+    /// entity type, mesh or armature no longer resolves are skipped with a warning.
+    private void applyPreviewBindings(Map<String, JsonObject> saved) {
+        EntityPreviewModelMapping.clear();
 
-        for (Map.Entry<String, String> e : saved.entrySet()) {
+        for (Map.Entry<String, JsonObject> e : saved.entrySet()) {
             Identifier entityId = Identifier.tryParse(e.getKey());
-            Identifier armatureId = Identifier.tryParse(e.getValue());
+            EntityType<?> entityType = EntityPreviewModelMapping.typeOf(entityId);
 
-            if (entityId == null || armatureId == null || !BuiltInRegistries.ENTITY_TYPE.containsKey(entityId)) {
-                AkytheraLabs.LOGGER.warn("Skipping armature mapping {} -> {}: unknown entity type", e.getKey(), e.getValue());
+            if (entityType == null) {
+                AkytheraLabs.LOGGER.warn("Skipping preview binding for {}: unknown entity type", e.getKey());
                 continue;
             }
 
-            AssetAccessor<? extends Armature> armature = listAllArmatureAccessors()
+            JsonObject binding = e.getValue();
+
+            if (binding.has("mesh_id") && binding.has("mesh_type")) {
+                Identifier meshId = Identifier.tryParse(binding.get("mesh_id").getAsString());
+                EntityModelComponent.ModelType meshType = EntityModelComponent.ModelType.CODEC
+                    .parse(JsonOps.INSTANCE, binding.get("mesh_type"))
+                    .result()
+                    .orElse(null);
+
+                if (meshId == null || meshType == null) {
+                    AkytheraLabs.LOGGER.warn("Skipping preview mesh for {}: unreadable mesh binding", e.getKey());
+                } else {
+                    EntityPreviewModelMapping.setMesh(entityType, new EntityPreviewModel(meshId, meshType));
+                }
+            }
+
+            if (!binding.has("armature")) continue;
+
+            Identifier armatureId = Identifier.tryParse(binding.get("armature").getAsString());
+
+            AssetAccessor<? extends Armature> armature = armatureId == null ? null : listAllArmatureAccessors()
                 .filter(a -> a.identifier().equals(armatureId))
                 .findFirst()
                 .orElse(null);
 
             if (armature == null) {
-                AkytheraLabs.LOGGER.warn("Skipping armature mapping {} -> {}: armature not found", e.getKey(), e.getValue());
+                AkytheraLabs.LOGGER.warn("Skipping preview armature for {}: armature not found", e.getKey());
                 continue;
             }
 
-            factory.registerDefaultArmature(BuiltInRegistries.ENTITY_TYPE.getValue(entityId), armature);
+            EntityPreviewModelMapping.setArmature(entityType, armature);
         }
     }
 
@@ -423,12 +549,89 @@ public final class AkytheraProject {
         return currentProject;
     }
 
+    /// Whether the engine's registry lookups on this thread see the open project's entries.
+    private static final ThreadLocal<Boolean> PROJECT_LOOKUPS = ThreadLocal.withInitial(() -> false);
+
+    /// Runs `task` with the engine's registry lookups on this thread seeing the open project's entries.
+    public static <T> T withProjectLookups(final Supplier<T> task) {
+        boolean previous = PROJECT_LOOKUPS.get();
+        PROJECT_LOOKUPS.set(true);
+
+        try {
+            return task.get();
+        } finally {
+            PROJECT_LOOKUPS.set(previous);
+        }
+    }
+
+    /// Answers the engine's registry entry lookups with the open project's entries, inside [#withProjectLookups].
+    public static void registerEvents() {
+        BuiltInEventHooks.Registry.LOOKUP_ENTRY_BY_KEY.registerEvent(AkytheraProject::onLookupEntryByKey);
+        BuiltInEventHooks.Registry.LOOKUP_ENTRY_BY_VALUE.registerEvent(AkytheraProject::onLookupEntryByValue);
+    }
+
+    private static <T> void onLookupEntryByKey(final RegistryEntryLookupEvent.ByKey<T> event) {
+        if (currentProject == null || !PROJECT_LOOKUPS.get()) return;
+
+        ProjectObjectRegistry<T, ?> registry = currentProject.getModifiableRegistry(event.getKey().registryKey());
+
+        if (registry != null && registry.containsKey(event.getKey())) {
+            event.setResult(registry.projectHolder(event.getKey()));
+        }
+    }
+
+    private static <T> void onLookupEntryByValue(final RegistryEntryLookupEvent.ByValue<T> event) {
+        if (currentProject == null || !PROJECT_LOOKUPS.get()) return;
+
+        ProjectObjectRegistry<T, ?> registry = currentProject.getModifiableRegistry(event.getRegistry());
+
+        if (registry != null) {
+            registry.getResourceKey(event.getValue()).ifPresent(event::setResult);
+        }
+    }
+
     // ******************* Registry Management *******************
+
+    /// Texture files, laid out the way a resource pack lays out `assets/<namespace>/textures`.
+    public static final String TEXTURES_DIRECTORY = "textures/";
+
+    /// GUI sprites, which the game stitches into its GUI atlas instead of loading them as plain
+    /// textures. One of [#RESERVED_DIRECTORIES].
+    public static final String GUI_SPRITES_DIRECTORY = "textures/gui/sprites/";
+
+    /// Particle sprites, which the game stitches into its particle atlas. One of [#RESERVED_DIRECTORIES].
+    public static final String PARTICLE_SPRITES_DIRECTORY = "textures/particle/";
+
+    /// Ogg Vorbis sound files, laid out the way a resource pack lays out `assets/<namespace>/sounds`.
+    public static final String SOUNDS_DIRECTORY = "sounds/";
+
+    /// The extension of a sound file under [#SOUNDS_DIRECTORY].
+    public static final String SOUND_EXTENSION = ".ogg";
+
+    /// The extension of a sound event under [#SOUNDS_DIRECTORY], one `sounds.json` entry per file.
+    public static final String SOUND_EVENT_EXTENSION = AssetLoader.METADATA_EXTENSION;
+
+    /// The file a resource pack lists its sound events in, at `assets/<namespace>/sounds.json`.
+    public static final String SOUNDS_JSON = "sounds.json";
+
+    /// Where a resource pack keeps its lang files, under `assets/<namespace>`.
+    public static final String LANG_DIRECTORY = "lang/";
 
     public static final Set<String> ASSETS_FOLDERS = Set.of(
         AnimationManager.DIRECTORY,
         ArmatureManager.DIRECTORY,
-        MeshManager.DIRECTORY
+        MeshManager.DIRECTORY,
+        ArmaturePhysicsManager.DIRECTORY,
+        ClothPhysicsLoader.DIRECTORY,
+        TEXTURES_DIRECTORY,
+        SOUNDS_DIRECTORY
+    );
+
+    /// Directories under `assets` every project keeps. Created on project load, and locked against
+    /// rename and removal along with every directory on the way to them.
+    public static final Set<String> RESERVED_DIRECTORIES = Set.of(
+        GUI_SPRITES_DIRECTORY,
+        PARTICLE_SPRITES_DIRECTORY
     );
 
     public static final Set<ResourceKey<? extends Registry<?>>> DATAPACK_REGISTRIES = Set.of(
@@ -441,7 +644,18 @@ public final class AkytheraProject {
         AkytheraRegistries.DataPack.ABILITY_KEY,
         AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY,
         AkytheraRegistries.DataPack.ABILITY_CUE_KEY,
-        AkytheraRegistries.DataPack.INPUT_ACTION_KEY
+        AkytheraRegistries.DataPack.INPUT_ACTION_KEY,
+        AkytheraRegistries.DataPack.WIDGET_KEY,
+        AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY,
+        AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY,
+        AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY,
+        AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY
+    );
+
+    /// The [#DATAPACK_REGISTRIES] the explorer does not list. Their entries are reached from the editors that use them.
+    public static final Set<ResourceKey<? extends Registry<?>>> EXPLORER_HIDDEN_REGISTRIES = Set.of(
+        AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY,
+        AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY
     );
 
     private final Map<ResourceKey<? extends Registry<?>>, ProjectObjectRegistry<?, ?>> modifiableRegistries = new HashMap<>();
@@ -592,17 +806,40 @@ public final class AkytheraProject {
     /// animator script editor offers these for new states / layer nodes and validates
     /// references against this set at compile time (editor-created blocks can be removed
     /// dynamically, so a node may reference one that no longer exists).
+    ///
+    /// A path-identified block the project declares is listed once, as the project's entry.
     public <T extends EnumerableDataBlock> SortedSet<Identifier> getMergedDataBlockIdentifiers(
         EnumerableDataBlockManager<T> manager
     ) {
         SortedSet<Identifier> ids = new TreeSet<>(Comparator.comparing(Identifier::toString));
-        for (T value : manager.universalValues()) ids.add(value.identifier());
-
         ProjectObjectRegistry<T, ?> registry = getModifiableRegistry(manager.directoryKey());
         if (registry != null) ids.addAll(registry.keySet());
 
+        for (T value : manager.universalValues()) {
+            Identifier id = value.identifier();
+            if (registry == null || !registry.containsKey(projectDataBlockId(manager, id))) ids.add(id);
+        }
+
+        if (registry != null && manager.isPathIdentified()) {
+            Set<String> registeredPaths = new HashSet<>();
+            ids.forEach(id -> registeredPaths.add(id.getPath()));
+
+            for (Identifier key : registry.keySet()) {
+                String path = key.getPath();
+
+                for (int cut = path.lastIndexOf('/'); cut > 0; cut = path.lastIndexOf('/', cut - 1)) {
+                    String parent = path.substring(0, cut);
+                    if (registeredPaths.add(parent)) ids.add(Identifier.fromNamespaceAndPath(projectName, parent));
+                }
+            }
+        }
+
         return ids;
     }
+
+    /// Blocks standing for the parent paths of this project's path-identified entries, by id, see
+    /// [#getDataBlockHolder]. One per id, so every reference to a parent holds the same object.
+    private final Map<Identifier, EnumerableDataBlock> impliedDataBlocks = new HashMap<>();
 
     /// Resolve one editable data block to a live [Holder], **project &cup; manager** (NOT
     /// `StaticRegistryAccess` — data blocks live in the [EnumerableDataBlockManager], not in a
@@ -613,12 +850,133 @@ public final class AkytheraProject {
         EnumerableDataBlockManager<T> manager, Identifier id
     ) {
         ProjectObjectRegistry<T, ?> registry = getModifiableRegistry(manager.directoryKey());
+        Identifier projectId = projectDataBlockId(manager, id);
 
-        if (registry != null && registry.containsKey(id)) {
-            return registry.projectHolder(ResourceKey.create(manager.directoryKey(), id));
+        if (registry != null && registry.containsKey(projectId)) {
+            return registry.projectHolder(ResourceKey.create(manager.directoryKey(), projectId));
         }
 
-        return manager.get(id).map(Holder::direct).orElse(null);
+        Optional<T> registered = manager.get(id);
+        if (registered.isPresent()) return Holder.direct(registered.get());
+
+        // A path-identified entry registers its parent paths too, which the engine does only once the
+        // exported pack loads.
+        DataBlockRegistries.Entry<?, ?> entry = DataBlockRegistries.entryOf(manager.directoryKey());
+
+        if (entry == null || registry == null || !manager.isPathIdentified()
+            || registry.keySet().stream().noneMatch(key -> key.getPath().startsWith(id.getPath() + "/"))) {
+            return null;
+        }
+
+        @SuppressWarnings("unchecked")
+        T implied = (T) impliedDataBlocks.computeIfAbsent(projectId, _ -> {
+            DataBlockHolder<T> holder = (DataBlockHolder<T>) entry.holderFactory().get();
+            holder.setOwnResourceKey(ResourceKey.create(manager.directoryKey(), projectId));
+
+            return holder.makeObject();
+        });
+
+        return Holder.direct(implied);
+    }
+
+    /// The id this project keys `id` by: moved into the project namespace for a path-identified
+    /// block, unchanged otherwise.
+    private Identifier projectDataBlockId(EnumerableDataBlockManager<?> manager, Identifier id) {
+        return manager.isPathIdentified() ? Identifier.fromNamespaceAndPath(projectName, id.getPath()) : id;
+    }
+
+    /// The first tag path that moving `from` onto `to` would break the path-identified data block rule
+    /// with, or null when it breaks none. Each is a file or a directory; `keepsSource` is set for a
+    /// copy, whose source files stay where they are.
+    ///
+    /// See [EnumerableDataBlockManager#isPathIdentified] for the rule, which [#isTagPathRefused] tests.
+    public @Nullable String refusedTagPath(Path from, Path to, boolean keepsSource) {
+        for (DataBlockRegistries.Entry<?, ?> entry : DataBlockRegistries.all()) {
+            Path registryDir = projectRoot.resolve("data").resolve(entry.registryKey().identifier().getPath());
+            if (!entry.manager().isPathIdentified() || !to.startsWith(registryDir)) continue;
+
+            List<Path> files = new ArrayList<>();
+
+            if (Files.isDirectory(from)) {
+                FileSystemHelper.forEachFile(from, file -> file.toString().endsWith(".json"), files::add);
+            } else {
+                files.add(from);
+            }
+
+            Set<String> leaving = new HashSet<>();
+
+            if (!keepsSource && from.startsWith(registryDir)) {
+                for (Path file : files) {
+                    String rel = FileSystemHelper.relativeIdPath(registryDir, file);
+                    leaving.add(rel.substring(0, rel.length() - ".json".length()));
+                }
+            }
+
+            for (Path file : files) {
+                String rel = FileSystemHelper.relativeIdPath(registryDir, to.resolve(from.relativize(file)));
+                String idPath = rel.substring(0, rel.length() - ".json".length());
+
+                if (isTagPathRefused(entry.registryKey(), idPath, leaving)) return idPath;
+            }
+
+            return null;
+        }
+
+        return null;
+    }
+
+    /// Whether `idPath` may not become an entry of the path-identified data block `registryKey`: a mod
+    /// or a loaded data pack registers it already, it is the parent of a project entry, or it sits
+    /// under a terminal. Project entries in `leaving` are ignored. False for any other registry.
+    public boolean isTagPathRefused(ResourceKey<? extends Registry<?>> registryKey, String idPath, Set<String> leaving) {
+        DataBlockRegistries.Entry<?, ?> entry = DataBlockRegistries.entryOf(registryKey);
+        if (entry == null || !entry.manager().isPathIdentified()) return false;
+
+        int slash = idPath.lastIndexOf('/');
+
+        return entry.manager().get(Identifier.fromNamespaceAndPath(projectName, idPath)).isPresent()
+            || projectEntryPaths(registryKey, leaving).stream().anyMatch(path -> path.startsWith(idPath + "/"))
+            || isTagParentRefused(registryKey, slash < 0 ? "" : idPath.substring(0, slash), leaving);
+    }
+
+    /// Whether no entry of the path-identified data block `registryKey` may go under `parentPath`,
+    /// since it or one of its ancestors is a terminal: a project entry, or a registered entry with
+    /// nothing registered beneath it. Project entries in `leaving` are ignored. False for any other
+    /// registry.
+    public boolean isTagParentRefused(ResourceKey<? extends Registry<?>> registryKey, String parentPath, Set<String> leaving) {
+        DataBlockRegistries.Entry<?, ?> entry = DataBlockRegistries.entryOf(registryKey);
+        if (entry == null || !entry.manager().isPathIdentified()) return false;
+
+        Set<String> projectPaths = projectEntryPaths(registryKey, leaving);
+        Set<String> registeredPaths = new HashSet<>();
+        entry.manager().universalValues().forEach(value -> registeredPaths.add(value.identifier().getPath()));
+
+        for (String path = parentPath; !path.isEmpty(); path = path.substring(0, Math.max(path.lastIndexOf('/'), 0))) {
+            String ancestor = path;
+
+            if (projectPaths.contains(ancestor)) return true;
+
+            if (registeredPaths.contains(ancestor)
+                && registeredPaths.stream().noneMatch(registered -> registered.startsWith(ancestor + "/"))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// The id paths of this project's entries in `registryKey`, except those in `leaving`.
+    private Set<String> projectEntryPaths(ResourceKey<? extends Registry<?>> registryKey, Set<String> leaving) {
+        Set<String> paths = new HashSet<>();
+        ProjectObjectRegistry<?, ?> registry = modifiableRegistries.get(registryKey);
+
+        if (registry != null) {
+            for (Identifier id : registry.keySet()) {
+                if (!leaving.contains(id.getPath())) paths.add(id.getPath());
+            }
+        }
+
+        return paths;
     }
 
     /// Non-null variant of [#getDataBlockHolder]: an id in neither the project nor the manager
@@ -698,11 +1056,12 @@ public final class AkytheraProject {
             .map(e -> e.getKey().identifier().getPath())
             .collect(Collectors.toSet());
 
+        Predicate<String> taken = path -> existingPaths.contains(path) || isTagPathRefused(key, path, Set.of());
         String candidate = subPath.isEmpty() ? baseName : subPath + "/" + baseName;
-        if (!existingPaths.contains(candidate)) return baseName;
+        if (!taken.test(candidate)) return baseName;
 
         int i = 1;
-        while (existingPaths.contains(candidate + "_" + i)) i++;
+        while (taken.test(candidate + "_" + i)) i++;
 
         return baseName + "_" + i;
     }
@@ -1002,6 +1361,113 @@ public final class AkytheraProject {
         return true;
     }
 
+    /// Whether `directory` is one of [#RESERVED_DIRECTORIES], or a directory on the way to one.
+    public boolean isReservedDirectory(Path directory) {
+        Path assetsRoot = projectRoot.resolve("assets");
+
+        if (!directory.startsWith(assetsRoot)) return false;
+
+        String relativePath = FileSystemHelper.relativeIdPath(assetsRoot, directory) + "/";
+
+        return RESERVED_DIRECTORIES.stream().anyMatch(reserved -> reserved.startsWith(relativePath));
+    }
+
+    /// Whether `textureFile` lies under [#GUI_SPRITES_DIRECTORY].
+    public boolean isGuiSprite(Path textureFile) {
+        return textureFile.startsWith(projectRoot.resolve("assets").resolve(GUI_SPRITES_DIRECTORY));
+    }
+
+    /// The id `textureFile` is exported under, `<projectName>:textures/….png`, or null when its path is
+    /// no valid id path.
+    public @Nullable Identifier getTextureIdentifier(Path textureFile) {
+        return Identifier.tryBuild(projectName, FileSystemHelper.relativeIdPath(projectRoot.resolve("assets"), textureFile));
+    }
+
+    /// The id of the sound file or sound event `file` under [#SOUNDS_DIRECTORY]:
+    /// `<projectName>:<path under sounds/>` with the extension trimmed, or null when its path is no valid
+    /// id path. A sound file's id is how a sound entry names it, see [Sound#getLocation].
+    public @Nullable Identifier getSoundId(Path file) {
+        String relativePath = FileSystemHelper.relativeIdPath(projectRoot.resolve("assets").resolve(SOUNDS_DIRECTORY), file);
+
+        return Identifier.tryBuild(projectName, FileSystemHelper.stem(relativePath));
+    }
+
+    /// The file defining the sound event `eventId`, the inverse of [#getSoundId]. Null for an id of
+    /// another namespace. The file need not exist.
+    public @Nullable Path getSoundEventFile(Identifier eventId) {
+        if (!eventId.getNamespace().equals(projectName)) return null;
+
+        return projectRoot.resolve("assets")
+            .resolve(SOUNDS_DIRECTORY)
+            .resolve(FileSystemHelper.toOsString(eventId.getPath() + SOUND_EVENT_EXTENSION));
+    }
+
+    /// Whether `file` lies under [#SOUNDS_DIRECTORY], where an `.akmeta` is a sound event of its own
+    /// rather than another file's sidecar.
+    public boolean isSoundAsset(Path file) {
+        return file.startsWith(projectRoot.resolve("assets").resolve(SOUNDS_DIRECTORY));
+    }
+
+    /// Whether `file` is a sound event, see [SoundEventHolder].
+    public boolean isSoundEvent(Path file) {
+        return isSoundAsset(file) && file.toString().endsWith(SOUND_EVENT_EXTENSION);
+    }
+
+    /// The project sound files the `file` entries of the sound event `eventFile` name. A named file need
+    /// not exist.
+    public List<Path> soundFilesOf(Path eventFile) {
+        Path soundsRoot = projectRoot.resolve("assets").resolve(SOUNDS_DIRECTORY);
+        List<Path> soundFiles = new ArrayList<>();
+
+        for (SoundEventHolder.SoundHolder sound : SoundEventHolder.readFrom(eventFile).getSounds()) {
+            Identifier location = Identifier.tryParse(sound.getName());
+
+            if (sound.getType() != Sound.Type.FILE || location == null || !location.getNamespace().equals(projectName)) continue;
+
+            soundFiles.add(soundsRoot.resolve(FileSystemHelper.toOsString(location.getPath() + SOUND_EXTENSION)));
+        }
+
+        return soundFiles;
+    }
+
+    /// Ids of the project sound events naming the sound file `soundFile`.
+    public List<Identifier> soundEventsUsing(Path soundFile) {
+        List<Identifier> eventIds = new ArrayList<>();
+
+        FileSystemHelper.forEachFile(
+            projectRoot.resolve("assets").resolve(SOUNDS_DIRECTORY),
+            this::isSoundEvent,
+            eventFile -> {
+                Identifier eventId = getSoundId(eventFile);
+                if (eventId != null && soundFilesOf(eventFile).contains(soundFile)) eventIds.add(eventId);
+            }
+        );
+
+        return eventIds;
+    }
+
+    /// Every project sound file some sound event names.
+    public Set<Path> usedSoundFiles() {
+        Set<Path> used = new HashSet<>();
+
+        FileSystemHelper.forEachFile(
+            projectRoot.resolve("assets").resolve(SOUNDS_DIRECTORY),
+            this::isSoundEvent,
+            eventFile -> used.addAll(soundFilesOf(eventFile))
+        );
+
+        return used;
+    }
+
+    /// Deletes each of `soundFiles` that no sound event names any more.
+    public void deleteUnusedSoundFiles(Collection<Path> soundFiles) {
+        Set<Path> used = usedSoundFiles();
+
+        for (Path soundFile : soundFiles) {
+            if (!used.contains(soundFile)) FileSystemHelper.deleteRecursive(soundFile);
+        }
+    }
+
     // ******************* Project Metadata *******************
 
     /// root directory of the project. Mutable because [#renameProject] moves
@@ -1017,11 +1483,12 @@ public final class AkytheraProject {
     /// ratio of [AdjustablePanelManager]'s panel divider of each screen
     private final Map<Class<? extends Screen>, List<Integer>> layoutDividerSetup;
 
-    /// folder fold/unfold states loaded from project_settings.akproject
+    /// folder fold/unfold states stored in project_settings.akproject
     private final Map<String, Boolean> savedFolderStates;
 
-    /// slash-joined node path of the last focused tree node, or "none"
-    private final String savedFocusedNode;
+    /// Path of the focused tree node stored in project_settings.akproject, relative to
+    /// [#projectRoot] and joined with the OS separator. Empty when no node is focused.
+    private String savedFocusedNode;
 
     /// Last folders picked in the `Export as Pack` modal (Data Path / Resource Path), remembered in
     /// project_settings.akproject so the modal reopens on the previous destinations. Forward-slash
@@ -1034,6 +1501,8 @@ public final class AkytheraProject {
     /// Forward-slash normalized (see [#saveSourceExportPaths]); empty until first source export.
     private String lastSourceDataPath = "";
     private String lastSourceResourcePath = "";
+
+    private final ProjectLocalization localization;
 
     public AkytheraProject(String projectName, String versionString, Path projectRoot) {
         this(projectName, versionString, projectRoot, new HashMap<>(), new LinkedHashMap<>(), "none");
@@ -1053,6 +1522,7 @@ public final class AkytheraProject {
         this.layoutDividerSetup = new HashMap<>(savedLayouts);
         this.savedFolderStates = new LinkedHashMap<>(savedFolderStates);
         this.savedFocusedNode = savedFocusedNode;
+        this.localization = ProjectLocalization.load(projectRoot);
 
         // Must match with 'DATAPACK_REGISTRIES'
         // Manually gives registry keys to generated typed registry
@@ -1068,6 +1538,11 @@ public final class AkytheraProject {
         createProjectRegistry(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY, AbilityEffectHolder::new, AbilityEffectHolder.EDITOR_CODEC);
         createProjectRegistry(AkytheraRegistries.DataPack.ABILITY_CUE_KEY, AbilityCueBlueprintHolder::new, AbilityCueBlueprintHolder.EDITOR_CODEC);
         createProjectRegistry(AkytheraRegistries.DataPack.INPUT_ACTION_KEY, InputActionHolder::new, InputActionHolder.EDITOR_CODEC);
+        createProjectRegistry(AkytheraRegistries.DataPack.WIDGET_KEY, WidgetBlueprintHolder::new, WidgetBlueprintHolder.EDITOR_CODEC);
+        createProjectRegistry(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY, ParticleBlueprintHolder::new, ParticleBlueprintHolder.EDITOR_CODEC);
+        createProjectRegistry(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, ParticleSystemHolder::new, ParticleSystemHolder.EDITOR_CODEC);
+        createProjectRegistry(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY, ParticleInitializerScriptHolder::new, ParticleInitializerScriptHolder.EDITOR_CODEC);
+        createProjectRegistry(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY, ParticleUpdaterScriptHolder::new, ParticleUpdaterScriptHolder.EDITOR_CODEC);
 
         // Editor-editable EnumerableDataBlock types (FSMAnimationState, AnimationLayerSignature, …):
         // one registry each, value type = the engine enum type. These never enter the engine
@@ -1083,6 +1558,14 @@ public final class AkytheraProject {
 
     public String getProjectName() {
         return projectName;
+    }
+
+    public ProjectLocalization getLocalization() {
+        return localization;
+    }
+
+    public void saveLocalization() {
+        localization.save(projectRoot);
     }
 
     /// Rename the project on disk and rebuild every namespace-bearing piece
@@ -1341,22 +1824,52 @@ public final class AkytheraProject {
         Path dataRoot = projectRoot.resolve("data");
         Path assetsRoot = projectRoot.resolve("assets");
 
+        // Sound files the deleted events played, deleted with them unless another event still names one
+        List<Path> releasedSoundFiles = new ArrayList<>();
+
         if (Files.isRegularFile(path)) {
             unregisterDeletedFile(dataRoot, assetsRoot, path);
 
-            // A directory delete already takes the sidecar with the rest of the tree. A single-file
-            // delete has to take it explicitly — and here rather than inside unregisterAssetFile,
+            if (isSoundEvent(path)) releasedSoundFiles.addAll(soundFilesOf(path));
+
+            // A directory delete already takes the sidecars with the rest of the tree. A single-file
+            // delete has to take them explicitly — and here rather than inside unregisterAssetFile,
             // which the directory branch below calls while it is still walking that directory.
             Path metadataFile = getMetadataFileBeside(path);
+            Path mcmetaFile = getMcmetaFileBeside(path);
 
-            if (path.startsWith(assetsRoot) && Files.isRegularFile(metadataFile)) {
+            if (path.startsWith(assetsRoot) && !isSoundAsset(path) && Files.isRegularFile(metadataFile)) {
                 FileSystemHelper.deleteRecursive(metadataFile);
             }
+
+            if (path.startsWith(assetsRoot) && Files.isRegularFile(mcmetaFile)) {
+                FileSystemHelper.deleteRecursive(mcmetaFile);
+            }
+
+            deleteCompanionOf(path);
         } else {
-            FileSystemHelper.forEachFile(path, file -> unregisterDeletedFile(dataRoot, assetsRoot, file));
+            FileSystemHelper.forEachFile(path, file -> {
+                unregisterDeletedFile(dataRoot, assetsRoot, file);
+                deleteCompanionOf(file);
+
+                if (isSoundEvent(file)) releasedSoundFiles.addAll(soundFilesOf(file));
+            });
         }
 
         FileSystemHelper.deleteRecursive(path);
+
+        if (!releasedSoundFiles.isEmpty()) deleteUnusedSoundFiles(releasedSoundFiles);
+    }
+
+    /// Deletes the companion of a deleted asset, sidecar and accessor bookkeeping included. The
+    /// companion lives under a different asset root, so this is safe to call while walking a deleted
+    /// directory.
+    private void deleteCompanionOf(Path assetFile) {
+        Path companion = companionOf(assetFile);
+
+        if (companion != null && Files.isRegularFile(companion)) {
+            deletePathRecursive(companion);
+        }
     }
 
     private void unregisterDeletedFile(Path dataRoot, Path assetsRoot, Path file) {
@@ -1397,32 +1910,54 @@ public final class AkytheraProject {
         } else if (rel.startsWith(AnimationManager.DIRECTORY)) {
             editorAnimations.remove(id);
             issuedEditorAnimationAccessors.remove(id);
+        } else if (rel.startsWith(ArmaturePhysicsManager.DIRECTORY)) {
+            issuedEditorArmaturePhysicsAccessors.remove(id);
+        } else if (rel.startsWith(ClothPhysicsLoader.DIRECTORY)) {
+            Identifier meshId = Identifier.fromNamespaceAndPath(
+                id.getNamespace(),
+                MeshManager.DIRECTORY + id.getPath().substring(ClothPhysicsLoader.DIRECTORY.length())
+            );
+
+            clothPhysicsHolders.remove(meshId);
         }
     }
 
     /// Copies `source` into `targetDir` under a free name and registers whatever landed. An asset
-    /// takes its `.akmeta` sidecar along; a directory is copied whole. Returns the new path, or null
-    /// when nothing was copied.
+    /// takes its `.akmeta` or `.mcmeta` sidecar along; a directory is copied whole. Returns the new
+    /// path, or null when nothing was copied.
     public @Nullable Path copyInto(Path source, Path targetDir) {
         if (!Files.exists(source)) return null;
 
-        String fileName = source.getFileName().toString();
         boolean directory = Files.isDirectory(source);
-        String extension = directory ? "" : FileSystemHelper.extension(fileName);
-        String stem = directory ? fileName : FileSystemHelper.stem(fileName);
-        Path target = targetDir.resolve(FileSystemHelper.findNextAvailableName(targetDir, stem, extension) + extension);
+        Path target = copyTarget(source, targetDir);
 
         if (!FileSystemHelper.copyRecursive(source, target)) return null;
 
         Path sidecar = getMetadataFileBeside(source);
 
-        if (!directory && Files.isRegularFile(sidecar)) {
+        if (!directory && !isSoundAsset(source) && Files.isRegularFile(sidecar)) {
             FileSystemHelper.copyReplace(sidecar, getMetadataFileBeside(target));
+        }
+
+        Path mcmetaFile = getMcmetaFileBeside(source);
+
+        if (!directory && Files.isRegularFile(mcmetaFile)) {
+            FileSystemHelper.copyReplace(mcmetaFile, getMcmetaFileBeside(target));
         }
 
         registerPathRecursive(target);
 
         return target;
+    }
+
+    /// Where [#copyInto] puts a copy of `source` in `targetDir`: its own name, or the next free one.
+    public Path copyTarget(Path source, Path targetDir) {
+        String fileName = source.getFileName().toString();
+        boolean directory = Files.isDirectory(source);
+        String extension = directory ? "" : FileSystemHelper.extension(fileName);
+        String stem = directory ? fileName : FileSystemHelper.stem(fileName);
+
+        return targetDir.resolve(FileSystemHelper.findNextAvailableName(targetDir, stem, extension) + extension);
     }
 
     /// Registers every datapack entry / editor accessor the files under `path` stand for — the
@@ -1485,6 +2020,8 @@ public final class AkytheraProject {
                 getEditorArmatureAccessorByPath(file);
             } else if (rel.startsWith(AnimationManager.DIRECTORY)) {
                 getEditorAnimationAccessorByPath(file);
+            } else if (rel.startsWith(ArmaturePhysicsManager.DIRECTORY)) {
+                getEditorArmaturePhysicsAccessorByPath(file);
             }
         } catch (Exception e) {
             AkytheraLabs.LOGGER.warn("Failed to register asset accessor for {}", file, e);
@@ -1521,6 +2058,26 @@ public final class AkytheraProject {
             byte[] bytes = FileSystemHelper.readBytes(p);
             if (bytes == null) return;
 
+            // A sound event's delete may take the sound files it plays, so the restore brings back those
+            // still missing.
+            if (isSoundEvent(p)) {
+                Map<Path, byte[]> soundFileBytes = new HashMap<>();
+
+                for (Path soundFile : soundFilesOf(p)) {
+                    byte[] soundBytes = Files.isRegularFile(soundFile) ? FileSystemHelper.readBytes(soundFile) : null;
+                    if (soundBytes != null) soundFileBytes.put(soundFile, soundBytes);
+                }
+
+                steps.add(() -> {
+                    FileSystemHelper.writeBytes(p, bytes);
+
+                    soundFileBytes.forEach((soundFile, soundBytes) -> {
+                        if (!Files.exists(soundFile)) FileSystemHelper.writeBytes(soundFile, soundBytes);
+                    });
+                });
+                return;
+            }
+
             if (p.startsWith(dataRoot) && p.toString().endsWith(".json")) {
                 DataCapture cap = captureDataEntry(dataRoot, p);
                 if (cap != null) {
@@ -1538,10 +2095,28 @@ public final class AkytheraProject {
                         ? FileSystemHelper.readBytes(metadataFile)
                         : null;
 
+                    Path companion = companionOf(p);
+                    boolean companionPresent = companion != null && Files.isRegularFile(companion);
+                    byte[] companionBytes = companionPresent ? FileSystemHelper.readBytes(companion) : null;
+                    Path companionMetadataFile = companionPresent ? getMetadataFileBeside(companion) : null;
+                    byte[] companionMetadataBytes = companionPresent && Files.isRegularFile(companionMetadataFile)
+                        ? FileSystemHelper.readBytes(companionMetadataFile)
+                        : null;
+
                     steps.add(() -> {
                         FileSystemHelper.writeBytes(p, bytes);
 
                         if (metadataBytes != null) FileSystemHelper.writeBytes(metadataFile, metadataBytes);
+
+                        if (companionBytes != null) {
+                            FileSystemHelper.writeBytes(companion, companionBytes);
+
+                            if (companionMetadataBytes != null) {
+                                FileSystemHelper.writeBytes(companionMetadataFile, companionMetadataBytes);
+                            }
+
+                            registerPathRecursive(companion);
+                        }
 
                         cap.reinsert().run();
                     });
@@ -1549,7 +2124,15 @@ public final class AkytheraProject {
                 }
             }
 
-            steps.add(() -> FileSystemHelper.writeBytes(p, bytes));
+            // A single-file delete takes the texture's sidecar with it, so the restore brings it back too.
+            Path mcmetaFile = getMcmetaFileBeside(p);
+            byte[] mcmetaBytes = Files.isRegularFile(mcmetaFile) ? FileSystemHelper.readBytes(mcmetaFile) : null;
+
+            steps.add(() -> {
+                FileSystemHelper.writeBytes(p, bytes);
+
+                if (mcmetaBytes != null) FileSystemHelper.writeBytes(mcmetaFile, mcmetaBytes);
+            });
         });
 
         return () -> steps.forEach(Runnable::run);
@@ -1614,6 +2197,33 @@ public final class AkytheraProject {
         return null;
     }
 
+    /// The file belonging to the asset at `assetFile` that lives under another asset root: a skeletal
+    /// mesh's cloth, or an armature's physics. Null for a kind that has no companion — the file itself
+    /// need not exist.
+    private @Nullable Path companionOf(Path assetFile) {
+        Path assetsRoot = projectRoot.resolve("assets");
+
+        if (!assetFile.startsWith(assetsRoot)) return null;
+
+        String rel = FileSystemHelper.relativeIdPath(assetsRoot, assetFile);
+        String stem = ParseUtils.trimExtensions(rel, AssetLoader.BINARY_EXTENSION, "json");
+
+        if (rel.startsWith(MeshManager.DIRECTORY)) {
+            return assetsRoot.resolve(FileSystemHelper.toOsString(
+                ClothPhysicsLoader.DIRECTORY + stem.substring(MeshManager.DIRECTORY.length()) + "." + AssetLoader.BINARY_EXTENSION
+            ));
+        }
+
+        if (rel.startsWith(ArmatureManager.DIRECTORY)) {
+            return assetsRoot.resolve(FileSystemHelper.toOsString(
+                ArmaturePhysicsManager.DIRECTORY + stem.substring(ArmatureManager.DIRECTORY.length()) + ".json"
+            ));
+        }
+
+        return null;
+    }
+
+
     /// Re-points the editor accessor for an asset file from `oldPath` to `newPath`, after the file
     /// has been moved on disk. The accessor's id mutates in place, so every referrer holding the
     /// shared instance reports the new id — see [#renameAssetIn].
@@ -1629,9 +2239,17 @@ public final class AkytheraProject {
         // claims the old name next.
         Path oldMetadataFile = getMetadataFileBeside(oldPath);
 
-        if (Files.isRegularFile(oldMetadataFile)) {
+        if (!isSoundAsset(oldPath) && Files.isRegularFile(oldMetadataFile)) {
             FileSystemHelper.move(oldMetadataFile, getMetadataFileBeside(newPath));
         }
+
+        Path oldMcmetaFile = getMcmetaFileBeside(oldPath);
+
+        if (Files.isRegularFile(oldMcmetaFile)) {
+            FileSystemHelper.move(oldMcmetaFile, getMcmetaFileBeside(newPath));
+        }
+
+        moveCompanion(oldPath, newPath);
 
         String oldRel = FileSystemHelper.relativeIdPath(assetsRoot, oldPath);
         String newRel = FileSystemHelper.relativeIdPath(assetsRoot, newPath);
@@ -1642,7 +2260,35 @@ public final class AkytheraProject {
             renameAssetIn(editorArmatures, issuedEditorArmatureAccessors, oldRel, newRel);
         } else if (oldRel.startsWith(AnimationManager.DIRECTORY)) {
             renameAssetIn(editorAnimations, issuedEditorAnimationAccessors, oldRel, newRel);
+        } else if (isSoundAsset(oldPath)) {
+            Identifier oldId = getSoundId(oldPath);
+            Identifier newId = getSoundId(newPath);
+            Sound.Type type = oldRel.endsWith(SOUND_EXTENSION) ? Sound.Type.FILE : Sound.Type.SOUND_EVENT;
+
+            if (oldId != null && newId != null && !oldId.equals(newId)) rewriteSoundReferences(type, oldId, newId);
         }
+    }
+
+    /// Re-points every project sound entry of `type` naming `oldId` at `newId`. A sound event is an
+    /// asset rather than a registry entry, so it carries the ids as text and has to be rewritten.
+    private void rewriteSoundReferences(Sound.Type type, Identifier oldId, Identifier newId) {
+        FileSystemHelper.forEachFile(
+            projectRoot.resolve("assets").resolve(SOUNDS_DIRECTORY),
+            this::isSoundEvent,
+            eventFile -> {
+                SoundEventHolder event = SoundEventHolder.readFrom(eventFile);
+                boolean changed = false;
+
+                for (SoundEventHolder.SoundHolder sound : event.getSounds()) {
+                    if (sound.getType() == type && oldId.equals(Identifier.tryParse(sound.getName()))) {
+                        sound.setName(newId.toString());
+                        changed = true;
+                    }
+                }
+
+                if (changed) FileSystemHelper.writeJson(eventFile, SoundEventHolder.CODEC, event);
+            }
+        );
     }
 
     /// Re-key both the loaded-object cache and the issued-accessor map, then `rename` the accessor
@@ -1653,25 +2299,112 @@ public final class AkytheraProject {
         Map<Identifier, A> issued,
         String oldRel, String newRel
     ) {
-        Identifier oldId = Identifier.fromNamespaceAndPath(projectName, ParseUtils.trimExtensions(oldRel, AssetLoader.BINARY_EXTENSION, "json"));
-        Identifier newId = Identifier.fromNamespaceAndPath(projectName, ParseUtils.trimExtensions(newRel, AssetLoader.BINARY_EXTENSION, "json"));
+        renameIssuedAccessor(issued, oldRel, newRel);
+
+        V loaded = cache.remove(idOfRelativePath(oldRel));
+        if (loaded != null) cache.put(idOfRelativePath(newRel), loaded);
+    }
+
+    /// Re-keys the issued accessor, then `rename`s it — that mutates the id in place, so every referrer
+    /// holding this shared accessor instance now reports the new id. A re-save scan then flushes those
+    /// referrers' JSON to match.
+    private <A extends AssetAccessor<?>> void renameIssuedAccessor(Map<Identifier, A> issued, String oldRel, String newRel) {
+        Identifier oldId = idOfRelativePath(oldRel);
+        Identifier newId = idOfRelativePath(newRel);
 
         if (oldId.equals(newId)) return;
 
         A accessor = issued.remove(oldId);
 
-        if (accessor != null) {
-            EditorReferenceable<?> renamed = (EditorReferenceable<?>) accessor;
-            renamed.rename(newId);
-            issued.put(newId, accessor);
-            resaveReferrers(renamed);
+        if (accessor == null) return;
+
+        EditorReferenceable<?> renamed = (EditorReferenceable<?>) accessor;
+        renamed.rename(newId);
+        issued.put(newId, accessor);
+        resaveReferrers(renamed);
+    }
+
+    /// The asset id of a path relative to `assets/`, extension trimmed.
+    private Identifier idOfRelativePath(String rel) {
+        return Identifier.fromNamespaceAndPath(projectName, ParseUtils.trimExtensions(rel, AssetLoader.BINARY_EXTENSION, "json"));
+    }
+
+    /// Carries the companion of a renamed asset — and the companion's own sidecar — to the asset's new
+    /// path, then re-keys whatever the editor issued for it.
+    private void moveCompanion(Path oldPath, Path newPath) {
+        Path oldCompanion = companionOf(oldPath);
+        Path newCompanion = companionOf(newPath);
+
+        if (oldCompanion == null || newCompanion == null || !Files.isRegularFile(oldCompanion)) return;
+
+        try {
+            Files.createDirectories(newCompanion.getParent());
+        } catch (IOException e) {
+            AkytheraLabs.LOGGER.error("Failed to create {}", newCompanion.getParent(), e);
+            return;
         }
 
-        V loaded = cache.remove(oldId);
-        if (loaded != null) cache.put(newId, loaded);
+        if (!FileSystemHelper.move(oldCompanion, newCompanion)) return;
+
+        Path oldCompanionMetadata = getMetadataFileBeside(oldCompanion);
+
+        if (Files.isRegularFile(oldCompanionMetadata)) {
+            FileSystemHelper.move(oldCompanionMetadata, getMetadataFileBeside(newCompanion));
+        }
+
+        Path assetsRoot = projectRoot.resolve("assets");
+        String oldRel = FileSystemHelper.relativeIdPath(assetsRoot, oldCompanion);
+        String newRel = FileSystemHelper.relativeIdPath(assetsRoot, newCompanion);
+
+        if (oldRel.startsWith(ArmaturePhysicsManager.DIRECTORY)) {
+            renameIssuedAccessor(issuedEditorArmaturePhysicsAccessors, oldRel, newRel);
+            rewriteClothPhysicsReferences(idOfRelativePath(oldRel), idOfRelativePath(newRel));
+        } else {
+            // A cloth holder is keyed by its mesh, which is what just moved
+            ClothPhysicsDataHolder holder = clothPhysicsHolders.remove(idOfRelativePath(FileSystemHelper.relativeIdPath(assetsRoot, oldPath)));
+
+            if (holder != null) {
+                clothPhysicsHolders.put(idOfRelativePath(FileSystemHelper.relativeIdPath(assetsRoot, newPath)), holder);
+            }
+        }
+    }
+
+    /// Re-points every cloth naming `oldPhysicsId` at `newPhysicsId`. A cloth is an asset rather than a
+    /// registry entry, so the referrer re-save a rename normally drives does not reach it — its
+    /// `.akmeta` carries the id as text and has to be rewritten (Answer 4).
+    ///
+    /// A cloth already open follows on its own: it holds the shared accessor whose id moved in place.
+    private void rewriteClothPhysicsReferences(Identifier oldPhysicsId, Identifier newPhysicsId) {
+        Path clothRoot = projectRoot.resolve("assets").resolve(FileSystemHelper.toOsString(ClothPhysicsLoader.DIRECTORY));
+        AssetAccessor<? extends ArmaturePhysicsData> moved = getOrIssueEditorArmaturePhysicsAccessor(newPhysicsId);
+
+        FileSystemHelper.forEachFile(
+            clothRoot,
+            file -> file.toString().endsWith(AssetLoader.METADATA_EXTENSION),
+            file -> {
+                ClothPhysicsData.Metadata metadata = FileSystemHelper.readJson(file, ClothPhysicsData.Metadata.CODEC, null);
+
+                if (metadata == null || metadata.armaturePhysics() == null) return;
+                if (!metadata.armaturePhysics().identifier().equals(oldPhysicsId)) return;
+
+                FileSystemHelper.writeJson(
+                    file, ClothPhysicsData.Metadata.CODEC, new ClothPhysicsData.Metadata(moved, metadata.parameters())
+                );
+            }
+        );
+    }
+
+    /// Writes the explorer's fold states and focused directory unless both match the stored ones.
+    public void saveExplorerState(Map<String, Boolean> folderStates, @Nullable Path focusedNodePath) {
+        String focusedNode = focusedNodePath == null ? "" : projectRoot.relativize(focusedNodePath).toString();
+
+        if (savedFolderStates.equals(folderStates) && savedFocusedNode.equals(focusedNode)) return;
+
+        saveProjectMetadata(folderStates, focusedNodePath);
     }
 
     public void saveProjectMetadata(Map<String, Boolean> folderStates, @Nullable Path focusedNodePath) {
+        String focusedNode = focusedNodePath == null ? "" : projectRoot.relativize(focusedNodePath).toString();
         StringBuilder sb = new StringBuilder();
         sb.append("{\n");
         sb.append("    \"name\": \"").append(projectName).append("\",\n");
@@ -1681,13 +2414,7 @@ public final class AkytheraProject {
         sb.append("    \"export_resource_path\": \"").append(lastExportResourcePath).append("\",\n");
         sb.append("    \"source_data_path\": \"").append(lastSourceDataPath).append("\",\n");
         sb.append("    \"source_resource_path\": \"").append(lastSourceResourcePath).append("\",\n");
-        sb.append("    \"focused\": \"").append(
-            focusedNodePath == null
-                ? ""
-                : FileSystemHelper.toIdString(
-                    focusedNodePath.toString().replace(getProjectRoot().toString() + File.separator, "")
-                  )
-        ).append("\",\n");
+        sb.append("    \"focused\": \"").append(FileSystemHelper.toIdString(focusedNode)).append("\",\n");
 
         sb.append("    \"folder_states\": {");
         boolean firstFolder = true;
@@ -1700,19 +2427,29 @@ public final class AkytheraProject {
 
         sb.append("\n    },\n");
 
-        // Entity→armature preview mappings, read live from the engine's runtime map (the
-        // Model Armature Mapping modal writes there directly). Identifiers are JSON-safe raw.
-        sb.append("    \"armature_mappings\": {");
+        // Entity preview bindings, read live from EntityPreviewModelMapping (the mapping modal
+        // writes there directly). Identifiers are JSON-safe raw.
+        sb.append("    \"entity_preview_models\": {");
 
         boolean firstMapping = true;
 
-        for (EntityType<?> type : BuiltInRegistries.ENTITY_TYPE) {
-            AssetAccessor<? extends Armature> armature = ComponentsFactory.getImpl().getExternalArmatureMappingFor(type);
-            if (armature == null) continue;
+        for (EntityType<?> type : EntityPreviewModelMapping.boundTypes()) {
+            EntityPreviewModel mesh = EntityPreviewModelMapping.getMesh(type);
+            AssetAccessor<? extends Armature> armature = EntityPreviewModelMapping.getArmature(type);
 
             if (!firstMapping) sb.append(",");
-            sb.append("\n        \"").append(BuiltInRegistries.ENTITY_TYPE.getKey(type))
-                .append("\": \"").append(armature.identifier()).append("\"");
+            sb.append("\n        \"").append(BuiltInRegistries.ENTITY_TYPE.getKey(type)).append("\": {");
+
+            List<String> members = new ArrayList<>();
+
+            if (mesh != null) {
+                members.add("\"mesh_id\": \"" + mesh.modelId() + "\"");
+                members.add("\"mesh_type\": \"" + mesh.modelType().getSerializedName() + "\"");
+            }
+
+            if (armature != null) members.add("\"armature\": \"" + armature.identifier() + "\"");
+
+            sb.append(String.join(", ", members)).append("}");
             firstMapping = false;
         }
 
@@ -1732,6 +2469,10 @@ public final class AkytheraProject {
         if (!FileSystemHelper.writeString(projectRoot.resolve(PROJECT_SETTINGS_FILE), sb.toString())) {
             throw new RuntimeException("Failed to save project settings: " + projectName);
         }
+
+        savedFolderStates.clear();
+        savedFolderStates.putAll(folderStates);
+        savedFocusedNode = focusedNode;
     }
 
     private static final Gson GSON_PRETTY = new GsonBuilder().setPrettyPrinting().create();
@@ -1780,11 +2521,18 @@ public final class AkytheraProject {
         resourceEntries.put("pack.mcmeta", packMeta(PackType.CLIENT_RESOURCES, projectName + " resources"));
         addPackIcon(resourceEntries);
 
+        byte[] soundsJson = exportedSoundsJson();
+        if (soundsJson != null) resourceEntries.put("assets/" + projectName + "/" + SOUNDS_JSON, soundsJson);
+
+        exportedLangFiles().forEach((path, content) -> resourceEntries.put("assets/" + projectName + "/" + path, content));
+
+        Set<Path> usedSoundFiles = usedSoundFiles();
+
         FileSystemHelper.zip(
             resourcePackDir.resolve(resourcePackName),
             resourceEntries,
             List.of(Pair.of("assets/" + projectName, projectRoot.resolve("assets"))),
-            this::isExportedAssetFile
+            file -> exportedAssetContent(file, usedSoundFiles)
         );
 
         return resourcePackName;
@@ -1814,6 +2562,11 @@ public final class AkytheraProject {
         collectDataPackEntries(AkytheraRegistries.DataPack.INPUT_ACTION_KEY, InputAction.CODEC, ops, false, dataEntries);
         collectDataPackEntries(AkytheraRegistries.DataPack.ABILITY_CUE_KEY, AbilityCueBlueprint.CODEC, ops, false, dataEntries);
         collectDataPackEntries(AkytheraRegistries.DataPack.ABILITY_KEY, AbilityBlueprint.CODEC, ops, false, dataEntries);
+        collectDataPackEntries(AkytheraRegistries.DataPack.WIDGET_KEY, WidgetBlueprint.CODEC, ops, false, dataEntries);
+        collectDataPackEntries(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY, ParticleBlueprint.CODEC, ops, false, dataEntries);
+        collectDataPackEntries(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, ParticleSystemBlueprint.CODEC, ops, false, dataEntries);
+        collectDataPackEntries(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY, ParticleInitializerScriptBlueprint.CODEC, ops, false, dataEntries);
+        collectDataPackEntries(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY, ParticleUpdaterScriptBlueprint.CODEC, ops, false, dataEntries);
 
         // Editor-editable EnumerableDataBlocks (datablock/<enumName>): property-less `{}` entries
         // encoded via the engine manager's unit map codec, so they reload under <projectName>:<entry>.
@@ -1825,30 +2578,49 @@ public final class AkytheraProject {
             ? projectName + "_datapack_with_assets.zip"
             : projectName + "_data.zip";
 
+        Set<Path> usedSoundFiles = usedSoundFiles();
+
         FileSystemHelper.zip(
             dataPackDir.resolve(dataPackName),
             dataEntries,
             includeAssets
                 ? List.of(Pair.of("data/" + projectName + "/assets", projectRoot.resolve("assets")))
                 : List.of(),
-            this::isExportedAssetFile
+            file -> exportedAssetContent(file, usedSoundFiles)
         );
     }
 
-    /// Whether `file`, somewhere under the project's `assets` tree, belongs in an export.
-    ///
-    /// Everything does except an animation sidecar whose engine-visible fields are all default:
-    /// such a file is there to carry the editor's preview model, which no pack reads.
-    private boolean isExportedAssetFile(Path file) {
-        String relative = FileSystemHelper.relativeIdPath(projectRoot.resolve("assets"), file);
+    /// The editor-only key every `.akmeta` sidecar may carry, stripped on export.
+    private static final String PREVIEW_ENTITY_TYPE_KEY = "preview_entity_type";
 
-        if (!relative.startsWith(AnimationManager.DIRECTORY) || !relative.endsWith(AssetLoader.METADATA_EXTENSION)) {
-            return true;
+    /// What `file`, somewhere under the project's `assets` tree, contributes to an export: its own
+    /// bytes, or null to leave it out.
+    ///
+    /// A sidecar is stripped of [#PREVIEW_ENTITY_TYPE_KEY] — the editor's preview binding, which no
+    /// pack reads — and left out entirely when nothing else remains in it. A sound event and a
+    /// `sounds.json` placed in the project are left out: [#exportedSoundsJson] stands for both. So is a
+    /// sound file outside `usedSoundFiles`, which no sound event plays.
+    private byte @Nullable [] exportedAssetContent(Path file, Set<Path> usedSoundFiles) {
+        Path assetsRoot = projectRoot.resolve("assets");
+
+        if (file.equals(assetsRoot.resolve(SOUNDS_JSON))) return null;
+        if (isSoundAsset(file) && file.toString().endsWith(SOUND_EXTENSION) && !usedSoundFiles.contains(file)) return null;
+
+        if (!file.toString().endsWith(AssetLoader.METADATA_EXTENSION)) {
+            return FileSystemHelper.readBytes(file);
         }
 
-        return !AnimationLoader.Metadata.DEFAULT.equals(
-            FileSystemHelper.readJson(file, AnimationLoader.Metadata.CODEC, AnimationLoader.Metadata.DEFAULT)
-        );
+        if (file.startsWith(assetsRoot.resolve(SOUNDS_DIRECTORY))) return null;
+
+        JsonObject sidecar = FileSystemHelper.readJsonObject(file);
+
+        if (sidecar == null) return null;
+
+        sidecar.remove(PREVIEW_ENTITY_TYPE_KEY);
+
+        if (sidecar.isEmpty()) return null;
+
+        return GSON_PRETTY.toJson(sidecar).getBytes(StandardCharsets.UTF_8);
     }
 
     /// Export the project's assets as loose files (NOT a zip resource pack) under
@@ -1861,9 +2633,59 @@ public final class AkytheraProject {
         if (!Files.isDirectory(assetsSrc)) return;
 
         Path assetsDst = targetRoot.resolve("assets").resolve(projectName);
-        FileSystemHelper.forEachFile(assetsSrc, this::isExportedAssetFile, file ->
-            FileSystemHelper.copyReplace(file, assetsDst.resolve(assetsSrc.relativize(file)))
+        Set<Path> usedSoundFiles = usedSoundFiles();
+
+        FileSystemHelper.forEachFile(assetsSrc, file -> {
+            byte[] content = exportedAssetContent(file, usedSoundFiles);
+            if (content != null) FileSystemHelper.writeBytes(assetsDst.resolve(assetsSrc.relativize(file)), content);
+        });
+
+        byte[] soundsJson = exportedSoundsJson();
+        if (soundsJson != null) FileSystemHelper.writeBytes(assetsDst.resolve(SOUNDS_JSON), soundsJson);
+
+        exportLangFiles(targetRoot);
+    }
+
+    /// Writes the project's lang files under `<targetRoot>/assets/<projectName>/lang/`, see
+    /// [ProjectLocalization#exportedLangFiles].
+    public void exportLangFiles(Path targetRoot) {
+        Path assetsDst = targetRoot.resolve("assets").resolve(projectName);
+
+        exportedLangFiles().forEach((path, content) -> FileSystemHelper.writeBytes(assetsDst.resolve(path), content));
+    }
+
+    /// The project's lang files by their path under `assets/<projectName>/`.
+    private Map<String, byte[]> exportedLangFiles() {
+        Map<String, byte[]> files = new HashMap<>();
+        Set<String> languages = Minecraft.getInstance().getLanguageManager().getLanguages().keySet();
+
+        localization.exportedLangFiles(languages).forEach((code, langFile) ->
+            files.put(LANG_DIRECTORY + code + ".json", GSON_PRETTY.toJson(langFile).getBytes(StandardCharsets.UTF_8)));
+
+        return files;
+    }
+
+    /// The `sounds.json` the project's sound events make, one entry per [SoundEventHolder] file. Null
+    /// when the project has no sound event.
+    private byte @Nullable [] exportedSoundsJson() {
+        JsonObject soundsJson = new JsonObject();
+
+        FileSystemHelper.forEachFile(
+            projectRoot.resolve("assets").resolve(SOUNDS_DIRECTORY),
+            this::isSoundEvent,
+            file -> {
+                Identifier eventId = getSoundId(file);
+                if (eventId == null) return;
+
+                SoundEventHolder.CODEC.encodeStart(JsonOps.INSTANCE, SoundEventHolder.readFrom(file))
+                    .resultOrPartial(error -> AkytheraLabs.LOGGER.error("Failed to export sound event {}: {}", eventId, error))
+                    .ifPresent(event -> soundsJson.add(eventId.getPath(), event));
+            }
         );
+
+        if (soundsJson.isEmpty()) return null;
+
+        return GSON_PRETTY.toJson(soundsJson).getBytes(StandardCharsets.UTF_8);
     }
 
     /// Adds the project icon — `<projectRoot>/icon.png`, set via the Project Settings modal
@@ -1932,8 +2754,7 @@ public final class AkytheraProject {
             }
 
             try {
-                T object = entry.getValue().makeObject();
-                JsonElement json = engineCodec.encodeStart(ops, object).getOrThrow();
+                JsonElement json = withProjectLookups(() -> engineCodec.encodeStart(ops, entry.getValue().makeObject()).getOrThrow());
                 String archivePath = "data/" + namespace + "/" + registryDir + "/" + entryPath + ".json";
                 out.put(archivePath, GSON_PRETTY.toJson(json).getBytes(StandardCharsets.UTF_8));
             } catch (Exception e) {
@@ -2000,8 +2821,12 @@ public final class AkytheraProject {
         layoutDividerSetup.put(screen.getClass(), serializedPanelDividerPositions);
     }
 
+    /// The divider positions saved for `screenClass`, or `defaultRatios` when none are saved or the saved
+    /// ones are for a layout with a different number of dividers.
     public List<Integer> getLayoutRatioOrDefault(Class<? extends Screen> screenClass, Integer... defaultRatios) {
-        return layoutDividerSetup.getOrDefault(screenClass, List.of(defaultRatios));
+        List<Integer> saved = layoutDividerSetup.get(screenClass);
+
+        return saved != null && saved.size() == defaultRatios.length ? saved : List.of(defaultRatios);
     }
 
     public record SemanticVersioning(int major, int minor, int patch, String preRelease) {
@@ -2116,6 +2941,66 @@ public final class AkytheraProject {
             FileSystemHelper.rollback(backup, to);
             return AssetLoadResult.failure(errorMessageOf(e));
         }
+    }
+
+    // ******************************** Editor textures ********************************
+
+    /// Copies the texture file `path` into the current project at `toCopy`, then checks the copy reads
+    /// as a PNG image. Answers the copied file. On failure the destination is restored to its prior
+    /// state — see [#importAssetFile].
+    public AssetLoadResult<Path> loadTextureToCurrentProject(Path path, Path toCopy) {
+        return importAssetFile(path, toCopy, "texture", () -> {
+            try (InputStream in = Files.newInputStream(toCopy)) {
+                NativeImage.read(in).close();
+            } catch (IOException e) {
+                return AssetLoadResult.failure("Could not read \"" + path.getFileName() + "\" as a PNG image: " + errorMessageOf(e));
+            }
+
+            return AssetLoadResult.success(toCopy);
+        });
+    }
+
+    /// Copies the texture sidecar `path` into the current project at `toCopy`, then checks the copy
+    /// reads as a json object. Answers the copied file. On failure the destination is restored to its
+    /// prior state — see [#importAssetFile].
+    public AssetLoadResult<Path> loadTextureMetadataToCurrentProject(Path path, Path toCopy) {
+        return importAssetFile(path, toCopy, "texture metadata", () ->
+            FileSystemHelper.readJsonObject(toCopy) == null
+                ? AssetLoadResult.failure("Could not read \"" + path.getFileName() + "\" as a json object.")
+                : AssetLoadResult.success(toCopy)
+        );
+    }
+
+    /// Copies the sound file `path` into the current project at `toCopy`, then checks the copy reads as
+    /// Ogg Vorbis. Answers the copied file. On failure the destination is restored to its prior state —
+    /// see [#importAssetFile].
+    public AssetLoadResult<Path> loadSoundToCurrentProject(Path path, Path toCopy) {
+        return importAssetFile(path, toCopy, "sound", () -> {
+            byte[] bytes = FileSystemHelper.readBytes(toCopy);
+
+            if (bytes == null || ProjectSounds.oggDuration(bytes) <= 0.0F) {
+                return AssetLoadResult.failure("Could not read \"" + path.getFileName() + "\" as an Ogg Vorbis sound.");
+            }
+
+            return AssetLoadResult.success(toCopy);
+        });
+    }
+
+    /// `ns:textures/block/stone.png` as the texture asset `ns:block/stone`. A path off that layout keeps
+    /// itself as the asset id.
+    public static ClientAsset.ResourceTexture resourceTextureOf(Identifier texturePath) {
+        String path = texturePath.getPath();
+        String prefix = TEXTURES_DIRECTORY;
+        String suffix = ".png";
+
+        if (!path.startsWith(prefix) || !path.endsWith(suffix)) {
+            return new ClientAsset.ResourceTexture(texturePath, texturePath);
+        }
+
+        return new ClientAsset.ResourceTexture(
+            texturePath.withPath(path.substring(prefix.length(), path.length() - suffix.length())),
+            texturePath
+        );
     }
 
     // ******************************** Editor mesh manager ********************************
@@ -2516,6 +3401,124 @@ public final class AkytheraProject {
     public void invalidateEditorAnimation(Identifier id) {
         editorAnimations.remove(id);
     }
+
+    // *********************** Editor physics assets ***********************
+
+    private final Map<Identifier, EditorArmaturePhysicsAccessor> issuedEditorArmaturePhysicsAccessors = new HashMap<>();
+    private final Map<Identifier, ClothPhysicsDataHolder> clothPhysicsHolders = new HashMap<>();
+
+    public EditorArmaturePhysicsAccessor getEditorArmaturePhysicsAccessorByPath(Path path) {
+        return getOrIssueEditorArmaturePhysicsAccessor(getAccessorIdentifierFromPath(ArmaturePhysicsManager.DIRECTORY, path));
+    }
+
+    public EditorArmaturePhysicsAccessor getOrIssueEditorArmaturePhysicsAccessor(Identifier id) {
+        return issuedEditorArmaturePhysicsAccessors.computeIfAbsent(id, EditorArmaturePhysicsAccessor::new);
+    }
+
+    public Stream<AssetAccessor<? extends ArmaturePhysicsData>> listIssuedEditorArmaturePhysicsAccessors() {
+        return issuedEditorArmaturePhysicsAccessors.values().stream()
+            .map(accessor -> (AssetAccessor<? extends ArmaturePhysicsData>) accessor);
+    }
+
+    public Stream<AssetAccessor<? extends ArmaturePhysicsData>> listAllArmaturePhysicsAccessors() {
+        return mergeAccessors(
+            ArmaturePhysicsManager.getInstance().listRegisteredAccessors(),
+            listIssuedEditorArmaturePhysicsAccessors()
+        );
+    }
+
+    /// The armature an armature physics asset is keyed by, as the editor holds it.
+    public AssetAccessor<? extends Armature> getArmatureOfPhysics(AssetAccessor<? extends ArmaturePhysicsData> physics) {
+        Identifier armatureId = armatureIdOfPhysics(physics.identifier());
+
+        return armatureId == null
+            ? ArmatureManager.EMPTY_ARMATURE_ACCESSOR
+            : getOrIssueEditorArmatureAccessor(armatureId, Armature::new);
+    }
+
+    /// The skeletal mesh a cloth file under [ClothPhysicsLoader#DIRECTORY] belongs to: the mesh at the
+    /// same path under [MeshManager#DIRECTORY].
+    public AssetAccessor<? extends SkeletalMesh> getClothMeshAccessorByPath(Path path) {
+        Identifier clothId = getAccessorIdentifierFromPath(ClothPhysicsLoader.DIRECTORY, path);
+        Identifier meshId = Identifier.fromNamespaceAndPath(
+            clothId.getNamespace(),
+            MeshManager.DIRECTORY + clothId.getPath().substring(ClothPhysicsLoader.DIRECTORY.length())
+        );
+
+        return getOrIssueEditorSkeletalMeshAccessor(meshId, SkeletalMesh::new);
+    }
+
+    /// The cloth of `mesh` as the editor holds it, read off disk on first access — an empty cloth when
+    /// the mesh has none yet.
+    public ClothPhysicsDataHolder getClothPhysicsHolder(AssetAccessor<? extends SkeletalMesh> mesh) {
+        return clothPhysicsHolders.computeIfAbsent(mesh.identifier(), _ -> ClothPhysicsDataHolder.readFrom(mesh));
+    }
+
+    /// Whether `mesh` has a cloth file on disk. A preview asks before building a simulation for it.
+    public boolean hasClothFile(AssetAccessor<? extends SkeletalMesh> mesh) {
+        Identifier clothId = ClothPhysicsLoader.clothPathOf(mesh.identifier());
+
+        return clothId != null && Files.isRegularFile(getBinaryAssetFileOf(clothId));
+    }
+
+    /// An armature physics asset of this project. [#get] answers the holder's current, unsaved state.
+    public static final class EditorArmaturePhysicsAccessor extends EditorReferenceable<ArmaturePhysicsDataHolder> implements AssetAccessor<ArmaturePhysicsData> {
+        private Identifier identifier;
+
+        private EditorArmaturePhysicsAccessor(Identifier identifier) {
+            this.identifier = identifier;
+        }
+
+        @Override
+        ArmaturePhysicsDataHolder readMetadata() {
+            return ArmaturePhysicsDataHolder.readFrom(this);
+        }
+
+        @Override public Identifier identifier() { return identifier; }
+        @Override void setIdentifier(Identifier identifier) { this.identifier = identifier; }
+
+        @Override
+        public ArmaturePhysicsData get() {
+            return metadata().makeObject();
+        }
+
+        @Override
+        public Type type() {
+            return Type.ARMATURE_PHYSICS;
+        }
+
+        @Override
+        public boolean isResourcePresent() {
+            return Files.isRegularFile(getJsonAssetFileOf(identifier));
+        }
+
+        @Override
+        public String toString() {
+            return identifier.toString();
+        }
+
+        @Override
+        public int hashCode() {
+            return identifier.hashCode();
+        }
+
+        @SuppressWarnings("rawtypes")
+        @Override
+        public boolean equals(final Object obj) {
+            if (this == obj) {
+                return true;
+            } else if (obj instanceof AssetAccessor other) {
+                return identifier.equals(other.identifier());
+            } else if (obj instanceof Identifier rl) {
+                return identifier.equals(rl);
+            } else if (obj instanceof String name) {
+                return identifier.toString().equals(name);
+            } else {
+                return false;
+            }
+        }
+    }
+
 
     // ************************** Merged accessor listings ***************************
     // Mod-registered + project-issued, deduped by identifier (project wins on collision).

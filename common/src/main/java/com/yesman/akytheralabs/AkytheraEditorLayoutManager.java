@@ -3,26 +3,22 @@ package com.yesman.akytheralabs;
 import com.mojang.blaze3d.pipeline.MainTarget;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.yesman.akythera.client.gui.widget.ClampedNumberBox;
-import com.yesman.akythera.client.gui.widget.CloseableWidget;
-import com.yesman.akythera.client.gui.widget.ResizeCompleteCallbackListener;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.event.BuiltInClientEventHooks;
+import com.yesman.akythera.client.api.event.gui.ModalEvent;
+import com.yesman.akythera.client.api.gui.ClampedNumberBox;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ScreenSavePoint;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.gui.screen.LoadAkytheraProjectScreen;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
-import com.yesman.akytheralabs.gui.widget.DropdownSizeMemory;
-import com.yesman.akytheralabs.gui.widget.FloatingModal;
-import com.yesman.akytheralabs.gui.widget.PopupBox;
-import com.yesman.akytheralabs.gui.widget.ResizableFrame;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
 import com.yesman.akytheralabs.gui.widget.main.WorldViewport;
 import com.yesman.akytheralabs.mixinaccessor.GameRendererAccessor;
 import net.minecraft.client.Minecraft;
-import org.joml.Vector4f;
 import net.minecraft.client.MouseHandler;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -36,24 +32,26 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.state.gui.GuiRenderState;
 import org.jetbrains.annotations.ApiStatus;
-import org.jspecify.annotations.NonNull;
+import org.joml.Vector4f;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.Stack;
 import java.util.function.Consumer;
 
-/// Owns every screen and modal layer of the Akythera editor.
+/// Owns every screen of the Akythera editor and hosts the modal layer of [ModalManager] over them.
 @ApiStatus.Internal
 public final class AkytheraEditorLayoutManager {
     private static final Vector4f TRANSPARENT_CLEAR_COLOR = new Vector4f(0.0F, 0.0F, 0.0F, 0.0F);
 
-    private static final AkytheraEditorLayoutManager INSTANCE = new AkytheraEditorLayoutManager();
+    /// Initialization-on-demand holder: the constructor reads the game window, which does not exist yet
+    /// when [#registerEvents] runs from the mod entry point.
+    private static final class InstanceHolder {
+        private static final AkytheraEditorLayoutManager INSTANCE = new AkytheraEditorLayoutManager();
+    }
 
     public static AkytheraEditorLayoutManager getInstance() {
-        return INSTANCE;
+        return InstanceHolder.INSTANCE;
     }
 
     /// Walks the container's focus chain to the leaf and calls `setFocused(false)` on it, so a
@@ -77,15 +75,6 @@ public final class AkytheraEditorLayoutManager {
 
     private final Minecraft minecraft;
 
-    /// Modal layer drawn after the editor screen. First element is the bottom-most
-    /// modal; last is the topmost. Inputs route to the topmost only, every layer
-    /// renders bottom→top. Use [#openModalWidget] / [#openModalWidgetAtCenter]
-    /// to push, [#closeModal] to pop the top, [#closeAllModals] to wipe.
-    ///
-    /// A topmost [FloatingModal] is the one exception to the input rule: it takes
-    /// only what falls on its own frame and leaves the rest to the screen.
-    private final Deque<AbstractWidget> modalStack = new ArrayDeque<>();
-
     /// The render target the editor layout draws into.
     private final RenderTarget editorRenderTarget;
 
@@ -101,6 +90,38 @@ public final class AkytheraEditorLayoutManager {
     public AkytheraEditorLayoutManager() {
         minecraft = Minecraft.getInstance();
         editorRenderTarget = new MainTarget(minecraft.getWindow().getWidth(), minecraft.getWindow().getHeight());
+    }
+
+    /// Reacts to the editor's modals while the editor is up: a [WidgetContainerModal] built with
+    /// [WidgetContainerModal.Builder#saveHistory()] brackets its edits in a [ScreenSavePoint], and a
+    /// [WorldViewportHost] hands the game its viewport rect.
+    public static void registerEvents() {
+        BuiltInClientEventHooks.Gui.MODAL_OPENED.registerEvent(AkytheraEditorLayoutManager::onModalOpened);
+        BuiltInClientEventHooks.Gui.MODAL_CLOSED.registerEvent(AkytheraEditorLayoutManager::onModalClosed);
+    }
+
+    private static void onModalOpened(final ModalEvent.Opened event) {
+        if (!getInstance().isActive()) return;
+
+        if (event.getModal() instanceof WidgetContainerModal wcm && wcm.saveHistory()) {
+            HistoryManager.getInstance().requestSavePointOnNextAction();
+        }
+
+        if (event.getModal() instanceof WorldViewportHost) {
+            getInstance().resizeWorldViewportToHost();
+        }
+    }
+
+    private static void onModalClosed(final ModalEvent.Closed event) {
+        if (!getInstance().isActive()) return;
+
+        if (event.getModal() instanceof WidgetContainerModal wcm && wcm.saveHistory()) {
+            HistoryManager.getInstance().popScreen();
+        }
+
+        if (event.getModal() instanceof WorldViewportHost) {
+            getInstance().resizeWorldViewportToHost();
+        }
     }
 
     /// Opens a layout of main Epic Engine screen.
@@ -122,6 +143,7 @@ public final class AkytheraEditorLayoutManager {
             int guiH = minecraft.getWindow().getScreenHeight() / scale;
             mainScreen.init(guiW, guiH);
             screenStacks.push(mainScreen);
+            ModalManager.getInstance().setHostScreen(this::getRecentEditorScreen);
             minecraft.mouseHandler.releaseMouse();
 
             // Restore saved focus after screen initialized (content browser init by ifLastScreen)
@@ -140,7 +162,8 @@ public final class AkytheraEditorLayoutManager {
 
             mainScreen = null;
             setFullScreenWorldViewport();
-            closeAllModals();
+            ModalManager.getInstance().closeAllModals();
+            ModalManager.getInstance().setHostScreen(null);
         }
     }
 
@@ -155,7 +178,7 @@ public final class AkytheraEditorLayoutManager {
 
     /// Opens a screen and pushes it onto the open-screen history.
     public void openNewScreen(final Screen screen) {
-        closeAllModals();
+        ModalManager.getInstance().closeAllModals();
         HistoryManager.getInstance().requestSavePointOnNextAction();
 
         int scale = AkytheraLabsConfig.getEditorGuiScale();
@@ -169,7 +192,7 @@ public final class AkytheraEditorLayoutManager {
     /// Closes the last screen on stack
     public void closeLastScreen() {
         if (!screenStacks.isEmpty()) {
-            closeAllModals();
+            ModalManager.getInstance().closeAllModals();
             screenStacks.lastElement().onClose();
         }
     }
@@ -179,7 +202,7 @@ public final class AkytheraEditorLayoutManager {
     /// This method is intended to event callback when [Screen#onClose] is called.
     /// If you want to close the screen, the UI control, use [#closeLastScreen].
     public void removeLastScreen() {
-        closeAllModals();
+        ModalManager.getInstance().closeAllModals();
         HistoryManager.getInstance().popScreen();
         screenStacks.pop();
     }
@@ -201,180 +224,6 @@ public final class AkytheraEditorLayoutManager {
         }
     }
 
-    /// Push a modal at the desired location on top of the stack. While the stack
-    /// is non-empty, all inputs intercept to the topmost modal. Lower layers stay
-    /// visible behind it.
-    ///
-    /// If the modal is a [WidgetContainerModal] built with [WidgetContainerModal.Builder#saveHistory()], the
-    /// layout manager requests a [ScreenSavePoint] at open and pops the modal's bracket at close. Otherwise
-    /// (pickers / context menus / confirmations), no save point — callback pushes land on the parent screen's
-    /// history.
-    ///
-    /// Callers that need the existing topmost modal replaced must call [#closeModal] first.
-    public void openModalWidget(final @NonNull AbstractWidget modal, final int x, final int y) {
-        if (!isActive()) {
-            throw new IllegalStateException("Tried to open a modal before project opened");
-        }
-
-        if (modal instanceof WidgetContainerModal wcm && wcm.saveHistory()) {
-            HistoryManager.getInstance().requestSavePointOnNextAction();
-        }
-
-        modal.setPosition(x, y);
-        modal.active = true;
-        modal.visible = true;
-
-        if (modal instanceof AnchoredWidget anchoredWidget) {
-            anchoredWidget.relocate(screenStacks.getLast().getRectangle());
-        }
-
-        modalStack.addLast(modal);
-        resizeWorldViewportIfHost(modal);
-    }
-
-    /// Push `modal` as a dropdown of `anchor` — a [PopupBox]'s picker. Default placement is the anchor's
-    /// bottom-left, as wide as the anchor but never narrower than the modal's own width (so a narrow editor
-    /// cell still gets a readable list); the height is the modal's own.
-    ///
-    /// The placement then adapts, once per axis, to keep the modal inside the editor viewport:
-    ///
-    ///   - clipped on the **right** — the right edges are flushed instead of the left ones
-    ///     (`anchor.right == modal.right`);
-    ///   - clipped at the **bottom** — the modal flips above the anchor
-    ///     (`anchor.top == modal.bottom`).
-    ///
-    /// Nothing beyond that is guarded: a modal wider / taller than the viewport itself still runs off
-    /// the opposite edge.
-    ///
-    /// A resized dropdown reopens at the size it was dragged to: a [DropdownSizeMemory] anchor's
-    /// remembered size replaces the derived one, outranking the anchor-width rule, and a
-    /// [ResizableFrame] modal has its size sink pointed back at that memory.
-    public void openModalWidgetUnder(final @NonNull AbstractWidget anchor, final @NonNull AbstractWidget modal) {
-        if (!isActive()) {
-            throw new IllegalStateException("Tried to open a modal before project opened");
-        }
-
-        ScreenRectangle viewport = screenStacks.lastElement().getRectangle();
-
-        int width = Math.max(anchor.getWidth(), modal.getWidth());
-        int height = modal.getHeight();
-
-        if (anchor instanceof DropdownSizeMemory memory) {
-            if (memory.dropdownWidth() > 0) width = memory.dropdownWidth();
-            if (memory.dropdownHeight() > 0) height = memory.dropdownHeight();
-
-            if (modal instanceof ResizableFrame resizable) {
-                resizable.frameResizer().setSizeSink(memory::rememberDropdownSize);
-            }
-        }
-
-        int x = anchor.getX() + width > viewport.right() ? anchor.getRight() - width : anchor.getX();
-        int y = anchor.getBottom() + height > viewport.bottom() ? anchor.getY() - height : anchor.getBottom();
-
-        // [#openModalWidget] re-derives an AnchoredWidget's rect from its units, so the placement has
-        // to travel in those rather than in setPosition/setWidth.
-        if (modal instanceof AnchoredWidget anchored) {
-            anchored.setX1(AnchoredWidget.pixel(x));
-            anchored.setY1(AnchoredWidget.pixel(y));
-
-            // x2 / y2 are the size only under these anchor types — the others read them as
-            // opposite-edge insets, where a size would be nonsense, so such a modal keeps sizing itself.
-            if (anchored.getHorizontalAnchorType() == AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH) {
-                anchored.setX2(AnchoredWidget.pixel(width));
-            }
-
-            if (anchored.getVerticalAnchorType() == AnchoredWidget.VerticalAnchorType.TOP_HEIGHT) {
-                anchored.setY2(AnchoredWidget.pixel(height));
-            }
-        }
-
-        openModalWidget(modal, x, y);
-    }
-
-    /// Push a modal at the center of the screen. Save-history opt-in
-    /// is read off the modal — see [#openModalWidget] for semantics.
-    public void openModalWidgetAtCenter(final @NonNull AbstractWidget modal) {
-        if (!isActive()) {
-            throw new IllegalStateException("Tried to open a modal before project opened");
-        }
-
-        if (modal instanceof WidgetContainerModal wcm && wcm.saveHistory()) {
-            HistoryManager.getInstance().requestSavePointOnNextAction();
-        }
-
-        int scale = AkytheraLabsConfig.getEditorGuiScale();
-        int x = minecraft.getWindow().getScreenWidth() / scale / 2 - modal.getWidth() / 2;
-        int y = minecraft.getWindow().getScreenHeight() / scale / 2 - modal.getHeight() / 2;
-        modal.setPosition(x, y);
-        modal.active = true;
-        modal.visible = true;
-
-        if (modal instanceof AnchoredWidget anchoredWidget) {
-            anchoredWidget.relocate(screenStacks.getLast().getRectangle());
-        }
-
-        modalStack.addLast(modal);
-        resizeWorldViewportIfHost(modal);
-    }
-
-    /// Pop the topmost modal widget. When the modal opted in via
-    /// [WidgetContainerModal.Builder#saveHistory()], also pops its
-    /// `ScreenSavePoint` bracket off the history stack.
-    public void closeModal() {
-        if (modalStack.isEmpty()) return;
-
-        AbstractWidget top = modalStack.removeLast();
-
-        if (top instanceof WidgetContainerModal wcm && wcm.saveHistory()) {
-            HistoryManager.getInstance().popScreen();
-        }
-
-        top.active = false;
-        top.visible = false;
-        top.setFocused(false);
-
-        if (top instanceof CloseableWidget cw) cw.destroy();
-
-        // A FloatingModal is focused through the screen's own focus field rather than standing in for
-        // it, so the screen is left pointing at a widget that is no longer up unless it is told.
-        Screen screen = getRecentEditorScreen();
-        if (screen != null && screen.getFocused() == top) screen.setFocused(null);
-
-        resizeWorldViewportIfHost(top);
-    }
-
-    /// Re-sizes the world framebuffer when `modal` is the kind that owns the viewport, so pushing
-    /// one hands the game the modal's rect and popping it hands the rect back.
-    ///
-    /// Called after the stack has already been updated, so [#getWorldViewportHost] answers with the
-    /// host that is in charge from now on rather than the one that just left.
-    private void resizeWorldViewportIfHost(final AbstractWidget modal) {
-        if (modal instanceof WorldViewportHost) {
-            resizeWorldViewportToHost();
-        }
-    }
-
-    /// Pop every modal off the stack. Used by editor-close and screen-change
-    /// flows where the modal layer should not survive.
-    public void closeAllModals() {
-        while (!modalStack.isEmpty()) closeModal();
-    }
-
-    /// Returns the topmost modal, or `null` when the stack is empty.
-    public @Nullable AbstractWidget getModal() {
-        return modalStack.peekLast();
-    }
-
-    /// All open modals in render order (bottom-most first, topmost last).
-    public Iterable<AbstractWidget> getModals() {
-        return modalStack;
-    }
-
-    /// Whether any modal is currently open.
-    public boolean hasModal() {
-        return !modalStack.isEmpty();
-    }
-
     /// The editor's main screen.
     public @Nullable MainEditorScreen getMainScreen() {
         return mainScreen;
@@ -383,7 +232,7 @@ public final class AkytheraEditorLayoutManager {
     /// The host whose world viewport the pointer can fall into: the topmost modal when it owns one,
     /// otherwise the editor screen on top. Null means every input belongs to the editor.
     public @Nullable WorldViewportHost getWorldViewportHost() {
-        AbstractWidget topModal = modalStack.peekLast();
+        AbstractWidget topModal = ModalManager.getInstance().getModal();
 
         if (topModal != null) {
             return topModal instanceof WorldViewportHost host ? host : null;
@@ -435,17 +284,7 @@ public final class AkytheraEditorLayoutManager {
                 screen.resize(width / scale, height / scale);
             }
 
-            ScreenRectangle topRect = screenStacks.getLast().getRectangle();
-
-            for (AbstractWidget m : modalStack) {
-                if (m instanceof AnchoredWidget anchoredModal) {
-                    anchoredModal.relocate(topRect);
-                }
-
-                if (m instanceof ResizeCompleteCallbackListener resizeCallbackListener) {
-                    resizeCallbackListener.onResizeCompleted();
-                }
-            }
+            ModalManager.getInstance().relocateModals();
         }
     }
 
@@ -460,7 +299,7 @@ public final class AkytheraEditorLayoutManager {
             screen.init(guiW, guiH);
 
             // Re-anchor every modal layer, not just the top.
-            for (AbstractWidget modal : AkytheraEditorLayoutManager.getInstance().getModals()) {
+            for (AbstractWidget modal : ModalManager.getInstance().getModals()) {
                 if (modal instanceof AnchoredWidget anchoredWidget) {
                     anchoredWidget.relocate(screen.getRectangle());
                 }
@@ -595,13 +434,9 @@ public final class AkytheraEditorLayoutManager {
 
         GuiGraphicsExtractor graphics = new GuiGraphicsExtractor(minecraft, guiRenderState, mouseX, mouseY);
 
-        AbstractWidget top = modalStack.peekLast();
-
         // Force mouse pointer out of the screen while the pointer belongs to the modal layer. This
-        // prevents activating hover effects for objects behind it. A FloatingModal claims the pointer
-        // only over its own frame, so the screen it stands on stays live everywhere else.
-        boolean pointerOnModalLayer = top != null
-            && (!(top instanceof FloatingModal) || top.isMouseOver(mouseX, mouseY));
+        // prevents activating hover effects for objects behind it.
+        boolean pointerOnModalLayer = ModalManager.getInstance().claimsPointer(mouseX, mouseY);
 
         screenStacks.lastElement().extractRenderStateWithTooltipAndSubtitles(
             graphics,
@@ -610,17 +445,7 @@ public final class AkytheraEditorLayoutManager {
             a
         );
 
-        // Render every layer bottom→top. Only the topmost sees real mouse coords
-        // so hover/tooltip belongs to it; lower layers run with (-1, -1).
-        for (AbstractWidget m : modalStack) {
-            if (!m.isActive()) continue;
-            boolean isTop = m == top;
-            m.extractRenderState(graphics, isTop ? mouseX : -1, isTop ? mouseY : -1, a);
-        }
-
-        if (top != null) {
-            graphics.extractDeferredElements(mouseX, mouseY, a);
-        }
+        ModalManager.getInstance().extractRenderState(graphics, mouseX, mouseY, a);
 
         // Toasts on top of the editor layout. The in-game extraction is suppressed while the editor is
         // active (see MixinGameRenderer#extractToasts); re-extracting here draws them into the editor

@@ -3,11 +3,13 @@ package com.yesman.akytheralabs.gui.widget.main;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.armature.ArmatureManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.*;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.viewer.*;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent.SimpleHeadlessAnimator;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
-import com.yesman.akythera.client.gui.widget.*;
-import com.yesman.akythera.client.gui.widget.viewer.*;
-import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent.SimpleHeadlessAnimator;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
@@ -17,13 +19,10 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.InMemoryAssetAccessor;
 import com.yesman.akytheralabs.SingleFileResourceManager;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedComboBox;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
-import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
-import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
-import com.yesman.akytheralabs.InMemoryAssetAccessor;
+import com.yesman.akytheralabs.gui.widget.*;
 import com.yesman.akytheralabs.gui.widget.main.AssetExportManager.ExportResult;
 import com.yesman.akytheralabs.gui.widget.main.AssetExportManager.TemplateEntry;
 import net.minecraft.client.Minecraft;
@@ -99,7 +98,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     private static final long INCOMPAT_MESSAGE_DURATION_MS = 5000;
 
     /// Active instance for routing global events (file drops). Set on `open(...)`,
-    /// cleared on `destroy()` — `AkytheraEditorLayoutManager.closeModal()` invokes
+    /// cleared on `destroy()` — `ModalManager.closeModal()` invokes
     /// `CloseableWidget#destroy` on the closing modal.
     @Nullable
     private static AnimationRetargetModal active = null;
@@ -112,7 +111,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_TITLE)
         );
         active = modal;
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     /// Routed from `MainEditorScreen.onFilesDrop` so dropping animation files anywhere
@@ -125,17 +124,17 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     private final Font font;
 
-    private final AdvancedEditBox<String> modelSearchBox;
-    private final AdvancedEditBox<String> armatureSearchBox;
+    private final EditorEditBox<String> modelSearchBox;
+    private final EditorEditBox<String> armatureSearchBox;
     private final ModelList modelList;
     private final ArmatureList armatureList;
 
     private final Model3DViewer preview;
 
-    private final AdvancedEditBox<String> exportPathBox;
-    private final AnchoredButton exportPathBrowseBtn;
-    private final AnchoredButton exportAllBtn;
-    private final AnchoredButton closeScreenButton;
+    private final EditorEditBox<String> exportPathBox;
+    private final AkytheraButton exportPathBrowseBtn;
+    private final AkytheraButton exportAllBtn;
+    private final AkytheraButton closeScreenButton;
 
     private boolean generateRootBone = false;
 
@@ -195,7 +194,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         this.animList = new AnimList();
         this.boneMappingPanel = new BoneMappingPanel();
 
-        this.modelSearchBox = AdvancedEditBox.stringBox(
+        this.modelSearchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(1), AnchoredWidget.fraction(LEFT_PCT),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -206,7 +205,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         );
 
         // Armature search anchors to the modelList's bottom — laid out after relocate().
-        this.armatureSearchBox = AdvancedEditBox.stringBox(
+        this.armatureSearchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(1), AnchoredWidget.fraction(LEFT_PCT),
             AnchoredWidget.fraction(40), AnchoredWidget.pixel(SEARCH_H),
@@ -233,7 +232,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         // bottom offset (BOTTOM_HEIGHT y1) = WARNING_AREA_H + (FOOTER_ROW_H - FOOTER_WIDGET_H) / 2.
         int widgetBottomOffset = WARNING_AREA_H + (FOOTER_ROW_H - FOOTER_WIDGET_H) / 2;
 
-        this.exportPathBox = AdvancedEditBox.stringBox(
+        this.exportPathBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(8 + EXPORT_TO_LABEL_W + 4),                       // left = right of label
             AnchoredWidget.pixel(8 + EXPORT_BTN_W + BROWSE_BTN_W + 8),             // right offset
@@ -247,7 +246,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         exportPathBox.setEditable(false);
         exportPathBox.setValueByString(defaultExportPath());
 
-        this.exportPathBrowseBtn = AnchoredButton.buttonBuilder(font, Component.empty(), _ -> onPressBrowseExportPath())
+        this.exportPathBrowseBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.EMPTY, () -> onPressBrowseExportPath())
             .xUnits(AnchoredWidget.pixel(8 + EXPORT_BTN_W + 4), AnchoredWidget.pixel(BROWSE_BTN_W))
             .yUnits(AnchoredWidget.pixel(widgetBottomOffset), AnchoredWidget.pixel(BROWSE_BTN_W))
             .horizontalAnchorType(HorizontalAnchorType.RIGHT_WIDTH)
@@ -255,10 +254,10 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             .theme(AkytheraLabsButtonTheme.EXPORT_PATH_BROWSE_BUTTON)
             .build();
 
-        this.exportAllBtn = AnchoredButton.buttonBuilder(
+        this.exportAllBtn = AkytheraButton.buttonBuilder(
                 font,
-                Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_EXPORT_ALL),
-                _ -> onPressExportAll()
+                LocalizedMessage.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_EXPORT_ALL),
+                () -> onPressExportAll()
             )
             .xUnits(AnchoredWidget.pixel(8), AnchoredWidget.pixel(EXPORT_BTN_W))
             .yUnits(AnchoredWidget.pixel(widgetBottomOffset), AnchoredWidget.pixel(FOOTER_WIDGET_H))
@@ -267,8 +266,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
             .build();
 
-        this.closeScreenButton = AnchoredButton
-            .buttonBuilder(font, Component.literal("X"), _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+        this.closeScreenButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.handwritten("X"), () -> ModalManager.getInstance().closeModal())
             .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(TITLE_H))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(TITLE_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -372,6 +371,11 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     }
 
     @Override
+    public EditorEditBox<String> searchBox() {
+        return modelSearchBox;
+    }
+
+    @Override
     public @NonNull List<? extends GuiEventListener> children() {
         return List.of(
             closeScreenButton,
@@ -407,7 +411,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -948,15 +952,11 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     private void onSelectModelRow(ModelRow row) {
         switch (row) {
-            case SkeletalMeshRow sr -> preview.displayEntity(
-                sr.accessor().identifier(),
-                EntityModelComponent.ModelType.SKELETAL_MESH,
-                true, true
-            );
+            case SkeletalMeshRow sr -> preview.displaySkeletalMesh(sr.accessor(), null, true, true);
             case VanillaModelRow vr -> preview.displayEntity(
                 BuiltInRegistries.ENTITY_TYPE.getKey(vr.type()),
                 EntityModelComponent.ModelType.VANILLA_ENTITY,
-                true, true
+                null, true, true
             );
             case TitleRow _ -> {}
         }
@@ -1062,8 +1062,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         private Unit x2 = AnchoredWidget.fraction(LEFT_PCT);
         private Unit y1 = AnchoredWidget.pixel(0);
         private Unit y2 = AnchoredWidget.pixel(0);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -1075,6 +1075,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 
     /// ---------------- Armature list ----------------
@@ -1181,8 +1183,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         private Unit x2 = AnchoredWidget.fraction(LEFT_PCT);
         private Unit y1 = AnchoredWidget.pixel(0);
         private Unit y2 = AnchoredWidget.pixel(0);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -1194,6 +1196,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 
     /// ---------------- Animations-to-Retarget list ----------------
@@ -1286,8 +1290,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         private Unit x2 = AnchoredWidget.fraction(LEFT_PCT);
         private Unit y1 = AnchoredWidget.pixel(0);
         private Unit y2 = AnchoredWidget.pixel(0);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -1299,6 +1303,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 
     // ---------------- Bone Mapping list ----------------
@@ -1376,8 +1382,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         private Unit x2 = AnchoredWidget.pixel(0);
         private Unit y1 = AnchoredWidget.pixel(0);
         private Unit y2 = AnchoredWidget.pixel(0);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -1389,6 +1395,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 
     /// Base class for every entry in `BoneMappingPanel`. Exists only to fix the recursive
@@ -1433,8 +1441,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     /// `BoneMappingPanel.rebuild()` so changes to `templateEntries` / `currentArmature` /
     /// `selectedTemplate` flow through naturally.
     private final class TemplateRow extends BoneMappingRow {
-        private final AdvancedComboBox<TemplateEntry> combo;
-        private final AnchoredButton importBtn;
+        private final EditorComboBox<TemplateEntry> combo;
+        private final AkytheraButton importBtn;
         private final List<GuiEventListener> children;
 
         TemplateRow() {
@@ -1444,7 +1452,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
                     .filter(e -> Objects.equals(e.template().armatureId(), currentArmature.identifier()))
                     .toList();
 
-            this.combo = new AdvancedComboBox<>(
+            this.combo = new EditorComboBox<>(
                 font,
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(TEMPLATE_BTN_H),
@@ -1461,10 +1469,10 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
                 combo.setValueQuiet(selectedTemplate);
             }
 
-            this.importBtn = AnchoredButton.buttonBuilder(
+            this.importBtn = AkytheraButton.buttonBuilder(
                     font,
-                    Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_IMPORT_TEMPLATE),
-                    _ -> onPressImport()
+                    LocalizedMessage.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_IMPORT_TEMPLATE),
+                    () -> onPressImport()
                 )
                 .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(IMPORT_BTN_W))
                 .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(TEMPLATE_BTN_H))
@@ -1526,14 +1534,14 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     /// sees which slots the template doesn't fill.
     private final class MappingRow extends BoneMappingRow {
         private final String clipBone;
-        private final AdvancedComboBox<String> combo;
+        private final EditorComboBox<String> combo;
         private final List<GuiEventListener> children;
 
         MappingRow(String clipBone) {
             this.clipBone = clipBone;
             Set<String> avail = availableTargets(clipBone);
 
-            this.combo = new AdvancedComboBox<>(
+            this.combo = new EditorComboBox<>(
                 font,
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(BONE_COMBO_H),
@@ -1664,14 +1672,14 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     /// Right-aligned Export-as-Template button at the bottom of the bone-mapping list.
     /// Disabled when a template is selected (re-exporting would just rewrite the source file).
     private final class ExportAsTemplateRow extends BoneMappingRow {
-        private final AnchoredButton exportBtn;
+        private final AkytheraButton exportBtn;
         private final List<GuiEventListener> children;
 
         ExportAsTemplateRow() {
-            this.exportBtn = AnchoredButton.buttonBuilder(
+            this.exportBtn = AkytheraButton.buttonBuilder(
                     font,
-                    Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_EXPORT_AS_TEMPLATE),
-                    _ -> onPressExportAsTemplate()
+                    LocalizedMessage.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_EXPORT_AS_TEMPLATE),
+                    () -> onPressExportAsTemplate()
                 )
                 .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(EXPORT_AS_TEMPLATE_BTN_W))
                 .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(TEMPLATE_BTN_H))

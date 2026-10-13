@@ -1,5 +1,8 @@
 package com.yesman.akytheralabs.akythera.collider;
 
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
+import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.math.physics.collider.AkytheraColliderType;
 import com.yesman.akythera.core.math.physics.collider.Collider;
@@ -10,8 +13,18 @@ import com.yesman.akytheralabs.generated.LangKeys;
 
 /// Dimensions of a [SphereCollider].
 public final class SphereShapeHolder extends ColliderShapeHolder {
+    public static final MapCodec<SphereShapeHolder> EDITOR_CODEC =
+        Codec.DOUBLE.fieldOf("radius").xmap(SphereShapeHolder::new, SphereShapeHolder::getRadius);
+
     @EditorEditable(label = LangKeys.GUI_COLLIDER_RADIUS, order = 0, min = 0.0F)
     private double radius = 0.5D;
+
+    public SphereShapeHolder() {
+    }
+
+    public SphereShapeHolder(final double radius) {
+        this.radius = radius;
+    }
 
     public double getRadius() {
         return radius;
@@ -32,8 +45,12 @@ public final class SphereShapeHolder extends ColliderShapeHolder {
     }
 
     @Override
-    public SphereCollider makeCollider(final Transform pivotTransform) {
-        return new SphereCollider(pivotTransform, radius);
+    public SphereCollider makeCollider(
+        final Transform pivotTransform,
+        final TransformInheritPolicy transformInheritPolicy,
+        final boolean enabled
+    ) {
+        return new SphereCollider(pivotTransform, transformInheritPolicy, radius, enabled);
     }
 
     @Override

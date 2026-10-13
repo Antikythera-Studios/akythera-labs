@@ -31,7 +31,8 @@ public final class NotifyStateWidget extends AbstractWidget {
     private final NotifyTrackHolder.MutableNotifyState model;
 
     private DragMode dragMode = DragMode.NONE;
-    private float dragGrabFrame;
+    /// Where the drag last grabbed the window, in seconds.
+    private float dragGrabTime;
 
     public NotifyStateWidget(AnimationTrackEditorPanel parent, NotifyTrackHolder.Track track, NotifyTrackHolder.MutableNotifyState model) {
         super(0, 0, 0, BAR_H, Component.empty());
@@ -50,8 +51,8 @@ public final class NotifyStateWidget extends AbstractWidget {
 
     /// Recomputes the widget's bounds from the model's frame window and the row's current top.
     public void updatePosition(int rowTop, int rowHeight) {
-        int x1 = parent.frameToX(model.from);
-        int x2 = parent.frameToX(model.to);
+        int x1 = parent.frameToX(model.from * 60.0F);
+        int x2 = parent.frameToX(model.to * 60.0F);
         setX(x1);
         setY(rowTop + (rowHeight - BAR_H) / 2);
         setWidth(Math.max(2, x2 - x1));
@@ -91,15 +92,15 @@ public final class NotifyStateWidget extends AbstractWidget {
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
         if (event.button() != 0) return false;
 
-        int leftX = parent.frameToX(model.from);
-        int rightX = parent.frameToX(model.to);
+        int leftX = parent.frameToX(model.from * 60.0F);
+        int rightX = parent.frameToX(model.to * 60.0F);
         int threshold = AnimationTrackEditorPanel.EDGE_DRAG_THRESHOLD;
 
         if (Math.abs(event.x() - leftX) <= threshold) dragMode = DragMode.MOVE_LEFT_EDGE;
         else if (Math.abs(event.x() - rightX) <= threshold) dragMode = DragMode.MOVE_RIGHT_EDGE;
         else dragMode = DragMode.MOVE_WINDOW;
 
-        dragGrabFrame = parent.xToFrame(event.x());
+        dragGrabTime = parent.xToFrame(event.x()) / 60.0F;
         parent.setSelected(new NotifyTrackHolder.NotifyRef.State(track, model));
 
         switch (dragMode) {
@@ -120,18 +121,19 @@ public final class NotifyStateWidget extends AbstractWidget {
 
     @Override
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
-        float frame = Math.max(0F, parent.xToFrame(event.x()));
+        float time = Math.max(0F, parent.xToFrame(event.x()) / 60.0F);
+        float minLength = MIN_STATE_FRAMES / 60.0F;
 
         switch (dragMode) {
-            case MOVE_LEFT_EDGE -> model.from = Math.min(frame, model.to - MIN_STATE_FRAMES);
-            case MOVE_RIGHT_EDGE -> model.to = Math.max(frame, model.from + MIN_STATE_FRAMES);
+            case MOVE_LEFT_EDGE -> model.from = Math.min(time, model.to - minLength);
+            case MOVE_RIGHT_EDGE -> model.to = Math.max(time, model.from + minLength);
             case MOVE_WINDOW -> {
-                float delta = frame - dragGrabFrame;
+                float delta = time - dragGrabTime;
                 float width = model.to - model.from;
                 float newFrom = Math.max(0F, model.from + delta);
                 model.from = newFrom;
                 model.to = newFrom + width;
-                dragGrabFrame = frame;
+                dragGrabTime = time;
             }
             default -> {
                 return false;

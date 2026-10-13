@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.panel.main.processors;
 
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
@@ -11,10 +12,11 @@ import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.AnimatorScriptEditorScreen;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
+import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
-import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import java.util.List;
 import net.minecraft.client.gui.Font;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
 
@@ -39,14 +41,14 @@ public final class AnimatorScriptResourceProcessor implements ResourceProcessor<
         ExplorerPanel.TreeNode regRoot = ResourceProcessor.regRootOf(selected);
         if (regRoot == null) return;
 
-        ModelSelectModal modal = new ModelSelectModal(browser.getFont(), null, previewModel -> {
+        EntityTypeSelectModal modal = new EntityTypeSelectModal(browser.getFont(), null, previewEntityType -> {
             String subPath = ResourceProcessor.buildSubPath(regRoot, selected);
             AkytheraProject project = AkytheraProject.getCurrentProject();
 
             // Only the leaf — user already chose the target dir via focus.
-            String modelPath = previewModel.modelId().getPath();
-            int modelLastSlash = modelPath.lastIndexOf('/');
-            String baseName = modelLastSlash >= 0 ? modelPath.substring(modelLastSlash + 1) : modelPath;
+            String entityPath = previewEntityType.getPath();
+            int entityLastSlash = entityPath.lastIndexOf('/');
+            String baseName = entityLastSlash >= 0 ? entityPath.substring(entityLastSlash + 1) : entityPath;
 
             String entryName = project.findNextFreeName(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, baseName, subPath);
             String idPath = subPath.isEmpty() ? entryName : subPath + "/" + entryName;
@@ -55,7 +57,7 @@ public final class AnimatorScriptResourceProcessor implements ResourceProcessor<
             );
 
             AnimatorScriptHolder holder = project.getDataHolderOrThrow(key);
-            holder.setPreviewModel(previewModel);
+            holder.setPreviewEntityType(previewEntityType);
             project.saveEntry(key);
 
             Path focusDir = project.getProjectRoot()
@@ -72,7 +74,7 @@ public final class AnimatorScriptResourceProcessor implements ResourceProcessor<
                 new AnimatorScriptEditorScreen(key, holder));
         });
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     @Override

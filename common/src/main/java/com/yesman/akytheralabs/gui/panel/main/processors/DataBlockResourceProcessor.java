@@ -6,17 +6,21 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
+import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
+import com.yesman.akytheralabs.gui.widget.RefusalPopup;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
 import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
 import net.minecraft.client.gui.Font;
 import net.minecraft.core.Registry;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
+import java.util.Set;
 
 /// Content-browser / explorer behaviour for one editable [EnumerableDataBlock] type. One instance
 /// per type, bound to its labs registry key (see
@@ -56,6 +60,15 @@ public final class DataBlockResourceProcessor<T extends EnumerableDataBlock> imp
 
         String subPath = ResourceProcessor.buildSubPath(regRoot, selected);
         AkytheraProject project = AkytheraProject.getCurrentProject();
+
+        if (project.isTagParentRefused(registryKey, subPath, Set.of())) {
+            RefusalPopup.open(
+                Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_TITLE),
+                Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_BODY, subPath)
+            );
+
+            return;
+        }
 
         String entryName = project.findNextFreeName(registryKey, "new_entry", subPath);
         String idPath = subPath.isEmpty() ? entryName : subPath + "/" + entryName;

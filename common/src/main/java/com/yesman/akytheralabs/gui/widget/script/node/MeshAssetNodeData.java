@@ -24,7 +24,7 @@ public record MeshAssetNodeData(AssetAccessor<? extends Mesh<?>> mesh) implement
     public static final MapCodec<MeshAssetNodeData> CODEC = RecordCodecBuilder.mapCodec(
         instance ->
             instance.group(
-                EditorAssetAccessors.SKELETAL_MESH_CODEC.fieldOf("asset").forGetter(MeshAssetNodeData::mesh)
+                EditorAssetAccessors.MESH_CODEC.fieldOf("asset").forGetter(MeshAssetNodeData::mesh)
             ).apply(instance, MeshAssetNodeData::new)
     );
 

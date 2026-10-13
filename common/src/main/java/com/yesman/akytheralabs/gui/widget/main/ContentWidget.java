@@ -1,41 +1,53 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.api.component.PatchComponent;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.api.input.InputAction;
+import com.yesman.akythera.api.world.ability.AbilityEffect;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.Grid;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.client.core.asset.mesh.StaticMesh;
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
-import com.yesman.akythera.api.input.InputAction;
-import com.yesman.akythera.api.world.ability.AbilityEffect;
+import com.yesman.akythera.core.asset.armature.Armature;
+import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
 import com.yesman.akythera.core.blueprint.AbilityBlueprint;
 import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
+import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
+import com.yesman.akythera.core.blueprint.particle.ParticleSystemBlueprint;
+import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
+import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
+import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
-import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
-import com.yesman.akytheralabs.dataholder.DataHolder;
-import com.yesman.akythera.core.util.EnumerableDataBlock;
-import com.yesman.akytheralabs.dataholder.DataBlockHolder;
-import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
-import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityCueBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityEffectHolder;
 import com.yesman.akytheralabs.akythera.ability.InputActionHolder;
+import com.yesman.akytheralabs.akythera.particle.ParticleBlueprintHolder;
+import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
+import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
+import com.yesman.akytheralabs.akythera.widget.WidgetBlueprintHolder;
+import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
+import com.yesman.akytheralabs.dataholder.DataBlockHolder;
+import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.sound.SoundEventHolder;
 import com.yesman.akytheralabs.editor.ContentClipboard;
 import com.yesman.akytheralabs.editor.EditorFieldScanner;
 import com.yesman.akytheralabs.editor.historytrack.FileMove;
@@ -45,24 +57,31 @@ import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.processors.AnimatorScriptResourceProcessor;
 import com.yesman.akytheralabs.gui.panel.main.processors.EntityPatchResourceProcessor;
 import com.yesman.akytheralabs.gui.panel.main.processors.ItemPatchResourceProcessor;
-import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
-import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
+import com.yesman.akytheralabs.gui.screen.AbilityCueEditorScreen;
+import com.yesman.akytheralabs.gui.screen.ParticleEditorScreen;
+import com.yesman.akytheralabs.gui.screen.ParticleSystemScreen;
+import com.yesman.akytheralabs.gui.screen.AbilityEditorScreen;
+import com.yesman.akytheralabs.gui.screen.AbilityPropertiesEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimationAssetEditorScreen;
-import com.yesman.akytheralabs.gui.screen.ArmatureAssetEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimationMontageEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimationSequenceEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AnimatorScriptEditorScreen;
+import com.yesman.akytheralabs.gui.screen.ArmatureAssetEditorScreen;
+import com.yesman.akytheralabs.gui.screen.ArmaturePhysicsDataEditorScreen;
+import com.yesman.akytheralabs.gui.screen.BlendSpace2DEditorScreen;
+import com.yesman.akytheralabs.gui.screen.ClothPhysicsDataEditorScreen;
 import com.yesman.akytheralabs.gui.screen.DataBlockEditorScreen;
 import com.yesman.akytheralabs.gui.screen.EntityPatchEditorScreen;
 import com.yesman.akytheralabs.gui.screen.ItemPatchEditorScreen;
-import com.yesman.akytheralabs.gui.screen.BlendSpace2DEditorScreen;
-import com.yesman.akytheralabs.gui.screen.AbilityGraphEditorScreen;
-import com.yesman.akytheralabs.gui.screen.AbilityPropertiesEditorScreen;
-import com.yesman.akytheralabs.gui.widget.script.AbilityEntryPointNodeWidget;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.screen.MeshAssetEditorScreen;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
-import com.yesman.akytheralabs.gui.widget.Grid;
+import com.yesman.akytheralabs.gui.screen.SoundAssetEditorScreen;
+import com.yesman.akytheralabs.gui.screen.TexturePreviewScreen;
+import com.yesman.akytheralabs.gui.screen.WidgetEditorScreen;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
+import com.yesman.akytheralabs.gui.widget.RefusalPopup;
+import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -89,7 +108,7 @@ import java.util.List;
 /// A single [ContentBrowserPanel] object button
 ///
 /// Required to implement [AnchoredWidget] to be used in [Grid]
-public abstract class ContentWidget<T> extends AbstractWidget {
+public abstract class ContentWidget<T> extends AbstractWidget implements PatchComponent {
     /// Minimum widget height at which the bottom label is rendered
     private static final int LABEL_VISIBLE_THRESHOLD = 28;
     private static final int LABEL_HEIGHT = 12;
@@ -125,7 +144,7 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
     /// Null when editable == false
     @Nullable
-    protected final AdvancedEditBox<String> editBox;
+    protected final EditorEditBox<String> editBox;
     protected final boolean editable;
 
     public ContentWidget(final Font font, final String contentName, final boolean editable, final Path path, final @Nullable T referencingObject) {
@@ -135,7 +154,7 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         this.editable = editable;
         this.contentName = contentName;
         this.editBox = editable
-            ? AdvancedEditBox.stringBox(
+            ? EditorEditBox.stringBox(
                 font,
                 AnchoredWidget.pixel(2),
                 AnchoredWidget.pixel(2),
@@ -354,6 +373,17 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         Path oldPath = path;
         Path newPath = computeNewPath(newText);
 
+        String refusedTagPath = project.refusedTagPath(oldPath, newPath, false);
+
+        if (refusedTagPath != null) {
+            RefusalPopup.open(
+                Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_TITLE),
+                Component.translatable(LangKeys.GUI_MAIN_SCREEN_CONTENT_BROWSER_POPUP_DATA_BLOCK_TAKEN_BODY, refusedTagPath)
+            );
+
+            return;
+        }
+
         // A name already taken in the same directory is confirmed before it
         // clobbers the existing file — mirrors the import duplicate prompt.
         if (Files.exists(newPath)) {
@@ -406,15 +436,15 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             // Footer buttons render right-to-left in insertion order, so add
             // Cancel first (rightmost) and OK last (leftmost) to read "OK ... Cancel".
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                        _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                        () -> ModalManager.getInstance().closeModal())
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                     .build(),
                 btnW
             )
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_OK), _ -> {
-                        AkytheraEditorLayoutManager.getInstance().closeModal();
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_OK), () -> {
+                        ModalManager.getInstance().closeModal();
                         onOverwrite.run();
                     })
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
@@ -423,7 +453,7 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             )
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     /// Compute the new on-disk path for the given user-supplied stem.
@@ -443,8 +473,9 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         return false;
     }
 
-    /// Shared rename helper for the asset widgets — mesh, armature and animation. Moves the file,
-    /// then `project.renameAsset` re-keys the shared accessor so every referrer follows.
+    /// Shared rename helper for the asset widgets — mesh, armature, animation and texture. Moves the
+    /// file, then `project.renameAsset` carries its sidecars and re-keys the shared accessor so every
+    /// referrer follows.
     protected static boolean assetRenameOnDisk(AkytheraProject project, Path from, Path to) {
         if (!FileSystemHelper.move(from, to)) return false;
         project.renameAsset(from, to);
@@ -520,15 +551,15 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             // Footer buttons render right-to-left in insertion order, so add
             // Cancel first (rightmost) and Replace last (leftmost).
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                        _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                        () -> ModalManager.getInstance().closeModal())
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                     .build(),
                 btnW
             )
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_MESSAGE_BUTTON_REPLACE), _ -> {
-                        AkytheraEditorLayoutManager.getInstance().closeModal();
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_MESSAGE_BUTTON_REPLACE), () -> {
+                        ModalManager.getInstance().closeModal();
                         // Clear failure + retained raw: the default holder state becomes
                         // authoritative, the save writes it, and the tile un-reddens.
                         failedHolder.markResolved();
@@ -541,7 +572,7 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             )
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     /// Opens the rename box over the label with the whole name selected, so the first typed
@@ -631,6 +662,50 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         }
     }
 
+    public static class ArmaturePhysicsContent extends ContentWidget<AssetAccessor<? extends ArmaturePhysicsData>> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/armature_physics_data");
+
+        public ArmaturePhysicsContent(Font font, Path path, String name) {
+            super(
+                font, name, false, path,
+                AkytheraProject.getCurrentProject().getEditorArmaturePhysicsAccessorByPath(path)
+            );
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            if (!(getReferencingObject() instanceof AkytheraProject.EditorArmaturePhysicsAccessor accessor)) return;
+
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ArmaturePhysicsDataEditorScreen(accessor));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class ClothPhysicsContent extends ContentWidget<AssetAccessor<? extends SkeletalMesh>> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/cloth_data");
+
+        public ClothPhysicsContent(Font font, Path path, String name) {
+            super(
+                font, name, false, path,
+                AkytheraProject.getCurrentProject().getClothMeshAccessorByPath(path)
+            );
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ClothPhysicsDataEditorScreen(getReferencingObject()));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
     public static class StaticMeshContent extends ContentWidget<AssetAccessor<? extends StaticMesh>> {
         private static final Identifier ICON = AkytheraLabs.identifier("widget/static_mesh");
 
@@ -705,6 +780,56 @@ public abstract class ContentWidget<T> extends AbstractWidget {
             if (!(getReferencingObject() instanceof AkytheraProject.EditorAnimationAccessor clip)) return;
 
             AkytheraEditorLayoutManager.getInstance().openNewScreen(new AnimationAssetEditorScreen(clip));
+        }
+
+        @Override
+        protected boolean renameOnDisk(AkytheraProject project, Path from, Path to) {
+            return assetRenameOnDisk(project, from, to);
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    /// A PNG under [AkytheraProject#TEXTURES_DIRECTORY]. No accessor stands for it: the file is the
+    /// texture, read by whatever previews it.
+    public static class TextureAssetContent extends ContentWidget<Void> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/texture_asset");
+
+        public TextureAssetContent(Font font, Path path, String name) {
+            super(font, name, true, path, null);
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new TexturePreviewScreen(path));
+        }
+
+        @Override
+        protected boolean renameOnDisk(AkytheraProject project, Path from, Path to) {
+            return assetRenameOnDisk(project, from, to);
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    /// A sound event under [AkytheraProject#SOUNDS_DIRECTORY], see [SoundEventHolder]. No accessor
+    /// stands for it: the file is the event, read by whatever plays it.
+    public static class SoundEventContent extends ContentWidget<Void> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/sound_file");
+
+        public SoundEventContent(Font font, Path path, String name) {
+            super(font, name, true, path, null);
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new SoundAssetEditorScreen(path));
         }
 
         @Override
@@ -925,21 +1050,8 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
         @Override
         public void onDoubleClicked() {
-            AbilityBlueprintHolder holder =
-                AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey);
-            List<AbilityGraphEditorScreen.Canvas> canvases = new ArrayList<>();
-
-            for (AbilityBlueprintHolder.Graph graph : AbilityBlueprintHolder.Graph.values()) {
-                canvases.add(new AbilityGraphEditorScreen.Canvas(
-                    Component.literal(graph.fieldName()),
-                    holder.getGraph(graph),
-                    AbilityEntryPointNodeWidget.EntryKind.ABILITY,
-                    data -> holder.setGraph(graph, data)
-                ));
-            }
-
-            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityGraphEditorScreen(
-                resourceKey, holder, canvases, holder.getVariables(), holder::setVariables));
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityEditorScreen(
+                resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
         }
 
         @Override
@@ -957,21 +1069,27 @@ public abstract class ContentWidget<T> extends AbstractWidget {
 
         @Override
         public void onDoubleClicked() {
-            AbilityCueBlueprintHolder holder =
-                AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey);
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityCueEditorScreen(
+                resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
+        }
 
-            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityGraphEditorScreen(
-                resourceKey,
-                holder,
-                List.of(new AbilityGraphEditorScreen.Canvas(
-                    Component.literal("on_execute"),
-                    holder.getOnExecuteGraph(),
-                    AbilityEntryPointNodeWidget.EntryKind.CUE,
-                    holder::setOnExecuteGraph
-                )),
-                holder.getVariables(),
-                holder::setVariables
-            ));
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class WidgetBlueprintContent extends DataDrivenObjectContent<WidgetBlueprint, WidgetBlueprintHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/widget_blueprint");
+
+        public WidgetBlueprintContent(Font font, ResourceKey<@NonNull WidgetBlueprint> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new WidgetEditorScreen(
+                resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
         }
 
         @Override
@@ -1009,6 +1127,44 @@ public abstract class ContentWidget<T> extends AbstractWidget {
         @Override
         public void onDoubleClicked() {
             AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityPropertiesEditorScreen(
+                resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class ParticlePieceContent extends DataDrivenObjectContent<ParticleBlueprint, ParticleBlueprintHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/particle_piece");
+
+        public ParticlePieceContent(Font font, ResourceKey<@NonNull ParticleBlueprint> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ParticleEditorScreen(
+                resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class ParticleSystemContent extends DataDrivenObjectContent<ParticleSystemBlueprint, ParticleSystemHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/particle_system");
+
+        public ParticleSystemContent(Font font, ResourceKey<@NonNull ParticleSystemBlueprint> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ParticleSystemScreen(
                 resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
         }
 

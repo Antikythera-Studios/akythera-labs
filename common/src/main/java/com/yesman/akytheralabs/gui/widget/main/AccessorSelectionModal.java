@@ -3,14 +3,16 @@ package com.yesman.akytheralabs.gui.widget.main;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
 import com.yesman.akythera.api.asset.armature.ArmatureManager;
+import com.yesman.akythera.api.asset.physics.ArmaturePhysicsManager;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.client.api.mesh.MeshManager;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
 import com.yesman.akytheralabs.gui.widget.PopupBox;
 import net.minecraft.client.Minecraft;
@@ -37,6 +39,9 @@ import java.util.stream.Stream;
 /// project's merged listings), filtered by the requested type; single-click confirms and closes.
 /// With `includeNone`, a `<none>` row leads the list and confirms with a null accessor —
 /// callers use it to clear an optional mapping.
+///
+/// A caller that may only offer part of that pool passes the listing itself — see
+/// [#listProjectAccessors].
 public final class AccessorSelectionModal extends OverlayingWindowModal {
     private static final int WIDTH = 260;
     private static final int HEIGHT = 200;
@@ -50,10 +55,9 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
     public static final String NONE_LABEL = "<none>";
 
     private final Font font;
-    private final AssetAccessor.Type type;
     private final boolean includeNone;
     private final Consumer<@Nullable AssetAccessor<?>> onConfirm;
-    private final AdvancedEditBox<String> searchBox;
+    private final EditorEditBox<String> searchBox;
     private AccessorList accessorList; // assigned after the search box, whose responder captures it
 
     public AccessorSelectionModal(Font font, AssetAccessor.Type type, Consumer<AssetAccessor<?>> onConfirm) {
@@ -61,14 +65,23 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
     }
 
     public AccessorSelectionModal(Font font, AssetAccessor.Type type, boolean includeNone, Consumer<@Nullable AssetAccessor<?>> onConfirm) {
+        this(font, includeNone, listAccessors(type), onConfirm);
+    }
+
+    /// Picks out of `accessors` instead of the merged listing, for a pool the caller narrowed itself.
+    public AccessorSelectionModal(
+        Font font,
+        boolean includeNone,
+        List<AssetAccessor<?>> accessors,
+        Consumer<@Nullable AssetAccessor<?>> onConfirm
+    ) {
         super(AnchoredWidget.pixel(WIDTH), AnchoredWidget.pixel(HEIGHT), Component.literal("Select Asset"));
 
         this.font = font;
-        this.type = type;
         this.includeNone = includeNone;
         this.onConfirm = onConfirm;
 
-        this.searchBox = AdvancedEditBox.stringBox(
+        this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -79,7 +92,7 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
             Component.translatable(LangKeys.GUI_MESSAGE_EMPTY_SEARCHBAR)
         );
 
-        this.accessorList = new AccessorList(listAccessors(type));
+        this.accessorList = new AccessorList(accessors);
     }
 
     /// Whether `accessor`'s id is still in the merged listing this modal shows for its type — the [PopupBox]
@@ -91,8 +104,7 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
             .anyMatch(a -> a.identifier().equals(accessor.identifier()));
     }
 
-    /// The project's merged accessor listing for `type` (mod-registered + project-issued, deduped),
-    /// filtered by the accessors' runtime type so mixed listings (the mesh one) narrow correctly.
+    /// The project's merged accessor listing for `type` (mod-registered + project-issued, deduped).
     private static List<AssetAccessor<?>> listAccessors(AssetAccessor.Type type) {
         AkytheraProject project = AkytheraProject.getCurrentProject();
 
@@ -100,8 +112,30 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
             case ARMATURE -> project.listAllArmatureAccessors();
             case ANIMATION -> project.listAllAnimationAccessors();
             case STATIC_MESH, SKELETAL_MESH -> project.listAllMeshAccessors();
+            case ARMATURE_PHYSICS -> project.listAllArmaturePhysicsAccessors();
         };
 
+        return narrow(source, type);
+    }
+
+    /// The accessors the project directory itself holds for `type`, without the mod-registered pool
+    /// [#listAccessors] merges in.
+    public static List<AssetAccessor<?>> listProjectAccessors(AssetAccessor.Type type) {
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+
+        Stream<? extends AssetAccessor<?>> source = switch (type) {
+            case ARMATURE -> project.listIssuedEditorArmatureAccessors();
+            case ANIMATION -> project.listIssuedEditorAnimationAccessors();
+            case STATIC_MESH, SKELETAL_MESH -> project.listIssuedEditorMeshAccessors();
+            case ARMATURE_PHYSICS -> project.listIssuedEditorArmaturePhysicsAccessors();
+        };
+
+        return narrow(source, type);
+    }
+
+    /// Filtered by the accessors' runtime type so mixed listings (the mesh one) narrow correctly, then
+    /// sorted by identifier.
+    private static List<AssetAccessor<?>> narrow(Stream<? extends AssetAccessor<?>> source, AssetAccessor.Type type) {
         return source
             .filter(accessor -> accessor.checkType(type))
             .sorted(Comparator.comparing(accessor -> accessor.identifier().toString()))
@@ -117,11 +151,26 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
             case ARMATURE -> ArmatureManager.DIRECTORY;
             case ANIMATION -> AnimationManager.DIRECTORY;
             case STATIC_MESH, SKELETAL_MESH -> MeshManager.DIRECTORY;
+            case ARMATURE_PHYSICS -> ArmaturePhysicsManager.DIRECTORY;
         };
 
         String trimmed = accessor.identifier().toString().replace(directory, "");
 
         return trimmed.equals(DataHolder.EMPTY_REFERENCE.toString()) ? NONE_LABEL : trimmed;
+    }
+
+    @Override
+    public EditorEditBox<String> searchBox() {
+        return searchBox;
+    }
+
+    @Override
+    public boolean confirmSoleResult() {
+        if (accessorList.children().size() != 1) return false;
+
+        accessorList.children().getFirst().confirm();
+
+        return true;
     }
 
     @Override
@@ -165,7 +214,7 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
             if (AkytheraEditorLayoutManager.getInstance().isActive()) {
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 return true;
             }
         }
@@ -318,9 +367,13 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
 
             @Override
             public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
-                onConfirm.accept(accessor);
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                confirm();
                 return true;
+            }
+
+            void confirm() {
+                onConfirm.accept(accessor);
+                ModalManager.getInstance().closeModal();
             }
         }
 
@@ -331,8 +384,8 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
         private Unit x2 = AnchoredWidget.pixel(0);
         private Unit y1 = AnchoredWidget.pixel(LIST_TOP);
         private Unit y2 = AnchoredWidget.pixel(0);
-        private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
-        private final AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
+        private AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -344,5 +397,7 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 }

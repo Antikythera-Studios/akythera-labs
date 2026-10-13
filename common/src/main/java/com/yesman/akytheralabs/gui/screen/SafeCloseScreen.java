@@ -1,7 +1,8 @@
 package com.yesman.akytheralabs.gui.screen;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
@@ -18,8 +19,8 @@ public interface SafeCloseScreen {
     /// When `hasUnsavedChanges` is false the screen has nothing to save since its last save point, so
     /// the "Save ...?" prompt is skipped and `quit` runs straight away.
     static void openQuiteScreen(Font font, Component message, boolean hasUnsavedChanges, Runnable save, Runnable quit) {
-        if (AkytheraEditorLayoutManager.getInstance().getModal() != null) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+        if (ModalManager.getInstance().getModal() != null) {
+            ModalManager.getInstance().closeModal();
             return;
         }
 
@@ -31,38 +32,38 @@ public interface SafeCloseScreen {
         int popupW = 200;
         int btnW = WidgetContainerModal.evenButtonWidth(popupW, 3);
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(
+        ModalManager.getInstance().openModalWidgetAtCenter(
             WidgetContainerModal
                 .builder(font, Component.empty(), popupW)
                     .textLines(message)
                     .footerButton(
-                        AnchoredButton
+                        AkytheraButton
                             .buttonBuilder(
                                 font,
-                                Component.translatable(LangKeys.GUI_CANCEL),
-                                _ -> AkytheraEditorLayoutManager.getInstance().closeModal()
+                                LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                                () -> ModalManager.getInstance().closeModal()
                             )
                             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                             .build(),
                         btnW
                     )
                     .footerButton(
-                        AnchoredButton
+                        AkytheraButton
                             .buttonBuilder(
                                 font,
-                                Component.translatable(LangKeys.GUI_QUIT),
-                                _ -> quit.run()
+                                LocalizedMessage.translatable(LangKeys.GUI_QUIT),
+                                () -> quit.run()
                             )
                             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                             .build(),
                         btnW
                     )
                     .footerButton(
-                        AnchoredButton
+                        AkytheraButton
                             .buttonBuilder(
                                 font,
-                                Component.translatable(LangKeys.GUI_SAVE),
-                                _ -> save.run()
+                                LocalizedMessage.translatable(LangKeys.GUI_SAVE),
+                                () -> save.run()
                             )
                             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                             .build(),

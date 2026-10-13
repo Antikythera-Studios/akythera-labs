@@ -1,17 +1,18 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.CheckBox;
-import com.yesman.akythera.client.gui.widget.ClampedNumberBox;
-import com.yesman.akythera.client.gui.widget.CloseableWidget;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.CheckBox;
+import com.yesman.akythera.client.api.gui.ClampedNumberBox;
+import com.yesman.akythera.client.api.gui.CloseableWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.editor.debug.EditorLogBuffer;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -110,7 +111,7 @@ public final class ConsoleModal extends OverlayingWindowModal implements Closeab
     private boolean pendingSearchFocus;
 
     public static void open(final Font font) {
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(new ConsoleModal(font));
+        ModalManager.getInstance().openModalWidgetAtCenter(new ConsoleModal(font));
     }
 
     private ConsoleModal(final Font font) {
@@ -156,7 +157,7 @@ public final class ConsoleModal extends OverlayingWindowModal implements Closeab
             offsetX += boxWidth + CHECK_GAP;
         }
 
-        children.add(AdvancedEditBox.stringBox(
+        children.add(EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(PAD + COUNTER_W + 2 * (NAV_BTN_W + NAV_GAP) + NAV_GAP), AnchoredWidget.pixel(SEARCH_W),
             AnchoredWidget.pixel(TITLE_H + (FILTER_H - SEARCH_H) / 2), AnchoredWidget.pixel(SEARCH_H),
@@ -171,8 +172,8 @@ public final class ConsoleModal extends OverlayingWindowModal implements Closeab
             Component.translatable(LangKeys.GUI_MESSAGE_EMPTY_SEARCHBAR)
         ));
 
-        children.add(navButton(font, Component.literal("▲"), PAD + COUNTER_W + 2 * NAV_BTN_W + NAV_GAP, -1));
-        children.add(navButton(font, Component.literal("▼"), PAD + COUNTER_W + NAV_BTN_W, 1));
+        children.add(navButton(font, LocalizedMessage.handwritten("▲"), PAD + COUNTER_W + 2 * NAV_BTN_W + NAV_GAP, -1));
+        children.add(navButton(font, LocalizedMessage.handwritten("▼"), PAD + COUNTER_W + NAV_BTN_W, 1));
 
         children.add(logList);
 
@@ -197,24 +198,24 @@ public final class ConsoleModal extends OverlayingWindowModal implements Closeab
         bufferBox.setValue(AkytheraLabsConfig.getConsoleBufferSize());
         children.add(bufferBox);
 
-        children.add(AnchoredButton
-            .buttonBuilder(font, Component.translatable(LangKeys.GUI_CONSOLE_MODAL_OPEN_LOGS), _ -> openLogFolder())
+        children.add(AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CONSOLE_MODAL_OPEN_LOGS), () -> openLogFolder())
             .xUnits(AnchoredWidget.pixel(PAD + 3 * BTN_GAP + 2 * BTN_W), AnchoredWidget.pixel(OPEN_LOGS_BTN_W))
             .yUnits(AnchoredWidget.pixel((FOOTER_H - BTN_H) / 2), AnchoredWidget.pixel(BTN_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
             .verticalAnchorType(AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT)
             .build());
 
-        children.add(AnchoredButton
-            .buttonBuilder(font, Component.translatable(LangKeys.GUI_CONSOLE_MODAL_CLEAR), _ -> EditorLogBuffer.getInstance().clear())
+        children.add(AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CONSOLE_MODAL_CLEAR), () -> EditorLogBuffer.getInstance().clear())
             .xUnits(AnchoredWidget.pixel(PAD + 2 * BTN_GAP + BTN_W), AnchoredWidget.pixel(BTN_W))
             .yUnits(AnchoredWidget.pixel((FOOTER_H - BTN_H) / 2), AnchoredWidget.pixel(BTN_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
             .verticalAnchorType(AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT)
             .build());
 
-        children.add(AnchoredButton
-            .buttonBuilder(font, Component.translatable(LangKeys.GUI_CLOSE), _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+        children.add(AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CLOSE), () -> ModalManager.getInstance().closeModal())
             .xUnits(AnchoredWidget.pixel(PAD + BTN_GAP), AnchoredWidget.pixel(BTN_W))
             .yUnits(AnchoredWidget.pixel((FOOTER_H - BTN_H) / 2), AnchoredWidget.pixel(BTN_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -223,9 +224,9 @@ public final class ConsoleModal extends OverlayingWindowModal implements Closeab
     }
 
     /// A filter-row arrow that steps the current match by `delta`.
-    private AnchoredButton navButton(final Font font, final Component arrow, final int rightOffset, final int delta) {
-        return AnchoredButton
-            .buttonBuilder(font, arrow, _ -> logList.step(delta))
+    private AkytheraButton navButton(final Font font, final LocalizedMessage arrow, final int rightOffset, final int delta) {
+        return AkytheraButton
+            .buttonBuilder(font, arrow, () -> logList.step(delta))
             .xUnits(AnchoredWidget.pixel(rightOffset), AnchoredWidget.pixel(NAV_BTN_W))
             .yUnits(AnchoredWidget.pixel(TITLE_H + (FILTER_H - SEARCH_H) / 2), AnchoredWidget.pixel(SEARCH_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -310,7 +311,7 @@ public final class ConsoleModal extends OverlayingWindowModal implements Closeab
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -949,8 +950,8 @@ public final class ConsoleModal extends OverlayingWindowModal implements Closeab
         private Unit x2 = AnchoredWidget.pixel(1);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + FILTER_H + 1);
         private Unit y2 = AnchoredWidget.pixel(FOOTER_H);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -962,5 +963,7 @@ public final class ConsoleModal extends OverlayingWindowModal implements Closeab
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 }

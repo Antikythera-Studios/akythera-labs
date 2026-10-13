@@ -1,0 +1,3 @@
+<#-- akythera:open_screen (blueprint) -> AkytheraScreen; client implementation --><#t>
+<#-- Runtime: does nothing off the render thread, where an integrated server runs its scripts --><#t>
+(${params[0]} != null && ${params[0]}.usage() == WidgetUsage.SCREEN && Minecraft.getInstance().isSameThread() && BlueprintWidgets.open((Holder.Reference<WidgetBlueprint>) StaticRegistryAccess.getRegistryAccess().lookupOrThrow(AkytheraRegistries.DataPack.WIDGET_KEY).wrapAsHolder(${params[0]})) instanceof AkytheraScreen openedScreen ? openedScreen : null)<#t>

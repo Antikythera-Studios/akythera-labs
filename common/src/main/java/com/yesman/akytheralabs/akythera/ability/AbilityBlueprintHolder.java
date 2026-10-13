@@ -1,86 +1,45 @@
 package com.yesman.akytheralabs.akythera.ability;
 
+import com.google.common.reflect.TypeToken;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.data.modularize.AkytheraScriptFunctions;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
-import com.yesman.akythera.api.data.modularize.node.FlowNode;
-import com.yesman.akythera.api.input.InputAction;
 import com.yesman.akythera.api.world.ability.Ability;
-import com.yesman.akythera.api.world.ability.AbilityEffect;
-import com.yesman.akythera.api.world.ability.ActivationType;
-import com.yesman.akythera.api.world.ability.SystematicAbility;
 import com.yesman.akythera.core.blueprint.AbilityBlueprint;
-import com.yesman.akythera.core.blueprint.script.ScriptVariables;
+import com.yesman.akythera.core.blueprint.script.BlueprintBody;
+import com.yesman.akythera.core.reflection.BlueprintLayout;
+import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
-import net.minecraft.resources.ResourceKey;
-import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
-import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import org.jspecify.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.EnumMap;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 /// Modifiable data holder for [AbilityBlueprint].
 ///
-/// The editor keeps each event as a flat [ScriptGraphData] — a node list carrying on-canvas ids and
-/// positions, plus a wire list — while the runtime blueprint stores each as a tree of
-/// [com.yesman.akythera.api.data.modularize.node.ScriptNode]s. [#makeObject] is the compile step.
+/// The editor keeps the graphs, property values and variables as one [BlueprintScriptData], laid out by the
+/// [Ability] class the parent constructor builds. [#makeObject] is the compile step: it lowers the data into
+/// a [BlueprintBody].
 public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlueprint> {
-    /// The owner type an unwired owner ("Target") pin defaults to.
-    private static final Class<?> OWNER_TYPE = Ability.class;
-
-    /// One canvas per overridable entry point the ability editor offers.
-    public enum Graph {
-        ON_EQUIPPED("on_equipped_graph"),
-        ON_UNEQUIPPED("on_unequipped_graph"),
-        ON_ACTIVATED("on_activated_graph"),
-        ON_RECAST("on_recast_graph"),
-        ON_CANCELED("on_canceled_graph"),
-        ON_FINISHED("on_finished_graph"),
-
-        /// The one function graph, which answers with a [ReturnNode] rather than acting.
-        CAN_ACTIVATE("can_activate_graph");
-
-        private final String field;
-
-        Graph(final String field) {
-            this.field = field;
-        }
-
-        public String fieldName() {
-            return field;
-        }
-    }
-
     public static final Codec<AbilityBlueprintHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
             AkytheraRegistries.Frozen.SCRIPT_FUNCTION.byNameCodec().fieldOf("parent")
                 .forGetter(h -> h.ctor),
-            SystematicAbility.SettingsSpec.CODEC.fieldOf("settings").forGetter(AbilityBlueprintHolder::settings),
-            Codec.unboundedMap(Codec.STRING, ScriptGraphData.CODEC).optionalFieldOf("graphs", Map.of())
-                .forGetter(AbilityBlueprintHolder::graphsByName),
-            ScriptVariables.VariableInfo.CODEC.listOf().optionalFieldOf("variables", List.of())
-                .forGetter(h -> h.variables)
-        ).apply(instance, (ctor, settings, graphs, variables) -> {
+            BlueprintScriptData.MAP_CODEC.forGetter(h -> h.script)
+        ).apply(instance, (ctor, script) -> {
             AbilityBlueprintHolder holder = new AbilityBlueprintHolder();
 
             holder.ctor = ctor;
-            holder.applySettings(settings);
-            holder.variables = new ArrayList<>(variables);
-
-            for (Graph graph : Graph.values()) {
-                ScriptGraphData data = graphs.get(graph.fieldName());
-
-                if (data != null) holder.graphs.put(graph, data);
-            }
+            holder.script = script;
 
             return holder;
         })
@@ -88,131 +47,53 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
 
     /// A new ability is data driven until the author picks otherwise, which is the only parent that
     /// runs the graphs this holder edits.
-    private ScriptFunction ctor = AkytheraScriptFunctions.DATA_DRIVEN_ABILITY_CONSTRUCTOR.value();
+    private ScriptFunction ctor = AkytheraScriptFunctions.SYSTEMATIC_ABILITY_CONSTRUCTOR.value();
 
-    @EditorEditable
-    private ActivationType activationType = ActivationType.INSTANT;
+    private BlueprintScriptData script = new BlueprintScriptData();
 
-    /// The recharge timer banking this ability's charges.
-    @EditorEditable
-    private @Nullable ResourceKey<AbilityEffect> cooldownEffect;
-
-    /// Present only on a Duration preset, whose expiry is what finishes the ability.
-    @EditorEditable
-    private @Nullable ResourceKey<AbilityEffect> durationEffect;
-
-    /// The key this ability reads, required by the presets that stay activated by input.
-    @EditorEditable
-    private @Nullable ResourceKey<InputAction> inputAction;
-
-    /// The parts of the spec the panel has no widget for yet, kept so they round-trip.
-    private List<ResourceKey<AbilityEffect>> costs = List.of();
-
-    private SystematicAbility.Tags tags = SystematicAbility.Tags.NONE;
-
-    private List<SystematicAbility.Trigger> triggers = List.of();
-
-    private final Map<Graph, ScriptGraphData> graphs = new EnumMap<>(Graph.class);
-
-    private List<ScriptVariables.VariableInfo> variables = new ArrayList<>();
-
-    public AbilityBlueprintHolder() {
-        for (Graph graph : Graph.values()) {
-            graphs.put(graph, ScriptGraphData.EMPTY);
-        }
+    /// The ability class the parent constructor builds, the script owner of every canvas.
+    public Class<?> ownerType() {
+        return ctor.functionSignature().returnType();
     }
 
-    /// The spec these fields describe.
-    public SystematicAbility.SettingsSpec settings() {
-        return new SystematicAbility.SettingsSpec(
-            activationType,
-            costs,
-            Optional.ofNullable(cooldownEffect),
-            Optional.ofNullable(durationEffect),
-            Optional.ofNullable(inputAction),
-            tags,
-            triggers
-        );
+    /// The members [#ownerType] lays the editor out with.
+    public BlueprintLayout layout() {
+        return Objects.requireNonNull(ScriptModularizeHelper.blueprintLayoutOf(ownerType()));
     }
 
-    private void applySettings(final SystematicAbility.SettingsSpec spec) {
-        this.activationType = spec.activationType();
-        this.costs = List.copyOf(spec.costs());
-        this.cooldownEffect = spec.cooldownEffect().orElse(null);
-        this.durationEffect = spec.durationEffect().orElse(null);
-        this.inputAction = spec.inputAction().orElse(null);
-        this.tags = spec.tags();
-        this.triggers = List.copyOf(spec.triggers());
+    /// The state type parameter of the class `ctor` builds that the exported ability's own state class
+    /// binds. Null when the parent binds its state itself, which leaves the blueprint no place for variables.
+    public static @Nullable TypeVariable<?> stateSlot(final ScriptFunction ctor) {
+        Type state = TypeToken.of(ctor.functionSignature().returnType())
+            .resolveType(Ability.class.getTypeParameters()[0])
+            .getType();
+
+        return state instanceof TypeVariable<?> slot ? slot : null;
     }
 
     @Override
     public void readFrom(final AbilityBlueprint object) {
-        // The runtime blueprint carries no on-canvas layout, so only the flat fields round-trip.
+        // The runtime blueprint carries no on-canvas layout, so only the values round-trip.
         this.ctor = object.ctor();
-        applySettings(object.settings());
-        this.variables = new ArrayList<>(object.variables());
+        this.script = new BlueprintScriptData(
+            ScriptGraphData.EMPTY, Map.of(), List.of(), object.body().properties(),
+            object.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
     }
 
     @Override
     public AbilityBlueprint makeObject() {
-        return new AbilityBlueprint(
-            ctor,
-            settings(),
-            Optional.empty(),
-            Optional.of(compile(Graph.CAN_ACTIVATE)),
-            compile(Graph.ON_EQUIPPED),
-            compile(Graph.ON_UNEQUIPPED),
-            compile(Graph.ON_ACTIVATED),
-            compile(Graph.ON_RECAST),
-            compile(Graph.ON_CANCELED),
-            compile(Graph.ON_FINISHED),
-            List.copyOf(variables)
-        );
-    }
-
-    private FlowNode compile(final Graph graph) {
-        return ScriptGraphCompiler.compile(graphs.get(graph), OWNER_TYPE);
-    }
-
-    private Map<String, ScriptGraphData> graphsByName() {
-        Map<String, ScriptGraphData> byName = new java.util.LinkedHashMap<>();
-
-        graphs.forEach((graph, data) -> byName.put(graph.fieldName(), data));
-
-        return byName;
+        return new AbilityBlueprint(ctor, script.compile(layout(), ownerType()));
     }
 
     @Override
     public Stream<EditorReference> referencedReferences() {
-        return graphs.values().stream().flatMap(ScriptGraphData::referencedReferences);
+        return script.referencedReferences();
     }
 
     @Override
     public @Nullable Exception getNestedFailureException() {
-        for (ScriptGraphData data : graphs.values()) {
-            Exception failure = data.firstFailure();
-
-            if (failure != null) return failure;
-        }
-
-        return null;
+        return script.firstFailure();
     }
-
-    // ***************************************************************
-    // Graphs
-    // ***************************************************************
-
-    public ScriptGraphData getGraph(final Graph graph) {
-        return graphs.getOrDefault(graph, ScriptGraphData.EMPTY);
-    }
-
-    public void setGraph(final Graph graph, final ScriptGraphData data) {
-        graphs.put(graph, data);
-    }
-
-    // ***************************************************************
-    // Settings and variables
-    // ***************************************************************
 
     public ScriptFunction getCtor() {
         return ctor;
@@ -222,16 +103,7 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
         this.ctor = ctor;
     }
 
-    public void setSettings(final SystematicAbility.SettingsSpec settings) {
-        applySettings(settings);
-    }
-
-    /// The live variable list. [#setVariables] replaces it with a copy.
-    public List<ScriptVariables.VariableInfo> getVariables() {
-        return variables;
-    }
-
-    public void setVariables(final List<ScriptVariables.VariableInfo> variables) {
-        this.variables = new ArrayList<>(variables);
+    public BlueprintScriptData getScript() {
+        return script;
     }
 }

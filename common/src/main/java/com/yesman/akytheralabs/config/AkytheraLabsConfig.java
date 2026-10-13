@@ -8,6 +8,7 @@ package com.yesman.akytheralabs.config;
 import com.yesman.akytheralabs.editor.debug.EditorLogBuffer;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMapping;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
+import com.yesman.akytheralabs.gui.widget.script.WireStyle;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 import java.util.ArrayList;
@@ -29,6 +30,10 @@ public final class AkytheraLabsConfig {
         .comment("How many log lines the editor console keeps in memory")
         .defineInRange("gui.console_buffer_size", 5000, 100, 100000);
 
+    public static final ModConfigSpec.EnumValue<WireStyle> WIRE_STYLE = BUILDER
+        .comment("How the wires between node pins run: BEZIER, MANHATTAN (90 degrees) or SUBWAY (45 degrees)")
+        .defineEnum("gui.wire_style", WireStyle.BEZIER);
+
     public static final ModConfigSpec.ConfigValue<List<? extends String>> KEY_MAPPINGS = BUILDER
         .comment("Editor key mappings, each encoded as 'id=modBits,keyCode'")
         .defineListAllowEmpty("input.key_mappings", List.of(), () -> "", o -> o instanceof String s && s.indexOf('=') > 0);
@@ -38,6 +43,7 @@ public final class AkytheraLabsConfig {
     // config values
     private static int editorGuiScale;
     private static int consoleBufferSize;
+    private static WireStyle wireStyle = WireStyle.BEZIER;
 
     public static int getEditorGuiScale() {
         return editorGuiScale;
@@ -55,10 +61,19 @@ public final class AkytheraLabsConfig {
         consoleBufferSize = value;
     }
 
+    public static WireStyle getWireStyle() {
+        return wireStyle;
+    }
+
+    public static void setWireStyle(WireStyle value) {
+        wireStyle = value;
+    }
+
     /// Loads the in-memory values from the config specs.
     public static void initConfigValues() {
         editorGuiScale = EDITOR_GUI_SCALE.getAsInt();
         consoleBufferSize = CONSOLE_BUFFER_SIZE.getAsInt();
+        wireStyle = WIRE_STYLE.get();
         EditorLogBuffer.getInstance().setCapacity(consoleBufferSize);
         applyKeyMappingsFromSpec();
     }
@@ -67,6 +82,7 @@ public final class AkytheraLabsConfig {
     public static void saveConfigValues() {
         setAndSave(EDITOR_GUI_SCALE, editorGuiScale);
         setAndSave(CONSOLE_BUFFER_SIZE, consoleBufferSize);
+        setAndSave(WIRE_STYLE, wireStyle);
         setAndSave(KEY_MAPPINGS, serializeKeyMappings());
     }
 

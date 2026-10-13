@@ -1,0 +1,2 @@
+<#-- akythera:prefers_player_animation_library () -> boolean; client implementation --><#t>
+(AkytheraClientConfig.getDefaultAnimationDriver() == AkytheraClientConfig.DefaultAnimationDriver.PLAYER_ANIMATION_LIBRARY)<#t>

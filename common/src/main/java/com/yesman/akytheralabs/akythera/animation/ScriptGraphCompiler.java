@@ -4,6 +4,8 @@ import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.*;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintMembers;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintSignature;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.node.EntryNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.FlowEmitter;
@@ -39,6 +41,11 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
     /// [#entrySelector].
     private final @Nullable Predicate<GraphNode> entryMatch;
 
+    private final BlueprintMembers members;
+
+    /// The method or function the canvas implements, or null.
+    private final @Nullable String enclosingFunction;
+
     /// (fromId,fromPin) → list of (toId,toPin) it feeds.
     private final Map<Long, List<long[]>> outgoing = new HashMap<>();
 
@@ -51,12 +58,14 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
 
     private ScriptGraphCompiler(
         ScriptGraphData data, Class<?> ownerType, EntrySelector entrySelector,
-        @Nullable Predicate<GraphNode> entryMatch
+        @Nullable Predicate<GraphNode> entryMatch, BlueprintMembers members, @Nullable String enclosingFunction
     ) {
         super(data, ownerType);
         this.data = data;
         this.entrySelector = entrySelector;
         this.entryMatch = entryMatch;
+        this.members = members;
+        this.enclosingFunction = enclosingFunction;
 
         for (ScriptGraphData.WireData w : data.wires()) {
             outgoing.computeIfAbsent(key(w.from(), w.fromPin()), _ -> new ArrayList<>())
@@ -76,14 +85,23 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
     public static FlowNode compile(ScriptGraphData data, Class<?> ownerType, EntrySelector entrySelector) {
         if (data == null || data.isEmpty()) return new SequenceNode(List.of());
 
-        return new ScriptGraphCompiler(data, ownerType, entrySelector, null).run();
+        return new ScriptGraphCompiler(data, ownerType, entrySelector, null, BlueprintMembers.NONE, null).run();
     }
 
     /// Compiles the flow rooted at the first row `entryMatch` accepts.
     public static FlowNode compile(ScriptGraphData data, Class<?> ownerType, Predicate<GraphNode> entryMatch) {
+        return compile(data, ownerType, entryMatch, BlueprintMembers.NONE, null);
+    }
+
+    /// Compiles the flow rooted at the first row `entryMatch` accepts, on a canvas of a blueprint with
+    /// `members` that implements the method or function `enclosingFunction`.
+    public static FlowNode compile(
+        ScriptGraphData data, Class<?> ownerType, Predicate<GraphNode> entryMatch,
+        BlueprintMembers members, @Nullable String enclosingFunction
+    ) {
         if (data == null || data.isEmpty()) return new SequenceNode(List.of());
 
-        return new ScriptGraphCompiler(data, ownerType, EntrySelector.UPDATE, entryMatch).run();
+        return new ScriptGraphCompiler(data, ownerType, EntrySelector.UPDATE, entryMatch, members, enclosingFunction).run();
     }
 
     private FlowNode run() {
@@ -157,6 +175,16 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
     @Override
     public void readsInput(FlowStatement self, int pin) {
         self.dataPins().add(key(self.nodeId(), pin));
+    }
+
+    @Override
+    public BlueprintMembers members() {
+        return members;
+    }
+
+    @Override
+    public @Nullable BlueprintSignature enclosingFunction() {
+        return enclosingFunction == null ? null : members.method(enclosingFunction);
     }
 
     /// A row's statement. A row that is not a [FlowNodeData] becomes an inert empty slot.
@@ -320,6 +348,11 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
         List<Long> hoists = hoistsAt.get(s);
 
         return s.children().isEmpty() && (hoists == null || hoists.isEmpty());
+    }
+
+    @Override
+    public boolean consumed(int id, int pin) {
+        return consumerCount(id, pin) > 0;
     }
 
     /// A statement's own lowering: the node's, or — for a synthetic slot — its children flattened.

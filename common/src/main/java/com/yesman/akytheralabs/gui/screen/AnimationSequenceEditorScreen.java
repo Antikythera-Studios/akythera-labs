@@ -1,26 +1,27 @@
 package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
-import com.yesman.akythera.client.gui.widget.viewer.*;
-import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
-import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
-import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
-import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
-import com.yesman.akythera.client.gui.widget.WidgetTable;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.WidgetTable;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.viewer.*;
 import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.asset.loader.ArmatureLoader;
+import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
-import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
+import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -34,9 +35,11 @@ import com.yesman.akytheralabs.gui.widget.animation.AnimationTrackEditorPanel;
 import com.yesman.akytheralabs.gui.widget.animation.NotifyRow;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
-import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
+import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
+import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
+import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -44,6 +47,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
@@ -69,7 +73,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
     private final Model3DViewer model3DViewer;
     private final WidgetTable propertiesTable;
     private final PanelHeader propertiesHeader;
-    private final AnimationTrackEditorPanel notifyTrackEditorPanel;
+    private final AnimationTrackEditorPanel animationTrackEditorPanel;
     private final NotifyDetailsPanel notifyDetailsPanel;
     private final AnimationSequenceHolder holder;
     private final ResourceKey<@NonNull AnimationSequence> resourceKey;
@@ -93,8 +97,9 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
             AnchoredWidget.pixel(TOP_BAR_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            _ -> handleQuitRequest(),
+            () -> handleQuitRequest(),
             TopMenuBar.actions()
+                .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
@@ -114,7 +119,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         model3DViewer.addComponent(new CameraComponent(true));
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
-        EntityPreviewModel.display(model3DViewer, holder.getPreviewModel(), true, true);
+        EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, holder.getPreviewEntityType(), true, true);
 
         propertiesHeader = new PanelHeader(
             minecraft.font,
@@ -133,7 +138,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         new EditorWidgetFactory(minecraft.font).fillWidgetTable(propertiesTable, holder);
 
         notifyDetailsPanel = new NotifyDetailsPanel(this);
-        notifyTrackEditorPanel = new AnimationTrackEditorPanel(
+        animationTrackEditorPanel = new AnimationTrackEditorPanel(
             holder.getNotifyTrackHolder(),
             model3DViewer,
             holder,
@@ -146,8 +151,8 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
                 return rows;
             }
         );
-        notifyTrackEditorPanel.ensureAtLeastOneTrack();
-        notifyTrackEditorPanel.setDebugDrivenChecker(EntityDebugSession.getInstance()::isActive);
+        animationTrackEditorPanel.ensureAtLeastOneTrack();
+        animationTrackEditorPanel.setDebugDrivenChecker(EntityDebugSession.getInstance()::isActive);
 
         refreshPreviewAnimation();
 
@@ -161,10 +166,10 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         // holder before the new clip is replayed. The notify track then re-fits its frame window
         // and playhead to the new clip's length.
         holder.setAnimClipChangeListener(() -> {
-            EntityPreviewModel.display(model3DViewer, holder.getPreviewModel(), true, true);
+            EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, holder.getPreviewEntityType(), true, true);
             refreshPreviewAnimation();
             refreshRootTrajectory();
-            notifyTrackEditorPanel.onClipLengthChanged();
+            animationTrackEditorPanel.onClipLengthChanged();
         });
 
         panelManager = new AdjustablePanelManager(
@@ -189,7 +194,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
             propertiesHeader.relocate(rect);
             propertiesTable.relocate(rect);
         });
-        notifyAndDetails.get(0).area(notifyTrackEditorPanel);
+        notifyAndDetails.get(0).area(animationTrackEditorPanel);
         notifyAndDetails.get(1).area(notifyDetailsPanel);
 
         // Unsaved-changes marker: the title shows a `*` whenever the live history top diverges from the
@@ -212,32 +217,32 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
     }
 
     private void openPreviewModelSelectModal() {
-        ModelSelectModal modal = new ModelSelectModal(
+        EntityTypeSelectModal modal = new EntityTypeSelectModal(
             font,
-            holder.getPreviewModel(),
-            newModel -> {
-                EntityPreviewModel oldModel = holder.getPreviewModel();
-                if (Objects.equals(oldModel, newModel)) return;
+            holder.getPreviewEntityType(),
+            newEntityType -> {
+                Identifier oldEntityType = holder.getPreviewEntityType();
+                if (Objects.equals(oldEntityType, newEntityType)) return;
 
-                applyPreviewModel(newModel);
+                applyPreviewEntityType(newEntityType);
                 HistoryManager.getInstance().pushHistory(
-                    new DataChange<>(oldModel, newModel, this::applyPreviewModel));
+                    new DataChange<>(oldEntityType, newEntityType, this::applyPreviewEntityType));
             }
         );
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     /// Installs `model` as the previewed entity: the holder field, the viewer, and the clip replayed
     /// on the entity the viewer built. Undo and redo replay it.
-    private void applyPreviewModel(@Nullable EntityPreviewModel model) {
-        holder.setPreviewModel(model);
-        EntityPreviewModel.display(model3DViewer, model, true, true);
+    private void applyPreviewEntityType(@Nullable Identifier entityType) {
+        holder.setPreviewEntityType(entityType);
+        EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, entityType, true, true);
         refreshPreviewAnimation();
     }
 
     /// (Re)plays the holder's clip on the previewer's current entity component and rewires the
-    /// playback-end stop for non-looping sequences. Safe to call after any `displayEntity` — the
+    /// playback-end hook. Safe to call after any `displayEntity` — the
     /// freshly created component is fetched from the previewer.
     private void refreshPreviewAnimation() {
         EntityModelComponent entityModelComponent = model3DViewer.getComponent(EntityModelComponent.class);
@@ -246,12 +251,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         entityModelComponent.setSimplePlayingAnimation(holder.getAnimClip(), false);
 
         if (entityModelComponent.getAnimator() instanceof EntityModelComponent.SimpleHeadlessAnimator simpleHeadlessAnimator) {
-            simpleHeadlessAnimator.setOnPlaybackEnds(() -> {
-                if (!holder.loops()) {
-                    notifyTrackEditorPanel.setPlaying(false);
-                    notifyTrackEditorPanel.setCurrentFrame(holder.getTotalFrameTime() * 60.0F);
-                }
-            });
+            simpleHeadlessAnimator.setOnPlaybackEnds(animationTrackEditorPanel::onPlaybackEnds);
         }
     }
 
@@ -313,8 +313,8 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
     /// Render-thread completion for [#save]: closes the await modal (only if it is still the top one)
     /// and, on success, re-snapshots the save point so the title's `*` clears.
     private void onSaveComplete(WidgetContainerModal awaitModal, @Nullable Throwable error) {
-        if (AkytheraEditorLayoutManager.getInstance().getModal() == awaitModal) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+        if (ModalManager.getInstance().getModal() == awaitModal) {
+            ModalManager.getInstance().closeModal();
         }
 
         if (error != null) {
@@ -347,7 +347,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
 
         AnimationDriver driver = AnimatorProbe.findDriverPlaying(entityPatch, edited);
 
-        notifyTrackEditorPanel.setDebugCurrentFrame(driver == null ? 0.0F : driver.getTime() * 60.0F);
+        animationTrackEditorPanel.setDebugCurrentFrame(driver == null ? 0.0F : driver.getTime() * 60.0F);
     }
 
     /// True when the live history top has diverged from the last save point — i.e. there are edits
@@ -364,7 +364,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
             hasUnsavedChanges(),
             () -> {
                 // Dismiss the prompt, then save asynchronously and close only once the write finishes.
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 save().thenRun(this::onClose);
             },
             () -> {

@@ -3,7 +3,7 @@ package com.yesman.akytheralabs.gui.widget.script;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.LiteralNode;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.script.node.LiteralNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
@@ -31,7 +31,7 @@ public final class LiteralNodeWidget extends AbstractNodeWidget {
     /// Inline edit box for numeric / char / string literals; null for click-cyclable
     /// (boolean / enum) types, which never type. Non-null does not imply visible — it is
     /// rendered and fed input only while [#editing].
-    private final @Nullable AdvancedEditBox<String> editBox;
+    private final @Nullable EditorEditBox<String> editBox;
     private boolean editing;
 
     public LiteralNodeWidget(Font font, Class<?> valueType, int graphX, int graphY) {
@@ -47,7 +47,7 @@ public final class LiteralNodeWidget extends AbstractNodeWidget {
         if (LiteralValueSupport.isClickCyclable(valueType)) {
             this.editBox = null;
         } else {
-            this.editBox = AdvancedEditBox.filteredStringBox(font, LiteralValueSupport.filterFor(valueType), Component.empty());
+            this.editBox = EditorEditBox.filteredStringBox(font, LiteralValueSupport.filterFor(valueType), Component.empty());
             this.editBox.setOnCommitted((_, _) -> onEditCommitted());
         }
 

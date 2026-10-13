@@ -1,6 +1,8 @@
 package com.yesman.akytheralabs.gui.widget;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractContainerWidget;
@@ -19,14 +21,16 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 
 /// A container that stacks clickable tab buttons along the top edge and shows
 /// exactly one content child below them. Switching a tab swaps the visible body.
 ///
 /// Nothing app-specific lives here: callers feed tabs via [#addTab]. Only the
 /// active tab's content is exposed through [#children], so inactive tabs get no
-/// focus, key events, or narration.
-public final class TabPanel extends AbstractContainerWidget implements AnchoredWidget {
+/// focus, key events, or narration. As an [EmbeddedWidgetHost] it still reaches
+/// them, opening the tab a focused widget sits in.
+public final class TabPanel extends AbstractContainerWidget implements AnchoredWidget, EmbeddedWidgetHost {
     public static final int HEADER_H = 20;
     private static final int TAB_PADDING_X = 10;
     private static final int TAB_GAP = 1;
@@ -50,6 +54,10 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
     /// Index of the tab header being drag-reordered; -1 when none. Set on a header press,
     /// cleared on release. Live-swaps with a neighbour when the cursor crosses its midpoint.
     private int draggingTabIndex = -1;
+    /// Told the content of the tab that became active. Null tells nothing.
+    @Nullable
+    private Consumer<AbstractWidget> onActiveChanged;
+
     /// How far the tab strip is slid left, in pixels. Always 0 when the strip fits.
     private int headerScrollX = 0;
     /// Largest valid [#headerScrollX] given the current strip and panel widths.
@@ -102,6 +110,12 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
         return this;
     }
 
+    /// Sets [#onActiveChanged].
+    public TabPanel setOnActiveChanged(final @Nullable Consumer<AbstractWidget> onActiveChanged) {
+        this.onActiveChanged = onActiveChanged;
+        return this;
+    }
+
     /// The index of the tab whose content is `content`, or -1 if none. Lets a host avoid opening a
     /// duplicate tab for the same editor (it activates the existing one instead).
     public int indexOfContent(AbstractWidget content) {
@@ -111,13 +125,27 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
         return -1;
     }
 
-    /// Removes the tab at `index` (running its `onClose` first). Adjusts the active tab so one stays
-    /// selected: a tab at or before the active index shifts it left, never below 0.
+    /// Re-titles the tab showing `content`. A no-op when no tab shows it.
+    public void setTitle(AbstractWidget content, Component title) {
+        int index = indexOfContent(content);
+
+        if (index < 0) return;
+
+        tabs.get(index).title = title;
+        relocateHeaderRects();
+    }
+
+    /// Removes the tab at `index` (running its `onClose` first), and every history entry recorded under its
+    /// content, see [HistoryManager#removeHistory]. Adjusts the active tab so one stays selected: a tab at
+    /// or before the active index shifts it left, never below 0.
     public void removeTab(int index) {
         if (index < 0 || index >= tabs.size()) return;
 
+        AbstractWidget wasActive = getActiveContent();
         Tab removed = tabs.remove(index);
         if (removed.onClose != null) removed.onClose.run();
+
+        HistoryManager.getInstance().removeHistory(removed.content);
 
         if (tabs.isEmpty()) {
             activeIndex = -1;
@@ -127,6 +155,8 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
 
         relocateHeaderRects();
         relocateBody();
+
+        if (activeIndex >= 0 && getActiveContent() != wasActive && onActiveChanged != null) onActiveChanged.accept(getActiveContent());
     }
 
     public void setActiveIndex(int idx) {
@@ -136,6 +166,8 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
 
         activeIndex = idx;
         relocateBody();
+
+        if (onActiveChanged != null) onActiveChanged.accept(getActiveContent());
     }
 
     public int getActiveIndex() {
@@ -213,6 +245,8 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
 
         if (content instanceof AnchoredWidget aw) {
             aw.relocate(body);
+        } else if (content instanceof AdjustablePanelManager.PanelArea panelArea) {
+            panelArea.relocate(body);
         } else {
             // Non-anchored content: stretch to the body rect by raw setters.
             content.setX(body.left());
@@ -405,6 +439,24 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
         super.setFocused(focused);
     }
 
+    /// Opens the tab whose content holds `widget` through an [EmbeddedWidgetHost], inactive tabs included,
+    /// and focuses the content.
+    @Override
+    public boolean focusEmbedded(GuiEventListener widget) {
+        for (int i = 0; i < tabs.size(); i++) {
+            GuiEventListener root = EmbeddedWidgetHost.focusIn(List.of(tabs.get(i).content), widget);
+
+            if (root == null) continue;
+
+            setActiveIndex(i);
+            setFocused(root);
+
+            return true;
+        }
+
+        return false;
+    }
+
     @Override
     protected void updateWidgetNarration(@NonNull NarrationElementOutput narrationElementOutput) {
     }
@@ -413,7 +465,7 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
     /// its clickable header rect (recomputed on every relocate). Mutable header span is
     /// why this is an inner class rather than a Pair.
     private static final class Tab {
-        final Component title;
+        Component title;
         final AbstractWidget content;
         boolean closeable;
         @Nullable Runnable onClose;
@@ -435,8 +487,8 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -448,4 +500,6 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

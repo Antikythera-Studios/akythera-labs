@@ -1,7 +1,8 @@
 package com.yesman.akytheralabs.gui.panel.components;
 
-import com.yesman.akythera.client.gui.widget.WidgetTable;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.WidgetTable;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
@@ -13,6 +14,9 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
+
+import java.util.List;
+import java.util.function.Consumer;
 
 /// Right-hand "Details" panel of the entity-patch editor: shows the focused component's [EditorEditable]
 /// fields as [EditorWidgetFactory]-generated rows (asset accessors and registry keys become search
@@ -74,6 +78,12 @@ public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelAre
         addWidget(table);
     }
 
+    /// Hands the rows a viewer, see [EditorWidgetFactory#viewer].
+    public ComponentDetailsPanel viewer(final Model3DViewer viewer) {
+        factory.viewer(viewer);
+        return this;
+    }
+
     /// Fills the table with `componentHolder`'s editor rows, or clears back to the placeholder
     /// when null (no component focused / component without editor support).
     public void showComponent(@Nullable Object componentHolder) {
@@ -106,6 +116,46 @@ public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelAre
         }
 
         if (lastRect != null) table.relocate(lastRect);
+    }
+
+    /// Fills the table with the rows of every slot, or clears back to the placeholder when `slots` is
+    /// empty. An element added to or removed from a slot's value re-fills the rows while they are still
+    /// the ones on display.
+    public void showSlots(List<? extends EditorWidgetFactory.ValueSlot> slots) {
+        shown = slots.isEmpty() ? null : slots;
+        shownContext = null;
+        shownInherited = null;
+        shownOnWrite = null;
+
+        if (slots.isEmpty()) {
+            table.clearWidgets();
+        } else {
+            factory.fillSlots(table, slots, () -> {
+                if (shown == slots) showSlots(slots);
+            });
+        }
+
+        if (lastRect != null) table.relocate(lastRect);
+    }
+
+    /// Fills the table through `fill`, which appends its own rows. [#isShowing] answers for `owner` until
+    /// something else is shown.
+    public void showRows(Object owner, Consumer<WidgetTable> fill) {
+        shown = owner;
+        shownContext = null;
+        shownInherited = null;
+        shownOnWrite = null;
+
+        table.clearWidgets();
+        fill.accept(table);
+        table.initialize(false);
+
+        if (lastRect != null) table.relocate(lastRect);
+    }
+
+    /// Whether the rows on display are the ones [#showRows] filled for `owner`.
+    public boolean isShowing(Object owner) {
+        return shown == owner;
     }
 
     /// Section add/remove (and its undo/redo replay) rebuilds the rows only when this holder is

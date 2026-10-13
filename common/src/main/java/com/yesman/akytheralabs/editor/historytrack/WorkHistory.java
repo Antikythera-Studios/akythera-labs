@@ -14,6 +14,12 @@ public interface WorkHistory {
     /// abort the push. This is what pairs the two halves of a drag — its start and its end.
     default boolean verifyLastHistory(final Stack<WorkHistory> toUndo) { return true; }
 
+    /// Whether the change is one a save writes. An entry that is not, such as a preview setting, leaves
+    /// [HistoryManager#currentSavePoint] where it was.
+    default boolean changesData() {
+        return true;
+    }
+
     /// A gate on [HistoryManager#undo]: a destructive change such as a file deletion confirms
     /// through a modal first. The default runs `undo` straight away.
     default void requestUndoConfirmation(Runnable proceed) {

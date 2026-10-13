@@ -2,10 +2,11 @@ package com.yesman.akytheralabs.gui.widget.viewer;
 
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.yesman.akythera.client.gui.widget.viewer.ColliderViewerComponent;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewerComponent;
-import com.yesman.akythera.client.gui.widget.viewer.Ray;
+import com.yesman.akythera.api.component.TransformInheritPolicy;
+import com.yesman.akythera.client.api.gui.viewer.ColliderViewerComponent;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
+import com.yesman.akythera.client.api.gui.viewer.Ray;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
 import com.yesman.akytheralabs.editor.historytrack.DraggingDataChange;
@@ -110,7 +111,12 @@ public final class ColliderPreviewComponent implements LocatableComponent {
 
     @Override
     public Transform localTransform() {
-        return collider.getPivotTransform().makeObject();
+        return collider.getLocalTransform().makeObject();
+    }
+
+    @Override
+    public TransformInheritPolicy transformInheritPolicy() {
+        return collider.getTransformInheritPolicy();
     }
 
     /// Ignored on an inherited collider: the holder behind it is an ancestor patch's.
@@ -140,7 +146,7 @@ public final class ColliderPreviewComponent implements LocatableComponent {
     private void writeTransform(final @Nullable Transform transform) {
         if (transform == null) return;
 
-        collider.getPivotTransform().readFrom(transform);
+        collider.getLocalTransform().readFrom(transform);
     }
 
     // ***************************************************************

@@ -1,5 +1,9 @@
 package com.yesman.akytheralabs.akythera.collider;
 
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.math.physics.collider.AkytheraColliderType;
 import com.yesman.akythera.core.math.physics.collider.Collider;
@@ -11,11 +15,26 @@ import com.yesman.akytheralabs.generated.LangKeys;
 /// Dimensions of a [ConeCollider]. The base disc sits at `-height / 2` and the apex at `+height / 2`
 /// along the pivot's local +Y.
 public final class ConeShapeHolder extends ColliderShapeHolder {
+    public static final MapCodec<ConeShapeHolder> EDITOR_CODEC = RecordCodecBuilder.mapCodec(
+        instance -> instance.group(
+            Codec.DOUBLE.fieldOf("radius").forGetter(ConeShapeHolder::getRadius),
+            Codec.DOUBLE.fieldOf("height").forGetter(ConeShapeHolder::getHeight)
+        ).apply(instance, ConeShapeHolder::new)
+    );
+
     @EditorEditable(label = LangKeys.GUI_COLLIDER_RADIUS, order = 0, min = 0.0F)
     private double radius = 0.5D;
 
     @EditorEditable(label = LangKeys.GUI_COLLIDER_HEIGHT, order = 1, min = 0.0F)
     private double height = 1.0D;
+
+    public ConeShapeHolder() {
+    }
+
+    public ConeShapeHolder(final double radius, final double height) {
+        this.radius = radius;
+        this.height = height;
+    }
 
     public double getRadius() {
         return radius;
@@ -47,8 +66,12 @@ public final class ConeShapeHolder extends ColliderShapeHolder {
     }
 
     @Override
-    public ConeCollider makeCollider(final Transform pivotTransform) {
-        return new ConeCollider(pivotTransform, radius, height);
+    public ConeCollider makeCollider(
+        final Transform pivotTransform,
+        final TransformInheritPolicy transformInheritPolicy,
+        final boolean enabled
+    ) {
+        return new ConeCollider(pivotTransform, transformInheritPolicy, radius, height, enabled);
     }
 
     @Override

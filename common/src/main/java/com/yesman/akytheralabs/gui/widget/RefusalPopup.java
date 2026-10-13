@@ -1,7 +1,8 @@
 package com.yesman.akytheralabs.gui.widget;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -19,14 +20,14 @@ public final class RefusalPopup {
         WidgetContainerModal popup = WidgetContainerModal.builder(font, title, POPUP_WIDTH)
             .textLines(reason)
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_OK),
-                        _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_OK),
+                        () -> ModalManager.getInstance().closeModal())
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                     .build(),
                 WidgetContainerModal.evenButtonWidth(POPUP_WIDTH, 1)
             )
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 }

@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.widget;
 
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.client.api.gui.modal.Modal;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.gui.widget.script.ScriptVariableGetterNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.ScriptVariableSetterNodeWidget;
 import net.minecraft.client.gui.Font;
@@ -83,18 +84,18 @@ public final class VariableDropModal extends AbstractWidget implements Modal {
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
         if (!overPage(event.x(), event.y())) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
         if (overRow(event.x(), event.y(), getRowTop())) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             onGet.run();
             return true;
         }
 
         if (onSet != null && overRow(event.x(), event.y(), setRowTop())) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             onSet.run();
             return true;
         }
@@ -105,7 +106,7 @@ public final class VariableDropModal extends AbstractWidget implements Modal {
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 

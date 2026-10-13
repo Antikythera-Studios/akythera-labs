@@ -4,13 +4,15 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.yesman.akythera.client.core.renderer.RenderUtils;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.client.core.asset.loader.MeshLoader;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewerComponent;
+import com.yesman.akythera.client.core.renderer.RenderUtils;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.util.Mth;
+import net.minecraft.world.phys.AABB;
 import org.joml.Vector3f;
 
 import java.util.function.Supplier;
@@ -31,7 +33,7 @@ public final class WireframeCuboidComponent implements Model3DViewerComponent {
         0, 4,  1, 5,  2, 6,  3, 7  // uprights
     };
 
-    /// Unit-box corners in (x, y, z) ∈ {-0.5, 0.5} × {0, 1} × {-0.5, 0.5}, scaled per frame.
+    /// Unit-box corners in (x, y, z) ∈ {-0.5, 0.5} × {0, 1} × {-0.5, 0.5}, stretched over the drawn box.
     private static final float[] CORNERS = {
         -0.5F, 0.0F, -0.5F,
          0.5F, 0.0F, -0.5F,
@@ -55,17 +57,23 @@ public final class WireframeCuboidComponent implements Model3DViewerComponent {
 
         if (size.width() <= 0.0F || size.height() <= 0.0F) return;
 
+        float halfWidth = size.width() * 0.5F;
+
+        drawBox(byteBuffer, poseStack.last(), new AABB(-halfWidth, 0.0D, -halfWidth, halfWidth, size.height(), halfWidth), COLOR);
+    }
+
+    /// Draws the edges of `box` as lines of `color`, ARGB.
+    public static void drawBox(final ByteBufferBuilder byteBuffer, final PoseStack.Pose pose, final AABB box, final int color) {
         RenderType renderType = RenderTypes.lines();
         BufferBuilder builder = new BufferBuilder(byteBuffer, renderType.primitiveTopology(), renderType.format());
-        PoseStack.Pose pose = poseStack.last();
 
         for (int i = 0; i < EDGES.length; i += 2) {
-            Vector3f from = cornerAt(EDGES[i], size);
-            Vector3f to = cornerAt(EDGES[i + 1], size);
+            Vector3f from = cornerAt(EDGES[i], box);
+            Vector3f to = cornerAt(EDGES[i + 1], box);
             Vector3f direction = new Vector3f(to).sub(from).normalize();
 
-            addVertex(builder, pose, from, direction);
-            addVertex(builder, pose, to, direction);
+            addVertex(builder, pose, from, direction, color);
+            addVertex(builder, pose, to, direction, color);
         }
 
         MeshData meshData = builder.build();
@@ -73,18 +81,18 @@ public final class WireframeCuboidComponent implements Model3DViewerComponent {
         if (meshData != null) RenderUtils.drawImmediate(renderType, meshData);
     }
 
-    private static Vector3f cornerAt(int index, MeshLoader.Metadata size) {
+    private static Vector3f cornerAt(int index, AABB box) {
         return new Vector3f(
-            CORNERS[index * 3] * size.width(),
-            CORNERS[index * 3 + 1] * size.height(),
-            CORNERS[index * 3 + 2] * size.width()
+            (float)Mth.lerp(CORNERS[index * 3] + 0.5F, box.minX, box.maxX),
+            (float)Mth.lerp(CORNERS[index * 3 + 1], box.minY, box.maxY),
+            (float)Mth.lerp(CORNERS[index * 3 + 2] + 0.5F, box.minZ, box.maxZ)
         );
     }
 
     /// [RenderTypes#lines] expects the segment direction in the normal slot and a per-vertex width.
-    private static void addVertex(BufferBuilder builder, PoseStack.Pose pose, Vector3f position, Vector3f direction) {
+    private static void addVertex(BufferBuilder builder, PoseStack.Pose pose, Vector3f position, Vector3f direction, int color) {
         builder.addVertex(pose, position.x, position.y, position.z)
-            .setColor(COLOR)
+            .setColor(color)
             .setNormal(pose, direction.x, direction.y, direction.z)
             .setLineWidth(LINE_WIDTH);
     }

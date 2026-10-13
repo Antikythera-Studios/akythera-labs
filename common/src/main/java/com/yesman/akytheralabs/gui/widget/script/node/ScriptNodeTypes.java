@@ -46,15 +46,24 @@ public final class ScriptNodeTypes {
     /// Every built-in node type. Called once from each platform's client init.
     public static void bootstrap() {
         register("entry", EntryPointNodeData.CODEC);
-        register("entity_patch_entry", EntityPatchEntryNodeData.CODEC);
+        register("entity_patch_entry", MethodEntryNodeData.ENTITY_PATCH_ENTRY_CODEC);
+        register("method_entry", MethodEntryNodeData.CODEC);
+        register("return", ReturnNodeData.CODEC);
+        register("parent_call", ParentCallNodeData.CODEC);
+        register("function_call", FunctionCallNodeData.CODEC);
+        register("blueprint_field_getter", BlueprintFieldGetterNodeData.CODEC);
+        register("blueprint_field_setter", BlueprintFieldSetterNodeData.CODEC);
         register("sequence", SequenceNodeData.CODEC);
         register("branch", BranchNodeData.CODEC);
+        register("cast", CastNodeData.CODEC);
         register("flow_function", FlowFunctionNodeData.CODEC);
         register("pure_function", PureFunctionNodeData.CODEC);
         register("literal", LiteralNodeData.CODEC);
         register("self", SelfNodeData.CODEC);
+        register("component_getter", ComponentGetterNodeData.CODEC);
         register("variable_getter", VariableGetterNodeData.CODEC);
         register("variable_setter", VariableSetterNodeData.CODEC);
+        register("particle_parameter_getter", ParticleParameterGetterNodeData.CODEC);
         register("comparator", ComparatorNodeData.CODEC);
         register("operator", OperatorNodeData.CODEC);
         register("reroute", RerouteNodeData.CODEC);
@@ -76,5 +85,7 @@ public final class ScriptNodeTypes {
         register("two_pose_blend", TwoPoseBlendNodeData.CODEC);
         register("additive_blend", AdditiveBlendNodeData.CODEC);
         register("layered_blend_per_bone", LayeredBlendPerBoneNodeData.CODEC);
+        register("play_ability_cue", PlayAbilityCueNodeData.CODEC);
+        register("play_ability_cue_script", PlayAbilityCueScriptNodeData.CODEC);
     }
 }

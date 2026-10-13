@@ -33,14 +33,14 @@ public final class FlowFunctionNodeWidget extends AbstractNodeWidget {
         for (int i = 0; i < parameters.size(); i++) {
             Class<?> type = parameters.get(i);
             String label = function.isMember() && i == 0 ? "Target" : type.getSimpleName();
-            addInput(new Pin(label, NodeColors.forType(type), false, type));
+            addInput(new Pin(label, NodeColors.forType(type), false, type, signature.genericParameters().get(i)));
         }
 
         addOutput(new Pin("", NodeColors.EXEC, true));
 
         Class<?> returnType = signature.returnType();
         if (returnType != void.class && returnType != Void.class) {
-            addOutput(new Pin("Return Value", NodeColors.forType(returnType), false, returnType));
+            addOutput(new Pin("Return Value", NodeColors.forType(returnType), false, returnType, signature.genericReturnType()));
         }
 
         relayout();
@@ -48,6 +48,13 @@ public final class FlowFunctionNodeWidget extends AbstractNodeWidget {
 
     public ScriptFunction function() {
         return function;
+    }
+
+    @Override
+    protected void onConnectionsChanged() {
+        Class<?> returnType = function.functionSignature().returnType();
+
+        bindTypeVariables(function.functionSignature(), 1, returnType == void.class || returnType == Void.class ? -1 : 1);
     }
 
     @Override

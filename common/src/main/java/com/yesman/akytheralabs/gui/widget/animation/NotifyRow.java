@@ -1,21 +1,21 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
-import com.yesman.akytheralabs.dataholder.DataHolderMapper;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
+import com.yesman.akytheralabs.dataholder.DataHolderMapper;
 import com.yesman.akytheralabs.editor.historytrack.DraggingDataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ListInsert;
 import com.yesman.akytheralabs.editor.historytrack.ListRemove;
 import com.yesman.akytheralabs.editor.historytrack.PendingDataChange;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.main.RegistryLookupModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -42,7 +42,7 @@ public final class NotifyRow extends AnimTrackEntry {
     final List<NotifyWidget> notifyWidgets = new ArrayList<>();
     final List<NotifyStateWidget> notifyStateWidgets = new ArrayList<>();
 
-    private final AdvancedEditBox<String> nameEditor;
+    private final EditorEditBox<String> nameEditor;
     private boolean editing;
 
     private final ContextMenuContainer trackNameMenu;
@@ -57,7 +57,7 @@ public final class NotifyRow extends AnimTrackEntry {
         this.parent = parent;
         this.track = track;
 
-        this.nameEditor = AdvancedEditBox.stringBox(
+        this.nameEditor = EditorEditBox.stringBox(
             Minecraft.getInstance().font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(AnimationTrackList.ROW_H),
@@ -91,23 +91,23 @@ public final class NotifyRow extends AnimTrackEntry {
     }
 
     @Override
-    Component rowLabel() {
+    protected Component rowLabel() {
         return Component.literal(track.name);
     }
 
     @Override
     @Nullable
-    AbstractWidget activeInlineEditor() {
+    protected AbstractWidget activeInlineEditor() {
         return editing ? nameEditor : null;
     }
 
     @Override
-    void commitInlineEdit() {
+    protected void commitInlineEdit() {
         stopEditing();
     }
 
     @Override
-    void beginInlineEdit() {
+    protected void beginInlineEdit() {
         startEditing();
     }
 
@@ -137,7 +137,7 @@ public final class NotifyRow extends AnimTrackEntry {
 
     /// Draw notifies at last so that measures don't overlap notify widgets
     @Override
-    void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
+    protected void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
         int rowTop = getContentY();
         int rowHeight = getContentHeight();
 
@@ -186,7 +186,7 @@ public final class NotifyRow extends AnimTrackEntry {
             }
 
             // Empty space click → place playhead and clear selection
-            parent.setCurrentFrame(parent.xToFrame(event.x()));
+            parent.scrubTo(parent.xToFrame(event.x()));
             parent.setSelected(null);
             return true;
         }
@@ -225,7 +225,7 @@ public final class NotifyRow extends AnimTrackEntry {
 
     private void openTrackNameMenu(MouseButtonEvent event) {
         parent.setSelectedRow(this);
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(trackNameMenu, (int) event.x(), (int) event.y());
+        ModalManager.getInstance().openModalWidget(trackNameMenu, (int) event.x(), (int) event.y());
     }
 
     /// Capture where the right-click hit so the "Add Notify Here" callback knows the
@@ -234,7 +234,7 @@ public final class NotifyRow extends AnimTrackEntry {
         sheetMenuFrame = parent.xToFrame(event.x());
         sheetMenuX = (int) event.x();
         sheetMenuY = (int) event.y();
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(trackSheetMenu, sheetMenuX, sheetMenuY);
+        ModalManager.getInstance().openModalWidget(trackSheetMenu, sheetMenuX, sheetMenuY);
     }
 
     private ContextMenuContainer buildNameMenu() {
@@ -275,7 +275,7 @@ public final class NotifyRow extends AnimTrackEntry {
                             return;
                         }
 
-                        NotifyTrackHolder.MutableNotify added = new NotifyTrackHolder.MutableNotify(factory.get(), sheetMenuFrame);
+                        NotifyTrackHolder.MutableNotify added = new NotifyTrackHolder.MutableNotify(factory.get(), sheetMenuFrame / 60.0F);
                         track.notifies.add(added);
                         rebuildWidgets();
 
@@ -299,11 +299,11 @@ public final class NotifyRow extends AnimTrackEntry {
                         }
 
                         NotifyTrackHolder.MutableNotifyState added = new NotifyTrackHolder.MutableNotifyState(
-                            factory.get(), sheetMenuFrame,
-                            sheetMenuFrame + Math.max(
+                            factory.get(), sheetMenuFrame / 60.0F,
+                            (sheetMenuFrame + Math.max(
                                 (parent.visualFrameEnd() - parent.visualFrameStart()) * 0.1F,
                                 NotifyStateWidget.MIN_STATE_FRAMES
-                            )
+                            )) / 60.0F
                         );
 
                         track.notifyStates.add(added);
@@ -355,6 +355,6 @@ public final class NotifyRow extends AnimTrackEntry {
         modal.setX1(AnchoredWidget.pixel(sheetMenuX));
         modal.setY1(AnchoredWidget.pixel(sheetMenuY));
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(modal, sheetMenuX, sheetMenuY);
+        ModalManager.getInstance().openModalWidget(modal, sheetMenuX, sheetMenuY);
     }
 }

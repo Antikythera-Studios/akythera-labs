@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.panel.main.processors;
 
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
@@ -37,7 +38,7 @@ public final class AnimMontageResourceProcessor implements ResourceProcessor<Ani
         ExplorerPanel.TreeNode regRoot = ResourceProcessor.regRootOf(selected);
         if (regRoot == null) return;
 
-        AnimationSelectModal modal = new AnimationSelectModal(browser.getFont(), null, true, (animClips, previewModel) -> {
+        AnimationSelectModal modal = new AnimationSelectModal(browser.getFont(), null, true, (animClips, previewEntityType) -> {
             String subPath = ResourceProcessor.buildSubPath(regRoot, selected);
             AkytheraProject project = AkytheraProject.getCurrentProject();
             String lastIdPath = "";
@@ -54,7 +55,7 @@ public final class AnimMontageResourceProcessor implements ResourceProcessor<Ani
 
                 AnimationMontageHolder holder = project.getDataHolderOrThrow(key);
                 holder.addSegment(animClip);
-                holder.setPreviewModel(previewModel);
+                holder.setPreviewEntityType(previewEntityType);
                 project.saveEntry(key);
 
                 lastIdPath = idPath;
@@ -73,7 +74,7 @@ public final class AnimMontageResourceProcessor implements ResourceProcessor<Ani
             });
         });
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     @Override

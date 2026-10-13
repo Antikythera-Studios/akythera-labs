@@ -7,9 +7,12 @@ import com.mojang.serialization.DynamicOps;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
 import com.yesman.akytheralabs.mixin.MixinEnumerableDataBlockManager;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.Holder;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
@@ -66,6 +69,16 @@ public final class GuardedDataBlockCodec {
                 // Only an id nothing has registered yet is tolerated. Anything else the inner codec
                 // rejects — a malformed identifier, a value that is not a string at all — keeps failing.
                 Identifier id = Identifier.CODEC.parse(ops, input).result().orElse(null);
+                AkytheraProject project = AkytheraProject.getCurrentProjectOrNull();
+
+                // The editor reads a block only the open project declares off the project. Data packs
+                // load off the render thread, and never take an editor object.
+                if (id != null && project != null && Minecraft.getInstance().isSameThread()) {
+                    Holder<T> holder = project.getDataBlockHolder(manager, id);
+
+                    if (holder != null && holder.isBound()) return DataResult.success(Pair.of(holder.value(), ops.empty()));
+                }
+
                 T standIn = id == null ? null : standIn(manager, id);
 
                 if (standIn == null) {

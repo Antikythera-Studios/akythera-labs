@@ -3,17 +3,25 @@ package com.yesman.akytheralabs;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
+import com.yesman.akythera.api.data.modularize.node.BlueprintFieldGetterNode;
+import com.yesman.akythera.api.data.modularize.node.BlueprintFieldSetterNode;
 import com.yesman.akythera.api.data.modularize.node.BranchNode;
+import com.yesman.akythera.api.data.modularize.node.CastNode;
 import com.yesman.akythera.api.data.modularize.node.ContextVariableAccessNode;
 import com.yesman.akythera.api.data.modularize.node.FlowFunctionNode;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
+import com.yesman.akythera.api.data.modularize.node.FunctionCallNode;
 import com.yesman.akythera.api.data.modularize.node.InvertBooleanNode;
 import com.yesman.akythera.api.data.modularize.node.LiteralNode;
 import com.yesman.akythera.api.data.modularize.node.LogicalOperationNode;
 import com.yesman.akythera.api.data.modularize.node.MeshAccessorNode;
 import com.yesman.akythera.api.data.modularize.node.NumericOperatorNode;
+import com.yesman.akythera.api.data.modularize.node.ParentCallNode;
 import com.yesman.akythera.api.data.modularize.node.PureFunctionNode;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
+import com.yesman.akythera.api.data.modularize.node.RegistryEntryNode;
+import com.yesman.akythera.api.data.modularize.node.RegistryKeyNode;
+import com.yesman.akythera.api.data.modularize.node.ReturnNode;
 import com.yesman.akythera.api.data.modularize.node.ScriptVariableGetterNode;
 import com.yesman.akythera.api.data.modularize.node.ScriptVariableSetterNode;
 import com.yesman.akythera.api.data.modularize.node.SelfNode;
@@ -26,13 +34,17 @@ import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.Mesh;
 import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
+import com.yesman.akythera.client.api.particle.module.ParticleSystemParameterNode;
+import com.yesman.akythera.core.blueprint.script.BlueprintBody;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akythera.core.util.helper.ParseUtils;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.Objects;
 
 /// Renders a runtime script-node tree as **Java constructor expressions** — the data-literal counterpart of
 /// [ScriptNodeSourceCompiler], which lowers the same tree into executable statements. The blueprint provider
@@ -69,6 +81,12 @@ public final class NodeTreeSourceRenderer {
                 pure(branch.boolFunction(), indent + 1),
                 flowList(branch.whenTrue(), indent + 1),
                 flowList(branch.whenFalse(), indent + 1));
+            case CastNode cast -> ctor("CastNode", indent,
+                scriptType(cast.type()),
+                pure(cast.object(), indent + 1),
+                quote(cast.castName()),
+                flowList(cast.whenSucceeded(), indent + 1),
+                flowList(cast.whenFailed(), indent + 1));
             case FlowFunctionNode fn -> ctor("FlowFunctionNode", indent,
                 scriptFunction(fn.function()),
                 pureList(fn.params(), indent + 1),
@@ -76,6 +94,15 @@ public final class NodeTreeSourceRenderer {
             case ScriptVariableSetterNode setter -> ctor("ScriptVariableSetterNode", indent,
                 quote(setter.variableName()),
                 pure(setter.valueProvider(), indent + 1));
+            case ReturnNode ret -> "new ReturnNode(" + ret.value()
+                .map(value -> "Optional.of(" + pure(value, indent) + ")")
+                .orElse("Optional.empty()") + ")";
+            case ParentCallNode _ -> "new ParentCallNode(ScriptNode.NO_NODE_ID)";
+            case FunctionCallNode call -> functionCall(call, indent);
+            case BlueprintFieldSetterNode setter -> ctor("BlueprintFieldSetterNode", indent,
+                quote(setter.field()),
+                pure(setter.value(), indent + 1),
+                "ScriptNode.NO_NODE_ID");
             default -> "null /* TODO: unsupported flow node " + node.getClass().getSimpleName() + " */";
         };
     }
@@ -113,14 +140,75 @@ public final class NodeTreeSourceRenderer {
                 scriptType(convert.to()),
                 pure(convert.input(), indent + 1));
             case MeshAccessorNode mesh -> "new MeshAccessorNode(" + meshAccessor(mesh.mesh()) + ")";
+            case RegistryEntryNode entry -> "new RegistryEntryNode(" + scriptType(entry.type())
+                + ", Identifier.parse(" + quote(entry.id().toString()) + "))";
+            case RegistryKeyNode key -> "new RegistryKeyNode(" + scriptType(key.type())
+                + ", Identifier.parse(" + quote(key.id().toString()) + "))";
             case CachedPoseReferenceNode pose ->
                 "new CachedPoseReferenceNode(" + quote(pose.poseCacheName())
                     + ", " + ScriptNodeSourceCompiler.valueLiteral(pose.controlReferenceDriver()) + ")";
             case AnimationStateMachineNode machine -> ctor("AnimationStateMachineNode", indent,
                 transitionList(machine.entryTransitions(), indent + 1),
                 stateList(machine.states(), indent + 1));
+            case ParentCallNode _ -> "new ParentCallNode(ScriptNode.NO_NODE_ID)";
+            case FunctionCallNode call -> functionCall(call, indent);
+            case BlueprintFieldGetterNode getter ->
+                "new BlueprintFieldGetterNode(" + quote(getter.field()) + ", ScriptNode.NO_NODE_ID)";
+            case ParticleSystemParameterNode parameter ->
+                "new ParticleSystemParameterNode(" + quote(parameter.parameter()) + ", " + scriptType(parameter.type()) + ")";
             default -> "null /* TODO: unsupported pure node " + node.getClass().getSimpleName() + " */";
         };
+    }
+
+    /// A [FunctionCallNode], which is a statement and an expression alike.
+    private static String functionCall(FunctionCallNode call, int indent) {
+        return ctor("FunctionCallNode", indent,
+            quote(call.function()),
+            pureList(call.arguments(), indent + 1),
+            "ScriptNode.NO_NODE_ID");
+    }
+
+    // ***************************************************************
+    // Blueprint body
+    // ***************************************************************
+
+    /// `body` as its `BlueprintBody` constructor: the method graphs, the declared functions, the property
+    /// values re-read from their JSON text, and the variables.
+    public static String body(BlueprintBody body, int indent) {
+        return ctor("BlueprintBody", indent,
+            mapOf(body.methods().entrySet().stream()
+                .map(method -> entry(method.getKey(), flow(method.getValue(), indent + 3)))
+                .toList(), indent + 1),
+            mapOf(body.functions().entrySet().stream()
+                .map(function -> entry(function.getKey(), ctor("FunctionGraph", indent + 3,
+                    listOf(function.getValue().parameters().stream()
+                        .map(parameter -> "new FunctionGraph.Parameter(" + quote(parameter.name()) + ", "
+                            + scriptType(parameter.type()) + ")")
+                        .toList(), indent + 4),
+                    function.getValue().returnType()
+                        .map(type -> "Optional.of(" + scriptType(type) + ")")
+                        .orElse("Optional.empty()"),
+                    flow(function.getValue().body(), indent + 4))))
+                .toList(), indent + 1),
+            mapOf(body.properties().entrySet().stream()
+                .map(property -> entry(
+                    property.getKey(), "JsonParser.parseString(" + quote(property.getValue().toString()) + ")"))
+                .toList(), indent + 1),
+            listOf(body.variables().stream().map(variable -> variableInfo(variable, indent + 2)).toList(), indent + 1));
+    }
+
+    /// One `Map.entry(key, value)` of a map rendered by [#mapOf].
+    private static String entry(String key, String value) {
+        return "Map.entry(" + quote(key) + ", " + value + ")";
+    }
+
+    /// `Map.ofEntries(...)` with one entry per line; an empty map stays inline.
+    private static String mapOf(List<String> entries, int indent) {
+        if (entries.isEmpty()) return "Map.of()";
+
+        String pad = INDENT.repeat(indent + 1);
+        return "Map.ofEntries(\n" + pad + String.join(",\n" + pad, entries)
+            + "\n" + INDENT.repeat(indent) + ")";
     }
 
     // ***************************************************************
@@ -128,12 +216,12 @@ public final class NodeTreeSourceRenderer {
     // ***************************************************************
 
     /// A member variable row as its `ScriptVariables.VariableInfo` constructor; the default value
-    /// renders through [ScriptNodeSourceCompiler#valueLiteral] (`null` when the type carries none).
+    /// renders through [ScriptNodeSourceCompiler#defaultValueLiteral] (`null` when the type carries none).
     public static String variableInfo(ScriptVariables.VariableInfo variable, int indent) {
         return ctor("ScriptVariables.VariableInfo", indent,
             quote(variable.name()),
             scriptType(variable.type()),
-            ScriptNodeSourceCompiler.valueLiteral(variable.defaultVal()));
+            ParseUtils.nvl(ScriptNodeSourceCompiler.defaultValueLiteral(variable), "null"));
     }
 
     // ***************************************************************
@@ -178,8 +266,11 @@ public final class NodeTreeSourceRenderer {
         Identifier trimmed = Identifier.fromNamespaceAndPath(
             id.getNamespace(), id.getPath().replace(MeshManager.DIRECTORY, ""));
 
-        return "MeshManager.skeletalMesh(" + quote(trimmed.getNamespace()) + ", " + quote(trimmed.getPath())
-            + ", SkeletalMesh::new)";
+        return mesh.checkType(AssetAccessor.Type.STATIC_MESH)
+            ? "MeshManager.staticMesh(" + quote(trimmed.getNamespace()) + ", " + quote(trimmed.getPath())
+                + ", StaticMesh::new)"
+            : "MeshManager.skeletalMesh(" + quote(trimmed.getNamespace()) + ", " + quote(trimmed.getPath())
+                + ", SkeletalMesh::new)";
     }
 
     /// A [ScriptFunction] as its frozen-registry lookup — the form a blueprint field holding one
@@ -191,11 +282,20 @@ public final class NodeTreeSourceRenderer {
             : "AkytheraRegistries.Frozen.SCRIPT_FUNCTION.getValue(Identifier.parse(" + quote(id.toString()) + "))";
     }
 
-    private static String scriptType(ScriptType type) {
-        Identifier id = AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(type);
-        return id == null
-            ? "null /* TODO: unregistered script type */"
-            : "AkytheraRegistries.Frozen.SCRIPT_TYPE.getValue(Identifier.parse(" + quote(id.toString()) + "))";
+    /// A [ScriptType] as its frozen-registry lookup.
+    public static String scriptType(ScriptType type) {
+        return switch (type.container()) {
+            case LIST -> "ScriptType.listOf(" + scriptType(type.base()) + ")";
+            case SET -> "ScriptType.setOf(" + scriptType(type.base()) + ")";
+            case MAP -> "ScriptType.mapOf(" + scriptType(type.base()) + ", " + scriptType(Objects.requireNonNull(type.element())) + ")";
+            case SINGLE -> {
+                Identifier id = AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(type);
+
+                yield id == null
+                    ? "null /* TODO: unregistered script type */"
+                    : "AkytheraRegistries.Frozen.SCRIPT_TYPE.getValue(Identifier.parse(" + quote(id.toString()) + "))";
+            }
+        };
     }
 
     private static String flowList(List<FlowNode> nodes, int indent) {

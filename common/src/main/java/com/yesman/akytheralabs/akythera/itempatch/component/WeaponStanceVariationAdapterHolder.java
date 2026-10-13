@@ -243,7 +243,8 @@ public final class WeaponStanceVariationAdapterHolder extends ComponentDataHolde
         return new WeaponStanceVariationAdapter(
             stance,
             compiledCondition(),
-            ComponentAttachableHolder.lowerComponents(components)
+            ComponentAttachableHolder.lowerComponents(components),
+            isEnabled()
         );
     }
 
@@ -279,8 +280,7 @@ public final class WeaponStanceVariationAdapterHolder extends ComponentDataHolde
     public Map<String, Object> getDTO() {
         return Map.of(
             "stance", stance == null ? "" : Objects.toString(stance.identifier(), ""),
-            "condition", NodeTreeSourceRenderer.pure(compiledCondition(), 6),
-            "components", ComponentDataHolder.sourcesOf(components)
+            "condition", NodeTreeSourceRenderer.pure(compiledCondition(), 6)
         );
     }
 

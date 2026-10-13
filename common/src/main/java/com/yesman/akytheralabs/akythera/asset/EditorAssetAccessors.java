@@ -15,6 +15,7 @@ import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.dataholder.DataHolder;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
@@ -41,9 +42,9 @@ public final class EditorAssetAccessors {
             accessor -> trim(accessor.identifier(), ArmatureManager.DIRECTORY)
         );
 
-    public static final Codec<AssetAccessor<? extends Mesh<?>>> SKELETAL_MESH_CODEC =
+    public static final Codec<AssetAccessor<? extends Mesh<?>>> MESH_CODEC =
         Identifier.CODEC.xmap(
-            EditorAssetAccessors::skeletalMesh,
+            EditorAssetAccessors::mesh,
             accessor -> trim(accessor.identifier(), MeshManager.DIRECTORY)
         );
 
@@ -94,12 +95,27 @@ public final class EditorAssetAccessors {
             : project.getOrIssueEditorArmatureAccessor(prefix(trimmedId, ArmatureManager.DIRECTORY), Armature::new);
     }
 
-    public static AssetAccessor<? extends Mesh<?>> skeletalMesh(final Identifier trimmedId) {
+    /// The project's shared accessor for the mesh `trimmedId`, or the engine's for a mod id. A
+    /// project mesh nothing has issued an accessor for yet is taken as skeletal; one already issued
+    /// keeps whatever type the file turned out to hold.
+    public static AssetAccessor<? extends Mesh<?>> mesh(final Identifier trimmedId) {
         AkytheraProject project = projectOwning(trimmedId);
 
         return project == null
             ? MeshManager.skeletalMesh(trimmedId.getNamespace(), trimmedId.getPath(), SkeletalMesh::new)
             : project.getOrIssueEditorSkeletalMeshAccessor(prefix(trimmedId, MeshManager.DIRECTORY), SkeletalMesh::new);
+    }
+
+    /// The accessor of `type` a slot holds while nothing is picked: the engine's empty accessor where
+    /// it has one, otherwise the one for [DataHolder#EMPTY_REFERENCE].
+    public static AssetAccessor<?> empty(final AssetAccessor.Type type) {
+        return switch (type) {
+            case ANIMATION -> AnimationManager.EMPTY_ANIMATION_ACCESSOR;
+            case ARMATURE -> ArmatureManager.EMPTY_ARMATURE_ACCESSOR;
+            case STATIC_MESH, SKELETAL_MESH -> mesh(DataHolder.EMPTY_REFERENCE);
+            case ARMATURE_PHYSICS ->
+                AkytheraProject.getCurrentProject().getOrIssueEditorArmaturePhysicsAccessor(DataHolder.EMPTY_REFERENCE);
+        };
     }
 
     /// The open project when `id` names one of its assets. Null when no project is open, or when the

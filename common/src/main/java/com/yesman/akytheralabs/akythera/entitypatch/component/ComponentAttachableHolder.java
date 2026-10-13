@@ -4,7 +4,6 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.yesman.akythera.api.component.ComponentAttachable;
 import com.yesman.akythera.api.component.PatchComponent;
-import com.yesman.akythera.core.asset.armature.BoneSocket;
 import com.yesman.akythera.core.blueprint.ComponentBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
@@ -31,7 +30,7 @@ import java.util.stream.Stream;
 /// Hosts nest exactly like the engine's do — a child that is itself a `ComponentAttachableHolder`
 /// hosts children of its own — so [#getComponents] is the component tree [ComponentEditorPanel]
 /// lists. The blueprint holders implement it as the root host, as does any component that accepts
-/// children, the standing example being [ArmatureComponentHolder] with its [BoneSocketHolder]s.
+/// children, the standing example being [ArmatureComponentHolder] with its [TransformSocketHolder]s.
 ///
 /// Which children may be **added** is declared by [#attachableTypes]; a root host lists
 /// [RootAttachableComponent], which is what confines a bone socket to living under an armature.
@@ -103,7 +102,7 @@ public interface ComponentAttachableHolder {
     /// "components": {
     ///   "armature": {
     ///     "type": "akythera:armature", "armature": "epicfight:humanoid",
-    ///     "components": { "right_hand": { "type": "akythera:bone_socket", ... } }
+    ///     "components": { "right_hand": { "type": "akythera:transform_socket", ... } }
     ///   }
     /// }
     /// ```
@@ -166,8 +165,8 @@ public interface ComponentAttachableHolder {
         }
     }
 
-    /// A default name for a freshly attached component of `typeId`: its path — `akythera:bone_socket`
-    /// → `bone_socket` — de-duplicated against the host's existing children.
+    /// A default name for a freshly attached component of `typeId`: its path — `akythera:transform_socket`
+    /// → `transform_socket` — de-duplicated against the host's existing children.
     static String defaultName(Identifier typeId, Set<String> taken) {
         return uniqueName(typeId.getPath(), taken);
     }
@@ -195,6 +194,7 @@ public interface ComponentAttachableHolder {
             // The runtime component records are their own blueprints, so a holder's readFrom takes one
             // directly. The cast recovers what the wildcard erased.
             ((ComponentDataHolder<ComponentBlueprint<?, ?>>)holder).readFrom(blueprint);
+            holder.setEnabled(blueprint.enabled());
             host.getComponents().put(name, holder);
         });
     }
@@ -202,8 +202,8 @@ public interface ComponentAttachableHolder {
     /// One host's children lowered to their runtime blueprints, keyed by the same names — the shape
     /// [EntityPatchBlueprint] and [ItemPatchBlueprint] take.
     ///
-    /// Covers this host's own level only. A component that hosts children lowers them itself, in whatever
-    /// shape its runtime counterpart takes — an armature turns its sockets into a typed [BoneSocket] map.
+    /// Covers this host's own level only. A component that hosts children lowers them itself, calling
+    /// this for its own level.
     ///
     /// Skips [FailedComponentHolder]s, the only components with no runtime object. A defaults-fallback
     /// component — known type, marked failed — is a real component and lowers.
@@ -218,10 +218,31 @@ public interface ComponentAttachableHolder {
         return lowered;
     }
 
+    /// [#flatten] without the switched-off holders and everything under them — the components a patch
+    /// built from this tree takes part with, see [PatchComponent#isEnabled].
+    static Stream<ComponentDataHolder<?>> flattenEnabled(ComponentAttachableHolder host) {
+        return host.getComponents().values().stream()
+            .filter(ComponentDataHolder::isEnabled)
+            .flatMap(holder -> holder instanceof ComponentAttachableHolder child
+                ? Stream.concat(Stream.of(holder), flattenEnabled(child))
+                : Stream.of(holder));
+    }
+
     /// Every holder in the tree rooted at `host`, parents before their children.
     static Stream<ComponentDataHolder<?>> flatten(ComponentAttachableHolder host) {
         return host.getComponents().values().stream().flatMap(holder -> holder instanceof ComponentAttachableHolder child
             ? Stream.concat(Stream.of(holder), flatten(child))
             : Stream.of(holder));
+    }
+
+    /// The holder `component` is attached under in the tree rooted at `root`, or null when it hangs off `root` itself or
+    /// nowhere in it.
+    static @Nullable ComponentAttachableHolder hostOf(ComponentAttachableHolder root, ComponentDataHolder<?> component) {
+        return flatten(root)
+            .filter(ComponentAttachableHolder.class::isInstance)
+            .map(ComponentAttachableHolder.class::cast)
+            .filter(host -> host.getComponents().containsValue(component))
+            .findFirst()
+            .orElse(null);
     }
 }

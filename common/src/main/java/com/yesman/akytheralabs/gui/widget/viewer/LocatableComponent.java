@@ -1,20 +1,24 @@
 package com.yesman.akytheralabs.gui.widget.viewer;
 
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewerComponent;
+import com.yesman.akythera.api.component.TransformInheritPolicy;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.core.math.Transform;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import org.jspecify.annotations.Nullable;
+
+import java.util.EnumSet;
+import java.util.Set;
 
 /// A [Model3DViewerComponent] that sits somewhere: focusing one raises a [GizmoComponent] bound to
 /// it, and focusing anything else drops the gizmo again.
 ///
 /// The transform is split into the space the component is placed in and the offset it is edited by
 /// — a bone socket is drawn at `bone × offset` but the author edits `offset`. The gizmo draws at the
-/// product and converts its drags back into [#localTransform]'s space itself.
+/// offset placed by [#transformInheritPolicy] and converts its drags back into [#localTransform]'s space itself.
 public interface LocatableComponent extends Model3DViewerComponent {
-    /// The space [#localTransform] is expressed in, in viewer world space. [Transform#IDENTITY] for
+    /// The space [#localTransform] is placed in, in viewer world space. [Transform#IDENTITY] for
     /// something placed directly in the world.
     Transform parentTransform();
 
@@ -25,9 +29,19 @@ public interface LocatableComponent extends Model3DViewerComponent {
     /// committed value on release.
     void applyLocalTransform(Transform transform, boolean live);
 
+    /// The elements of [#parentTransform] [#worldTransform] takes on.
+    default TransformInheritPolicy transformInheritPolicy() {
+        return TransformInheritPolicy.LOC_ROT_SCA;
+    }
+
     /// [#localTransform] in viewer world space — where the gizmo is drawn.
     default Transform worldTransform() {
-        return parentTransform().mul(localTransform());
+        return transformInheritPolicy().inherit(parentTransform(), localTransform());
+    }
+
+    /// The gizmo modes this component can be edited in; the gizmo offers only these. Never empty.
+    default Set<GizmoComponent.Mode> gizmoModes() {
+        return EnumSet.allOf(GizmoComponent.Mode.class);
     }
 
     /// The gizmo bound to this component, or null when another component holds it.

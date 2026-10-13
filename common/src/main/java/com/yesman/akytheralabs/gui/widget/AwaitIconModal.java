@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget;
 
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -13,7 +14,7 @@ import java.util.concurrent.CompletableFuture;
 
 /// A non-interactive [WidgetContainerModal] showing a spinning "await" icon plus a message — shown
 /// while a background task (e.g. an asynchronous save) runs. Open it before the task, then close it
-/// via [AkytheraEditorLayoutManager#closeModal] once the task completes.
+/// via [ModalManager#closeModal] once the task completes.
 ///
 /// The spinner is an [AwaitIconRow], a [WidgetContainerModal.WidgetsContainerRow] painting twelve
 /// fading blades rotated around the row centre and advancing one step per frame, through
@@ -33,7 +34,7 @@ public final class AwaitIconModal {
             .widgetContainerRow(ICON_ROW_H, new AwaitIconRow())
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
         return modal;
     }
 
@@ -46,7 +47,7 @@ public final class AwaitIconModal {
     /// once the work finishes. The modal blocks input for the duration, which is what makes it safe
     /// to encode holders off-thread — nothing can mutate them mid-write.
     ///
-    /// With no editor screen open there is nowhere to put a modal (the layout manager refuses), so
+    /// With no editor screen open there is no editor to block, so
     /// the work runs on the caller's thread instead and this returns an already-completed future.
     public static CompletableFuture<Void> runSaving(Runnable work) {
         AkytheraEditorLayoutManager layout = AkytheraEditorLayoutManager.getInstance();
@@ -60,7 +61,7 @@ public final class AwaitIconModal {
         WidgetContainerModal modal = openSaving(minecraft.font);
 
         return CompletableFuture.runAsync(work).whenCompleteAsync((result, error) -> {
-            if (layout.getModal() == modal) layout.closeModal();
+            if (ModalManager.getInstance().getModal() == modal) ModalManager.getInstance().closeModal();
             if (error != null) AkytheraLabs.LOGGER.error("Background save failed", error);
         }, minecraft);
     }

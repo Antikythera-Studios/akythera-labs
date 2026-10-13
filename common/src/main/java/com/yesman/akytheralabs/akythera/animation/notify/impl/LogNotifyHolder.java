@@ -3,7 +3,9 @@ package com.yesman.akytheralabs.akythera.animation.notify.impl;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.animation.notify.impl.LogNotify;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.util.LogicalSide;
+import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
 
@@ -41,6 +43,11 @@ public final class LogNotifyHolder extends AnimationNotifyHolder<LogNotify> {
     @Override
     public String notifyName() {
         return LogNotify.class.getSimpleName();
+    }
+
+    @Override
+    public void simulate(Model3DViewer previewer) {
+        AkytheraLabs.LOGGER.info("Debug notify: notified in previewer");
     }
 
     @Override

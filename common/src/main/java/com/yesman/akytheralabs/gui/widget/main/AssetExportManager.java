@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
@@ -51,8 +52,8 @@ public final class AssetExportManager {
     /// Type folders the two halves of a model land in, side by side under the chosen directory. The
     /// folder name is what tells a mesh from an armature — both files keep the source model's stem,
     /// which is the whole point of splitting a legacy `.json` across two of them.
-    private static final String MESH_DIRECTORY = "meshes";
-    private static final String ARMATURE_DIRECTORY = "armatures";
+    public static final String MESH_DIRECTORY = "meshes";
+    public static final String ARMATURE_DIRECTORY = "armatures";
 
     public static final AssetExportManager INSTANCE = new AssetExportManager();
 
@@ -209,10 +210,59 @@ public final class AssetExportManager {
 
     /// One model queued for export: the legacy `.json` to read, and the bone renames to apply on the
     /// way out, keyed by the name that file carries.
-    public record ModelExport(Path source, Map<String, String> boneRenames) {}
+    ///
+    /// `exportName` is the stem both halves are written under — the caller's, not the source file's.
+    /// `weightRemap` rewrites the mesh's weight bone ids first, see [#remapWeightBoneIds].
+    /// `exportArmature` is false for a model set to ride an armature the project already holds: only
+    /// the mesh half is written, and `boneRenames` reaches nothing.
+    public record ModelExport(
+        Path source,
+        String exportName,
+        Map<String, String> boneRenames,
+        Map<Integer, Integer> weightRemap,
+        boolean exportArmature
+    ) {}
 
-    /// Transcode each legacy `.json` model into a mesh and an armature `.akasset` under `destDir`, in
-    /// [#MESH_DIRECTORY] and [#ARMATURE_DIRECTORY]. Both keep the source file's stem.
+    /// What the transformer reads off a legacy model before exporting it. `hasArmature` is whether it
+    /// carries the `armature` block [#encodeArmature] reads — legacy models drawn on another rig's
+    /// skeleton, custom armors and capes, carry none. `highestWeightBoneId` is the highest bone id its
+    /// weight blocks address, -1 for a mesh no bone deforms.
+    public record ModelProbe(boolean hasArmature, int highestWeightBoneId) {}
+
+    public ModelProbe probeModel(JsonObject root) {
+        int[] vindices = intArrayOf(GsonHelper.getAsJsonObject(root, "vertices"), "vindices");
+        int highest = -1;
+
+        // Bone id and weight index, pairwise
+        for (int i = 0; i < vindices.length; i += 2) {
+            highest = Math.max(highest, vindices[i]);
+        }
+
+        return new ModelProbe(root.has("armature"), highest);
+    }
+
+    /// Rewrites the bone ids `root`'s weight blocks address through `remap` — old id to new, an id it
+    /// lacks left alone. Every id is looked up as the file wrote it, so the entries apply at once
+    /// rather than in turn: remapping 3 to 5 and 5 to 3 swaps them.
+    ///
+    /// Edits `root` in place.
+    public void remapWeightBoneIds(JsonObject root, Map<Integer, Integer> remap) {
+        if (remap.isEmpty()) return;
+
+        JsonObject vindices = GsonHelper.getAsJsonObject(GsonHelper.getAsJsonObject(root, "vertices"), "vindices");
+        JsonArray array = GsonHelper.getAsJsonArray(vindices, "array");
+
+        // Bone id and weight index, pairwise
+        for (int i = 0; i < array.size(); i += 2) {
+            Integer target = remap.get(array.get(i).getAsInt());
+
+            if (target != null) array.set(i, new JsonPrimitive(target));
+        }
+    }
+
+    /// Transcode each legacy `.json` model into a mesh `.akasset` under `destDir`'s [#MESH_DIRECTORY],
+    /// and — for a [ModelExport] that ships one — an armature `.akasset` under [#ARMATURE_DIRECTORY].
+    /// Both are named by [ModelExport#exportName].
     /// Per-file failures become an [ExportResult.Failure]; the rest of the batch still exports.
     public List<ExportResult<Path>> exportAllModels(
         List<ModelExport> models,
@@ -229,18 +279,27 @@ public final class AssetExportManager {
 
             try {
                 JsonObject root = readJsonObject(source);
-                String stem = FileSystemHelper.stem(source.getFileName().toString());
+                remapWeightBoneIds(root, model.weightRemap());
+
+                String stem = model.exportName();
 
                 Files.createDirectories(meshDir);
-                Files.createDirectories(armatureDir);
 
                 Path meshFile = meshDir.resolve(stem + "." + AssetLoader.BINARY_EXTENSION);
-                Path armatureFile = armatureDir.resolve(stem + "." + AssetLoader.BINARY_EXTENSION);
-
                 Files.write(meshFile, encodeMesh(root));
-                Files.write(armatureFile, encodeArmature(root, model.boneRenames(), generateRootInOrigin));
 
-                results.add(new ExportResult.Success<>(source, List.of(meshFile, armatureFile)));
+                List<Path> written = new ArrayList<>(2);
+                written.add(meshFile);
+
+                if (model.exportArmature()) {
+                    Files.createDirectories(armatureDir);
+
+                    Path armatureFile = armatureDir.resolve(stem + "." + AssetLoader.BINARY_EXTENSION);
+                    Files.write(armatureFile, encodeArmature(root, model.boneRenames(), generateRootInOrigin));
+                    written.add(armatureFile);
+                }
+
+                results.add(new ExportResult.Success<>(source, List.copyOf(written)));
             } catch (Exception e) {
                 AkytheraLabs.LOGGER.error("Failed to export model {}", source, e);
                 results.add(new ExportResult.Failure<>(source, e.getMessage()));
@@ -471,7 +530,7 @@ public final class AssetExportManager {
         return ParseUtils.jsonArrayToPrimitiveInt(GsonHelper.getAsJsonArray(GsonHelper.getAsJsonObject(owner, property), "array"));
     }
 
-    private static JsonObject readJsonObject(Path file) throws IOException {
+    public static JsonObject readJsonObject(Path file) throws IOException {
         try (BufferedReader reader = Files.newBufferedReader(file)) {
             return GsonHelper.convertToJsonObject(JsonParser.parseReader(reader), "root_object");
         }
@@ -489,7 +548,7 @@ public final class AssetExportManager {
     /// Encodes an `.akasset` byte stream: `EFAS` magic plus zlib-deflated blocks. A block header is
     /// 16 bytes — depth, payloadStartOffset, payloadEndOffset, typeId. Every block this writes is a
     /// top-level one, so depth is always 0.
-    private static final class AkAssetWriter {
+    public static final class AkAssetWriter {
         private final ByteArrayOutputStream payload = new ByteArrayOutputStream();
 
         void addAnimBoneTrack(String boneName, BoneAnimationTrack track) {
@@ -516,13 +575,13 @@ public final class AssetExportManager {
             addBlock(DataType.ANIM_BONE_TRACK, body.toByteArray());
         }
 
-        void addFloatArray(DataType dataType, float[] values) {
+        public void addFloatArray(DataType dataType, float[] values) {
             ByteArrayOutputStream body = new ByteArrayOutputStream(values.length * 4);
             for (float v : values) writeFloat(body, v);
             addBlock(dataType, body.toByteArray());
         }
 
-        void addIntArray(DataType dataType, int[] values) {
+        public void addIntArray(DataType dataType, int[] values) {
             ByteArrayOutputStream body = new ByteArrayOutputStream(values.length * 4);
             for (int v : values) writeInt(body, v);
             addBlock(dataType, body.toByteArray());
@@ -549,7 +608,7 @@ public final class AssetExportManager {
             }
         }
 
-        byte[] toBytes() {
+        public byte[] toBytes() {
             Deflater d = new Deflater();
             d.setInput(payload.toByteArray());
             d.finish();

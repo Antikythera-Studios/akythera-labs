@@ -3,10 +3,12 @@ package com.yesman.akytheralabs.dataholder;
 import com.mojang.serialization.Codec;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akytheralabs.editor.EditorEditable;
-import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaterniond;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /// Mutable editor mirror of [Transform] — location, rotation, scale as reassignable fields the
 /// Details panel can bind rows to, where the runtime record exposes only components of an immutable
@@ -26,9 +28,8 @@ public final class TransformHolder extends AbstractDataHolder<Transform> {
     @EditorEditable(label = LangKeys.GUI_TRANSFORM_LOCATION, order = 0)
     private Vec3 location;
 
-    /// Raw quaternion components, matching what [Transform] stores. Note that the widgets write a
-    /// whole replacement quaternion rather than mutating this one, see
-    /// [EditorWidgetFactory#withComponent].
+    /// Raw quaternion components, matching what [Transform] stores. The row shows it as Euler angles
+    /// and writes a whole replacement quaternion rather than mutating this one.
     @EditorEditable(label = LangKeys.GUI_TRANSFORM_ROTATION, order = 1)
     private Quaterniond rotation;
 
@@ -81,6 +82,25 @@ public final class TransformHolder extends AbstractDataHolder<Transform> {
         location = object.loc();
         rotation = new Quaterniond(object.rot());
         scale = object.sca();
+    }
+
+    /// Tokens for the `transform` macro of `source_templates/transform.ftl`: the transform flattened into its ten
+    /// scalars.
+    public Map<String, Object> sourceTokens() {
+        Map<String, Object> tokens = new HashMap<>();
+
+        tokens.put("location_x", location.x);
+        tokens.put("location_y", location.y);
+        tokens.put("location_z", location.z);
+        tokens.put("rotation_x", rotation.x());
+        tokens.put("rotation_y", rotation.y());
+        tokens.put("rotation_z", rotation.z());
+        tokens.put("rotation_w", rotation.w());
+        tokens.put("scale_x", scale.x);
+        tokens.put("scale_y", scale.y);
+        tokens.put("scale_z", scale.z);
+
+        return tokens;
     }
 
     /// The runtime value. The quaternion is copied out, so a transform already handed to a built

@@ -1,17 +1,17 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.editor.historytrack.DraggingDataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.PendingDataChange;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -62,7 +62,7 @@ public final class SectionRow extends AnimTrackEntry {
     private final List<SectionIndicatorWidget> indicators = new ArrayList<>();
 
     /// Inline rename box, shared across chips (only one section edits at a time).
-    private final AdvancedEditBox<String> nameEditor;
+    private final EditorEditBox<String> nameEditor;
     private boolean editing;
     private @Nullable String editingName;
 
@@ -84,7 +84,7 @@ public final class SectionRow extends AnimTrackEntry {
 
         Minecraft mc = Minecraft.getInstance();
 
-        this.nameEditor = AdvancedEditBox.stringBox(
+        this.nameEditor = EditorEditBox.stringBox(
             mc.font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(CHIP_H),
@@ -133,7 +133,7 @@ public final class SectionRow extends AnimTrackEntry {
     }
 
     @Override
-    Component rowLabel() {
+    protected Component rowLabel() {
         return Component.translatable(LangKeys.GUI_ANIM_MONTAGE_SCREEN_ROW_SECTIONS);
     }
 
@@ -149,22 +149,22 @@ public final class SectionRow extends AnimTrackEntry {
 
     @Override
     @Nullable
-    AbstractWidget activeInlineEditor() {
+    protected AbstractWidget activeInlineEditor() {
         return editing ? nameEditor : null;
     }
 
     @Override
-    void commitInlineEdit() {
+    protected void commitInlineEdit() {
         stopEditing();
     }
 
     @Override
-    void beginInlineEdit() {
+    protected void beginInlineEdit() {
         if (selected != null) startEditing(selected);
     }
 
     @Override
-    void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
+    protected void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
         int top = getContentY();
         int h = getContentHeight();
         for (SectionIndicatorWidget w : indicators) w.updatePosition(top);
@@ -207,12 +207,12 @@ public final class SectionRow extends AnimTrackEntry {
         if (event.button() == 1) {
             menuSection = null;
             menuFrameSeconds = Math.max(0.0F, parent.xToFrame(event.x()) / 60.0F);
-            AkytheraEditorLayoutManager.getInstance().openModalWidget(emptyMenu, (int) event.x(), (int) event.y());
+            ModalManager.getInstance().openModalWidget(emptyMenu, (int) event.x(), (int) event.y());
             return true;
         }
 
         if (event.button() == 0) {
-            parent.setCurrentFrame(parent.xToFrame(event.x()));
+            parent.scrubTo(parent.xToFrame(event.x()));
             return true;
         }
 
@@ -388,7 +388,7 @@ public final class SectionRow extends AnimTrackEntry {
 
             if (event.button() == 1) {
                 menuSection = name;
-                AkytheraEditorLayoutManager.getInstance().openModalWidget(chipMenu, (int) event.x(), (int) event.y());
+                ModalManager.getInstance().openModalWidget(chipMenu, (int) event.x(), (int) event.y());
                 return true;
             }
 

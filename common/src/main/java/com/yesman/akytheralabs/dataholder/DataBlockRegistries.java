@@ -2,6 +2,9 @@ package com.yesman.akytheralabs.dataholder;
 
 import com.mojang.serialization.Codec;
 import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
+import com.yesman.akythera.api.world.ability.AbilitySlot;
+import com.yesman.akythera.api.world.ability.AbilitySlotGroup;
+import com.yesman.akythera.api.world.ability.AbilityTag;
 import com.yesman.akythera.api.world.patch.item.WeaponStance;
 import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.core.animation.FSMAnimationState;
@@ -9,6 +12,9 @@ import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.datablock.GuardedDataBlockCodec;
+import com.yesman.akytheralabs.akythera.dataholder.datablock.AbilitySlotGroupHolder;
+import com.yesman.akytheralabs.akythera.dataholder.datablock.AbilitySlotHolder;
+import com.yesman.akytheralabs.akythera.dataholder.datablock.AbilityTagHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.AnimationInterfaceKeyHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.AnimationLayerSignatureHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.FSMAnimationStateHolder;
@@ -20,11 +26,17 @@ import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
+import java.util.ArrayDeque;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /// Central, lazily-built catalogue of the editor-editable [EnumerableDataBlock] types — the single source of
@@ -108,6 +120,10 @@ public final class DataBlockRegistries {
         register(AnimationLayerSignature.ENUM_MANAGER, AnimationLayerSignatureHolder::new, AnimationLayerSignatureHolder.CODEC);
         register(AnimationInterfaceKey.ENUM_MANAGER, AnimationInterfaceKeyHolder::new, AnimationInterfaceKeyHolder.CODEC);
         register(WeaponStance.ENUM_MANAGER, WeaponStanceHolder::new, WeaponStanceHolder.CODEC);
+        register(AbilityTag.ENUM_MANAGER, AbilityTagHolder::new, AbilityTagHolder.CODEC);
+        // Slots reference a group, so groups load first.
+        register(AbilitySlotGroup.ENUM_MANAGER, AbilitySlotGroupHolder::new, AbilitySlotGroupHolder.CODEC);
+        register(AbilitySlot.ENUM_MANAGER, AbilitySlotHolder::new, AbilitySlotHolder.CODEC);
     }
 
     /// Registers the editor holder for one data block type: the engine manager the type is registered
@@ -142,6 +158,42 @@ public final class DataBlockRegistries {
     /// other tag.
     public static synchronized @Nullable Entry<?, ?> entryOf(Object tag) {
         return ENTRIES.get(tag);
+    }
+
+    /// The manager `blockType` keeps in a static field, declared on itself or a super-interface, see
+    /// [#managerDeclarers]. Null when none declares one.
+    public static @Nullable EnumerableDataBlockManager<?> managerOf(Class<?> blockType) {
+        for (Class<?> declarer : managerDeclarers(blockType)) {
+            for (Field field : declarer.getDeclaredFields()) {
+                if (!Modifier.isStatic(field.getModifiers()) || field.getType() != EnumerableDataBlockManager.class) {
+                    continue;
+                }
+
+                try {
+                    field.setAccessible(true);
+
+                    return (EnumerableDataBlockManager<?>) field.get(null);
+                } catch (IllegalAccessException e) {
+                    throw new IllegalStateException("Unreadable manager field " + declarer.getName() + "#" + field.getName(), e);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// `type` and its super-interfaces, breadth first: where a data block type's manager field may be
+    /// declared.
+    public static Collection<Class<?>> managerDeclarers(Class<?> type) {
+        Set<Class<?>> ordered = new LinkedHashSet<>();
+        Deque<Class<?>> pending = new ArrayDeque<>(List.of(type));
+
+        while (!pending.isEmpty()) {
+            Class<?> next = pending.poll();
+            if (ordered.add(next)) pending.addAll(List.of(next.getInterfaces()));
+        }
+
+        return ordered;
     }
 
     /// Tag → processor dispatch for [ResourceProcessor#forTag]. The tag for a data block tree root is its

@@ -1,5 +1,7 @@
 package com.yesman.akytheralabs.editor;
 
+import com.yesman.akythera.core.util.helper.ParseUtils;
+
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -40,7 +42,7 @@ public final class EditorFieldScanner {
 
     public record EditorField(Field field, EditorEditable annotation) {
         public String label() {
-            return annotation.label().isBlank() ? field.getName() : annotation.label();
+            return annotation.label().isBlank() ? ParseUtils.camelToSpacedPascal(field.getName()) : annotation.label();
         }
     }
 }

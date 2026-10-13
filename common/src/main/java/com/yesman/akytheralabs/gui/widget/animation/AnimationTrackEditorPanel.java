@@ -1,10 +1,12 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
-import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent.EditorScrubAnimator;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent.EditorScrubAnimator;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.core.animation.notify.AnimationNotifyTrack;
 import com.yesman.akythera.core.util.helper.MathUtils;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.akythera.animation.PlayableAnimationHolder;
@@ -13,8 +15,8 @@ import com.yesman.akytheralabs.editor.historytrack.ListInsert;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -43,7 +45,7 @@ import java.util.function.Function;
 /// constructor), so the sequence editor builds notify rows and the montage editor builds
 /// section + segment + notify rows. The panel keeps the notify holder + "+" add-track
 /// since notify tracks are the common editable track type across both screens.
-public final class AnimationTrackEditorPanel extends AdjustablePanelManager.PanelArea {
+public final class AnimationTrackEditorPanel extends AdjustablePanelManager.PanelArea implements TrackTimeline {
     private static final int[] RULER_SCALES = {5, 10, 25, 50, 100, /* Grows by x2 afterward */ };
     private static final int MAX_VISIBLE_RULER_SCALES = 20;
 
@@ -72,7 +74,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
     private final AnimationTrackList trackList;
     private final CurrentFrameIndicator frameIndicator;
-    private final AnchoredButton addTrackButton;
+    private final AkytheraButton addTrackButton;
 
     /// A visible frame scope from
     private float visualFrameStart;
@@ -91,6 +93,9 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     /// Whether animation being updated
     private boolean playing = false;
 
+    /// The time the notify simulation has reached, in seconds. Notifies after it fire as the playhead passes them.
+    private float simulatedTime = 0F;
+
     /// See [#isDebugDriven].
     private BooleanSupplier debugDriven = () -> false;
 
@@ -99,9 +104,9 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     private NotifyTrackHolder.@Nullable NotifyRef selected;
 
     /// Footer children.
-    private final AnchoredButton playButton;
-    private final AnchoredButton pauseButton;
-    private final AdvancedEditBox<String> frameBox;
+    private final AkytheraButton playButton;
+    private final AkytheraButton pauseButton;
+    private final EditorEditBox<String> frameBox;
     private final FrameScrollBar scrollBar;
 
     public AnimationTrackEditorPanel(
@@ -119,8 +124,8 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
         fitFrameWindowToClip();
 
-        this.addTrackButton = AnchoredButton.buttonBuilder(
-                Minecraft.getInstance().font, Component.empty(), _ -> onAddTrackPressed()
+        this.addTrackButton = AkytheraButton.buttonBuilder(
+                Minecraft.getInstance().font, LocalizedMessage.EMPTY, () -> onAddTrackPressed()
             )
             .xUnits(AnchoredWidget.pixel(AnimationTrackList.NAME_BLOCK_W - ADD_BUTTON_W - 8), AnchoredWidget.pixel(ADD_BUTTON_W))
             .yUnits(AnchoredWidget.pixel(HEADER_H - ADD_BUTTON_H - 4), AnchoredWidget.pixel(ADD_BUTTON_H))
@@ -136,8 +141,8 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         // panel rect's bottom and scale with FOOTER_H so changing the constant rescales everything.
         int btnSize = FOOTER_H - FOOTER_BUTTON_INSET * 2;
 
-        this.playButton = AnchoredButton.buttonBuilder(
-                Minecraft.getInstance().font, Component.empty(), _ -> setPlaying(true)
+        this.playButton = AkytheraButton.buttonBuilder(
+                Minecraft.getInstance().font, LocalizedMessage.EMPTY, () -> setPlaying(true)
             )
             .xUnits(AnchoredWidget.pixel(FOOTER_BUTTON_INSET * 3 + FRAME_BOX_W + btnSize), AnchoredWidget.pixel(btnSize))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(btnSize))
@@ -146,8 +151,8 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
             .theme(AkytheraLabsButtonTheme.ANIM_TRACK_RESUME_BUTTON)
             .build();
 
-        this.pauseButton = AnchoredButton.buttonBuilder(
-                Minecraft.getInstance().font, Component.empty(), _ -> setPlaying(false)
+        this.pauseButton = AkytheraButton.buttonBuilder(
+                Minecraft.getInstance().font, LocalizedMessage.EMPTY, () -> setPlaying(false)
             )
             .xUnits(AnchoredWidget.pixel(FOOTER_BUTTON_INSET * 2 + FRAME_BOX_W), AnchoredWidget.pixel(btnSize))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(btnSize))
@@ -156,7 +161,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
             .theme(AkytheraLabsButtonTheme.ANIM_TRACK_PAUSE_BUTTON)
             .build();
 
-        this.frameBox = AdvancedEditBox.filteredStringBox(
+        this.frameBox = EditorEditBox.filteredStringBox(
             Minecraft.getInstance().font,
             s -> s.matches("\\d*"),
             Component.empty(),
@@ -171,7 +176,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
             String t = frameBox.getText();
             if (t.isEmpty()) return;
             try {
-                setCurrentFrame(Integer.parseInt(t));
+                scrubTo(Integer.parseInt(t));
             } catch (NumberFormatException ignored) {
             }
         });
@@ -195,10 +200,17 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         return holder;
     }
 
+    @Override
     public float currentFrame() {
         return currentFrame;
     }
 
+    @Override
+    public String playheadLabel() {
+        return String.format("%.1f", currentFrame);
+    }
+
+    @Override
     public void setCurrentFrame(float frame) {
         if (isDebugDriven()) return;
 
@@ -212,13 +224,10 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
         float totalFrames = totalFrames() * 60F;
         currentFrame = Math.clamp(frame, 0.0F, totalFrames);
+        simulatedTime = currentFrame / 60F;
 
         // Drive the animator's playhead
         headlessAnimator.setElapsedTime(currentFrame / 60F);
-    }
-
-    public boolean isCurrentFrameInScope() {
-        return currentFrame >= visualFrameStart && currentFrame <= visualFrameEnd;
     }
 
     public boolean isPlaying() {
@@ -239,8 +248,39 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         if (a != null) a.setUpdatePose(playing);
     }
 
+    /// Fires the notifies left before the end and returns the playhead to 0. Stops unless the animation loops.
+    public void onPlaybackEnds() {
+        EditorScrubAnimator headlessAnimator = getHeadlessAnimator();
+        if (headlessAnimator != null) simulateNotifies(headlessAnimator.getElapsedTime());
+
+        if (!playableAnimationHolder.loops()) setPlaying(false);
+
+        setCurrentFrame(0F);
+    }
+
+    /// Plays every notify and notify state the playhead passes from [#simulatedTime] to `toTime`, by the
+    /// rules of [AnimationNotifyTrack#tick].
+    private void simulateNotifies(float toTime) {
+        float fromTime = simulatedTime;
+
+        for (NotifyTrackHolder.Track track : holder.getTracks()) {
+            for (NotifyTrackHolder.MutableNotify notify : track.notifies) {
+                if (fromTime < notify.time && notify.time <= toTime) notify.holder.simulate(model3DViewer);
+            }
+
+            for (NotifyTrackHolder.MutableNotifyState state : track.notifyStates) {
+                if (fromTime < state.from && state.from <= toTime) state.holder.simulateBegin(model3DViewer);
+                if (state.from < toTime && fromTime <= state.to) state.holder.simulateTick(model3DViewer, fromTime, toTime);
+                if (fromTime < state.to && state.to <= toTime) state.holder.simulateEnd(model3DViewer);
+            }
+        }
+
+        simulatedTime = toTime;
+    }
+
     /// Whether the playhead follows a possessed entity's animator instead of the editor's own
     /// playback. Installed by the owning screen; false for a screen that does not debug.
+    @Override
     public boolean isDebugDriven() {
         return debugDriven.getAsBoolean();
     }
@@ -258,15 +298,17 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         applyCurrentFrame(frame);
     }
 
-    // These fields are exposed for [FrameScrollBar] to read/write the visible-frame window.
-    public float visualFrameStart() { return visualFrameStart; }
-    public float visualFrameEnd() { return visualFrameEnd; }
-    public void setVisualFrameStart(float v) { visualFrameStart = v; }
-    public void setVisualFrameEnd(float v) { visualFrameEnd = v; }
+    @Override public float visualFrameStart() { return visualFrameStart; }
+    @Override public float visualFrameEnd() { return visualFrameEnd; }
+    @Override public void setVisualFrameStart(float v) { visualFrameStart = v; }
+    @Override public void setVisualFrameEnd(float v) { visualFrameEnd = v; }
 
-    /// Exposed for [FrameScrollBar] to read the clip's total frames.
-    public @Nullable EditorScrubAnimator headlessAnimator() {
-        return getHeadlessAnimator();
+    /// The clip's length, or zero while the preview has no clip.
+    @Override
+    public float timelineFrames() {
+        EditorScrubAnimator animator = getHeadlessAnimator();
+
+        return animator == null || animator.getPreviewAnimation() == null || animator.getPreviewAnimation().get() == null ? 0.0F : totalFrames() * 60.0F;
     }
 
     private @Nullable EditorScrubAnimator getHeadlessAnimator() {
@@ -279,6 +321,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     }
 
     /// X coordinate (in screen space) for a given frame.
+    @Override
     public int frameToX(float frame) {
         int trackStart = getTrackStart();
         // Empty montage → collapsed [0, 0] window. Guard the /0 until the first clip fits it.
@@ -287,6 +330,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     }
 
     /// Frame at a given screen-space X.
+    @Override
     public float xToFrame(double x) {
         return (float)Mth.clampedLerp((x - getTrackStart()) / (getWidth() - getTrackStart() - AdjustablePanelManager.DIVIDER_LENGTH), visualFrameStart, visualFrameEnd);
     }
@@ -407,6 +451,15 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
         if (playing && playingAnimator != null && playingAnimator.getPreviewAnimation() != null) {
             currentFrame = playingAnimator.getElapsedTime() * 60F;
+
+            float elapsedTime = playingAnimator.getElapsedTime();
+
+            // A backward jump (a montage section looping) skips the simulation to the new time
+            if (elapsedTime >= simulatedTime) {
+                simulateNotifies(elapsedTime);
+            } else {
+                simulatedTime = elapsedTime;
+            }
         }
 
         // Transport enablement, derived here so it also follows a debug session starting or ending.
@@ -433,7 +486,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
         // Title text
         Font font = Minecraft.getInstance().font;
-        g.text(font, Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_TITLE), getX() + TITLE_X, getY() + TITLE_Y + 16, 0xFFCCCCCC, false);
+        g.text(font, Component.translatable(LangKeys.GUI_ANIMATION_TRACKS_TITLE), getX() + TITLE_X, getY() + TITLE_Y + 16, 0xFFCCCCCC, false);
 
         int frameGraphBottom = getBottom() - FOOTER_H;
 

@@ -35,7 +35,7 @@ public final class NotifyWidget extends AbstractWidget {
 
     /// Aligns this marker with the row's current top and the latest zoomed `frameToX` mapping.
     public void updatePosition(int rowTop, int rowHeight) {
-        setX(parent.frameToX(model.time));
+        setX(parent.frameToX(model.time * 60.0F));
         setY(rowTop + (rowHeight - FLAG_H) / 2);
     }
 
@@ -76,7 +76,7 @@ public final class NotifyWidget extends AbstractWidget {
         if (event.button() == 0) {
             float total = parent.totalFrames() * 60.0F;
             float newTime = parent.xToFrame(event.x());
-            model.time = Math.clamp(newTime, 0F, total);
+            model.time = Math.clamp(newTime, 0F, total) / 60.0F;
 
             parent.refreshSelectionView();
 

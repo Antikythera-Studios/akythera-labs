@@ -1,25 +1,27 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
 import com.yesman.akythera.api.asset.AssetAccessor;
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.CloseableWidget;
-import com.yesman.akythera.client.gui.widget.ResizeCompleteCallbackListener;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.client.gui.widget.viewer.BackgroundComponent;
-import com.yesman.akythera.client.gui.widget.viewer.CameraComponent;
-import com.yesman.akythera.client.gui.widget.viewer.EntityModelComponent;
-import com.yesman.akythera.client.gui.widget.viewer.GridFloorComponent;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.CloseableWidget;
+import com.yesman.akythera.client.api.gui.ResizeCompleteCallbackListener;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.viewer.BackgroundComponent;
+import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
+import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.ReferencePose;
-import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
 import com.yesman.akytheralabs.gui.widget.animation.AnimationScrubBar;
 import net.minecraft.client.Minecraft;
@@ -66,12 +68,12 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
     private final Font font;
     private final AkytheraProject.EditorAnimationAccessor edited;
     private final Consumer<ReferencePose> onConfirm;
-    private final AdvancedEditBox<String> searchBox;
+    private final EditorEditBox<String> searchBox;
     private final AnimationList animationList;
     private final Model3DViewer preview;
     private final AnimationScrubBar scrubBar;
-    private final AnchoredButton okButton;
-    private final AnchoredButton cancelButton;
+    private final AkytheraButton okButton;
+    private final AkytheraButton cancelButton;
 
     @Nullable
     private AssetAccessor<AnimationClip> picked;
@@ -95,7 +97,7 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
         this.timeStamp = current.timeStamp();
 
         this.animationList = new AnimationList();
-        this.searchBox = AdvancedEditBox.stringBox(
+        this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.fraction(45),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -117,7 +119,7 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
         preview.addComponent(new CameraComponent(true));
         preview.addComponent(new BackgroundComponent(18, 18, 18, 255));
         preview.addComponent(new GridFloorComponent(1.0F, 6, 68, 68, 68, 255));
-        EntityPreviewModel.display(preview, metadata.getPreviewModel(), true, true);
+        EntityPreviewModelMapping.display(preview, metadata.getPreviewEntityType(), true, true);
 
         this.scrubBar = new AnimationScrubBar(
             AnchoredWidget.pixel(0), AnchoredWidget.fraction(55),
@@ -129,9 +131,9 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
             this::scrubTo
         );
 
-        this.cancelButton = AnchoredButton
-            .buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+        this.cancelButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                () -> ModalManager.getInstance().closeModal())
             .xUnits(AnchoredWidget.pixel(6), AnchoredWidget.pixel(BUTTON_W))
             .yUnits(AnchoredWidget.pixel(4), AnchoredWidget.pixel(FOOTER_H - 10))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -139,8 +141,8 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
             .build();
 
-        this.okButton = AnchoredButton
-            .buttonBuilder(font, Component.translatable(LangKeys.GUI_OK), _ -> confirm())
+        this.okButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_OK), () -> confirm())
             .xUnits(AnchoredWidget.pixel(10 + BUTTON_W), AnchoredWidget.pixel(BUTTON_W))
             .yUnits(AnchoredWidget.pixel(4), AnchoredWidget.pixel(FOOTER_H - 10))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -196,7 +198,7 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
     /// clip, so clearing one clears the other.
     private void confirm() {
         onConfirm.accept(picked == null ? ReferencePose.EMPTY : new ReferencePose(picked, timeStamp));
-        AkytheraEditorLayoutManager.getInstance().closeModal();
+        ModalManager.getInstance().closeModal();
     }
 
     @Override
@@ -212,6 +214,11 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
     @Override
     public void destroy() {
         preview.destroy();
+    }
+
+    @Override
+    public EditorEditBox<String> searchBox() {
+        return searchBox;
     }
 
     @Override
@@ -233,7 +240,7 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -418,8 +425,8 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
         private Unit x2 = AnchoredWidget.fraction(45);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);
         private Unit y2 = AnchoredWidget.pixel(FOOTER_H);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -431,5 +438,7 @@ public final class ReferencePoseSelectModal extends OverlayingWindowModal
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 }

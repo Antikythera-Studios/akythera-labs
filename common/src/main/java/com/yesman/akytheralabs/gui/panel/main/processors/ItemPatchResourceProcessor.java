@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.panel.main.processors;
 
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
@@ -73,7 +74,7 @@ public final class ItemPatchResourceProcessor implements ResourceProcessor<ItemP
                 createAndOpen(project, metaIdPath(project, subPath, metaName), previewItem)
         );
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     /// The id path a meta patch named `metaName` takes under the browsed `subPath`. At the registry
@@ -88,7 +89,7 @@ public final class ItemPatchResourceProcessor implements ResourceProcessor<ItemP
     /// editor. `previewItem` is what a meta patch draws itself with; [Items#AIR] leaves the patch
     /// reading its item off the entry id.
     private static void createAndOpen(AkytheraProject project, String idPath, Item previewItem) {
-        AkytheraEditorLayoutManager.getInstance().closeModal();
+        ModalManager.getInstance().closeModal();
 
         ResourceKey<ItemPatchBlueprint> key = project.createEntry(
             AkytheraRegistries.DataPack.ITEM_PATCH_KEY, idPath, true);

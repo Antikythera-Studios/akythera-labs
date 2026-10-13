@@ -1,8 +1,10 @@
 package com.yesman.akytheralabs.gui.widget;
 
-import com.yesman.akythera.client.gui.widget.CloseableWidget;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.client.api.gui.CloseableWidget;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.Modal;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -63,7 +65,13 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
     ///
     /// `category` is the `/`-separated folder path the entry is filed under in the tree
     /// (e.g. `"Math/Vector"`); a null/blank category files the entry at the root level.
-    public record Suggestion<T>(Component label, T value, @Nullable String category) {
+    ///
+    /// A suggestion that is not `enabled` is listed greyed out and cannot be picked.
+    public record Suggestion<T>(Component label, T value, @Nullable String category, boolean enabled) {
+        public Suggestion(Component label, T value, @Nullable String category) {
+            this(label, value, category, true);
+        }
+
         public Suggestion(Component label, T value) {
             this(label, value, null);
         }
@@ -73,7 +81,7 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
     private final Consumer<T> onConfirm;
     @Nullable
     private final Runnable onCancel;
-    private final AdvancedEditBox<String> searchBox;
+    private final EditorEditBox<String> searchBox;
     private final EntryList list;
 
     private boolean confirmed;
@@ -100,9 +108,9 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
         this.onConfirm = onConfirm;
         this.onCancel = onCancel;
         this.list = new EntryList(suggestions);
-        this.list.rebuild("");
+        this.list.refresh();
 
-        this.searchBox = AdvancedEditBox.stringBox(
+        this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -125,7 +133,7 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
         boolean overPage = event.x() >= getX() && event.x() < getRight() && event.y() >= getY() && event.y() < getBottom();
 
         if (!overPage) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -142,7 +150,7 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -156,6 +164,24 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
         GuiEventListener focused = getFocused();
 
         return focused != null && focused.charTyped(event);
+    }
+
+    @Override
+    public EditorEditBox<String> searchBox() {
+        return searchBox;
+    }
+
+    @Override
+    public boolean confirmSoleResult() {
+        List<EntryList.Entry> leaves = list.children().stream()
+            .filter(entry -> entry.suggestion != null && entry.suggestion.enabled())
+            .toList();
+
+        if (leaves.size() != 1) return false;
+
+        leaves.getFirst().confirm();
+
+        return true;
     }
 
     @Override
@@ -196,7 +222,7 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
     protected void updateWidgetNarration(@NonNull NarrationElementOutput n) {
     }
 
-    /// Fired by the layout manager when the modal is popped. When no row was picked,
+    /// Fired by [ModalManager] when the modal is popped. When no row was picked,
     /// notify `onCancel` so the caller can roll back staged state (e.g. a pending wire).
     @Override
     public void destroy() {
@@ -240,8 +266,10 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
         }
 
         /// Rebuilds for a new search query: the scroll resets to the top since the visible
-        /// set changes wholesale.
+        /// set changes wholesale. The same query again keeps the rows and the scroll as they are.
         void rebuild(String query) {
+            if (query.equals(this.query)) return;
+
             this.query = query;
             populate();
             setScrollAmount(0.0D);
@@ -400,6 +428,12 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
                     return;
                 }
 
+                if (!suggestion.enabled()) {
+                    g.text(font, suggestion.label(), textX + ARROW_W, textY, 0xFF5A5A5A, false);
+
+                    return;
+                }
+
                 if (getSelected() != this && hovered) {
                     g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), 0xFF262626);
                 }
@@ -421,12 +455,16 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
                     return true;
                 }
 
+                if (suggestion.enabled()) confirm();
+
+                return true;
+            }
+
+            void confirm() {
                 setSelected(this);
                 confirmed = true;
                 onConfirm.accept(suggestion.value());
-                AkytheraEditorLayoutManager.getInstance().closeModal();
-
-                return true;
+                ModalManager.getInstance().closeModal();
             }
         }
     }
@@ -438,8 +476,8 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
     private Unit x2 = AnchoredWidget.pixel(MODAL_W);
     private Unit y1;
     private Unit y2 = AnchoredWidget.pixel(MODAL_H);
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -451,6 +489,8 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 
     @Override
     public void relocate(ScreenRectangle screenRectangle) {

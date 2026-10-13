@@ -1,9 +1,10 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -40,7 +41,7 @@ public final class ItemSelectModal extends OverlayingWindowModal {
 
     private final Font font;
     private final Consumer<Item> onItemSelected;
-    private final AdvancedEditBox<String> searchBox;
+    private final EditorEditBox<String> searchBox;
     private ItemList itemList;
 
     /// Lists every registered item.
@@ -54,7 +55,7 @@ public final class ItemSelectModal extends OverlayingWindowModal {
         this.font = font;
         this.onItemSelected = onItemSelected;
 
-        this.searchBox = AdvancedEditBox.stringBox(
+        this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -73,6 +74,20 @@ public final class ItemSelectModal extends OverlayingWindowModal {
             .toList();
 
         this.itemList = new ItemList(allItems);
+    }
+
+    @Override
+    public EditorEditBox<String> searchBox() {
+        return searchBox;
+    }
+
+    @Override
+    public boolean confirmSoleResult() {
+        if (itemList.children().size() != 1) return false;
+
+        onItemSelected.accept(itemList.children().getFirst().item);
+
+        return true;
     }
 
     @Override
@@ -120,7 +135,7 @@ public final class ItemSelectModal extends OverlayingWindowModal {
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
             if (AkytheraEditorLayoutManager.getInstance().isActive()) {
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 return true;
             }
         }
@@ -280,8 +295,8 @@ public final class ItemSelectModal extends OverlayingWindowModal {
         private Unit x2 = AnchoredWidget.pixel(0);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);
         private Unit y2 = AnchoredWidget.pixel(0);
-        private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
-        private final AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
+        private AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -293,5 +308,7 @@ public final class ItemSelectModal extends OverlayingWindowModal {
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 }

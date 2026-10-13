@@ -18,6 +18,12 @@ public interface DebuggableScreen {
     /// Called once per client tick with the patch of the possessed entity.
     void onDebugTick(EntityPatch<?> entityPatch);
 
+    /// Whether the scripts this screen mirrors run on the server too. [EntityDebugModal] then offers a
+    /// switch between mirroring the client's runs and the server's.
+    default boolean mirrorsServer() {
+        return false;
+    }
+
     /// Opens the picker for the editor screen on top, filtered by that screen when it is a
     /// [DebuggableScreen], and hands the pick to [EntityDebugModal].
     static void openDebugSelector(final Font font) {

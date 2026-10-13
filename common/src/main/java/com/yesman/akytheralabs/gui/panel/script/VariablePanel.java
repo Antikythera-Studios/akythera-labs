@@ -1,17 +1,23 @@
 package com.yesman.akytheralabs.gui.panel.script;
 
 import com.yesman.akythera.api.data.modularize.ScriptType;
-import com.yesman.akythera.client.gui.widget.WidgetTable;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.ComboIcon;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.Static;
+import com.yesman.akythera.client.api.gui.WidgetTable;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.core.reflection.BlueprintField;
+import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.SourceNames;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
-import com.yesman.akytheralabs.gui.widget.AdvancedComboBox;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsEditBoxTheme;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.EditorComboBox;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
+import com.yesman.akytheralabs.gui.widget.script.TypeIcon;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -39,10 +45,20 @@ import java.util.Map;
 /// [ContextMenuContainer] with "Rename" / "Remove". Pressing a row and dragging onto the node graph drags the
 /// variable out — a type-colored ghost follows the cursor and the drop is handed to the host screen via
 /// [DropTarget]. All edits route through the shared [VariableEditController].
+///
+/// The parent's [BlueprintField]s head the list in grey. They cannot be renamed or removed, and dragging one
+/// out hands it to the [FieldDropTarget].
+///
+/// Once [#markSyncTargets] is called, a variable whose type has a stream codec carries a bar at its row's left
+/// edge, and its row explains the bar in a tooltip.
 public final class VariablePanel extends AdjustablePanelManager.PanelArea {
     private static final int ADD_BTN = 16;
     /// Screen-pixel slop a press may move before it becomes a drag instead of a click.
     private static final int DRAG_THRESHOLD = 4;
+    private static final int FIELD_TEXT_COLOR = 0xFF8A8A8A;
+    private static final int SYNC_MARK_COLOR = 0xFF4FA3E0;
+    private static final int SELECTED_COLOR = 0xFF385470; // selected row, this panel focused
+    private static final int SELECTED_UNFOCUSED_COLOR = 0xFF2C3440; // selected row, another panel focused
 
     /// Handed a variable released over the canvas so the host screen can spawn a Get / Set node.
     @FunctionalInterface
@@ -51,18 +67,37 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
         boolean onDropped(VariableDraft draft, double screenX, double screenY);
     }
 
+    /// Handed a [BlueprintField] released over the canvas so the host screen can spawn a Get / Set node.
+    @FunctionalInterface
+    public interface FieldDropTarget {
+        /// @return true when the drop landed on a valid target (e.g. the node graph).
+        boolean onDropped(BlueprintLayout.Variable field, double screenX, double screenY);
+    }
+
     private final Font font;
     private final VariableEditController controller;
     private final PanelHeader header;
     private final WidgetTable table;
 
     /// Name boxes by draft, so "Rename" can focus the right row's box for inline editing.
-    private final Map<VariableDraft, AdvancedEditBox<String>> nameBoxes = new HashMap<>();
+    private final Map<VariableDraft, EditorEditBox<String>> nameBoxes = new HashMap<>();
     /// Type combos by draft, used to tell a name-area press (drag / rename) from a combo press.
-    private final Map<VariableDraft, AdvancedComboBox<ScriptType>> typeCombos = new HashMap<>();
+    private final Map<VariableDraft, EditorComboBox<ScriptType>> typeCombos = new HashMap<>();
 
     @Nullable
     private DropTarget dropTarget;
+
+    /// The parent's fields, listed above the variables.
+    private List<BlueprintLayout.Variable> fields = List.of();
+
+    private boolean marksSyncTargets;
+
+    @Nullable
+    private FieldDropTarget fieldDropTarget;
+
+    /// The field row a left-press began on, and the field being dragged out once it moved far enough.
+    private BlueprintLayout.@Nullable Variable pressField;
+    private BlueprintLayout.@Nullable Variable draggingField;
 
     /// Drag-to-graph state. `pressDraft` is the row a left-press began on (armed but not yet a
     /// drag); once the cursor moves past [#DRAG_THRESHOLD] it promotes to `draggingDraft` and a
@@ -105,20 +140,56 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
         this.dropTarget = dropTarget;
     }
 
+    /// Marks every variable whose type can cross the wire, which is a variable a sync direction applies to.
+    public void markSyncTargets() {
+        this.marksSyncTargets = true;
+    }
+
+    /// Lists `fields` above the variables, handing a dragged one to `target`.
+    public void setBlueprintFields(List<BlueprintLayout.Variable> fields, FieldDropTarget target) {
+        this.fields = List.copyOf(fields);
+        this.fieldDropTarget = target;
+
+        rebuildList();
+    }
+
     public void rebuildList() {
         table.clearWidgets();
         nameBoxes.clear();
         typeCombos.clear();
 
+        for (BlueprintLayout.Variable field : fields) {
+            Static name = new Static(
+                font,
+                AnchoredWidget.pixel(6), AnchoredWidget.fraction(50),
+                AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
+                AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
+                AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
+                Component.literal(field.name())
+            );
+            Static type = new Static(
+                font,
+                AnchoredWidget.pixel(6), AnchoredWidget.fraction(44),
+                AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
+                AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH,
+                AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
+                Component.literal(SourceNames.typeName(field.field().getGenericType()))
+            );
+
+            name.setColor(FIELD_TEXT_COLOR);
+            type.setColor(FIELD_TEXT_COLOR);
+            table.newRow().addWidget(name).addWidget(type);
+        }
+
         for (VariableDraft draft : controller.drafts()) {
-            AdvancedEditBox<String> nameBox = controller.nameBox(
+            EditorEditBox<String> nameBox = controller.nameBox(
                 draft,
                 AnchoredWidget.pixel(6), AnchoredWidget.fraction(50),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
                 AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
                 AnchoredWidget.VerticalAnchorType.TOP_HEIGHT
             );
-            AdvancedComboBox<ScriptType> typeCombo = controller.typeCombo(
+            EditorComboBox<ScriptType> typeCombo = controller.typeCombo(
                 draft,
                 AnchoredWidget.pixel(6), AnchoredWidget.fraction(44),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
@@ -159,42 +230,76 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
         header.extractRenderState(graphics, mouseX, mouseY, a);
         table.extractRenderState(graphics, mouseX, mouseY, a);
 
+        if (marksSyncTargets) {
+            List<VariableDraft> drafts = controller.drafts();
+            int bodyTop = table.getY() + 2;
+            int hoveredRow = draggingDraft == null && draggingField == null && isMouseOver(mouseX, mouseY)
+                ? rowIndexAt(mouseY)
+                : -1;
+
+            for (int i = 0; i < drafts.size(); i++) {
+                int ry = bodyTop + (fields.size() + i) * VariableEditController.ROW_H;
+                if (ry >= getBottom()) break;
+
+                if (drafts.get(i).getType().isSyncable()) {
+                    int rb = Math.min(ry + VariableEditController.ROW_H - 2, getBottom());
+                    graphics.fill(table.getX() + 1, ry + 2, table.getX() + 3, rb, SYNC_MARK_COLOR);
+
+                    if (hoveredRow == fields.size() + i) {
+                        graphics.setTooltipForNextFrame(
+                            font, font.split(Component.translatable(LangKeys.GUI_ABILITY_SCREEN_VARIABLE_SYNCABLE), 220),
+                            mouseX, mouseY
+                        );
+                    }
+                }
+            }
+        }
+
         boolean hovered = overAddButton(mouseX, mouseY);
         graphics.fill(addBtnX, addBtnY, addBtnX + ADD_BTN, addBtnY + ADD_BTN, hovered ? 0xFF3A3A3A : 0xFF2A2A2A);
         graphics.text(
             font, Component.literal("+"),
             addBtnX + (ADD_BTN - font.width("+")) / 2,
             addBtnY + (ADD_BTN - font.lineHeight) / 2,
-            0xFFCCCCCC, false
+            controller.getAddRefusal() == null ? 0xFFCCCCCC : 0xFF5A5A5A, false
         );
 
         // The drag ghost is deferred to the frame's tail so it draws on top of every panel —
         // including the node graph the variable is being dragged onto.
         if (draggingDraft != null) {
-            VariableDraft ghost = draggingDraft;
-            ((GuiGraphicsAccessor) graphics).akythera$setDeferredWidgetRenderer(() -> drawDragGhost(graphics, ghost));
+            String name = draggingDraft.getName();
+            TypeIcon icon = TypeIcon.of(draggingDraft.getType());
+
+            ((GuiGraphicsAccessor) graphics).akythera$setDeferredWidgetRenderer(() -> drawDragGhost(graphics, name, icon));
+        }
+
+        if (draggingField != null) {
+            String name = draggingField.name();
+            TypeIcon icon = TypeIcon.of(draggingField.type());
+
+            ((GuiGraphicsAccessor) graphics).akythera$setDeferredWidgetRenderer(() -> drawDragGhost(graphics, name, icon));
         }
     }
 
-    /// Draws the selection band (blue-grey) for the selected row and a lighter hover band for the
-    /// row under the cursor, both behind the row content.
+    /// Draws the selection band (blue-grey, faded while another panel has the focus) for the selected row
+    /// and a lighter hover band for the row under the cursor, both behind the row content.
     private void drawRowHighlights(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
         List<VariableDraft> drafts = controller.drafts();
         VariableDraft selected = controller.getSelected();
         int bodyTop = table.getY() + 2;
 
-        for (int i = 0; i < drafts.size(); i++) {
+        for (int i = 0; i < fields.size() + drafts.size(); i++) {
             int ry = bodyTop + i * VariableEditController.ROW_H;
             if (ry >= getBottom()) break;
             int rb = Math.min(ry + VariableEditController.ROW_H, getBottom());
 
-            boolean isSelected = drafts.get(i) == selected;
+            boolean isSelected = i >= fields.size() && drafts.get(i - fields.size()) == selected;
             boolean isHovered = !isSelected
                 && mouseX >= table.getX() && mouseX < table.getRight()
                 && mouseY >= Math.max(ry, bodyTop) && mouseY < rb;
 
             if (isSelected) {
-                graphics.fill(table.getX(), ry, table.getRight(), rb, 0xFF2F3B47);
+                graphics.fill(table.getX(), ry, table.getRight(), rb, isFocused() ? SELECTED_COLOR : SELECTED_UNFOCUSED_COLOR);
             } else if (isHovered) {
                 graphics.fill(table.getX(), ry, table.getRight(), rb, 0xFF2A2A2A);
             }
@@ -202,13 +307,10 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
     }
 
     /// Draws the dragged variable's ghost near the cursor: a small node-like capsule with the
-    /// type-color swatch and the variable name (mirrors the dropped node's header).
-    private void drawDragGhost(GuiGraphicsExtractor graphics, VariableDraft draft) {
-        String name = draft.getName();
-        int color = VariableEditController.indicatorColor(draft.getType());
-
-        int pad = 6, pillW = 14, pillH = 8, gap = 6, boxH = 18;
-        int boxW = pad + pillW + gap + font.width(name) + pad;
+    /// type swatch and the variable name (mirrors the dropped node's header).
+    private void drawDragGhost(GuiGraphicsExtractor graphics, String name, TypeIcon icon) {
+        int pad = 6, gap = 6, boxH = 18;
+        int boxW = pad + ComboIcon.WIDTH + gap + font.width(name) + pad;
         int bx = (int) dragX + 8;
         int by = (int) dragY + 8;
 
@@ -217,13 +319,11 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
         graphics.outline(bx, by, boxW, boxH, 0xFF555555);
 
         int px = bx + pad;
-        int py = by + boxH / 2 - pillH / 2;
-        graphics.fill(px + 1, py, px + pillW - 1, py + pillH, color);
-        graphics.fill(px, py + 1, px + pillW, py + pillH - 1, color);
+        icon.draw(graphics, px, by + boxH / 2 - ComboIcon.HEIGHT / 2);
 
         graphics.text(
             font, Component.literal(name),
-            px + pillW + gap, by + boxH / 2 - font.lineHeight / 2 + 1,
+            px + ComboIcon.WIDTH + gap, by + boxH / 2 - font.lineHeight / 2 + 1,
             0xFFFFFFFF, false
         );
     }
@@ -238,8 +338,8 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
         int row = rowIndexAt(event.y());
 
         if (event.button() == 1) { // right-click → context menu
-            if (row >= 0) {
-                VariableDraft draft = controller.drafts().get(row);
+            if (row >= fields.size()) {
+                VariableDraft draft = controller.drafts().get(row - fields.size());
                 controller.select(draft);
                 openContextMenu(draft, (int) event.x(), (int) event.y());
             }
@@ -250,11 +350,20 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
             return false;
         }
 
-        VariableDraft draft = controller.drafts().get(row);
+        if (row < fields.size()) {
+            pressField = fields.get(row);
+            pressX = event.x();
+            pressY = event.y();
+            dragX = event.x();
+            dragY = event.y();
+            return true;
+        }
+
+        VariableDraft draft = controller.drafts().get(row - fields.size());
         controller.select(draft);
 
-        AdvancedComboBox<ScriptType> combo = typeCombos.get(draft);
-        AdvancedEditBox<String> box = nameBoxes.get(draft);
+        EditorComboBox<ScriptType> combo = typeCombos.get(draft);
+        EditorEditBox<String> box = nameBoxes.get(draft);
 
         // A press on the type combo opens its dropdown; a press on a name box already being
         // edited repositions its cursor — both go to the child widget via super.
@@ -280,6 +389,24 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
 
     @Override
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
+        if (draggingField != null) {
+            dragX = event.x();
+            dragY = event.y();
+            return true;
+        }
+
+        if (pressField != null) {
+            dragX = event.x();
+            dragY = event.y();
+
+            if (Math.abs(event.x() - pressX) + Math.abs(event.y() - pressY) >= DRAG_THRESHOLD) {
+                draggingField = pressField;
+                pressField = null;
+            }
+
+            return true;
+        }
+
         if (draggingDraft != null) {
             dragX = event.x();
             dragY = event.y();
@@ -303,6 +430,19 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
 
     @Override
     public boolean mouseReleased(@NonNull MouseButtonEvent event) {
+        if (draggingField != null) {
+            BlueprintLayout.Variable dropped = draggingField;
+            draggingField = null;
+
+            if (fieldDropTarget != null) {
+                fieldDropTarget.onDropped(dropped, event.x(), event.y());
+            }
+
+            return true;
+        }
+
+        pressField = null;
+
         if (draggingDraft != null) {
             VariableDraft dropped = draggingDraft;
             draggingDraft = null;
@@ -337,7 +477,7 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
                 .done()
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, x, y);
+        ModalManager.getInstance().openModalWidget(menu, x, y);
     }
 
     /// Focuses the variable's name box so the user can type a new name inline,
@@ -345,8 +485,8 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
     private void beginRename(VariableDraft draft) {
         controller.select(draft);
 
-        AdvancedEditBox<String> box = nameBoxes.get(draft);
-        int index = controller.drafts().indexOf(draft);
+        EditorEditBox<String> box = nameBoxes.get(draft);
+        int index = fields.size() + controller.drafts().indexOf(draft);
         if (box == null || index < 0 || index >= table.children().size()) return;
 
         GuiEventListener entry = table.children().get(index);
@@ -364,7 +504,7 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
         if (mouseY < bodyTop) return -1;
 
         int idx = (int) ((mouseY - bodyTop) / VariableEditController.ROW_H);
-        return (idx >= 0 && idx < controller.drafts().size()) ? idx : -1;
+        return (idx >= 0 && idx < fields.size() + controller.drafts().size()) ? idx : -1;
     }
 
     private boolean overAddButton(double mouseX, double mouseY) {

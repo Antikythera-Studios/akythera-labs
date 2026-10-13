@@ -1,7 +1,8 @@
 package com.yesman.akytheralabs.gui.panel.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.dev.ProjectReloader;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
@@ -10,7 +11,6 @@ import com.yesman.akytheralabs.gui.widget.main.WorldViewport;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.lwjgl.glfw.GLFW;
 
@@ -22,9 +22,9 @@ public final class WorldviewPanel extends AdjustablePanelManager.PanelArea {
 
     private final Font font;
     private final WorldViewport worldViewport;
-    private final AnchoredButton resumeButton;
-    private final AnchoredButton pauseButton;
-    private final AnchoredButton reloadButton;
+    private final AkytheraButton resumeButton;
+    private final AkytheraButton pauseButton;
+    private final AkytheraButton reloadButton;
 
     private PlayState playState;
 
@@ -32,7 +32,7 @@ public final class WorldviewPanel extends AdjustablePanelManager.PanelArea {
         this.font = font;
         this.worldViewport = worldViewport;
 
-        resumeButton = AnchoredButton.buttonBuilder(font, Component.empty(), _ -> onResume())
+        resumeButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.EMPTY, () -> onResume())
             .xUnits(AnchoredWidget.pixel(5), AnchoredWidget.pixel(BTN))
             .yUnits(AnchoredWidget.pixel(5), AnchoredWidget.pixel(BTN))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -42,7 +42,7 @@ public final class WorldviewPanel extends AdjustablePanelManager.PanelArea {
             .sprite(RESUME_SPRITE, 30, 30)
             .build();
 
-        pauseButton = AnchoredButton.buttonBuilder(font, Component.empty(), _ -> onPause())
+        pauseButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.EMPTY, () -> onPause())
             .xUnits(AnchoredWidget.pixel(5), AnchoredWidget.pixel(BTN))
             .yUnits(AnchoredWidget.pixel(BTN + 10), AnchoredWidget.pixel(BTN))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -52,7 +52,7 @@ public final class WorldviewPanel extends AdjustablePanelManager.PanelArea {
             .sprite(PAUSE_SPRITE, 30, 30)
             .build();
 
-        reloadButton = AnchoredButton.buttonBuilder(font, Component.empty(), _ -> ProjectReloader.reload(font))
+        reloadButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.EMPTY, () -> ProjectReloader.reload(font))
             .xUnits(AnchoredWidget.pixel(5), AnchoredWidget.pixel(BTN))
             .yUnits(AnchoredWidget.pixel((BTN + 5) * 2 + 5), AnchoredWidget.pixel(BTN))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)

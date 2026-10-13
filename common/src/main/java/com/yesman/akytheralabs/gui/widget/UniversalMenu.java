@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget;
 
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
@@ -32,15 +33,8 @@ public final class UniversalMenu {
     /// A row that runs the context's action for @param `option`.
     public record OptionRow<O extends MenuOption>(O option) implements Row<O> {}
 
-    /// A row that unfolds into the sub-list the context registered for @param `option`
-    /// (see [Actions#onChoices]).
-    public record ChoiceListRow<O extends MenuOption>(O option) implements Row<O> {}
-
     /// A row that unfolds into a fixed sub-list of further rows.
     public record GroupRow<O extends MenuOption>(Component name, List<Row<O>> children) implements Row<O> {}
-
-    /// One row of a context-supplied sub-list. See [Actions#onChoices].
-    public record Choice(Component name, Runnable action) {}
 
     public static <O extends MenuOption> Actions<O> actions() {
         return new Actions<>();
@@ -71,19 +65,6 @@ public final class UniversalMenu {
                         entry.onPress(_ -> handler.action().run());
                     }
                 }
-                case ChoiceListRow<O>(O option) -> {
-                    List<Choice> choices = actions.choiceLists.getOrDefault(option, List.of());
-                    ContextMenuContainer.PageBuilder subpage = page.entry()
-                        .message(option.displayName())
-                        .predicate(() -> !choices.isEmpty())
-                        .subpage()
-                        .pageWidth(pageWidth);
-
-                    for (Choice choice : choices) {
-                        Runnable action = choice.action();
-                        subpage.entry().message(choice.name()).onPress(_ -> action.run());
-                    }
-                }
                 case GroupRow<O>(Component name, List<Row<O>> children) -> {
                     ContextMenuContainer.PageBuilder subpage = page.entry()
                         .message(name)
@@ -105,7 +86,6 @@ public final class UniversalMenu {
     /// Options left out render greyed out and reject clicks.
     public static final class Actions<O extends MenuOption> {
         private final Map<O, Handler> handlers = new HashMap<>();
-        private final Map<O, List<Choice>> choiceLists = new HashMap<>();
 
         private Actions() {}
 
@@ -117,13 +97,6 @@ public final class UniversalMenu {
         /// Wires @param `option` to an action offered only while @param `available` holds.
         public Actions<O> on(final O option, final BooleanSupplier available, final Runnable action) {
             handlers.put(option, new Handler(available, action));
-            return this;
-        }
-
-        /// Fills the sub-list of @param `option` with the choices this context offers. An empty list
-        /// leaves the row greyed out.
-        public Actions<O> onChoices(final O option, final List<Choice> choices) {
-            choiceLists.put(option, choices);
             return this;
         }
 
@@ -143,7 +116,6 @@ public final class UniversalMenu {
                     Handler handler = handlers.get(option);
                     yield handler != null && handler.available().getAsBoolean();
                 }
-                case ChoiceListRow<O>(O option) -> !choiceLists.getOrDefault(option, List.of()).isEmpty();
                 case GroupRow<O> group -> anyAvailable(group.children());
             };
         }

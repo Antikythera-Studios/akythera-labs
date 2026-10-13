@@ -1,2 +1,2 @@
-<#-- minecraft:substring2 (beginIndex, string) -> String --><#t>
-${params[1]}.substring(${params[0]})<#t>
+<#-- minecraft:substring2 (string, beginIndex) -> String --><#t>
+${params[0]}.substring(${params[1]})<#t>

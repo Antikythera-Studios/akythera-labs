@@ -5,14 +5,14 @@
 /// will always be overwritten by the action.
 ///
 /// A handwritten-style EntityPatchScript compiled from the "${modid}" project's
-/// node graphs. The three event flows – onConstruct / onJoinWorld / update – are
-/// generated from the Event Graph, and componentsToAttach() returns the attached
+/// node graphs. Every event, overridden function and declared function of the
+/// blueprint is a method, and componentsToAttach() returns the attached
 /// components as runtime ComponentBlueprints.
 ///
-/// Register entity patch provider with this script by `ComponentsFactory#registerEntityPatchProvider`.
-/// Call `new EntityPatch(new ${className}(), owner)` to execute hardcoded script.
+/// Register this class as a `ScriptType` and pick it as the entity patch's parent in Akythera Labs.
 
 <#import "component_map.ftl" as tpl>
+<#import "method_list.ftl" as methodList>
 package ${package};
 
 // Import section is empty. Use auto import feature in IDE
@@ -24,32 +24,12 @@ public final class ${className} implements EntityPatchScript {
 
 </#list>
     /// The patched entity this script drives (the node graphs' `self` / owner).
-    private final EntityPatch<Entity> owner;
+    private final EntityPatch<?> owner;
 
-    public ${className}(final EntityPatch<Entity> owner) {
+    public ${className}(final EntityPatch<?> owner) {
         this.owner = owner;
     }
-
-    @Override
-    public void onConstruct() {
-<#list constructBody as line>
-        ${line}
-</#list>
-    }
-
-    @Override
-    public void onJoinWorld(final Level level) {
-<#list joinWorldBody as line>
-        ${line}
-</#list>
-    }
-
-    @Override
-    public void update() {
-<#list updateBody as line>
-        ${line}
-</#list>
-    }
+<@methodList.methodList methods/>
 
     @Override
     public Map<String, ComponentBlueprint<?, ?>> componentsToAttach() {

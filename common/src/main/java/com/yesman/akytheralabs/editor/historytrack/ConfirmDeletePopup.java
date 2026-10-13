@@ -1,7 +1,8 @@
 package com.yesman.akytheralabs.editor.historytrack;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
@@ -26,15 +27,15 @@ final class ConfirmDeletePopup {
             )
             .textLines(Component.translatable(LangKeys.GUI_HISTORY_POPUP_CONFIRM_DELETE_BODY))
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                        _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                        () -> ModalManager.getInstance().closeModal())
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                     .build(),
                 btnW
             )
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_MESSAGE_BUTTON_REMOVE), _ -> {
-                    AkytheraEditorLayoutManager.getInstance().closeModal();
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_MESSAGE_BUTTON_REMOVE), () -> {
+                    ModalManager.getInstance().closeModal();
                     proceed.run();
                 })
                 .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
@@ -43,6 +44,6 @@ final class ConfirmDeletePopup {
             )
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 }

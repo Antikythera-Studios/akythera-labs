@@ -1,13 +1,15 @@
 package com.yesman.akytheralabs.gui.panel.main.processors;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FreemarkerExporter;
-import com.yesman.akytheralabs.dataholder.ProjectObjectRegistry;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
+import com.yesman.akytheralabs.dataholder.ProjectObjectRegistry;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
@@ -16,8 +18,8 @@ import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
+import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
-import com.yesman.akytheralabs.gui.widget.main.ModelSelectModal;
 import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -60,18 +62,17 @@ public final class EntityPatchResourceProcessor implements ResourceProcessor<Ent
     public void onPressAddButton(ContentBrowserPanel browser, ExplorerPanel.TreeNode selected) {
         AkytheraProject project = AkytheraProject.getCurrentProject();
 
-        ModelSelectModal modal = new ModelSelectModal(
+        EntityTypeSelectModal modal = new EntityTypeSelectModal(
             browser.getFont(), null,
-            previewModel -> {
-                Identifier modelId = previewModel.modelId();
-                String idPath = modelId.getNamespace() + "/" + modelId.getPath();
+            entityTypeId -> {
+                String idPath = entityTypeId.getNamespace() + "/" + entityTypeId.getPath();
 
                 ProjectObjectRegistry<EntityPatchBlueprint, EntityPatchBlueprintHolder> registry =
                     project.getModifiableRegistry(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY);
                 Identifier entryId = Identifier.fromNamespaceAndPath(project.getProjectName(), idPath);
 
                 if (registry != null && registry.containsKey(entryId)) {
-                    Minecraft.getInstance().execute(() -> openDuplicateWarning(browser.getFont(), modelId));
+                    Minecraft.getInstance().execute(() -> openDuplicateWarning(browser.getFont(), entityTypeId));
                     return;
                 }
 
@@ -79,7 +80,7 @@ public final class EntityPatchResourceProcessor implements ResourceProcessor<Ent
                     AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, idPath, true);
 
                 EntityPatchBlueprintHolder holder = project.getDataHolderOrThrow(key);
-                holder.setPreviewModel(previewModel);
+                holder.setPreviewEntityType(entityTypeId);
                 project.saveEntry(key);
 
                 Path focusDir = project.getProjectRoot()
@@ -93,11 +94,9 @@ public final class EntityPatchResourceProcessor implements ResourceProcessor<Ent
 
                 AkytheraEditorLayoutManager.getInstance().openNewScreen(
                     new EntityPatchEditorScreen(key, holder));
-            },
-            ModelSelectModal.entityTypeCatalog()
-        );
+            });
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     /// Warning shown when the user picks an entity type that already has a patch.
@@ -112,15 +111,15 @@ public final class EntityPatchResourceProcessor implements ResourceProcessor<Ent
             )
             .textLines(Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_DUPLICATE_BODY, entityTypeId.toString()))
             .footerButton(
-                AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_OK),
-                        _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+                AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_OK),
+                        () -> ModalManager.getInstance().closeModal())
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                     .build(),
                 btnW
             )
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(modal);
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
     @Override

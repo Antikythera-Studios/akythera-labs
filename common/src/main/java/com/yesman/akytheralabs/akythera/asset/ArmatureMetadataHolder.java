@@ -1,8 +1,11 @@
 package com.yesman.akytheralabs.akythera.asset;
 
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.ArmatureLoader;
 import com.yesman.akythera.core.asset.loader.AssetLoader;
+import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
@@ -13,10 +16,11 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.resources.Identifier;
 
-/// Editable view of an armature asset's sidecar [ArmatureLoader.Metadata]: the bones that stand
-/// opposite each other across the mirror plane. Lives on the armature's accessor, one per
-/// identifier — see [AkytheraProject.EditorArmatureAccessor].
+/// Editable view of an armature asset's sidecar: the [ArmatureLoader.Metadata] bones that stand
+/// opposite each other across the mirror plane, and the model the editor previews it on. Lives on the
+/// armature's accessor, one per identifier — see [AkytheraProject.EditorArmatureAccessor].
 public final class ArmatureMetadataHolder {
     /// One row of the pair table. A side is null while the row is still being filled in.
     public record PairEntry(@Nullable String first, @Nullable String second) {
@@ -31,6 +35,9 @@ public final class ArmatureMetadataHolder {
 
     /// The pair rows in the order they are shown, which is the order they are written in.
     private final List<PairEntry> entries = new ArrayList<>();
+
+    /// The entity the armature is previewed on, or null for none.
+    private @Nullable Identifier previewEntityType;
 
     /// The armature this sidecar describes. A rename mutates the id in place on this instance, so
     /// the holder keeps pointing at the file.
@@ -49,12 +56,30 @@ public final class ArmatureMetadataHolder {
 
     /// The sidecar of `accessor` as it stands on disk, or the defaults when the file is absent.
     public static ArmatureMetadataHolder readFrom(final AkytheraProject.EditorArmatureAccessor<?> accessor) {
-        return new ArmatureMetadataHolder(accessor, AssetLoader.readMetadata(
+        return AssetLoader.readMetadata(
             accessor.identifier(),
             AkytheraProject.getProjectResourceManager(),
-            ArmatureLoader.Metadata.CODEC,
-            ArmatureLoader.Metadata.DEFAULT
-        ));
+            editorCodec(accessor),
+            new ArmatureMetadataHolder(accessor, ArmatureLoader.Metadata.DEFAULT)
+        );
+    }
+
+    /// The sidecar's json for a holder of `accessor`: the engine's fields at the root, with
+    /// `preview_entity_type` beside them.
+    private static Codec<ArmatureMetadataHolder> editorCodec(final AkytheraProject.EditorArmatureAccessor<?> accessor) {
+        return RecordCodecBuilder.create(
+            instance ->
+                instance.group(
+                    ArmatureLoader.Metadata.MAP_CODEC.forGetter(ArmatureMetadataHolder::makeMetadata),
+                    Identifier.CODEC.optionalFieldOf("preview_entity_type")
+                        .forGetter(ParseUtils.provideOptional(ArmatureMetadataHolder::getPreviewEntityType))
+                ).apply(instance, (metadata, previewEntityType) -> {
+                    ArmatureMetadataHolder holder = new ArmatureMetadataHolder(accessor, metadata);
+                    previewEntityType.ifPresent(holder::setPreviewEntityType);
+
+                    return holder;
+                })
+        );
     }
 
     /// The rows as a sidecar. A row with an empty side is not a pair, so it is left out.
@@ -75,7 +100,7 @@ public final class ArmatureMetadataHolder {
     public boolean save() {
         Path metadataFile = AkytheraProject.getMetadataFileOf(accessor.identifier());
 
-        if (!FileSystemHelper.writeJson(metadataFile, ArmatureLoader.Metadata.CODEC, makeMetadata())) {
+        if (!FileSystemHelper.writeJson(metadataFile, editorCodec(accessor), this)) {
             AkytheraLabs.LOGGER.error("Failed to save armature metadata '{}'", metadataFile);
             return false;
         }
@@ -143,5 +168,13 @@ public final class ArmatureMetadataHolder {
 
     public AkytheraProject.EditorArmatureAccessor<?> getAccessor() {
         return accessor;
+    }
+
+    public @Nullable Identifier getPreviewEntityType() {
+        return previewEntityType;
+    }
+
+    public void setPreviewEntityType(final @Nullable Identifier previewEntityType) {
+        this.previewEntityType = previewEntityType;
     }
 }

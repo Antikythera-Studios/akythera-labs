@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.screen;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -12,6 +13,9 @@ import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.panel.main.WorldviewPanel;
 import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
 import com.yesman.akytheralabs.gui.widget.main.*;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -25,9 +29,6 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Optional;
 
 /// A main editor screen layout
 ///
@@ -62,16 +63,17 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
             AnchoredWidget.pixel(TOP_BAR_HEIGHT),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            _ -> handleQuitRequest(),
+            () -> handleQuitRequest(),
             TopMenuBar.actions()
                 .on(TopMenuOption.SAVE, this::saveProject)
                 .on(TopMenuOption.EXPORT_AS_PACK, () -> ExportModalGenerator.openAsPack(font))
                 .on(TopMenuOption.EXPORT_AS_SOURCE_CODE, () -> ExportModalGenerator.openAsSourceCode(font))
                 .on(TopMenuOption.DELETE_PROJECT, () -> DeleteProjectModalGenerator.open(font))
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(font))
+                .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(font))
                 .on(TopMenuOption.PROJECT_SETTINGS, () -> ProjectSetupModalGenerator.open(font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
-                .on(TopMenuOption.MODEL_ARMATURE_MAPPING, () -> ModelArmatureMappingModal.open(font))
+                .on(TopMenuOption.ENTITY_PREVIEW_MODEL_MAPPING, () -> EntityPreviewModelMappingModal.open(font))
                 .on(TopMenuOption.ANIMATION_RETARGET, () -> AnimationRetargetModal.open(font))
                 .on(TopMenuOption.MODEL_TRANSFORMER, () -> ModelTransformerModal.open(font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))

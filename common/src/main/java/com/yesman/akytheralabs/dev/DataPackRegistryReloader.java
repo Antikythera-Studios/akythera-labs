@@ -5,16 +5,19 @@ import com.google.gson.JsonParser;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.JsonOps;
+import com.mojang.serialization.Lifecycle;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
+import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.mixin.MappedRegistryAccessor;
 import net.minecraft.core.Holder;
+import net.minecraft.core.MappedRegistry;
 import net.minecraft.core.RegistrationInfo;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
@@ -22,6 +25,7 @@ import net.minecraft.core.WritableRegistry;
 import net.minecraft.resources.FileToIdConverter;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.RegistryOps;
+import net.minecraft.resources.RegistryValidator;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.packs.resources.Resource;
@@ -30,6 +34,7 @@ import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
 import java.io.Reader;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,7 +63,8 @@ public final class DataPackRegistryReloader {
         new RegistryEntry<>(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY, BlendSpace2D.CODEC),
         new RegistryEntry<>(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, ItemPatchBlueprint.CODEC),
         new RegistryEntry<>(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, DataDrivenAnimatorScript.AnimatorScriptBlueprint.CODEC),
-        new RegistryEntry<>(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, EntityPatchBlueprint.CODEC)
+        new RegistryEntry<>(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, EntityPatchBlueprint.CODEC),
+        new RegistryEntry<>(AkytheraRegistries.DataPack.WIDGET_KEY, WidgetBlueprint.CODEC)
     );
 
     /// Server thread: re-decode every datapack registry from the server's freshly reloaded
@@ -105,6 +111,26 @@ public final class DataPackRegistryReloader {
             } catch (Exception e) {
                 AkytheraLabs.LOGGER.error("Failed to read datapack registry element {}", resource.getKey(), e);
             }
+        }
+
+        RegistryValidator<T> validator = AkytheraRegistries.DataPack.getValidator(entry.key());
+
+        // The checks a world load runs across the entries, run on a staged copy until what is left passes: an
+        // entry failing them is left out like one failing to decode, which may fail an entry naming it in turn.
+        while (validator != null) {
+            MappedRegistry<T> staged = new MappedRegistry<>(entry.key(), Lifecycle.stable());
+            decoded.forEach((key, value) -> staged.register(key, value, RegistrationInfo.BUILT_IN));
+            staged.freeze();
+
+            Map<ResourceKey<?>, Exception> errors = new HashMap<>();
+            validator.validate(staged, errors);
+
+            if (errors.isEmpty()) break;
+
+            errors.forEach((key, error) -> {
+                AkytheraLabs.LOGGER.error("Datapack registry element {} failed validation: {}", key.identifier(), error.getMessage());
+                decoded.remove(key);
+            });
         }
 
         refill(registry, decoded);

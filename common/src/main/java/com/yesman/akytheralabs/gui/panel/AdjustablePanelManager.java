@@ -3,8 +3,8 @@ package com.yesman.akytheralabs.gui.panel;
 import com.google.common.collect.ImmutableList;
 import com.mojang.blaze3d.platform.cursor.CursorType;
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
-import com.yesman.akythera.client.gui.widget.ResizeCompleteCallbackListener;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.ResizeCompleteCallbackListener;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractContainerWidget;
@@ -348,11 +348,7 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
 
         /// Relocate dividers with previous ratio in newer screen rectangle
         protected void resize(ScreenRectangle screenRectangle) {
-            panelArea.setX(screenRectangle.left());
-            panelArea.setY(screenRectangle.top());
-            panelArea.setWidth(screenRectangle.width());
-            panelArea.setHeight(screenRectangle.height());
-            panelArea.onPanelResized(screenRectangle);
+            panelArea.relocate(screenRectangle);
             if (widgetResizeCallback != null) widgetResizeCallback.accept(screenRectangle);
 
             // Propagate resizing toc child sections & dividers
@@ -484,8 +480,21 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
         /// @param screenRectangle rectangle of panel
         protected abstract void onPanelResized(ScreenRectangle screenRectangle);
 
+        /// Moves this area onto `screenRectangle` and lays its children out there.
+        public void relocate(ScreenRectangle screenRectangle) {
+            setX(screenRectangle.left());
+            setY(screenRectangle.top());
+            setWidth(screenRectangle.width());
+            setHeight(screenRectangle.height());
+            onPanelResized(screenRectangle);
+        }
+
         protected void addWidget(AbstractWidget widget) {
             children.add(widget);
+        }
+
+        protected void clearWidgets() {
+            children.clear();
         }
 
         @Override
@@ -757,8 +766,8 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
         private Unit x2;
         private Unit y1;
         private Unit y2;
-        private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
-        private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+        private AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+        private AnchoredWidget.VerticalAnchorType verticalAnchorType;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -770,6 +779,8 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 
     // ***************************************************************
@@ -779,8 +790,8 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -792,4 +803,6 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

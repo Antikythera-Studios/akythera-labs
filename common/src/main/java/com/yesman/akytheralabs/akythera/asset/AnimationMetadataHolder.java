@@ -14,7 +14,6 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
-import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -26,7 +25,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 /// Editable view of an animation asset's `.akmeta` sidecar: the engine's [AnimationLoader.Metadata]
-/// plus the preview model only the editor reads. Lives on the animation's accessor, one per
+/// plus the preview entity type only the editor reads. Lives on the animation's accessor, one per
 /// identifier — see [AkytheraProject.EditorAnimationAccessor#metadata].
 public final class AnimationMetadataHolder {
     @EditorEditable(label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_IMPORT_TYPE, order = 0)
@@ -55,8 +54,8 @@ public final class AnimationMetadataHolder {
     /// the holder keeps pointing at the file.
     private final AkytheraProject.EditorAnimationAccessor accessor;
 
-    /// The model the previewer shows. [EditorWidgetFactory#getPreviewModelField] finds it by type.
-    private @Nullable EntityPreviewModel previewModel;
+    /// The entity the previewer shows this animation on.
+    private @Nullable Identifier previewEntityType;
 
     private AnimationMetadataHolder(
         final AkytheraProject.EditorAnimationAccessor accessor,
@@ -109,7 +108,7 @@ public final class AnimationMetadataHolder {
     }
 
     /// The sidecar's json for a holder of `accessor`: the engine's fields at the root through
-    /// [EditorAssetAccessors#ANIMATION_METADATA_MAP_CODEC], with `preview_model` beside them. The
+    /// [EditorAssetAccessors#ANIMATION_METADATA_MAP_CODEC], with `preview_entity_type` beside them. The
     /// file names the animation nowhere, so the accessor a decoded holder belongs to comes from here.
     private static Codec<AnimationMetadataHolder> editorCodec(final AkytheraProject.EditorAnimationAccessor accessor) {
         return RecordCodecBuilder.create(
@@ -117,11 +116,11 @@ public final class AnimationMetadataHolder {
                 instance.group(
                     EditorAssetAccessors.ANIMATION_METADATA_MAP_CODEC.forGetter(AnimationMetadataHolder::makeMetadata),
                     EditorAssetAccessors.ANIMATION_MIRROR_MAP_CODEC.forGetter(AnimationMetadataHolder::makeMirrorSetup),
-                    EntityPreviewModel.CODEC.optionalFieldOf("preview_model")
-                        .forGetter(ParseUtils.provideOptional(AnimationMetadataHolder::getPreviewModel))
-                ).apply(instance, (metadata, mirror, previewModel) -> {
+                    Identifier.CODEC.optionalFieldOf("preview_entity_type")
+                        .forGetter(ParseUtils.provideOptional(AnimationMetadataHolder::getPreviewEntityType))
+                ).apply(instance, (metadata, mirror, previewEntityType) -> {
                     AnimationMetadataHolder holder = new AnimationMetadataHolder(accessor, metadata, mirror);
-                    previewModel.ifPresent(holder::setPreviewModel);
+                    previewEntityType.ifPresent(holder::setPreviewEntityType);
 
                     return holder;
                 })
@@ -205,11 +204,11 @@ public final class AnimationMetadataHolder {
         return accessor;
     }
 
-    public @Nullable EntityPreviewModel getPreviewModel() {
-        return previewModel;
+    public @Nullable Identifier getPreviewEntityType() {
+        return previewEntityType;
     }
 
-    public void setPreviewModel(final @Nullable EntityPreviewModel previewModel) {
-        this.previewModel = previewModel;
+    public void setPreviewEntityType(final @Nullable Identifier previewEntityType) {
+        this.previewEntityType = previewEntityType;
     }
 }

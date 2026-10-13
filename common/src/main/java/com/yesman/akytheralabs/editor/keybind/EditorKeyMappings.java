@@ -44,11 +44,27 @@ public final class EditorKeyMappings {
     public static final EditorKeyMapping GIZMO_SCALE = reg("gizmo_scale", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_GIZMO_SCALE, InputConstants.KEY_S, 0);
     public static final EditorKeyMapping GIZMO_ORIENTATION = reg("gizmo_orientation", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_GIZMO_ORIENTATION, InputConstants.KEY_TAB, 0);
 
+    // Put one part of the gizmo target's transform back to rest, as Blender's Alt+G / Alt+R / Alt+S do.
+    public static final EditorKeyMapping GIZMO_RESET_TRANSLATION = reg("gizmo_reset_translation", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_GIZMO_RESET_TRANSLATION, InputConstants.KEY_G, InputConstants.MOD_ALT);
+    public static final EditorKeyMapping GIZMO_RESET_ROTATION = reg("gizmo_reset_rotation", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_GIZMO_RESET_ROTATION, InputConstants.KEY_R, InputConstants.MOD_ALT);
+    public static final EditorKeyMapping GIZMO_RESET_SCALE = reg("gizmo_reset_scale", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_GIZMO_RESET_SCALE, InputConstants.KEY_S, InputConstants.MOD_ALT);
+
     // Limit a running gizmo transform to one axis. Only read while such a transform is in flight.
 
     public static final EditorKeyMapping GIZMO_AXIS_X = reg("gizmo_axis_x", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_GIZMO_AXIS_X, InputConstants.KEY_X, 0);
     public static final EditorKeyMapping GIZMO_AXIS_Y = reg("gizmo_axis_y", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_GIZMO_AXIS_Y, InputConstants.KEY_Y, 0);
     public static final EditorKeyMapping GIZMO_AXIS_Z = reg("gizmo_axis_z", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_GIZMO_AXIS_Z, InputConstants.KEY_Z, 0);
+
+    // Keys the selected emitter at the playhead in the particle system editor, while the cursor is over the emitter
+    // track or the preview.
+    public static final EditorKeyMapping INSERT_KEYFRAME = reg("insert_keyframe", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_INSERT_KEYFRAME, InputConstants.KEY_I, 0);
+
+    // Copies the selected keyframes of the particle system editor and takes hold of the copies, to drop them with a
+    // left press.
+    public static final EditorKeyMapping DUPLICATE_KEYFRAME = reg("duplicate_keyframe", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_DUPLICATE_KEYFRAME, InputConstants.KEY_D, InputConstants.MOD_SHIFT);
+
+    // Takes hold of the selected keyframes of the particle system editor, to drop them with a left press.
+    public static final EditorKeyMapping MOVE_KEYFRAME = reg("move_keyframe", LangKeys.GUI_EDITOR_PREFERENCES_KEY_MAPPING_MOVE_KEYFRAME, InputConstants.KEY_G, 0);
 
     private static EditorKeyMapping reg(String id, String langKey, int key, int mods) {
         EditorKeyMapping m = new EditorKeyMapping(Component.translatable(langKey), key, mods);

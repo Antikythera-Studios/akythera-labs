@@ -1,11 +1,15 @@
 package com.yesman.akytheralabs.gui.screen;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.client.gui.widget.viewer.BackgroundComponent;
-import com.yesman.akythera.client.gui.widget.viewer.CameraComponent;
-import com.yesman.akythera.client.gui.widget.viewer.GridFloorComponent;
-import com.yesman.akythera.client.gui.widget.viewer.Model3DViewer;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.viewer.BackgroundComponent;
+import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
+import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.armature.Bone;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
@@ -13,17 +17,20 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.asset.ArmatureMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.ArmatureMetadataHolder.PairEntry;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
-import com.yesman.akytheralabs.gui.widget.AdvancedComboBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.EditorComboBox;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
+import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
+import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.viewer.ArmatureViewComponent;
@@ -40,6 +47,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -47,6 +55,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -95,10 +104,12 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(TOP_BAR_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            _ -> handleQuitRequest(),
+            () -> handleQuitRequest(),
             TopMenuBar.actions()
+                .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
+                .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelect)
                 .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -122,6 +133,7 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(1.0F, 16, 68, 68, 68, 255));
         model3DViewer.addComponent(armatureView);
+        applyPreviewEntityType(holder.getPreviewEntityType());
 
         pairHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ARMATURE_ASSET_SCREEN_SECTION_MIRROR_PAIRS));
         pairPanel = new MirrorPairPanel();
@@ -181,6 +193,27 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
     private void frameCamera() {
         model3DViewer.frameCamera(
             Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.width(), Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.height());
+    }
+
+    private void openPreviewModelSelect() {
+        ModalManager.getInstance().openModalWidgetAtCenter(new EntityTypeSelectModal(font, holder.getPreviewEntityType(), entityType -> {
+            Identifier before = holder.getPreviewEntityType();
+
+            if (Objects.equals(before, entityType)) return;
+
+            applyPreviewEntityType(entityType);
+            HistoryManager.getInstance().pushHistory(new DataChange<>(before, entityType, this::applyPreviewEntityType));
+        }));
+    }
+
+    /// Installs `model` as the preview: the holder field, and the viewer's model posed by this armature.
+    private void applyPreviewEntityType(final @Nullable Identifier entityType) {
+        holder.setPreviewEntityType(entityType);
+        EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, entityType, true, false);
+
+        EntityModelComponent shown = model3DViewer.getComponent(EntityModelComponent.class);
+
+        if (shown != null) shown.setArmature(holder.getAccessor());
     }
 
     // ***************************************************************
@@ -243,7 +276,7 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
             Component.translatable(LangKeys.GUI_MESSAGE_ASK_TO_SAVE, topMenuBar.getMessage()),
             hasUnsavedChanges(),
             () -> {
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                ModalManager.getInstance().closeModal();
                 save();
                 onClose();
             },
@@ -382,8 +415,8 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
         private Unit x2 = AnchoredWidget.pixel(0);
         private Unit y1 = AnchoredWidget.pixel(0);
         private Unit y2 = AnchoredWidget.pixel(0);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -395,6 +428,8 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 
     /// Base class for every entry in [MirrorPairPanel]. Exists only to fix the recursive type
@@ -405,9 +440,9 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
     /// its own current pick; the button drops the row.
     private final class PairRow extends PairPanelRow {
         private final PairEntry entry;
-        private final AdvancedComboBox<String> firstCombo;
-        private final AdvancedComboBox<String> secondCombo;
-        private final AnchoredButton removeButton;
+        private final EditorComboBox<String> firstCombo;
+        private final EditorComboBox<String> secondCombo;
+        private final AkytheraButton removeButton;
         private final List<GuiEventListener> children;
 
         PairRow(final int index, final PairEntry entry) {
@@ -415,8 +450,8 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
             this.firstCombo = boneCombo(entry.first(), picked -> setEntry(index, new PairEntry(picked, entry.second())));
             this.secondCombo = boneCombo(entry.second(), picked -> setEntry(index, new PairEntry(entry.first(), picked)));
 
-            this.removeButton = AnchoredButton
-                .buttonBuilder(font, Component.literal("X"), _ -> {
+            this.removeButton = AkytheraButton
+                .buttonBuilder(font, LocalizedMessage.handwritten("X"), () -> {
                     List<PairEntry> next = new ArrayList<>(holder.getEntries());
                     next.remove(index);
 
@@ -434,10 +469,10 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
 
         /// A side of the pair. A bone the armature no longer has still shows its name, marked and
         /// with a tooltip — dropping it silently would lose a rename the user may want to redo.
-        private AdvancedComboBox<String> boneCombo(final @Nullable String bone, final Consumer<String> onPicked) {
+        private EditorComboBox<String> boneCombo(final @Nullable String bone, final Consumer<String> onPicked) {
             List<String> candidates = holder.unclaimedBones(boneNames, bone);
 
-            AdvancedComboBox<String> combo = new AdvancedComboBox<>(
+            EditorComboBox<String> combo = new EditorComboBox<>(
                 font,
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(COMBO_H),
@@ -516,11 +551,11 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
 
     /// The trailing row: one button that appends an empty pair.
     private final class AddRow extends PairPanelRow {
-        private final AnchoredButton addButton;
+        private final AkytheraButton addButton;
 
         AddRow() {
-            this.addButton = AnchoredButton
-                .buttonBuilder(font, Component.literal("+"), _ -> {
+            this.addButton = AkytheraButton
+                .buttonBuilder(font, LocalizedMessage.handwritten("+"), () -> {
                     List<PairEntry> next = new ArrayList<>(holder.getEntries());
                     next.add(new PairEntry(null, null));
 

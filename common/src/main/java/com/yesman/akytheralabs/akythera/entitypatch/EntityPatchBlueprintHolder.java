@@ -5,49 +5,49 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.component.ComponentAttachable;
 import com.yesman.akythera.api.data.modularize.AkytheraScriptFunctions;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
-import com.yesman.akythera.api.data.modularize.node.FlowNode;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.core.blueprint.ComponentBlueprint;
+import com.yesman.akythera.core.blueprint.DataDrivenEntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
-import com.yesman.akythera.core.blueprint.script.ScriptVariables;
+import com.yesman.akythera.core.blueprint.SourceCodeEntityPatchBlueprint;
+import com.yesman.akythera.core.blueprint.script.BlueprintBody;
+import com.yesman.akythera.core.blueprint.script.EntityPatchScript;
+import com.yesman.akythera.core.reflection.BlueprintLayout;
+import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
-import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintParentRef;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentHolder;
-import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
-import com.yesman.akytheralabs.dataholder.DTOProvider;
-import com.yesman.akytheralabs.dataholder.DataHolder;
-import com.yesman.akytheralabs.dataholder.EditorReference;
-import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
-import com.yesman.akytheralabs.dataholder.FailedComponentHolder;
-import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.EntityPatchComponentHolders;
 import com.yesman.akytheralabs.akythera.entitypatch.component.RootAttachableComponent;
-import com.yesman.akytheralabs.gui.widget.script.EntityPatchEntryNodeWidget;
+import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
+import com.yesman.akytheralabs.dataholder.DTOProvider;
+import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.EditorReference;
+import com.yesman.akytheralabs.dataholder.FailedComponentHolder;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
-import com.yesman.akytheralabs.gui.widget.script.node.EntityPatchEntryNodeData;
 import org.jspecify.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.SequencedMap;
 import java.util.stream.Stream;
+import net.minecraft.resources.Identifier;
 
 /// Modifiable data holder for an [EntityPatchBlueprint] (registry
 /// [AkytheraRegistries.DataPack#ENTITY_PATCH_KEY]).
 ///
-/// As on [AnimatorScriptHolder], the editor keeps the blueprint's flows as one flat
-/// [ScriptGraphData] canvas — the "Event Graph" — hosting all three entry points, `onConstruct` /
-/// `onJoinWorld` / `update`, as distinct [EntityPatchEntryNodeWidget] nodes. [#makeObject] is the
-/// compile step: it lowers the sub-flow rooted at each entry back into a tree [FlowNode] through
-/// [ScriptGraphCompiler] and assembles the runtime [EntityPatchBlueprint].
+/// The editor keeps the blueprint's graphs, property values and variables as one [BlueprintScriptData],
+/// laid out by [EntityPatchScript]. [#makeObject] is the compile step: it lowers the data into a
+/// [BlueprintBody] and assembles the runtime [EntityPatchBlueprint].
 ///
 /// Components are editor holders such as [ArmatureComponentHolder], keyed by the author-chosen name the
 /// engine attaches them under. The patch itself is the root [ComponentAttachableHolder], as [EntityPatch] is
@@ -55,50 +55,51 @@ import java.util.stream.Stream;
 /// the whole tree through [ComponentAttachableHolder#componentsField], and [#makeObject] lowers each holder
 /// into its runtime [ComponentBlueprint].
 ///
-/// [#ctor] is the patch's parent — the [EntityPatch] subclass the engine instantiates — and its
-/// return type is [#ownerType], the script owner every canvas on this blueprint is typed against.
+/// [#parent] is either an [EntityPatch] subclass, lowered into a [DataDrivenEntityPatchBlueprint], or a
+/// source code script, lowered into a [SourceCodeEntityPatchBlueprint] that carries nothing else. Its
+/// constructor's return type is [#ownerType], the script owner every canvas on this blueprint is typed against.
 public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityPatchBlueprint>
     implements DTOProvider, ComponentAttachableHolder
 {
     public static final Codec<EntityPatchBlueprintHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
             AkytheraRegistries.Frozen.SCRIPT_FUNCTION.byNameCodec().optionalFieldOf("parent")
-                .forGetter(h -> Optional.of(h.ctor)),
+                .forGetter(h -> Optional.of(h.parent.ctor())),
+            AkytheraRegistries.Frozen.SCRIPT_TYPE.byNameCodec().optionalFieldOf("source_code_script")
+                .forGetter(h -> h.parent instanceof BlueprintParentRef.SourceCodeScript sourceCode
+                    ? Optional.of(sourceCode.script())
+                    : Optional.empty()),
             ComponentAttachableHolder.componentsField(() -> EntityPatchComponentHolders.REGISTRY)
                 .forGetter(ComponentAttachableHolder::componentsOf),
-            ScriptGraphData.CODEC.optionalFieldOf("event_graph", ScriptGraphData.EMPTY)
-                .forGetter(h -> h.eventGraph),
-            ScriptVariables.VariableInfo.CODEC.listOf().optionalFieldOf("variables", List.of())
-                .forGetter(h -> h.variables),
-            EntityPreviewModel.CODEC.optionalFieldOf("preview_model")
-                .forGetter(ParseUtils.provideOptional(EntityPatchBlueprintHolder::getPreviewModel))
-        ).apply(instance, (ctor, components, eventGraph, variables, pm) -> {
+            BlueprintScriptData.MAP_CODEC.forGetter(h -> h.script),
+            Identifier.CODEC.optionalFieldOf("preview_entity_type")
+                .forGetter(ParseUtils.provideOptional(EntityPatchBlueprintHolder::getPreviewEntityType))
+        ).apply(instance, (ctor, sourceCodeScript, components, scriptData, pm) -> {
             EntityPatchBlueprintHolder h = new EntityPatchBlueprintHolder();
-            ctor.ifPresent(h::setCtor);
+            ScriptFunction parentCtor = ctor.orElseGet(EntityPatchBlueprintHolder::defaultCtor);
+            h.parent = sourceCodeScript
+                .<BlueprintParentRef>map(script -> new BlueprintParentRef.SourceCodeScript(parentCtor, script))
+                .orElseGet(() -> new BlueprintParentRef.ParentClass(parentCtor));
             ComponentAttachableHolder.applyComponents(h, components);
-            h.eventGraph = eventGraph;
-            h.variables = new ArrayList<>(variables);
-            pm.ifPresent(h::setPreviewModel);
+            h.script = scriptData;
+            pm.ifPresent(h::setPreviewEntityType);
             return h;
         })
     );
 
-    /// The [ScriptFunction.Usage#ENTITY_PATCH_CTOR] function the engine builds this patch with. Its
-    /// return type is the patch's class, and so the script owner type of every flow on it.
-    private ScriptFunction ctor = defaultCtor();
+    /// What the engine builds this patch with. Its constructor's return type is the patch's class, and
+    /// so the script owner type of every flow on it.
+    private BlueprintParentRef parent = new BlueprintParentRef.ParentClass(defaultCtor());
 
     /// The attached components' editor holders, keyed by the name the engine attaches them under and
     /// insertion-ordered so the file is stable. Components that host children keep them on
     /// themselves, making this the root of the whole tree.
     private SequencedMap<String, ComponentDataHolder<?>> components = ComponentAttachableHolder.newComponentMap();
 
-    /// The single Event Graph canvas, holding the three entry nodes and everything wired to them.
-    private ScriptGraphData eventGraph = ScriptGraphData.EMPTY;
-
-    private List<ScriptVariables.VariableInfo> variables = new ArrayList<>();
+    private BlueprintScriptData script = new BlueprintScriptData();
 
     @Nullable
-    private EntityPreviewModel previewModel;
+    private Identifier previewEntityType;
 
     public EntityPatchBlueprintHolder() {
     }
@@ -108,18 +109,23 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
         return AkytheraScriptFunctions.ENTITY_PATCH_CONSTRUCTOR.value();
     }
 
-    public ScriptFunction getCtor() {
-        return ctor;
+    public BlueprintParentRef getParent() {
+        return parent;
     }
 
-    public void setCtor(ScriptFunction ctor) {
-        this.ctor = ctor;
+    public void setParent(BlueprintParentRef parent) {
+        this.parent = parent;
     }
 
     /// The patch's own class — what `self` is, and what a member [ScriptFunction]'s receiver slot has
     /// to accept for the function to be callable here.
     public Class<?> ownerType() {
-        return ctor.functionSignature().returnType();
+        return parent.ctor().functionSignature().returnType();
+    }
+
+    /// The members [#ownerType] lays the editor out with.
+    public BlueprintLayout layout() {
+        return Objects.requireNonNull(ScriptModularizeHelper.blueprintLayoutOf(ownerType()));
     }
 
     /// The patch is the root component host: anything marked [RootAttachableComponent] may be
@@ -131,66 +137,70 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
 
     @Override
     public void readFrom(EntityPatchBlueprint object) {
-        // The runtime blueprint carries no on-canvas layout, so only the variables round-trip.
-        this.ctor = object.ctor();
-        this.variables = new ArrayList<>(object.variables());
+        switch (object) {
+            // The runtime blueprint carries no on-canvas layout, so only the values round-trip.
+            case DataDrivenEntityPatchBlueprint dataDriven -> {
+                parent = new BlueprintParentRef.ParentClass(dataDriven.ctor());
+                script = new BlueprintScriptData(
+                    ScriptGraphData.EMPTY, Map.of(), List.of(), dataDriven.body().properties(),
+                    dataDriven.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
+            }
+            case SourceCodeEntityPatchBlueprint sourceCode ->
+                parent = new BlueprintParentRef.SourceCodeScript(sourceCode.ctor(), sourceCode.script());
+        }
     }
 
     @Override
     public EntityPatchBlueprint makeObject() {
-        FlowNode onConstruct = compileEntry(EntityPatchEntryNodeWidget.Kind.ON_CONSTRUCT);
-        FlowNode onJoinWorld = compileEntry(EntityPatchEntryNodeWidget.Kind.ON_JOIN_WORLD);
-        FlowNode update = compileEntry(EntityPatchEntryNodeWidget.Kind.UPDATE);
-
-        return new EntityPatchBlueprint(
-            ComponentAttachableHolder.lowerComponents(components), ctor,
-            onConstruct, onJoinWorld, update, List.copyOf(variables));
-    }
-
-    /// Lowers the sub-flow rooted at the `kind` entry node in the shared Event Graph canvas into a
-    /// tree [FlowNode]. The entry is matched on its persisted kind marker, the `op` field.
-    private FlowNode compileEntry(EntityPatchEntryNodeWidget.Kind kind) {
-        return ScriptGraphCompiler.compile(eventGraph, ownerType(), row ->
-            row.data() instanceof EntityPatchEntryNodeData entry && entry.entryKind() == kind);
+        return switch (parent) {
+            case BlueprintParentRef.ParentClass patchClass -> new DataDrivenEntityPatchBlueprint(
+                ComponentAttachableHolder.lowerComponents(components), patchClass.ctor(),
+                script.compile(layout(), ownerType()));
+            case BlueprintParentRef.SourceCodeScript sourceCode ->
+                new SourceCodeEntityPatchBlueprint(sourceCode.ctor(), sourceCode.script());
+        };
     }
 
     /// Everything the attached components reference — armature accessors, animator script holders
-    /// and so on — plus every asset the Event Graph's nodes bind. Flattens each component holder's
+    /// and so on — plus every asset the canvases' nodes bind. Flattens each component holder's
     /// own [DataHolder#referencedReferences], attached children included.
     @Override
     public Stream<EditorReference> referencedReferences() {
         return Stream.concat(
             ComponentAttachableHolder.flatten(this).flatMap(DataHolder::referencedReferences),
-            eventGraph.referencedReferences()
+            script.referencedReferences()
         );
     }
 
     /// The first failure the decode guard salvaged: a defaults-fallback or unknown-type component
-    /// placeholder, or an unresolved node kept on the Event Graph.
+    /// placeholder, or an unresolved node kept on a canvas.
     @Override
     public @Nullable Exception getNestedFailureException() {
         Exception component = AbstractDataHolder.firstNestedFailure(components.values());
         if (component != null) return component;
 
-        return eventGraph.firstFailure();
+        return script.firstFailure();
     }
 
-    /// Tokens for `entity_patch_blueprint_template.ftl`: the parent constructor, the three event
-    /// flows and the variable list as Java constructor expressions from [NodeTreeSourceRenderer],
-    /// lowered through [#makeObject], plus the attached components' constructor expressions. The
-    /// indent bases — 4 for flows, 5 for list elements — match the template's splice points.
+    /// Tokens for `entity_patch_blueprint_template.ftl`, as Java constructor expressions from
+    /// [NodeTreeSourceRenderer] lowered through [#makeObject]: the parent constructor, plus either the
+    /// source code script (`source_code_script`) or the [BlueprintBody] and the attached components'
+    /// constructor expressions. The indent base, 4, matches the template's splice point.
     @Override
     public Map<String, Object> getDTO() {
         EntityPatchBlueprint blueprint = makeObject();
 
         Map<String, Object> dto = new HashMap<>();
-        dto.put("components", ComponentDataHolder.sourcesOf(healthyComponents()));
         dto.put("parent", NodeTreeSourceRenderer.scriptFunction(blueprint.ctor()));
-        dto.put("on_construct", NodeTreeSourceRenderer.flow(blueprint.onConstruct(), 4));
-        dto.put("on_join_world", NodeTreeSourceRenderer.flow(blueprint.onJoinWorld(), 4));
-        dto.put("update", NodeTreeSourceRenderer.flow(blueprint.update(), 4));
-        dto.put("variables", blueprint.variables().stream()
-            .map(v -> NodeTreeSourceRenderer.variableInfo(v, 5)).toList());
+
+        switch (blueprint) {
+            case SourceCodeEntityPatchBlueprint sourceCode ->
+                dto.put("source_code_script", NodeTreeSourceRenderer.scriptType(sourceCode.script()));
+            case DataDrivenEntityPatchBlueprint dataDriven -> {
+                dto.put("components", ComponentDataHolder.sourcesOf(healthyComponents(), false));
+                dto.put("body", NodeTreeSourceRenderer.body(dataDriven.body(), 4));
+            }
+        }
 
         return dto;
     }
@@ -218,35 +228,20 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
     }
 
     // ***************************************************************
-    // Event Graph (flat editor form)
+    // Graphs, properties and variables (flat editor form)
     // ***************************************************************
-    public ScriptGraphData getEventGraph() {
-        return eventGraph;
-    }
-
-    public void setEventGraph(ScriptGraphData eventGraph) {
-        this.eventGraph = eventGraph;
-    }
-
-    // ***************************************************************
-    // Variables
-    // ***************************************************************
-    public List<ScriptVariables.VariableInfo> getVariables() {
-        return variables;
-    }
-
-    public void setVariables(List<ScriptVariables.VariableInfo> variables) {
-        this.variables = new ArrayList<>(variables);
+    public BlueprintScriptData getScript() {
+        return script;
     }
 
     // ***************************************************************
     // Preview model (editor-only)
     // ***************************************************************
-    public @Nullable EntityPreviewModel getPreviewModel() {
-        return previewModel;
+    public @Nullable Identifier getPreviewEntityType() {
+        return previewEntityType;
     }
 
-    public void setPreviewModel(@Nullable EntityPreviewModel previewModel) {
-        this.previewModel = previewModel;
+    public void setPreviewEntityType(@Nullable Identifier previewEntityType) {
+        this.previewEntityType = previewEntityType;
     }
 }

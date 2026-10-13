@@ -155,7 +155,7 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
             dto.put("parent_id", ResourceProcessor.exportedId(parent).toString());
         }
 
-        dto.put("components", ComponentDataHolder.sourcesOf(healthyComponents()));
+        dto.put("components", ComponentDataHolder.sourcesOf(healthyComponents(), false));
 
         return dto;
     }

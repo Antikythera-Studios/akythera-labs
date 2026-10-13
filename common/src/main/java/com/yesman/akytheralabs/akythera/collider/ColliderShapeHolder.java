@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.akythera.collider;
 
+import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.math.physics.collider.Collider;
 import com.yesman.akythera.core.math.physics.collider.ColliderType;
@@ -18,8 +19,12 @@ public abstract class ColliderShapeHolder {
     /// Overwrites the dimensions from `collider`, which is of this holder's shape.
     public abstract void readFrom(final Collider collider);
 
-    /// The authored shape, pivoted at `pivotTransform`.
-    public abstract Collider makeCollider(final Transform pivotTransform);
+    /// The authored shape, pivoted at `pivotTransform`, whose components start switched as `enabled`.
+    public abstract Collider makeCollider(
+        final Transform pivotTransform,
+        final TransformInheritPolicy transformInheritPolicy,
+        final boolean enabled
+    );
 
     /// The [Collider] class name this shape builds, for `components/collider.ftl`.
     public abstract String sourceType();

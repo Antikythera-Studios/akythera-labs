@@ -37,11 +37,11 @@ public final class PureFunctionNodeWidget extends AbstractNodeWidget {
             String label = function.isMember() && i == 0
                 ? "Target"
                 : (i < names.size() ? names.get(i) : type.getSimpleName());
-            addInput(new Pin(label, NodeColors.forType(type), false, type));
+            addInput(new Pin(label, NodeColors.forType(type), false, type, signature.genericParameters().get(i)));
         }
 
         Class<?> returnType = signature.returnType();
-        addOutput(new Pin("", NodeColors.forType(returnType), false, returnType));
+        addOutput(new Pin("", NodeColors.forType(returnType), false, returnType, signature.genericReturnType()));
 
         relayout();
 
@@ -70,6 +70,11 @@ public final class PureFunctionNodeWidget extends AbstractNodeWidget {
 
     public ScriptFunction function() {
         return function;
+    }
+
+    @Override
+    protected void onConnectionsChanged() {
+        bindTypeVariables(function.functionSignature(), 0, 0);
     }
 
     @Override

@@ -4,6 +4,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.data.modularize.ScriptType;
+import com.yesman.akythera.core.blueprint.ArmatureComponentBlueprint;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -38,6 +39,29 @@ public sealed interface AnimatorScriptRef {
 
     /// Id shown in the editor [PopupBox] (`<none>` when unbound).
     String displayLabel();
+
+    /// This script as the engine's factory.
+    default ArmatureComponentBlueprint.AnimatorScriptFactory toFactory() {
+        return switch (this) {
+            case ClassScript classScript -> new ArmatureComponentBlueprint.ByClass(classScript.scriptType());
+            case DataPackScript dataPackScript -> new ArmatureComponentBlueprint.ByDataPack(dataPackScript.holder().unwrapKey().orElseThrow());
+        };
+    }
+
+    /// The engine's `factory` as a ref. A [ArmatureComponentBlueprint.ByDataPack] key re-resolves to the shared live
+    /// holder.
+    static AnimatorScriptRef of(final ArmatureComponentBlueprint.AnimatorScriptFactory factory) {
+        return switch (factory) {
+            case ArmatureComponentBlueprint.ByClass byClass -> new ClassScript(byClass.animatorType());
+            case ArmatureComponentBlueprint.ByDataPack byDataPack -> dataPack(byDataPack.resourceKey());
+            default -> throw new IllegalArgumentException("Unknown animator script factory " + factory.getClass().getName());
+        };
+    }
+
+    /// No script picked yet, shown as `<none>`.
+    static DataPackScript none() {
+        return dataPack(ResourceKey.create(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, DataHolder.EMPTY_REFERENCE));
+    }
 
     /// A data pack script ref over `key`, resolved through [AkytheraProject#getEntryHolderOrDangling]
     /// to the shared live holder, or to the project registry's placeholder for a dangling id.

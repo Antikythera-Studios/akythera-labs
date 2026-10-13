@@ -1,8 +1,9 @@
 package com.yesman.akytheralabs.gui.widget.blendspace2d;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.math.algorithm.DelaunayTriangulation;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.akythera.animation.AnimationRef;
 import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -11,7 +12,6 @@ import com.yesman.akytheralabs.editor.historytrack.ListRemove;
 import com.yesman.akytheralabs.editor.historytrack.NodeXYChange;
 import com.yesman.akytheralabs.editor.historytrack.PendingNodeXYChange;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -163,7 +163,7 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
 
         if (event.button() == 1 && isInGraphBound) {
             // Use widget rectangle. context menu is ok to exceed graph boundary.
-            AkytheraEditorLayoutManager.getInstance().openModalWidget(contextMenu, (int)event.x(), (int)event.y());
+            ModalManager.getInstance().openModalWidget(contextMenu, (int)event.x(), (int)event.y());
             contextOpened = true;
         }
         /*
@@ -653,8 +653,8 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -666,6 +666,8 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 
     /// Relocate the widget with the given anchor types
     public void relocate(ScreenRectangle screenRectangle) {

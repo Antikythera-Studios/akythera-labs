@@ -1,11 +1,12 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
 import com.yesman.akytheralabs.gui.widget.UniversalMenu;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -32,43 +33,45 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     /// in which [TopMenuOption]s its [UniversalMenu.Actions] wires up — the rest stay in place,
     /// greyed out and unpressable.
     private static final List<Menu> MENUS = List.of(
-        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_FILE), List.of(
+        new Menu(LocalizedMessage.translatable(LangKeys.GUI_MENU_BAR_FILE), List.of(
             new UniversalMenu.OptionRow<>(TopMenuOption.SAVE),
             new UniversalMenu.OptionRow<>(TopMenuOption.COMPILE),
             new UniversalMenu.GroupRow<TopMenuOption>(Component.translatable(LangKeys.GUI_MENU_BAR_FILE_EXPORT), List.of(
                 new UniversalMenu.OptionRow<>(TopMenuOption.EXPORT_AS_PACK),
                 new UniversalMenu.OptionRow<>(TopMenuOption.EXPORT_AS_SOURCE_CODE)
             )),
-            new UniversalMenu.ChoiceListRow<>(TopMenuOption.CHANGE_PARENT),
+            new UniversalMenu.OptionRow<>(TopMenuOption.CHANGE_PARENT),
             new UniversalMenu.OptionRow<>(TopMenuOption.DELETE_PROJECT)
         )),
-        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_EDIT), List.of(
+        new Menu(LocalizedMessage.translatable(LangKeys.GUI_MENU_BAR_EDIT), List.of(
             new UniversalMenu.OptionRow<>(TopMenuOption.LANGUAGE),
+            new UniversalMenu.OptionRow<>(TopMenuOption.LOCALIZATION),
             new UniversalMenu.OptionRow<>(TopMenuOption.PROJECT_SETTINGS),
             new UniversalMenu.OptionRow<>(TopMenuOption.EDITOR_PREFERENCES),
-            new UniversalMenu.OptionRow<>(TopMenuOption.MODEL_ARMATURE_MAPPING)
+            new UniversalMenu.OptionRow<>(TopMenuOption.ENTITY_PREVIEW_MODEL_MAPPING)
         )),
-        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_VIEW), List.of(
+        new Menu(LocalizedMessage.translatable(LangKeys.GUI_MENU_BAR_VIEW), List.of(
             new UniversalMenu.OptionRow<>(TopMenuOption.SELECT_PREVIEW_MODEL),
+            new UniversalMenu.OptionRow<>(TopMenuOption.SELECT_PREVIEW_ANIMATION),
             new UniversalMenu.OptionRow<>(TopMenuOption.SELECT_PREVIEW_ITEM),
             new UniversalMenu.OptionRow<>(TopMenuOption.FRAME_CAMERA)
         )),
-        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_TOOLS), List.of(
+        new Menu(LocalizedMessage.translatable(LangKeys.GUI_MENU_BAR_TOOLS), List.of(
             new UniversalMenu.OptionRow<>(TopMenuOption.ANIMATION_RETARGET),
             new UniversalMenu.OptionRow<>(TopMenuOption.MODEL_TRANSFORMER),
             new UniversalMenu.OptionRow<>(TopMenuOption.DEBUG),
             new UniversalMenu.OptionRow<>(TopMenuOption.CONSOLE)
         )),
-        new Menu(Component.translatable(LangKeys.GUI_MENU_BAR_HELP), List.of(
+        new Menu(LocalizedMessage.translatable(LangKeys.GUI_MENU_BAR_HELP), List.of(
             new UniversalMenu.OptionRow<>(TopMenuOption.DOCS),
             new UniversalMenu.OptionRow<>(TopMenuOption.ISSUE_REPORT)
         ))
     );
 
     private final Font font;
-    private final AnchoredButton closeScreenButton;
-    private final List<AnchoredButton> menuButtonList;
-    private final AnchoredButton[] menuButtons;
+    private final AkytheraButton closeScreenButton;
+    private final List<AkytheraButton> menuButtonList;
+    private final AkytheraButton[] menuButtons;
 
     /// One dropdown per [#MENUS] entry, in the same order. Each is a [ContextMenuContainer] so
     /// options can nest into sub-lists (`Export > As Pack` / `As Source Code`).
@@ -87,7 +90,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         Unit y2,
         AnchoredWidget.HorizontalAnchorType horizontalAnchorType,
         AnchoredWidget.VerticalAnchorType verticalAnchorType,
-        Button.OnPress onClose,
+        Runnable onClose,
         UniversalMenu.Actions<TopMenuOption> actions
     ) {
         super(0, 0, 0, 0, title, AbstractScrollArea.defaultSettings(0));
@@ -102,19 +105,19 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
 
         Minecraft minecraft = Minecraft.getInstance();
 
-        menuButtons = new AnchoredButton[MENUS.size()];
+        menuButtons = new AkytheraButton[MENUS.size()];
         dropdowns = new ContextMenuContainer[MENUS.size()];
 
         for (int index = 0; index < MENUS.size(); index++) {
             final int i = index;
             Menu menu = MENUS.get(i);
 
-            menuButtons[i] = AnchoredButton.buttonBuilder(font, menu.name(), _ -> onMenuClick(i))
+            menuButtons[i] = AkytheraButton.buttonBuilder(font, menu.name(), () -> onMenuClick(i))
                 .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
                 .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
                 .theme(AkytheraLabsButtonTheme.TOP_MENU_BUTTON)
                 .isHighlighted(_ -> {
-                    AbstractWidget w = AkytheraEditorLayoutManager.getInstance().getModal();
+                    AbstractWidget w = ModalManager.getInstance().getModal();
                     return w != null && w == dropdowns[i];
                 })
                 .build();
@@ -124,8 +127,8 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
             dropdowns[i] = page.build();
         }
 
-        closeScreenButton = AnchoredButton
-            .buttonBuilder(font, Component.literal("X"), onClose)
+        closeScreenButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.handwritten("X"), onClose)
             .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(1))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH)
@@ -142,7 +145,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     }
 
     private void onMenuClick(int i) {
-        AkytheraEditorLayoutManager manager = AkytheraEditorLayoutManager.getInstance();
+        ModalManager manager = ModalManager.getInstance();
 
         if (manager.getModal() == dropdowns[i]) {
             manager.closeModal();
@@ -161,7 +164,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     private void layoutButtons() {
         int curX = getX();
 
-        for (AnchoredButton menuButton : menuButtons) {
+        for (AkytheraButton menuButton : menuButtons) {
             int w = font.width(menuButton.getMessage()) + ITEM_PAD * 2;
             menuButton.setX(curX);
             menuButton.setY(getY());
@@ -193,7 +196,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         graphics.fill(x, y, x + w, y + h, 0xFF1A1A1A);
         graphics.fill(x, y + h - 1, x + w, y + h, 0xFF2E2E2E);
 
-        for (AnchoredButton button : menuButtons) {
+        for (AkytheraButton button : menuButtons) {
             button.extractRenderState(graphics, mouseX, mouseY, delta);
         }
 
@@ -222,7 +225,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     }
 
     /// One top-level menu of [#MENUS] — the bar button plus the rows of its dropdown.
-    private record Menu(Component name, List<UniversalMenu.Row<TopMenuOption>> rows) {}
+    private record Menu(LocalizedMessage name, List<UniversalMenu.Row<TopMenuOption>> rows) {}
 
     // ***************************************************************
     // [AnchoredWidget] implementations
@@ -231,8 +234,8 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -244,4 +247,6 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

@@ -3,9 +3,10 @@ package com.yesman.akytheralabs.mixin;
 import com.mojang.blaze3d.platform.Window;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
+import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.MouseHandler;
+import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.components.events.ContainerEventHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Overlay;
@@ -15,7 +16,11 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+import java.nio.file.Path;
+import java.util.List;
 
 @Mixin(MouseHandler.class)
 public abstract class MixinMouseHandler {
@@ -96,6 +101,21 @@ public abstract class MixinMouseHandler {
     )
     private Screen onFileDropRedirectScreen(Gui gui) {
         return AkytheraEditorLayoutManager.getInstance().snatchInputs() ? AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() : gui.screen();
+    }
+
+    /// Hands dropped files to an open [LocalizationManagerModal] before the editor screen, whichever
+    /// screen opened it.
+    @Inject(
+        at = @At(
+            value = "HEAD"
+        ),
+        method = "onDrop(JLjava/util/List;I)V",
+        cancellable = true
+    )
+    private void onFileDrop(long handle, List<Path> files, int failedCount, CallbackInfo callbackInfo) {
+        if (AkytheraEditorLayoutManager.getInstance().snatchInputs() && LocalizationManagerModal.onFilesDrop(files)) {
+            callbackInfo.cancel();
+        }
     }
 
     /// Vanilla [ContainerEventHandler] only latches dragging / forwards drag + release for the left button

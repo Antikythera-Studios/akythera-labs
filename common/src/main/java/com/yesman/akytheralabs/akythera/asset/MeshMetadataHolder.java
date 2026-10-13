@@ -5,6 +5,7 @@ import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
+import net.minecraft.core.ClientAsset;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
@@ -17,11 +18,9 @@ public final class MeshMetadataHolder {
     @EditorEditable(label = LangKeys.GUI_MESH_ASSET_SCREEN_WIDGET_HEIGHT, min = 0.0F, order = 1)
     private float height;
 
-    /// The texture path as the edit box holds it, so a half-typed path is a valid state here.
-    /// [#getTextureLocation] is the typed view. Written on commit only, so no mid-word path ever
-    /// reaches the texture manager.
-    @EditorEditable(label = LangKeys.GUI_MESH_ASSET_SCREEN_WIDGET_TEXTURE, order = 2, setOnCommit = true)
-    private String texture;
+    /// The texture the mesh draws with, or null for none.
+    @EditorEditable(label = LangKeys.GUI_MESH_ASSET_SCREEN_WIDGET_TEXTURE, order = 2)
+    private ClientAsset.@Nullable Texture texture;
 
     /// The mesh this sidecar describes. A rename mutates the id in place on this instance, so the
     /// holder keeps pointing at the file.
@@ -34,7 +33,7 @@ public final class MeshMetadataHolder {
         this.accessor = accessor;
         width = metadata.width();
         height = metadata.height();
-        texture = metadata.texture() == null ? "" : metadata.texture().toString();
+        texture = metadata.texture() == null ? null : AkytheraProject.resourceTextureOf(metadata.texture());
     }
 
     /// The sidecar of `accessor` as it stands on disk, or the defaults when the file is absent.
@@ -55,9 +54,9 @@ public final class MeshMetadataHolder {
         return new MeshLoader.Metadata(width, height, getTextureLocation());
     }
 
-    /// [#texture] as an [Identifier], or null when it is blank or not a well-formed one.
+    /// The full path of [#texture], `<namespace>:textures/….png`, or null for none.
     public @Nullable Identifier getTextureLocation() {
-        return texture.isBlank() ? null : Identifier.tryParse(texture);
+        return texture == null ? null : texture.texturePath();
     }
 
     public float getWidth() {
@@ -76,11 +75,11 @@ public final class MeshMetadataHolder {
         this.height = height;
     }
 
-    public String getTexture() {
+    public ClientAsset.@Nullable Texture getTexture() {
         return texture;
     }
 
-    public void setTexture(final String texture) {
+    public void setTexture(final ClientAsset.@Nullable Texture texture) {
         this.texture = texture;
     }
 }

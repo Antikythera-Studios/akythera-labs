@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget;
 
+import com.yesman.akytheralabs.AkytheraLabs;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -12,8 +13,8 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 /// A toast popped when the editor's "Compile" action finishes: a success / failure icon, a title, and (on
-/// failure) a second line naming the page the error came from, e.g. "Compile Failed" / "Event Graph". Shown
-/// via [Minecraft#getToastManager].
+/// failure) a second line naming the page the error came from, e.g. "Compile Failed" / "Event Graph". Popped
+/// through [#show].
 public final class CompileResultToast implements Toast {
     private static final int WIDTH = 160;
     private static final int HEIGHT = 32;
@@ -34,10 +35,19 @@ public final class CompileResultToast implements Toast {
 
     private Toast.Visibility wantedVisibility = Toast.Visibility.SHOW;
 
-    public CompileResultToast(Identifier icon, Component title, @Nullable Component subtitle) {
+    private CompileResultToast(Identifier icon, Component title, @Nullable Component subtitle) {
         this.icon = icon;
         this.title = title;
         this.subtitle = subtitle;
+    }
+
+    /// Pops the toast for a compile outcome. `page` names where a failure came from and is dropped on
+    /// success.
+    public static void show(boolean success, @Nullable Component page) {
+        Identifier icon = AkytheraLabs.identifier(success ? "widget/compile_success" : "widget/compile_fail");
+        Component title = Component.literal(success ? "Compile Succeeded" : "Compile Failed");
+
+        Minecraft.getInstance().gui.toastManager().addToast(new CompileResultToast(icon, title, success ? null : page));
     }
 
     @Override

@@ -1,10 +1,11 @@
 package com.yesman.akytheralabs.gui.panel.animation;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
-import com.yesman.akytheralabs.gui.widget.AdvancedComboBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.EditorComboBox;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractContainerWidget;
@@ -26,7 +27,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 /// "Montage Sections" tab page: edits the section playing orders as stacked sequence rows
-/// of [AdvancedComboBox]. Each row is one play sequence:
+/// of [EditorComboBox]. Each row is one play sequence:
 ///
 /// > `[▶] combo→combo→combo [✕]` (a looping / complete sequence)
 /// > `[▶] combo→combo→[▼ pick…]` (an open sequence — trailing append combo, no ✕ yet)
@@ -127,7 +128,7 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
                         seq.add(picked);
                         rebuildChain();
                     }
-                }));
+                }).setClearable(false));
             }
 
             rows.add(row);
@@ -178,8 +179,8 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
         if (row.remove != null) widgets.add(row.remove);
     }
 
-    private AdvancedComboBox<String> makeCombo(Collection<String> names, @Nullable String value, Consumer<String> onChange) {
-        AdvancedComboBox<String> box = new AdvancedComboBox<>(
+    private EditorComboBox<String> makeCombo(Collection<String> names, @Nullable String value, Consumer<String> onChange) {
+        EditorComboBox<String> box = new EditorComboBox<>(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(COMBO_W),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(COMBO_H),
@@ -193,9 +194,9 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
         return box;
     }
 
-    private AnchoredButton makeIconButton(AkytheraLabsButtonTheme theme, Runnable onPress) {
-        return AnchoredButton
-            .buttonBuilder(font, Component.empty(), _ -> onPress.run())
+    private AkytheraButton makeIconButton(AkytheraLabsButtonTheme theme, Runnable onPress) {
+        return AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.EMPTY, () -> onPress.run())
             .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ICON_W))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(COMBO_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH)
@@ -337,8 +338,8 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final HorizontalAnchorType horizontalAnchorType;
-    private final VerticalAnchorType verticalAnchorType;
+    private HorizontalAnchorType horizontalAnchorType;
+    private VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -350,4 +351,6 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

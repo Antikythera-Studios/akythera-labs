@@ -21,33 +21,33 @@ import java.util.List;
 /// them in via the host panel's row builder.
 public abstract class AnimTrackEntry extends ContainerObjectSelectionList.Entry<@NonNull AnimTrackEntry> {
     /// Left name-block label.
-    abstract Component rowLabel();
+    protected abstract Component rowLabel();
 
     /// Draw the part to the RIGHT of the name block (over the frame ruler), inside the track
     /// scissor and after the frame measures are painted. Default: nothing.
-    void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
+    protected void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
     }
 
     /// The inline editor (e.g. a rename box) currently capturing keyboard/char input on
     /// this row, or null when not editing. Lets the host panel route input to it without
     /// knowing the row type. Default: none.
     @Nullable
-    AbstractWidget activeInlineEditor() {
+    protected AbstractWidget activeInlineEditor() {
         return null;
     }
 
     /// Commit any in-progress inline edit (panel calls this on click-outside or Esc).
-    void commitInlineEdit() {
+    protected void commitInlineEdit() {
     }
 
     /// Begin this row's inline rename, if it has one. The host panel calls this when the
     /// RENAME key (F2) fires on the selected row. Default: nothing.
-    void beginInlineEdit() {
+    protected void beginInlineEdit() {
     }
 
     /// Delete this row's currently selected item, if it has one. The host panel calls this
     /// when the DELETE key fires on the selected row. Default: nothing.
-    void deleteSelected() {
+    protected void deleteSelected() {
     }
 
     /// Shared left name-block paint. Rows with an interactive name block (NotifyRow)

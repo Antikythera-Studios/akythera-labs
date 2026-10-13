@@ -60,6 +60,16 @@ public final class AnimationAssetResourceProcessor implements ResourceProcessor<
     }
 
     @Override
+    public boolean canImport(Path file, List<Path> batch) {
+        return ResourceProcessor.isAssetFile(file);
+    }
+
+    @Override
+    public AkytheraProject.AssetLoadResult<?> importFile(Path source, Path destination) {
+        return AkytheraProject.getCurrentProject().loadAnimationToCurrentProject(source, destination);
+    }
+
+    @Override
     public ContentWidget<?> createContentWidget(Font font, Path path) {
         return new ContentWidget.AnimationAssetContent(font, path, ResourceProcessor.fileNameNoExt(path));
     }
@@ -91,7 +101,7 @@ public final class AnimationAssetResourceProcessor implements ResourceProcessor<
                 AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, entryName, true);
             AnimationSequenceHolder holder = project.getDataHolderOrThrow(key);
             holder.setAnimClip(animation);
-            holder.setPreviewModel(animation.metadata().getPreviewModel());
+            holder.setPreviewEntityType(animation.metadata().getPreviewEntityType());
             project.saveEntry(key);
         }
 
@@ -117,7 +127,7 @@ public final class AnimationAssetResourceProcessor implements ResourceProcessor<
                 AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, entryName, true);
             AnimationMontageHolder holder = project.getDataHolderOrThrow(key);
             holder.addSegment(animation);
-            holder.setPreviewModel(animation.metadata().getPreviewModel());
+            holder.setPreviewEntityType(animation.metadata().getPreviewEntityType());
             project.saveEntry(key);
         }
 

@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.animation;
 
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -10,16 +11,21 @@ import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 
 /// Draws the playhead — a vertical green line spanning the panel and a small
-/// orange drag handle near the top — and routes mouse events for scrubbing.
+/// orange drag handle near the top — and routes mouse events for scrubbing. A press
+/// anywhere on the handle's row over the track moves the playhead there and drags it. From the press to the release
+/// is one [PlayheadMove] undo step.
 public final class CurrentFrameIndicator extends AbstractWidget {
     private static final int ORANGE_BOX_W = 7;
     private static final int ORANGE_BOX_H = 12;
     private static final int ORANGE_BOX_TOP_OFFSET = 12;
 
-    private final AnimationTrackEditorPanel parent;
+    private final TrackTimeline parent;
     private boolean draggingBox;
 
-    public CurrentFrameIndicator(AnimationTrackEditorPanel parent) {
+    /// The frame the playhead was at when the press in progress landed.
+    private float pressFrame;
+
+    public CurrentFrameIndicator(TrackTimeline parent) {
         super(0, 0, 0, 0, Component.empty());
 
         this.parent = parent;
@@ -50,31 +56,25 @@ public final class CurrentFrameIndicator extends AbstractWidget {
         int boxY = getY() + ORANGE_BOX_TOP_OFFSET;
         g.fill(boxX, boxY, boxX + ORANGE_BOX_W, boxY + ORANGE_BOX_H, 0xFFEE8822);
 
-        String label = String.format("%.1f", parent.currentFrame());
         Font font = Minecraft.getInstance().font;
-        g.centeredText(font, label, x + 1, getY() + 2, 0xFFEEEEEE);
+        g.centeredText(font, parent.playheadLabel(), x + 1, getY() + 2, 0xFFEEEEEE);
     }
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
         if (event.button() != 0 || parent.isDebugDriven()) return false;
 
+        if (!isMouseOver(event.x(), event.y())) return false;
+
         int x = parent.frameToX(parent.currentFrame());
-        int boxX = x - ORANGE_BOX_W / 2;
-        int boxY = getY() + ORANGE_BOX_TOP_OFFSET;
 
-        if (
-            event.x() >= boxX &&
-            event.x() < boxX + ORANGE_BOX_W &&
-            event.y() >= boxY &&
-            event.y() < boxY + ORANGE_BOX_H
-        ) {
-            draggingBox = true;
+        pressFrame = parent.currentFrame();
 
-            return true;
-        }
+        if (Math.abs(event.x() - x) > ORANGE_BOX_W / 2) parent.setCurrentFrame(parent.xToFrame(event.x()));
 
-        return false;
+        draggingBox = true;
+
+        return true;
     }
 
     @Override
@@ -92,18 +92,22 @@ public final class CurrentFrameIndicator extends AbstractWidget {
         boolean wasDragging = draggingBox;
         draggingBox = false;
 
+        if (wasDragging && parent.currentFrame() != pressFrame) {
+            HistoryManager.getInstance().pushHistory(new PlayheadMove(parent, pressFrame, parent.currentFrame()));
+        }
+
         return wasDragging;
     }
 
     @Override
     public boolean isMouseOver(double mx, double my) {
-        // Only consume mouse events that hit the orange drag box; let the rest
+        // Only consume mouse events on the orange box's row over the track; let the rest
         // fall through to the track list / sub-widgets.
         if (!visible || !active) return false;
-        int x = parent.frameToX(parent.currentFrame());
-        int boxX = x - ORANGE_BOX_W / 2;
         int boxY = getY() + ORANGE_BOX_TOP_OFFSET;
-        return mx >= boxX && mx < boxX + ORANGE_BOX_W && my >= boxY && my < boxY + ORANGE_BOX_H;
+        int x1 = parent.frameToX(parent.visualFrameStart()) - ORANGE_BOX_W / 2;
+        int x2 = parent.frameToX(parent.visualFrameEnd()) + ORANGE_BOX_W / 2;
+        return mx >= x1 && mx < x2 && my >= boxY && my < boxY + ORANGE_BOX_H;
     }
 
     @Override

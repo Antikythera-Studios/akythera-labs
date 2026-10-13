@@ -1,8 +1,11 @@
 package com.yesman.akytheralabs.editor.debug;
 
+import com.yesman.akythera.api.animation.animator.Animator;
 import com.yesman.akythera.api.data.modularize.node.ExecutionRecord;
+import com.yesman.akythera.api.data.modularize.node.ScriptRecorder;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
+import com.yesman.akythera.core.blueprint.script.DataDrivenEntityPatchScript;
 import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
@@ -26,11 +29,14 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import org.jspecify.annotations.Nullable;
 
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /// Drives the entity the editor possesses: puts the player into spectator on the integrated server,
 /// points its camera at the entity, and every client tick forwards the local player's look and movement
-/// keys onto it. Also feeds the possessed entity's patch to the editor screen on top.
+/// keys onto it. Also feeds the possessed entity's patch to the editor screen on top, and has
+/// [ScriptRecorder] record the client copy of its scripts while the session runs.
 ///
 /// Possessing the local player only feeds the patch — the player already drives itself, so its game
 /// mode and camera stay untouched.
@@ -55,6 +61,24 @@ public final class EntityDebugSession {
     /// Set by [#tryCaptureKey]; cleared by the tick that writes the log.
     private boolean captureRequested;
 
+    /// Whether the possessed entity's patch script is recorded on the server rather than the client.
+    /// Animator scripts run on the client alone and are always recorded there.
+    private volatile boolean mirrorServer;
+
+    /// The server's records of one blueprint, handed over between server ticks.
+    private record ServerRecords(ResourceKey<?> blueprint, Map<String, ExecutionRecord> records) {}
+
+    /// The last [ServerRecords] handed over, or null before the first.
+    private volatile @Nullable ServerRecords serverRecords;
+
+    /// Which owners [ScriptRecorder] records: the possessed entity's animator on the client, and its patch
+    /// on the mirrored side.
+    private final Predicate<@Nullable Object> watchFilter = owner -> switch (owner) {
+        case Animator animator -> animator.getOwner() instanceof EntityPatch<?> patch && isWatched(patch.getOriginal(), false);
+        case EntityPatch<?> patch -> isWatched(patch.getOriginal(), mirrorServer);
+        case null, default -> false;
+    };
+
     public void begin(final Entity entity) {
         Minecraft minecraft = Minecraft.getInstance();
         LocalPlayer player = minecraft.player;
@@ -63,6 +87,10 @@ public final class EntityDebugSession {
 
         possessedEntityId = entity.getId();
         drivesEntity = entity != player;
+        mirrorServer = false;
+        serverRecords = null;
+
+        ScriptRecorder.watch(watchFilter);
 
         if (!drivesEntity) {
             return;
@@ -93,13 +121,7 @@ public final class EntityDebugSession {
             return;
         }
 
-        Entity possessed = getPossessedEntity();
-        EntityPatch<?> possessedPatch =
-            possessed == null ? null : ((EntityAccessor)possessed).akythera$getEntityPatch();
-
-        if (possessedPatch != null) {
-            clearLiveRecords(possessedPatch);
-        }
+        ScriptRecorder.watch(null);
 
         possessedEntityId = -1;
 
@@ -146,6 +168,35 @@ public final class EntityDebugSession {
         return possessedEntityId != -1 && entity.getId() == possessedEntityId;
     }
 
+    public boolean isMirroringServer() {
+        return mirrorServer;
+    }
+
+    /// Switches the side the patch script is recorded on, dropping every record of the other side.
+    public void setMirrorServer(final boolean mirrorServer) {
+        this.mirrorServer = mirrorServer;
+        serverRecords = null;
+
+        ScriptRecorder.watch(watchFilter);
+    }
+
+    /// The last recorded run of each site of `blueprint` on the mirrored side. The server's arrive a tick
+    /// late: they are handed over between its ticks, so none is read while the server fills it.
+    public Map<String, ExecutionRecord> records(final ResourceKey<?> blueprint) {
+        if (!mirrorServer) {
+            return ScriptRecorder.records(blueprint);
+        }
+
+        ServerRecords handed = serverRecords;
+
+        return handed != null && handed.blueprint().equals(blueprint) ? handed.records() : Map.of();
+    }
+
+    /// Whether `entity` is the possessed one, on the server when `serverSide` and on the client otherwise.
+    private boolean isWatched(final Entity entity, final boolean serverSide) {
+        return entity.level().isClientSide() != serverSide && isPossessed(entity);
+    }
+
     /// Whether `player` is the one whose camera the editor holds.
     public boolean isPossessor(final Player player) {
         UUID possessor = possessorId;
@@ -190,6 +241,13 @@ public final class EntityDebugSession {
             return;
         }
 
+        if (mirrorServer && patch.getScript() instanceof DataDrivenEntityPatchScript patchScript) {
+            ResourceKey<?> blueprint = patchScript.getBlueprint().key();
+
+            Minecraft.getInstance().getSingleplayerServer().execute(
+                () -> serverRecords = new ServerRecords(blueprint, ScriptRecorder.records(blueprint)));
+        }
+
         if (captureRequested) {
             captureRequested = false;
             printScriptLog(patch);
@@ -199,21 +257,19 @@ public final class EntityDebugSession {
             debuggable.onDebugTick(patch);
         }
 
-        clearLiveRecords(patch);
+        // The per-canvas records fill across the render frames between two ticks, so a canvas nothing
+        // sampled reads empty instead of holding what it last showed
+        ScriptRecorder.clearLiveRecords();
     }
 
-    /// Drops the script's per-canvas records. They fill across the render frames between two ticks, so
-    /// a canvas nothing sampled reads empty instead of holding what it last showed.
-    private static void clearLiveRecords(final EntityPatch<?> entityPatch) {
-        DataDrivenAnimatorScript script = AnimatorProbe.dataDrivenScript(entityPatch);
-
-        if (script != null) {
-            ((ScriptExecutionRecords)(Object)script).akytheralabs$clearLiveRecords();
-        }
-    }
-
-    /// Writes the entity's recorded animator-script runs to the log.
+    /// Writes the entity's recorded patch-script and animator-script runs to the log.
     private static void printScriptLog(final EntityPatch<?> entityPatch) {
+        if (entityPatch.getScript() instanceof DataDrivenEntityPatchScript patchScript) {
+            INSTANCE.records(patchScript.getBlueprint().key()).forEach((site, record) -> logRecord("patch " + site, record));
+        } else {
+            AkytheraLabs.LOGGER.info("Possessed entity has no data-driven patch script to record");
+        }
+
         DataDrivenAnimatorScript dataDrivenScript = AnimatorProbe.dataDrivenScript(entityPatch);
 
         if (dataDrivenScript == null) {
@@ -221,13 +277,13 @@ public final class EntityDebugSession {
             return;
         }
 
-        ScriptExecutionRecords records = (ScriptExecutionRecords)(Object)dataDrivenScript;
+        ResourceKey<?> blueprint = dataDrivenScript.getBlueprint().key();
 
-        logRecord("construct", records.akytheralabs$getConstructRecord());
-        logRecord("update", records.akytheralabs$getUpdateRecord());
-        logRecord("getFinalPose", records.akytheralabs$getPoseRecord());
+        logRecord("construct", ScriptRecorder.record(blueprint, DataDrivenAnimatorScript.CONSTRUCT));
+        logRecord("update", ScriptRecorder.record(blueprint, DataDrivenAnimatorScript.UPDATE));
+        logRecord("getFinalPose", ScriptRecorder.record(blueprint, DataDrivenAnimatorScript.GET_FINAL_POSE));
 
-        records.akytheralabs$getLiveRecords().forEach((canvasKey, record) -> logRecord("canvas " + canvasKey, record));
+        ScriptRecorder.liveRecords(blueprint).forEach((canvasKey, record) -> logRecord("canvas " + canvasKey, record));
     }
 
     private static void logRecord(final String entryPoint, final @Nullable ExecutionRecord record) {

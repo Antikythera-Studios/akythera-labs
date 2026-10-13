@@ -4,6 +4,7 @@ import com.yesman.akythera.core.Akythera;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.EntityPatchComponentHolders;
+import com.yesman.akytheralabs.akythera.entitypatch.component.TransformSocketHolder;
 import com.yesman.akytheralabs.dataholder.ComponentHolderRegistry;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
@@ -16,6 +17,7 @@ public final class ItemPatchComponentHolders {
     public static final Identifier ATTRIBUTE_MODIFIERS = Akythera.identifier("attribute_modifiers");
     public static final Identifier COLLIDER = Akythera.identifier("collider");
     public static final Identifier REPLACE_ANIMATIONS = Akythera.identifier("replace_animations");
+    public static final Identifier TRANSFORM_SOCKET = Akythera.identifier("transform_socket");
     public static final Identifier WEAPON_STANCE_VARIATION_ADAPTER = Akythera.identifier("weapon_stance_variation_adapter");
 
     public static final ComponentHolderRegistry REGISTRY = new ComponentHolderRegistry(AkytheraRegistries.Frozen.ITEM_PATCH_COMPONENT_TYPES);
@@ -27,8 +29,13 @@ public final class ItemPatchComponentHolders {
             _ -> ColliderComponentHolder.createDefault(), ColliderComponentHolder.EDITOR_CODEC);
         REGISTRY.register(REPLACE_ANIMATIONS, ReplaceAnimationsHolder.class,
             _ -> ReplaceAnimationsHolder.createDefault(), ReplaceAnimationsHolder.EDITOR_CODEC);
+        // An item places things too, it just has no bone to place them on — the socket's children
+        // dispatch through this registry, not the entity one.
+        REGISTRY.register(TRANSFORM_SOCKET, TransformSocketHolder.class,
+            _ -> TransformSocketHolder.createDefault(() -> REGISTRY),
+            TransformSocketHolder.editorCodec(() -> REGISTRY));
         REGISTRY.register(WEAPON_STANCE_VARIATION_ADAPTER, WeaponStanceVariationAdapterHolder.class,
             WeaponStanceVariationAdapterHolder::createDefault, WeaponStanceVariationAdapterHolder.EDITOR_CODEC,
-            WeaponStanceVariationAdapterHolder::attachRefusal);
+            (host, _) -> WeaponStanceVariationAdapterHolder.attachRefusal(host));
     }
 }

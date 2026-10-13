@@ -1,16 +1,17 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.CheckBox;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.CheckBox;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
-import com.yesman.akytheralabs.gui.widget.AdvancedEditBox;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
+import com.yesman.akytheralabs.gui.widget.EditorEditBox;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -80,7 +81,7 @@ public final class ExportModalGenerator {
             null
         );
 
-        AnchoredButton exportBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_EXPORT), _ -> {
+        AkytheraButton exportBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_EXPORT_MODAL_EXPORT), () -> {
             String dataDir = dataPathRow.getPath();
             String resourceDir = resourcePathRow.getPath();
             if (dataDir.isBlank() && resourceDir.isBlank()) return;
@@ -101,12 +102,12 @@ public final class ExportModalGenerator {
                 opened = resourcePath;
             }
 
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             if (opened != null) Util.getPlatform().openFile(opened.toFile());
         }).build();
 
-        AnchoredButton cancelBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ ->
-            AkytheraEditorLayoutManager.getInstance().closeModal()
+        AkytheraButton cancelBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL), () ->
+            ModalManager.getInstance().closeModal()
         ).build();
 
         int btnW = WidgetContainerModal.evenButtonWidth(POPUP_W, 2);
@@ -119,7 +120,7 @@ public final class ExportModalGenerator {
             .footerButton(exportBtn, btnW)
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     /// `Export > As Source Code`: a Data Path row (generated `.java` output), a Resource Path row
@@ -155,7 +156,7 @@ public final class ExportModalGenerator {
             null
         );
 
-        AnchoredButton exportBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_EXPORT), _ -> {
+        AkytheraButton exportBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_EXPORT_MODAL_EXPORT), () -> {
             String dataDir = dataPathRow.getPath();
             String resourceDir = resourcePathRow.getPath();
             if (dataDir.isBlank() && resourceDir.isBlank()) return;
@@ -177,12 +178,12 @@ public final class ExportModalGenerator {
                 if (opened == null) opened = resourcePath;
             }
 
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             if (opened != null) Util.getPlatform().openFile(opened.toFile());
         }).build();
 
-        AnchoredButton cancelBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ ->
-            AkytheraEditorLayoutManager.getInstance().closeModal()
+        AkytheraButton cancelBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL), () ->
+            ModalManager.getInstance().closeModal()
         ).build();
 
         int btnW = WidgetContainerModal.evenButtonWidth(POPUP_W, 2);
@@ -195,7 +196,7 @@ public final class ExportModalGenerator {
             .footerButton(exportBtn, btnW)
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     /// `Compile` on one data category, or on a content-browser selection: the `As Source Code` layout
@@ -225,7 +226,7 @@ public final class ExportModalGenerator {
             chosen -> packageRow.setPackageName(derivePackageName(chosen))
         );
 
-        AnchoredButton compileBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_EXPORT_MODAL_COMPILE), _ -> {
+        AkytheraButton compileBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_EXPORT_MODAL_COMPILE), () -> {
             String sourceDir = sourcePathRow.getPath();
             if (sourceDir.isBlank()) return;
 
@@ -235,12 +236,12 @@ public final class ExportModalGenerator {
             Path sourceRoot = Path.of(sourceDir);
             compile.work().run(project, sourceRoot, packageRow.getPackageName());
 
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             Util.getPlatform().openFile(sourceRoot.toFile());
         }).build();
 
-        AnchoredButton cancelBtn = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL), _ ->
-            AkytheraEditorLayoutManager.getInstance().closeModal()
+        AkytheraButton cancelBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL), () ->
+            ModalManager.getInstance().closeModal()
         ).build();
 
         int btnW = WidgetContainerModal.evenButtonWidth(POPUP_W, 2);
@@ -252,7 +253,7 @@ public final class ExportModalGenerator {
             .footerButton(compileBtn, btnW)
             .build();
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(popup);
+        ModalManager.getInstance().openModalWidgetAtCenter(popup);
     }
 
     /// One compile the editor can run: which project entries it covers — its [BrokenEntriesModalGenerator]
@@ -280,7 +281,7 @@ public final class ExportModalGenerator {
         return relative.isEmpty() ? "" : relative.replace('/', '.');
     }
 
-    /// A read-only path display ([AdvancedEditBox] in non-editable mode) plus a folder-picker
+    /// A read-only path display ([EditorEditBox] in non-editable mode) plus a folder-picker
     /// button. Picking a folder updates the box and notifies `onPathChosen` (used by the
     /// source-code modal to refresh the derived package name).
     private static final class PathRow extends WidgetContainerModal.WidgetsContainerRow {
@@ -290,13 +291,13 @@ public final class ExportModalGenerator {
 
         private final Font font;
         private final Component label;
-        private final AdvancedEditBox<String> pathBox;
+        private final EditorEditBox<String> pathBox;
 
         PathRow(Font font, Component label, String initialPath, @Nullable Consumer<String> onPathChosen) {
             this.font = font;
             this.label = label;
 
-            this.pathBox = AdvancedEditBox.filteredStringBox(
+            this.pathBox = EditorEditBox.filteredStringBox(
                 font,
                 _ -> true,
                 Component.empty(),
@@ -311,7 +312,7 @@ public final class ExportModalGenerator {
             pathBox.setY1(AnchoredWidget.pixel(0));
             pathBox.setY2(AnchoredWidget.pixel(BOX_H));
 
-            AnchoredButton browseBtn = AnchoredButton.buttonBuilder(font, Component.empty(), _ -> onPressBrowse(onPathChosen))
+            AkytheraButton browseBtn = AkytheraButton.buttonBuilder(font, LocalizedMessage.EMPTY, () -> onPressBrowse(onPathChosen))
                 .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(BROWSE_W))
                 .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(BOX_H))
                 .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -394,11 +395,11 @@ public final class ExportModalGenerator {
         static final int BOX_H = 20;
 
         private final Font font;
-        private final AdvancedEditBox<String> packageBox;
+        private final EditorEditBox<String> packageBox;
 
         PackageRow(Font font, String initialPackage) {
             this.font = font;
-            this.packageBox = AdvancedEditBox.filteredStringBox(
+            this.packageBox = EditorEditBox.filteredStringBox(
                 font,
                 s -> s.matches("[a-zA-Z0-9_.]*"),
                 Component.literal("com.example.mod"),

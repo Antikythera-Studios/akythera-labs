@@ -1,17 +1,17 @@
 package com.yesman.akytheralabs.gui.widget.script;
 
 import com.yesman.akythera.api.animation.animator.AnimationLayer;
+import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.core.animation.driver.AnimationMontagePlayer;
 import com.yesman.akythera.core.animation.driver.AnimationPlayer;
 import com.yesman.akythera.core.animation.keyframe.Pose;
-import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akytheralabs.akythera.animation.AnimGraphCompiler;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
-import net.minecraft.core.Holder;
 import com.yesman.akytheralabs.gui.widget.script.node.AnimLayerNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
+import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 
 /// An Anim Graph node that registers an [AnimationLayer] (UE's "Slot"): the [Pose] wired into `Source`

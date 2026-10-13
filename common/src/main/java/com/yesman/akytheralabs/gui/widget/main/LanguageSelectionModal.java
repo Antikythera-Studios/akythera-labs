@@ -1,8 +1,9 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
@@ -55,8 +56,8 @@ public final class LanguageSelectionModal extends OverlayingWindowModal {
 
     private final Font font;
     private final LanguageList languageList;
-    private final AnchoredButton applyButton;
-    private final AnchoredButton cancelButton;
+    private final AkytheraButton applyButton;
+    private final AkytheraButton cancelButton;
 
     /// Cache of loaded preview translation tables, keyed by language code, so re-selecting a row (or
     /// re-previewing the initial language) doesn't re-read the resource manager each time.
@@ -70,7 +71,7 @@ public final class LanguageSelectionModal extends OverlayingWindowModal {
     private String selectedCode;
 
     public static void open(Font font) {
-        AkytheraEditorLayoutManager.getInstance().openModalWidgetAtCenter(new LanguageSelectionModal(font));
+        ModalManager.getInstance().openModalWidgetAtCenter(new LanguageSelectionModal(font));
     }
 
     private LanguageSelectionModal(Font font) {
@@ -87,15 +88,15 @@ public final class LanguageSelectionModal extends OverlayingWindowModal {
         // bottom-right buttons, with the Cancel button rightmost and the primary action (Apply) to its
         // left — the order WidgetContainerModal produces. Both labels re-translate in place via
         // #previewLanguage. Offsets match WidgetContainerModal's footer (content padding + button gap).
-        this.applyButton = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_APPLY), _ -> applySelected())
+        this.applyButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_APPLY), () -> applySelected())
             .xUnits(AnchoredWidget.pixel(PAD + BTN_W + 2 * BTN_GAP), AnchoredWidget.pixel(BTN_W))
             .yUnits(AnchoredWidget.pixel((FOOTER_H - BTN_H) / 2), AnchoredWidget.pixel(BTN_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
             .verticalAnchorType(AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT)
             .build();
 
-        this.cancelButton = AnchoredButton.buttonBuilder(font, Component.translatable(LangKeys.GUI_CANCEL),
-                _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+        this.cancelButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
+                () -> ModalManager.getInstance().closeModal())
             .xUnits(AnchoredWidget.pixel(PAD + BTN_GAP), AnchoredWidget.pixel(BTN_W))
             .yUnits(AnchoredWidget.pixel((FOOTER_H - BTN_H) / 2), AnchoredWidget.pixel(BTN_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -147,7 +148,7 @@ public final class LanguageSelectionModal extends OverlayingWindowModal {
             minecraft.reloadResourcePacks();
         }
 
-        AkytheraEditorLayoutManager.getInstance().closeModal();
+        ModalManager.getInstance().closeModal();
     }
 
     @Override
@@ -184,7 +185,7 @@ public final class LanguageSelectionModal extends OverlayingWindowModal {
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -357,8 +358,8 @@ public final class LanguageSelectionModal extends OverlayingWindowModal {
         private Unit x2 = AnchoredWidget.pixel(PAD);
         private Unit y1 = AnchoredWidget.pixel(TITLE_H + PAD);
         private Unit y2 = AnchoredWidget.pixel(FOOTER_H);
-        private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
-        private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
+        private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
+        private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;
 
         @Override public Unit getX1() { return x1; }
         @Override public Unit getX2() { return x2; }
@@ -370,5 +371,7 @@ public final class LanguageSelectionModal extends OverlayingWindowModal {
         @Override public void setY2(Unit unit) { y2 = unit; }
         @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
         @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+        @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+        @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
     }
 }

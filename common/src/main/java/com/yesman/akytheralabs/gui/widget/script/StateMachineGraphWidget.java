@@ -2,18 +2,18 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.datafixers.util.Pair;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.api.animation.impl.AkytheraAnimationState;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.animation.driver.AnimationStateTransition;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
-import com.yesman.akytheralabs.gui.widget.ContextMenuContainer;
+import com.yesman.akytheralabs.gui.widget.CanvasGrid;
 import net.minecraft.client.Minecraft;
-import net.minecraft.core.Holder;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractContainerWidget;
@@ -22,6 +22,7 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.NonNull;
@@ -57,8 +58,6 @@ import java.util.function.Consumer;
 /// set — and round-trips it through [StateMachineData]. The state pose and transition condition
 /// sub-graphs are authored in their own `{state}` / `{from} to {to}` sub-tabs.
 public final class StateMachineGraphWidget extends AbstractContainerWidget implements AnchoredWidget {
-    private static final int GRID = 24;
-    private static final int MAJOR_EVERY = 4;
     /// Outer edge band (graph posX) of a box where a press starts a transition instead of a move.
     private static final int EDGE_BAND = 6;
     private static final int NODE_H = 28;
@@ -77,9 +76,6 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private static final int GROUP_PAD = 15;
     private static final int GROUP_TITLE_H = 20;
 
-    private static final int COLOR_BG = 0xFF161616;
-    private static final int COLOR_GRID_MINOR = 0xFF222222;
-    private static final int COLOR_GRID_MAJOR = 0xFF2E2E2E;
     // A node is drawn as two regions (UE-style): a darker **outer frame** — the band a press grabs to
     // start a transition — around a brighter **inner body** — the part a press grabs to move it.
     private static final int COLOR_OUTER = 0xFF2C2C2C;
@@ -152,8 +148,9 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     @Nullable
     private BiConsumer<String, String> onGroupTransitionActivated;
 
-    /// Fired when the single selection changes, with the newly selected state, group or transition —
-    /// or null when the selection is empty, is Entry, or covers several states.
+    /// Fired when the single selection changes, with the newly selected state, group or transition,
+    /// [NoDetails#INSTANCE] when the selection is Entry alone or covers several states, or null when it is
+    /// empty.
     @Nullable
     private Consumer<Selection> onSelectionChanged;
 
@@ -252,12 +249,15 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
     /// Fires [#onSelectionChanged] when — and only when — the single selection has actually changed
     /// since the last notification. The reported selection is the selected transition, the selected
-    /// group, or the sole selected state (never Entry); any other shape (empty, multi) reports null.
+    /// group, or the sole selected state (never Entry); Entry alone or several states report
+    /// [NoDetails#INSTANCE], and an empty selection null.
     /// Called after every gesture that can move the selection.
     private void notifySelection() {
         Selection single = selectedTransition != null ? selectedTransition
             : selectedGroup != null ? selectedGroup
-            : (selectedNodes.size() == 1 && selectedNodes.get(0) != entry ? selectedNodes.get(0) : null);
+            : selectedNodes.isEmpty() ? null
+            : selectedNodes.size() == 1 && selectedNodes.get(0) != entry ? selectedNodes.get(0)
+            : NoDetails.INSTANCE;
         if (single == lastNotifiedSelection) return;
         lastNotifiedSelection = single;
         if (onSelectionChanged != null) onSelectionChanged.accept(single);
@@ -716,14 +716,13 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     // ***************************************************************
     @Override
     protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
-        g.fill(getX(), getY(), getRight(), getBottom(), COLOR_BG);
+        CanvasGrid.extract(g, getX(), getY(), getRight(), getBottom(), getX() + panX, getY() + panY, zoom);
         g.enableScissor(getX(), getY(), getRight(), getBottom());
 
         // The pinned arrow lives only while its target-state menu is open; drop it once that menu is
         // gone (a pick spawned + wired the state, a dismiss left the topology unchanged).
         if (transitionPendingSource != null && !menuStillOpen()) clearTransitionPending();
 
-        drawGrid(g);
 
         // Graph-space cursor for hover highlighting — off-canvas (no box) when the mouse is outside
         // this widget, so a box / transition never falsely highlights.
@@ -1000,26 +999,6 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         }
     }
 
-    /// Screen-space grid: line spacing scales with zoom (so cells grow / shrink), line thickness
-    /// stays 1px. Skipped once the cells are too dense to read (mirrors the Event Graph).
-    private void drawGrid(GuiGraphicsExtractor g) {
-        float step = GRID * zoom;
-        if (step < 6.0F) return;
-
-        float originX = getX() + panX;
-        float originY = getY() + panY;
-
-        int kx = (int) Math.ceil((getX() - originX) / step);
-        for (float sx = originX + kx * step; sx < getRight(); sx += step, kx++) {
-            g.fill((int) sx, getY(), (int) sx + 1, getBottom(),
-                Math.floorMod(kx, MAJOR_EVERY) == 0 ? COLOR_GRID_MAJOR : COLOR_GRID_MINOR);
-        }
-        int ky = (int) Math.ceil((getY() - originY) / step);
-        for (float sy = originY + ky * step; sy < getBottom(); sy += step, ky++) {
-            g.fill(getX(), (int) sy, getRight(), (int) sy + 1,
-                Math.floorMod(ky, MAJOR_EVERY) == 0 ? COLOR_GRID_MAJOR : COLOR_GRID_MINOR);
-        }
-    }
 
     /// Draws the rubber-band selection box (graph space, under the pose): a faint fill plus a dashed
     /// border, mirroring the Event Graph's marquee.
@@ -1521,7 +1500,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
                 .onPress(_ -> { deleteGroup(group); notifySelection(); }).done();
         }
 
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(page.build(), screenX, screenY);
+        ModalManager.getInstance().openModalWidget(page.build(), screenX, screenY);
     }
 
     /// Drop a transition on empty canvas → the same signature menu, but the picked state is created
@@ -1539,7 +1518,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
             screenToGraphX(screenX), screenToGraphY(screenY));
 
         ContextMenuContainer menu = page.build();
-        AkytheraEditorLayoutManager.getInstance().openModalWidget(menu, screenX, screenY);
+        ModalManager.getInstance().openModalWidget(menu, screenX, screenY);
         pendingMenu = menu;
     }
 
@@ -1579,7 +1558,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     /// Whether the pinned-arrow's target-state menu is still on the modal stack.
     private boolean menuStillOpen() {
         if (pendingMenu == null) return false;
-        for (var modal : AkytheraEditorLayoutManager.getInstance().getModals()) {
+        for (var modal : ModalManager.getInstance().getModals()) {
             if (modal == pendingMenu) return true;
         }
         return false;
@@ -1635,7 +1614,12 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
     /// Anything on the canvas the host builds a Details panel for: a box, or a transition between two
     /// of them.
-    public sealed interface Selection permits Box, Transition {}
+    public sealed interface Selection permits Box, Transition, NoDetails {}
+
+    /// A selection with no Details rows of its own: Entry alone, or several boxes.
+    public enum NoDetails implements Selection {
+        INSTANCE
+    }
 
     /// A box on the canvas a transition can leave from and a drag can move: a state (Entry included) or
     /// a group. Public because the host switches on it to build the Details panel.
@@ -1733,8 +1717,8 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -1746,4 +1730,6 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

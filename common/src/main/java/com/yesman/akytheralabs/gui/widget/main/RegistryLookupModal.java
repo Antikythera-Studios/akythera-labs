@@ -1,7 +1,11 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akythera.client.api.gui.ContextMenuContainer;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.FrameResizer;
+import com.yesman.akythera.client.api.gui.modal.Modal;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.modal.ResizableFrame;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
@@ -22,6 +26,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import java.util.*;
 import java.util.function.Consumer;
@@ -41,7 +46,7 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
 
     private final Font font;
     private final Consumer<ResourceKey<T>> onConfirm;
-    private final AdvancedEditBox<String> searchBox;
+    private final EditorEditBox<String> searchBox;
     private final EntryList list;
 
     /// Whether the entries span more than one registry.
@@ -78,7 +83,7 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
         this.list = new EntryList(entries);
         this.list.rebuild("");
 
-        this.searchBox = AdvancedEditBox.stringBox(
+        this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
@@ -146,7 +151,7 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
         boolean overPage = event.x() >= getX() && event.x() < getRight() && event.y() >= getY() && event.y() < getBottom();
 
         if (!overPage) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -178,7 +183,7 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
         if (event.isEscape()) {
-            AkytheraEditorLayoutManager.getInstance().closeModal();
+            ModalManager.getInstance().closeModal();
             return true;
         }
 
@@ -195,6 +200,26 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
     }
 
     @Override
+    public EditorEditBox<String> searchBox() {
+        return searchBox;
+    }
+
+    @Override
+    public boolean confirmSoleResult() {
+        List<EntryList.KeyEntry> rows = new ArrayList<>();
+
+        for (EntryList.Entry entry : list.children()) {
+            if (entry instanceof EntryList.KeyEntry row) rows.add(row);
+        }
+
+        if (rows.size() != 1) return false;
+
+        rows.getFirst().confirm();
+
+        return true;
+    }
+
+    @Override
     public @NonNull List<? extends GuiEventListener> children() {
         return List.of(searchBox, list);
     }
@@ -206,6 +231,8 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
 
     @Override
     protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
+        resizer.fitWidthToVisibleRows(list, list.children(), EntryList.Entry::textWidth, SCROLLBAR_W + 2);
+
         // Page background + 1-posX border (no dimmer)
         graphics.fill(getX(), getY(), getRight(), getBottom(), 0xFF1E1E1E);
         graphics.fill(getX(), getY(), getRight(), getY() + 1, 0xFF3A3A3A);
@@ -237,12 +264,19 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
     private final class EntryList extends AbstractSelectionList<EntryList.@NonNull Entry> {
         private final List<ResourceKey<T>> entries;
 
+        /// The query the rows are listed for. Null until the first [#rebuild].
+        private @Nullable String query;
+
         EntryList(List<ResourceKey<T>> entries) {
             super(Minecraft.getInstance(), MODAL_W - 2, MODAL_H - TITLE_H - SEARCH_H - 1, 0, ROW_H);
             this.entries = entries;
         }
 
+        /// The same query again keeps the rows and the scroll as they are.
         void rebuild(String query) {
+            if (query.equals(this.query)) return;
+
+            this.query = query;
             clearEntries();
 
             String lower = query.toLowerCase();
@@ -325,6 +359,8 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
         }
 
         abstract class Entry extends AbstractSelectionList.Entry<@NonNull Entry> {
+            /// Width the row needs to show its label unclipped.
+            abstract int textWidth();
         }
 
         /// The registry a run of [KeyEntry] rows belongs to. Takes no input.
@@ -333,6 +369,11 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
 
             CategoryEntry(String label) {
                 this.label = label;
+            }
+
+            @Override
+            int textWidth() {
+                return 6 + font.width(label) + 6;
             }
 
             @Override
@@ -356,6 +397,11 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
             }
 
             @Override
+            int textWidth() {
+                return (multiRegistry ? 12 : 6) + font.width(ResourceProcessor.displayId(key)) + 6;
+            }
+
+            @Override
             public void extractContent(@NonNull GuiGraphicsExtractor g, int mx, int my, boolean hovered, float a) {
                 if (getSelected() != this && hovered) {
                     g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), 0xFF262626);
@@ -373,11 +419,15 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
 
             @Override
             public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClicked) {
-                setSelected(this);
-                onConfirm.accept(key);
-                AkytheraEditorLayoutManager.getInstance().closeModal();
+                confirm();
 
                 return true;
+            }
+
+            void confirm() {
+                setSelected(this);
+                onConfirm.accept(key);
+                ModalManager.getInstance().closeModal();
             }
         }
     }
@@ -389,8 +439,8 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
     private Unit x2 = AnchoredWidget.pixel(MODAL_W);
     private Unit y1;
     private Unit y2 = AnchoredWidget.pixel(MODAL_H);
-    private final AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-    private final AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
+    private AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+    private AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -402,9 +452,11 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 
     /// [#MODAL_W] / [#MODAL_H] are only the **defaults**: the opener widens the modal to its anchor (see
-    /// [AkytheraEditorLayoutManager#openModalWidgetUnder]), so the list is laid out against the rect the
+    /// [ModalManager#openModalWidgetUnder]), so the list is laid out against the rect the
     /// units just produced, never the constants.
     @Override
     public void relocate(ScreenRectangle screenRectangle) {

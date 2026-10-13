@@ -1,6 +1,6 @@
 package com.yesman.akytheralabs.editor.historytrack;
 
-import com.yesman.akythera.client.gui.widget.common.DataBoundWidget;
+import com.yesman.akythera.client.api.gui.common.DataBoundWidget;
 
 import java.util.function.Consumer;
 

@@ -6,7 +6,6 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
 import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
-import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.api.animation.impl.AkytheraAnimationLayerSignature;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
@@ -55,8 +54,8 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             AnimationLayerSignature.ENUM_MANAGER.getNameCodec()
                 .optionalFieldOf("layer_signature", AkytheraAnimationLayerSignature.BASE)
                 .forGetter(AnimationMontageHolder::layerSignature),
-            EntityPreviewModel.CODEC.optionalFieldOf("preview_model")
-                .forGetter(ParseUtils.provideOptional(AnimationMontageHolder::getPreviewModel)),
+            Identifier.CODEC.optionalFieldOf("preview_entity_type")
+                .forGetter(ParseUtils.provideOptional(AnimationMontageHolder::getPreviewEntityType)),
             NotifyTrackHolder.EDITOR_CODEC.optionalFieldOf("notify_tracks", new NotifyTrackHolder())
                 .forGetter(AnimationMontageHolder::getNotifyTrackHolder)
         ).apply(instance, (segs, secs, orders, fin, fout, lps, rm, sig, pm, nth) -> {
@@ -69,7 +68,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             h.loops = lps;
             h.rootMotion = rm;
             h.layerSignature = sig;
-            pm.ifPresent(h::setPreviewModel);
+            pm.ifPresent(h::setPreviewEntityType);
             if (!nth.getTracks().isEmpty()) h.notifyTrackHolder = nth;
             return h;
         })
@@ -108,7 +107,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
     private AnimationLayerSignature layerSignature = AkytheraAnimationLayerSignature.BASE;
 
     @Nullable
-    private EntityPreviewModel previewModel;
+    private Identifier previewEntityType;
 
     /// Notified with the new value whenever [#rootMotion] flips.
     @Nullable
@@ -518,11 +517,11 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
         this.layerSignature = layerSignature;
     }
 
-    public @Nullable EntityPreviewModel getPreviewModel() {
-        return previewModel;
+    public @Nullable Identifier getPreviewEntityType() {
+        return previewEntityType;
     }
 
-    public void setPreviewModel(@Nullable EntityPreviewModel previewModel) {
-        this.previewModel = previewModel;
+    public void setPreviewEntityType(@Nullable Identifier previewEntityType) {
+        this.previewEntityType = previewEntityType;
     }
 }

@@ -1,18 +1,27 @@
 package com.yesman.akytheralabs.gui.widget;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.ClampedNumberBox;
-import com.yesman.akythera.client.gui.widget.WidgetTable;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
-import com.yesman.akythera.client.gui.widget.common.PlaceholderExpressionWidget;
-import com.yesman.akythera.client.gui.widget.common.WarningMarkableWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.AkytheraEditBox;
+import com.yesman.akythera.client.api.gui.BuiltInEditBoxTheme;
+import com.yesman.akythera.client.api.gui.ClampedNumberBox;
+import com.yesman.akythera.client.api.gui.WidgetTable;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.common.PlaceholderExpressionWidget;
+import com.yesman.akythera.client.api.gui.common.WarningMarkableWidget;
+import com.yesman.akythera.client.api.gui.modal.DropdownSizeMemory;
+import com.yesman.akythera.client.api.gui.modal.Modal;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractContainerWidget;
 import net.minecraft.client.gui.components.AbstractScrollArea;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.events.ContainerEventHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
@@ -24,10 +33,16 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-/// A search-and-pick editor cell (modeled on [ClampedNumberBox]'s composite layout): a **read-only**
-/// [AdvancedEditBox] showing the bound value's display name, plus a magnifier [AnchoredButton] on the right
-/// whose press action is an injected callback — so any modal (animation picker, model picker, registry
-/// lookup, ...) can be popped up by the owner.
+/// A search-and-pick editor cell (modeled on [ClampedNumberBox]'s composite layout): an [EditorEditBox]
+/// showing the bound value's display name, plus a magnifier [AkytheraButton] on the right whose press
+/// action is an injected callback — so any modal (animation picker, model picker, registry lookup, ...)
+/// can be popped up by the owner.
+///
+/// Text typed into the box is a search query, never a value: the magnifier (or `Enter`) hands it to the
+/// [Modal#searchBox] of the modal it opens, and the box shows the value's name again once it loses focus.
+/// A query that leaves one row picks it ([Modal#confirmSoleResult]); otherwise the modal opens over an
+/// emptied value, see [#setOnCleared]. A box with no clear action is read-only and answers the magnifier
+/// alone.
 ///
 /// The box never mutates the bound value itself; the modal opened by `onSearchPressed` is expected to
 /// write the value and push [#valueSetter] to refresh the displayed name.
@@ -40,8 +55,8 @@ public final class PopupBox<T> extends AbstractContainerWidget
 
     private static final int PADDING = 2;
 
-    private final AdvancedEditBox<String> displayBox;
-    private final AnchoredButton searchButton;
+    private final EditorEditBox<String> displayBox;
+    private final AkytheraButton searchButton;
 
     /// Size this box's picker was last dragged to, or 0 while it has never been resized — see
     /// [DropdownSizeMemory]. Kept here so reopening the picker restores the size the user chose, for
@@ -49,13 +64,16 @@ public final class PopupBox<T> extends AbstractContainerWidget
     private int dropdownWidth;
     private int dropdownHeight;
 
-    /// Converts the bound value into the string shown in the read-only box.
+    /// Converts the bound value into the string shown in the box.
     private final Function<T, String> nameFunction;
 
-    /// Pressed when the value area — the display box, not the magnifier — is clicked. Null leaves the
-    /// area inert, which is the default: a picker cell answers the magnifier alone.
+    /// Opens the picker modal.
+    private final Consumer<PopupBox<T>> onSearchPressed;
+
+    /// Empties the bound value when edited text opens the picker: writes the empty value and pushes it
+    /// through [#setValue], as a pick does. Null leaves the display box read-only.
     @Nullable
-    private Runnable onValuePressed;
+    private Consumer<PopupBox<T>> onCleared;
 
     public PopupBox(
         Font font,
@@ -78,8 +96,9 @@ public final class PopupBox<T> extends AbstractContainerWidget
         this.dataProvider = dataProvider;
         this.onWidgetChanged = onWidgetChanged;
         this.nameFunction = nameFunction;
+        this.onSearchPressed = onSearchPressed;
 
-        displayBox = AdvancedEditBox.stringBox(
+        displayBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -89,11 +108,12 @@ public final class PopupBox<T> extends AbstractContainerWidget
             _ -> {},
             message
         );
-        displayBox.setTheme(AkytheraLabsEditBoxTheme.DEFAULT_EDIT_BOX);
+        displayBox.setTheme(BuiltInEditBoxTheme.DEFAULT_EDIT_BOX);
         displayBox.setEditable(false);
+        displayBox.setOnCommitted((_, _) -> setValue(value));
 
-        searchButton = AnchoredButton
-            .buttonBuilder(font, Component.empty(), _ -> onSearchPressed.accept(this))
+        searchButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.EMPTY, () -> pressSearch())
             .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
             .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(0))
             .horizontalAnchorType(HorizontalAnchorType.LEFT_WIDTH)
@@ -102,7 +122,7 @@ public final class PopupBox<T> extends AbstractContainerWidget
             .build();
     }
 
-    /// Positions the read-only box and the square magnifier button inside this widget's current
+    /// Positions the display box and the square magnifier button inside this widget's current
     /// bounds. Runs on every position and size mutation.
     private void layoutChildren() {
         int buttonSize = getHeight();
@@ -163,35 +183,59 @@ public final class PopupBox<T> extends AbstractContainerWidget
         return List.of(displayBox, searchButton);
     }
 
-    /// Installs the action the value area answers a press with, see [#onValuePressed].
-    public PopupBox<T> setOnValuePressed(@Nullable Runnable onValuePressed) {
-        this.onValuePressed = onValuePressed;
+    /// Installs the action that empties the bound value, see [#onCleared]. The display box takes typing
+    /// only while one is installed.
+    public PopupBox<T> setOnCleared(@Nullable Consumer<PopupBox<T>> onCleared) {
+        this.onCleared = onCleared;
+        displayBox.setEditable(onCleared != null);
 
         return this;
     }
 
-    /// Whether the cursor is over the display box — the row minus the magnifier.
-    private boolean overValueArea(double mouseX, double mouseY) {
-        return mouseX >= displayBox.getX() && mouseX < displayBox.getX() + displayBox.getWidth()
-            && mouseY >= displayBox.getY() && mouseY < displayBox.getY() + displayBox.getHeight();
+    /// Runs [#onSearchPressed]. When the display box text was edited and a modal opened, fills its
+    /// [Modal#searchBox] with the text and picks a sole result, or else empties the value.
+    private void pressSearch() {
+        String typed = displayBox.getText();
+        boolean edited = !typed.equals(shownText());
+        ModalManager modals = ModalManager.getInstance();
+        AbstractWidget previous = modals.getModal();
+
+        onSearchPressed.accept(this);
+
+        AbstractWidget opened = modals.getModal();
+
+        if (!edited || opened == previous) return;
+
+        if (!typed.isEmpty() && opened instanceof Modal modal && modal.searchBox() instanceof AkytheraEditBox<String> searchBox) {
+            searchBox.setValueByString(typed);
+            searchBox.setCursorPosRightmost();
+
+            if (opened instanceof ContainerEventHandler container) container.setFocused(searchBox);
+
+            // The pick writes the value itself.
+            if (modal.confirmSoleResult()) return;
+        }
+
+        if (onCleared != null) onCleared.accept(this);
     }
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
         if (!active || !visible) return false;
 
-        // Ahead of the children: the display box takes the press otherwise, only to refuse the focus
-        if (onValuePressed != null && event.button() == 0 && overValueArea(event.x(), event.y())) {
-            onValuePressed.run();
-            return true;
-        }
+        boolean typing = displayBox.isFocused();
 
         for (GuiEventListener child : children()) {
             if (child.mouseClicked(event, doubleClick)) {
-                // The read-only display box refuses widget focus, but the container still records it
-                // as the focused child — with the dragging flag set, the default container
-                // mouseDragged forwards drags to it (out-of-bound text scroll-by-drag).
+                // The container records the focused child even when a read-only display box refuses
+                // the focus — with the dragging flag set, the default container mouseDragged forwards
+                // drags to it (out-of-bound text scroll-by-drag).
                 setFocused(child);
+
+                // The first press into the box selects the name, so typing replaces it.
+                if (child == displayBox && !typing && displayBox.isFocused()) {
+                    displayBox.selectAll();
+                }
 
                 if (event.button() == 0) {
                     setDragging(true);
@@ -205,9 +249,29 @@ public final class PopupBox<T> extends AbstractContainerWidget
     }
 
     @Override
+    public boolean keyPressed(@NonNull KeyEvent event) {
+        if (event.isConfirmation() && displayBox.isFocused()) {
+            pressSearch();
+            setFocused(null);
+
+            return true;
+        }
+
+        return super.keyPressed(event);
+    }
+
+    @Override
     public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
         // Nothing to scroll. Skip.
         return false;
+    }
+
+    @Override
+    public void setFocused(@Nullable GuiEventListener focused) {
+        // Re-focusing the already-focused child clears the focus in vanilla's implementation.
+        if (getFocused() == focused) return;
+
+        super.setFocused(focused);
     }
 
     @Override
@@ -238,8 +302,8 @@ public final class PopupBox<T> extends AbstractContainerWidget
     private Unit x2;
     private Unit y1;
     private Unit y2;
-    private final HorizontalAnchorType horizontalAnchorType;
-    private final VerticalAnchorType verticalAnchorType;
+    private HorizontalAnchorType horizontalAnchorType;
+    private VerticalAnchorType verticalAnchorType;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -251,6 +315,8 @@ public final class PopupBox<T> extends AbstractContainerWidget
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 
     // ***************************************************************
     // [DataBoundWidget] implementations
@@ -311,15 +377,19 @@ public final class PopupBox<T> extends AbstractContainerWidget
         }
     }
 
-    /// Writes what the read-only box shows: the value's name, or — while it is unset — an empty box
-    /// carrying the placeholder's name, falling back to `<none>` when there is no placeholder.
+    /// Writes what the display box shows, see [#shownText]. The placeholder's name fills the box's own
+    /// placeholder slot.
     private void refreshDisplay() {
         displayBox.setPlaceholderValue(placeholderValue == null ? null : nameFunction.apply(placeholderValue));
-        displayBox.setValueByString(
-            value != null
-                ? nameFunction.apply(value)
-                : placeholderValue != null ? "" : NONE_DISPLAY
-        );
+        displayBox.setValueByString(shownText());
+    }
+
+    /// The value's name, or — while it is unset — an empty string when there is a placeholder to show,
+    /// `<none>` otherwise.
+    private String shownText() {
+        return value != null
+            ? nameFunction.apply(value)
+            : placeholderValue != null ? "" : NONE_DISPLAY;
     }
 
     // ***************************************************************

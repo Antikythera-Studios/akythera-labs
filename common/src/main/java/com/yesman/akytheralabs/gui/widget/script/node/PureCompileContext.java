@@ -5,6 +5,8 @@ import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.api.data.modularize.node.ScriptNode;
 import com.yesman.akythera.api.data.modularize.node.SelfNode;
 import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintMembers;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintSignature;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -44,6 +46,16 @@ public interface PureCompileContext {
 
     /// The named state machine as a driver, or null on a canvas that hosts none.
     default @Nullable PureNode stateMachine(String name) {
+        return null;
+    }
+
+    /// The members of the blueprint the canvas belongs to.
+    default BlueprintMembers members() {
+        return BlueprintMembers.NONE;
+    }
+
+    /// The method or function the canvas implements, or null for a canvas that implements none.
+    default @Nullable BlueprintSignature enclosingFunction() {
         return null;
     }
 }

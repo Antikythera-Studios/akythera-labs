@@ -39,8 +39,8 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
             Codec.FLOAT.fieldOf("max_y").forGetter(BlendSpace2DHolder::getMaxY),
             Codec.BOOL.fieldOf("loops").forGetter(BlendSpace2DHolder::isLoops),
             NodeData.CODEC.listOf().fieldOf("nodes").forGetter(BlendSpace2DHolder::nodeData),
-            EntityPreviewModel.CODEC.optionalFieldOf("preview_model")
-                .forGetter(ParseUtils.provideOptional(BlendSpace2DHolder::getPreviewModel)),
+            Identifier.CODEC.optionalFieldOf("preview_entity_type")
+                .forGetter(ParseUtils.provideOptional(BlendSpace2DHolder::getPreviewEntityType)),
             Codec.INT.optionalFieldOf("horizontal_division", 8)
                 .forGetter(BlendSpace2DHolder::getHorizontalDivision),
             Codec.INT.optionalFieldOf("vertical_division", 8)
@@ -71,7 +71,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
             }
 
             h.rebuildDelaunay();
-            prevModel.ifPresent(h::setPreviewModel);
+            prevModel.ifPresent(h::setPreviewEntityType);
             h.setSnapToGrid(snap);
 
             return h;
@@ -121,7 +121,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
     private boolean snapToGrid = true;
 
     @Nullable
-    private EntityPreviewModel previewModel;
+    private Identifier previewEntityType;
 
     private final List<MutableAnimNode> nodes = new ArrayList<>();
 
@@ -368,12 +368,12 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         rebuildDelaunay();
     }
 
-    public @Nullable EntityPreviewModel getPreviewModel() {
-        return previewModel;
+    public @Nullable Identifier getPreviewEntityType() {
+        return previewEntityType;
     }
 
-    public void setPreviewModel(@Nullable EntityPreviewModel previewModel) {
-        this.previewModel = previewModel;
+    public void setPreviewEntityType(@Nullable Identifier previewEntityType) {
+        this.previewEntityType = previewEntityType;
     }
 
     public boolean isSnapToGrid() {

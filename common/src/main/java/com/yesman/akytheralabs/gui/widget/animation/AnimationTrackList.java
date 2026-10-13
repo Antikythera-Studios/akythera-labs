@@ -12,7 +12,7 @@ import java.util.List;
 /// notifies / sections / segments — the host panel's row builder supplies whatever rows
 /// to show via [#rebuild]. Each row owns its own editable child widgets.
 public final class AnimationTrackList extends ContainerObjectSelectionList<@NonNull AnimTrackEntry> {
-    static final int ROW_H = 27;
+    public static final int ROW_H = 27;
     public static final int NAME_BLOCK_W = 140;
     private static final int SCROLL_BAR_WIDTH = 5;
 

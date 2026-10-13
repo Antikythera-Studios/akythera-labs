@@ -1,19 +1,22 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.yesman.akythera.client.gui.widget.AnchoredButton;
-import com.yesman.akythera.client.gui.widget.CloseableWidget;
-import com.yesman.akythera.client.gui.widget.ResizeCompleteCallbackListener;
-import com.yesman.akythera.client.gui.widget.common.AnchoredWidget;
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.CloseableWidget;
+import com.yesman.akythera.client.api.gui.ResizeCompleteCallbackListener;
+import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.client.api.gui.modal.FloatingModal;
+import com.yesman.akythera.client.api.gui.modal.FrameResizer;
+import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.modal.ResizableFrame;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.dev.ProjectReloader;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.screen.DebuggableScreen;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
-import com.yesman.akytheralabs.gui.widget.FloatingModal;
-import com.yesman.akytheralabs.gui.widget.FrameResizer;
-import com.yesman.akytheralabs.gui.widget.ResizableFrame;
 import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -45,6 +48,9 @@ import java.util.List;
 /// Pointer handling comes for free: while the cursor is inside the viewport
 /// [AkytheraEditorLayoutManager#snatchInputs] answers false, so the click reaches the game, which grabs the
 /// pointer. [EditorKeyMappings#UNGRAB] gives it back.
+///
+/// Over a screen whose scripts run on the server too ([DebuggableScreen#mirrorsServer]), the header
+/// carries a switch between mirroring the client's runs and the server's.
 public final class EntityDebugModal extends AbstractContainerWidget
     implements AnchoredWidget, FloatingModal, ResizableFrame, ResizeCompleteCallbackListener, CloseableWidget, WorldViewportHost {
 
@@ -57,6 +63,7 @@ public final class EntityDebugModal extends AbstractContainerWidget
     private static final int MIN_HEIGHT = 160;
     private static final int DEFAULT_WIDTH = 426;
     private static final int DEFAULT_HEIGHT = 260;
+    private static final int TEXT_BUTTON_PAD = 8; // room around a text button's label
 
     /// Possesses `entity` and opens the viewport centred on the editor screen on top.
     public static void open(final Font font, final Entity entity) {
@@ -75,13 +82,14 @@ public final class EntityDebugModal extends AbstractContainerWidget
 
         // Pushing a world-viewport modal sizes the world framebuffer to it, so there is nothing to
         // initialize here.
-        layoutManager.openModalWidget(modal, x, y);
+        ModalManager.getInstance().openModalWidget(modal, x, y);
     }
 
     private final Font font;
     private final WorldViewport worldViewport;
-    private final AnchoredButton reloadButton;
-    private final AnchoredButton closeButton;
+    private final AkytheraButton reloadButton;
+    private final AkytheraButton sideButton;
+    private final AkytheraButton closeButton;
     private final FrameResizer frameResizer;
 
     private boolean moveByDragging;
@@ -106,8 +114,8 @@ public final class EntityDebugModal extends AbstractContainerWidget
             Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_GAMEPLAY_VIEWPORT)
         );
 
-        this.closeButton = AnchoredButton
-            .buttonBuilder(font, Component.literal("X"), _ -> AkytheraEditorLayoutManager.getInstance().closeModal())
+        this.closeButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.handwritten("X"), () -> ModalManager.getInstance().closeModal())
             .xUnits(AnchoredWidget.pixel(BUTTON_MARGIN), AnchoredWidget.pixel(BUTTON_SIZE))
             .yUnits(AnchoredWidget.pixel(BUTTON_MARGIN), AnchoredWidget.pixel(BUTTON_SIZE))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -116,8 +124,8 @@ public final class EntityDebugModal extends AbstractContainerWidget
             .theme(AkytheraLabsButtonTheme.TOP_MENU_BUTTON)
             .build();
 
-        this.reloadButton = AnchoredButton
-            .buttonBuilder(font, Component.empty(), _ -> ProjectReloader.reload(font))
+        this.reloadButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.EMPTY, () -> ProjectReloader.reload(font))
             .xUnits(AnchoredWidget.pixel(BUTTON_MARGIN * 2 + BUTTON_SIZE), AnchoredWidget.pixel(BUTTON_SIZE))
             .yUnits(AnchoredWidget.pixel(BUTTON_MARGIN), AnchoredWidget.pixel(BUTTON_SIZE))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -126,11 +134,29 @@ public final class EntityDebugModal extends AbstractContainerWidget
             .theme(AkytheraLabsButtonTheme.TOP_MENU_BUTTON)
             .sprite(RELOAD_SPRITE, BUTTON_SIZE - 4, BUTTON_SIZE - 4)
             .build();
+
+        int sideWidth = Math.max(
+            font.width(Component.translatable(LangKeys.GUI_ENTITY_DEBUG_MODAL_SIDE_CLIENT)),
+            font.width(Component.translatable(LangKeys.GUI_ENTITY_DEBUG_MODAL_SIDE_SERVER))
+        ) + TEXT_BUTTON_PAD;
+
+        this.sideButton = AkytheraButton
+            .buttonBuilder(font, LocalizedMessage.translatable(LangKeys.GUI_ENTITY_DEBUG_MODAL_SIDE_CLIENT), () -> {
+                EntityDebugSession session = EntityDebugSession.getInstance();
+                session.setMirrorServer(!session.isMirroringServer());
+            })
+            .xUnits(AnchoredWidget.pixel(BUTTON_MARGIN * 3 + BUTTON_SIZE * 2), AnchoredWidget.pixel(sideWidth))
+            .yUnits(AnchoredWidget.pixel(BUTTON_MARGIN), AnchoredWidget.pixel(BUTTON_SIZE))
+            .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
+            .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
+            .isHighlighted(_ -> false)
+            .theme(AkytheraLabsButtonTheme.TOP_MENU_BUTTON)
+            .build();
     }
 
     @Override
     public @NonNull List<? extends GuiEventListener> children() {
-        return List.of(worldViewport, reloadButton, closeButton);
+        return List.of(worldViewport, sideButton, reloadButton, closeButton);
     }
 
     @Override
@@ -243,11 +269,18 @@ public final class EntityDebugModal extends AbstractContainerWidget
         graphics.fill(getRight() - 1, getY(), getRight(), getBottom(), 0xFF3A3A3A);
         graphics.fill(getX(), getY(), getRight(), getY() + TITLE_H, 0xFF2A2A2A);
 
-        int titleRoom = Math.max(reloadButton.getX() - getX() - 12, 0);
+        sideButton.visible = AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof DebuggableScreen debuggable
+            && debuggable.mirrorsServer();
+        sideButton.setMessage(Component.translatable(EntityDebugSession.getInstance().isMirroringServer()
+            ? LangKeys.GUI_ENTITY_DEBUG_MODAL_SIDE_SERVER
+            : LangKeys.GUI_ENTITY_DEBUG_MODAL_SIDE_CLIENT));
+
+        int titleRoom = Math.max((sideButton.visible ? sideButton : reloadButton).getX() - getX() - 12, 0);
         String title = font.plainSubstrByWidth(getMessage().getString(), titleRoom);
         graphics.text(font, title, getX() + 8, getY() + (TITLE_H - font.lineHeight) / 2, 0xFFCCCCCC, false);
 
         worldViewport.extractRenderState(graphics, mouseX, mouseY, a);
+        sideButton.extractRenderState(graphics, mouseX, mouseY, a);
         reloadButton.extractRenderState(graphics, mouseX, mouseY, a);
         closeButton.extractRenderState(graphics, mouseX, mouseY, a);
 
@@ -315,8 +348,8 @@ public final class EntityDebugModal extends AbstractContainerWidget
     private Unit x2 = AnchoredWidget.pixel(DEFAULT_WIDTH);
     private Unit y1 = AnchoredWidget.pixel(0);
     private Unit y2 = AnchoredWidget.pixel(DEFAULT_HEIGHT);
-    private final HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
-    private final VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
+    private HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_WIDTH;
+    private VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_HEIGHT;
 
     @Override public Unit getX1() { return x1; }
     @Override public Unit getX2() { return x2; }
@@ -328,4 +361,6 @@ public final class EntityDebugModal extends AbstractContainerWidget
     @Override public void setY2(Unit unit) { y2 = unit; }
     @Override public HorizontalAnchorType getHorizontalAnchorType() { return horizontalAnchorType; }
     @Override public VerticalAnchorType getVerticalAnchorType() { return verticalAnchorType; }
+    @Override public void setHorizontalAnchorType(HorizontalAnchorType horizontalAnchorType) { this.horizontalAnchorType = horizontalAnchorType; }
+    @Override public void setVerticalAnchorType(VerticalAnchorType verticalAnchorType) { this.verticalAnchorType = verticalAnchorType; }
 }

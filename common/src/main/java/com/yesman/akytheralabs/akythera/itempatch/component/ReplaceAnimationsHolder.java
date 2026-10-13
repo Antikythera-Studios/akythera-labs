@@ -127,7 +127,7 @@ public final class ReplaceAnimationsHolder extends ComponentDataHolder<ReplaceAn
             .map(d -> new ReplaceAnimations.ReplaceEntry(d.interfaceKey, d.animation.unwrapKey().orElseThrow()))
             .toList();
 
-        return new ReplaceAnimations(list, resetAnimations, mirrorAnimations);
+        return new ReplaceAnimations(list, resetAnimations, mirrorAnimations, isEnabled());
     }
 
     /// [ReplaceAnimations] is its own blueprint — it builds itself.
