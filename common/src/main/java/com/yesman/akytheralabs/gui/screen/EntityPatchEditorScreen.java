@@ -1013,6 +1013,7 @@ public final class EntityPatchEditorScreen extends Screen
                 : bodies.getOrHandleException(AkytheraLabs.LOGGER::error);
         });
         preview.setPoseSource(poseSource);
+        preview.setTransformSource(() -> space.modelTransform(meshComponent));
 
         model3DViewer.addComponent(preview);
     }
