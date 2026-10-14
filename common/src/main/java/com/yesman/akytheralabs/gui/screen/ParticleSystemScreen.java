@@ -23,6 +23,7 @@ import com.yesman.akytheralabs.akythera.particle.ParticleModuleScriptHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleModulesProducer;
 import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
+import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -592,7 +593,7 @@ public final class ParticleSystemScreen extends Screen implements ModalAccessibl
 
     @Override
     public boolean keyPressed(KeyEvent event) {
-        if (event.isEscape() && trackPanel.cancelKeyGrab()) return true;
+        if (event.isEscape() && (trackPanel.cancelKeyGrab() || NodeClipboard.getInstance().cancelCut())) return true;
 
         if (event.isEscape() && shouldCloseOnEsc()) {
             handleQuitRequest();
@@ -624,7 +625,7 @@ public final class ParticleSystemScreen extends Screen implements ModalAccessibl
             if ((trackPanel.isMouseOver(mouseX, mouseY) || overPreview) && trackPanel.openInsertMenu(mouseX, mouseY)) return true;
         }
 
-        return super.keyPressed(event);
+        return super.keyPressed(event) || NodeClipboard.getInstance().keyPressed(event, this, centerTabs.getActiveContent());
     }
 
     @Override

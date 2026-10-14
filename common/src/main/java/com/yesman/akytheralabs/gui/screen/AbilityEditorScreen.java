@@ -15,6 +15,7 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
+import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -461,6 +462,8 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        if (NodeClipboard.getInstance().keyPressed(event, this, graphTabs.getActiveContent())) return true;
+
         if (event.isEscape() && shouldCloseOnEsc()) {
             handleQuitRequest();
 

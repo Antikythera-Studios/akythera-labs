@@ -33,6 +33,7 @@ import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
+import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
@@ -105,10 +106,6 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// pose sources have room to its left (poses flow left → right into Result, UE-style).
     private static final int OUTPUT_POSE_X = 360;
     private static final int OUTPUT_POSE_Y = 100;
-
-    /// Graph-space shift applied to a paste so the new nodes sit one grid step down-right of the
-    /// originals instead of exactly on top of them (UE-style).
-    private static final int PASTE_OFFSET = 24;
 
     /// Bounds of the transition Blend Time row, in seconds. `0` is a hard cut; the step is one server
     /// tick.
@@ -823,8 +820,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Builds and shows the Details combo for a selected machine state: the merged [FSMAnimationState]
     /// signatures minus the reserved Entry / Exit states and minus every signature another state on the
     /// same machine already carries (so a pick can never duplicate a state), the state's own current
-    /// signature kept in the list. Picking one re-signs the state (after flushing any of its now
-    /// stale-keyed sub-tabs); the `(none)` row and a blank / duplicate are rejected and revert.
+    /// signature kept in the list. Picking one re-signs the state as one undoable unit; the `(none)` row and a
+    /// blank / duplicate are rejected and revert.
     private void showStateDetails(
         String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.StateNode state
     ) {
@@ -851,17 +848,46 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             () -> Identifier.tryParse(state.name()),
             picked -> {
                 if (picked == null) return false;
-                if (picked.toString().equals(state.name())) return true;
-                // Flush + close this state's now stale-keyed sub-tabs (they key off the old name) before
-                // the re-sign so their write-back lands on the old name; the change then retargets it.
-                closeStateSubTabs(machineName, state.name());
-                return machine.changeStateSignature(state, picked.toString());
+
+                String from = state.name();
+                String to = picked.toString();
+
+                if (to.equals(from)) return true;
+                if (!resignState(machineName, machine, state, to)) return false;
+
+                HistoryManager.getInstance().pushHistory(machine, new WorkHistory() {
+                    @Override
+                    public void undo() {
+                        resignState(machineName, machine, state, from);
+                        showStateDetails(machineName, machine, state);
+                    }
+
+                    @Override
+                    public void redo() {
+                        resignState(machineName, machine, state, to);
+                        showStateDetails(machineName, machine, state);
+                    }
+                });
+
+                return true;
             });
+    }
+
+    /// Re-signs `state` to `signature`, see [StateMachineGraphWidget#changeStateSignature]. False when rejected.
+    private boolean resignState(
+        String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.StateNode state, String signature
+    ) {
+        // Flush + close this state's now stale-keyed sub-tabs (they key off the old name) before
+        // the re-sign so their write-back lands on the old name; the change then retargets it.
+        closeStateSubTabs(machineName, state.name());
+
+        return machine.changeStateSignature(state, signature);
     }
 
     /// Shows the selected state group's editor-only name. The name never reaches the engine — the
     /// compile expands the group into per-member transitions — but it keys the group's condition
-    /// sub-tabs, so those are flushed and closed before a rename lands; a blank or taken name reverts.
+    /// sub-tabs, so those are flushed and closed before a rename lands; a blank or taken name reverts. A rename is
+    /// one undoable unit.
     private void showGroupDetails(
         String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.GroupNode group
     ) {
@@ -869,10 +895,36 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VARIABLE_NAME,
             group::name,
             newName -> {
-                if (newName.equals(group.name())) return true;
-                closeGroupSubTabs(machineName, group.name());
-                return machine.changeGroupName(group, newName);
+                String oldName = group.name();
+
+                if (newName.equals(oldName)) return true;
+                if (!renameGroup(machineName, machine, group, newName)) return false;
+
+                HistoryManager.getInstance().pushHistory(machine, new WorkHistory() {
+                    @Override
+                    public void undo() {
+                        renameGroup(machineName, machine, group, oldName);
+                        showGroupDetails(machineName, machine, group);
+                    }
+
+                    @Override
+                    public void redo() {
+                        renameGroup(machineName, machine, group, newName);
+                        showGroupDetails(machineName, machine, group);
+                    }
+                });
+
+                return true;
             });
+    }
+
+    /// Renames `group` to `name`, see [StateMachineGraphWidget#changeGroupName]. False when rejected.
+    private boolean renameGroup(
+        String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.GroupNode group, String name
+    ) {
+        closeGroupSubTabs(machineName, group.name());
+
+        return machine.changeGroupName(group, name);
     }
 
     /// Shows the selected transition's three engine-bound properties, each compiled into the
@@ -1251,63 +1303,24 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     // Copy / cut / paste
     // ***************************************************************
 
-    /// The last copy, shared across every canvas and every open animator-script editor (a `static`
-    /// clipboard, so a selection copied here pastes into another script too). Null until the first copy.
-    ///
-    /// A node-canvas copy fills [#graph] — the copied nodes and the wires among them — and a
-    /// state-machine-canvas copy fills [#states] — the copied states, each with the driver authored
-    /// under it and the transitions to the other copied states. The other stays empty, which is what
-    /// lets one paste serve both: an empty graph lands nothing on a node canvas and an empty state list
-    /// lands nothing on a machine canvas, so a clipboard pasted onto the wrong canvas is a no-op with
-    /// no check of its own.
-    ///
-    /// [#machines] is the nested content either kind carries: the topology of every State Machine the
-    /// copy names, gathered transitively, so a paste recreates it in full even on a script that never
-    /// had that machine.
-    private record NodeClipboard(
-        ScriptGraphData graph,
-        List<StateMachineData.StateData> states,
-        Map<String, StateMachineData> machines
-    ) {}
+    /// Copies the active canvas's selection into the [NodeClipboard], with the topology of every State Machine it
+    /// names. `cut` leaves what was copied on the canvas, waiting for its paste.
+    private void copySelection(boolean cut) {
+        NodeClipboard clipboard = NodeClipboard.getInstance();
 
-    @Nullable
-    private static NodeClipboard clipboard;
+        flushOpenEditors();
 
-    /// COPY: snapshots the active canvas's selection into the [#clipboard] — nodes on a node canvas,
-    /// states on a state-machine canvas. Each canvas skips what it will not hand out (see
-    /// [AbstractNodeWidget#isCopyable] and [StateMachineGraphWidget#copySelection]). Returns whether
-    /// anything was copied; a copy with nothing copyable selected leaves the clipboard untouched.
-    private boolean copySelection() {
         switch (blueprintEditor.getActiveContent()) {
             case ScriptNodeGraphWidget graph -> {
-                ScriptGraphData copied = graph.copySelection();
-                if (copied == null) return false;
+                if (!(cut ? clipboard.cut(graph) : clipboard.copy(graph))) return;
 
-                clipboard = new NodeClipboard(copied, List.of(), collectMachineData(machineNamesIn(copied)));
+                clipboard.setMachines(collectMachineData(machineNamesIn(clipboard.graph())));
             }
             case StateMachineGraphWidget machine -> {
-                List<StateMachineData.StateData> copied = machine.copySelection();
-                if (copied == null) return false;
+                if (!(cut ? clipboard.cut(machine) : clipboard.copy(machine))) return;
 
-                clipboard = new NodeClipboard(ScriptGraphData.EMPTY, copied,
-                    collectMachineData(copied.stream().flatMap(s -> machineNamesIn(s.poseGraph()))));
+                clipboard.setMachines(collectMachineData(clipboard.states().stream().flatMap(s -> machineNamesIn(s.poseGraph()))));
             }
-            default -> {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /// CUT: copies the active canvas's selection, then deletes it. A selection with nothing copyable in
-    /// it is left alone rather than deleted unrecorded.
-    private void cutSelection() {
-        if (!copySelection()) return;
-
-        switch (blueprintEditor.getActiveContent()) {
-            case ScriptNodeGraphWidget graph -> graph.deleteSelection();
-            case StateMachineGraphWidget machine -> machine.deleteSelection();
             default -> {}
         }
     }
@@ -1339,8 +1352,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         return out;
     }
 
-    /// PASTE: drops the [#clipboard] onto the active canvas, offset by [#PASTE_OFFSET], and registers
-    /// the machines it carries once anything lands, so opening a pasted State Machine's tab restores
+    /// PASTE: drops the [NodeClipboard] onto the active canvas, where it was last pressed, and
+    /// registers the machines it carries once anything lands, so opening a pasted State Machine's tab restores
     /// the copied states, transitions and drivers. Open editors are flushed first so that registration
     /// sees any unsaved tab edits.
     ///
@@ -1350,61 +1363,19 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// ([#collectDuplicateProperties]). A carried machine whose name is already registered keeps the
     /// registered topology: the two nodes then name one machine.
     private void pasteClipboard() {
-        if (clipboard == null) return;
+        NodeClipboard clipboard = NodeClipboard.getInstance();
 
         flushOpenEditors();
 
         boolean landed = switch (blueprintEditor.getActiveContent()) {
-            case ScriptNodeGraphWidget graph -> !graph.pasteGraph(
-                clipboard.graph(), PASTE_OFFSET, PASTE_OFFSET, node -> canPasteNodeOnto(node, graph)).isEmpty();
-            case StateMachineGraphWidget machine ->
-                !machine.pasteStates(clipboard.states(), PASTE_OFFSET, PASTE_OFFSET).isEmpty();
+            case ScriptNodeGraphWidget graph -> clipboard.paste(graph);
+            case StateMachineGraphWidget machine -> clipboard.paste(machine);
             default -> false;
         };
 
         // A machine whose node did not land is dropped by the next save or compile
         // (see [#pruneOrphanedStateMachines]).
         if (landed) clipboard.machines().forEach(stateMachines::putIfAbsent);
-    }
-
-    /// Whether a copied `node` may be pasted onto `target`, encoding the same per-canvas palette rules
-    /// the suggestion menu uses:
-    ///   - structural singletons (entry / Output Pose / transition Result) — never (also un-copied);
-    ///   - execution-flow constructs (Sequence / Branch / flow function / variable Set) — only on a
-    ///     canvas with an execution flow (the Event Graph), never a data-flow-only pose canvas;
-    ///   - pose sources / readers (sequence + blendspace players, cached-pose getter), pose mixers and
-    ///     a State Machine — only on a pose (ANIM_GRAPH) canvas;
-    ///   - everything else (Self / Literal / member getters / math / logic / reroute / convert) — any
-    ///     canvas (all accept SCRIPT).
-    ///
-    /// Nodes named by a registered signature — an Anim Layer, an Animation Interface, a Cached Pose
-    /// definition — never reach here: they are not [AbstractNodeWidget#isCopyable].
-    private boolean canPasteNodeOnto(AbstractNodeWidget node, ScriptNodeGraphWidget target) {
-        boolean animGraph = target.usage().contains(ScriptFunction.Usage.ANIM_GRAPH);
-        boolean dataFlowOnly = target.isDataFlowOnly();
-
-        return switch (node) {
-            case MethodEntryNodeWidget ignored -> false;
-            case OutputPoseNodeWidget ignored -> false;
-            case TransitionResultNodeWidget ignored -> false;
-
-            case SequenceNodeWidget ignored -> !dataFlowOnly;
-            case BranchingNodeWidget ignored -> !dataFlowOnly;
-            case FlowFunctionNodeWidget ignored -> !dataFlowOnly;
-            case ScriptVariableSetterNodeWidget ignored -> !dataFlowOnly;
-            case FunctionCallNodeWidget ignored -> !dataFlowOnly;
-            case ParentCallNodeWidget ignored -> !dataFlowOnly;
-            case ReturnNodeWidget ignored -> !dataFlowOnly;
-            case BlueprintFieldSetterNodeWidget ignored -> !dataFlowOnly;
-
-            case AnimSequencePlayerNodeWidget ignored -> animGraph;
-            case BlendSpacePlayerNodeWidget ignored -> animGraph;
-            case CachedPoseGetterNodeWidget ignored -> animGraph;
-            case AbstractBlendNodeWidget ignored -> animGraph;
-            case StateMachineNodeWidget ignored -> animGraph;
-
-            default -> true;
-        };
     }
 
     @Override
@@ -2012,6 +1983,31 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        // A modal, a focused edit box, or a node hosting an inline editor owns the keyboard while it is
+        // open, so the clipboard keys stay with it rather than acting on the canvas' selection.
+        boolean keyboardTaken = getFocusOwningModal() != null
+            || EditorEditBox.isEditingText(this)
+            || (blueprintEditor.getActiveContent() instanceof ScriptNodeGraphWidget graph && graph.isInlineEditing());
+
+        if (!keyboardTaken) {
+            if (event.isEscape() && NodeClipboard.getInstance().cancelCut()) return true;
+
+            if (EditorKeyMappings.COPY.matches(event)) {
+                copySelection(false);
+                return true;
+            }
+
+            if (EditorKeyMappings.CUT.matches(event)) {
+                copySelection(true);
+                return true;
+            }
+
+            if (EditorKeyMappings.PASTE.matches(event)) {
+                pasteClipboard();
+                return true;
+            }
+        }
+
         if (event.isEscape() && shouldCloseOnEsc()) {
             handleQuitRequest();
             return true;
@@ -2030,29 +2026,6 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         if (EditorKeyMappings.UNDO.matches(event)) {
             HistoryManager.getInstance().undo();
             return true;
-        }
-
-        // A modal, a focused edit box, or a node hosting an inline editor owns the keyboard while it is
-        // open, so the clipboard keys stay with it rather than acting on the canvas' selection.
-        boolean keyboardTaken = getFocusOwningModal() != null
-            || EditorEditBox.isEditingText(this)
-            || (blueprintEditor.getActiveContent() instanceof ScriptNodeGraphWidget graph && graph.isInlineEditing());
-
-        if (!keyboardTaken) {
-            if (EditorKeyMappings.COPY.matches(event)) {
-                copySelection();
-                return true;
-            }
-
-            if (EditorKeyMappings.CUT.matches(event)) {
-                cutSelection();
-                return true;
-            }
-
-            if (EditorKeyMappings.PASTE.matches(event)) {
-                pasteClipboard();
-                return true;
-            }
         }
 
         return super.keyPressed(event);

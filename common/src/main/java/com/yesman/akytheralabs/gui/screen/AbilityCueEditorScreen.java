@@ -13,6 +13,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.ability.AbilityCueBlueprintHolder;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
+import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -349,6 +350,8 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        if (NodeClipboard.getInstance().keyPressed(event, this, graphTabs.getActiveContent())) return true;
+
         if (event.isEscape() && shouldCloseOnEsc()) {
             handleQuitRequest();
 

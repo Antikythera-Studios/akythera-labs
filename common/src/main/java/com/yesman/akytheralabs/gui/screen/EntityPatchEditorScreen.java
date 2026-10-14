@@ -58,6 +58,7 @@ import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
+import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -1325,6 +1326,8 @@ public final class EntityPatchEditorScreen extends Screen
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        if (NodeClipboard.getInstance().keyPressed(event, this, centerTabs.getActiveContent())) return true;
+
         if (event.isEscape() && shouldCloseOnEsc()) {
             handleQuitRequest();
             return true;

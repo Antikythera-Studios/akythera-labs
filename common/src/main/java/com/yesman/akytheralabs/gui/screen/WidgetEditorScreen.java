@@ -28,6 +28,7 @@ import com.yesman.akytheralabs.akythera.widget.WidgetComponentHolder;
 import com.yesman.akytheralabs.akythera.widget.WidgetComponentHolders;
 import com.yesman.akytheralabs.akythera.widget.WidgetGraphs;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
+import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -771,6 +772,8 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
 
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
+        if (NodeClipboard.getInstance().keyPressed(event, this, centerTabs.getActiveContent())) return true;
+
         if (event.isEscape() && shouldCloseOnEsc()) {
             handleQuitRequest();
             return true;

@@ -46,6 +46,7 @@ import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.ARGB;
 import org.joml.Matrix3x2f;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -66,7 +67,6 @@ import java.util.TreeMap;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Predicate;
 
 /// The blueprint canvas: a grid background and a set of [AbstractNodeWidget]s that
 /// pan (left-drag) and zoom (scroll) independently of the editor's outer GUI scale.
@@ -79,7 +79,7 @@ import java.util.function.Predicate;
 ///
 /// Every change the canvas records is scoped to it, and so are its nodes' edits (see
 /// [AbstractNodeWidget#historyScope]), so closing the canvas' tab drops them all.
-public final class ScriptNodeGraphWidget extends AbstractContainerWidget implements AnchoredWidget, EmbeddedWidgetHost {
+public final class ScriptNodeGraphWidget extends AbstractContainerWidget implements AnchoredWidget, EmbeddedWidgetHost, CutSource {
     private static final float MIN_ZOOM = 0.30F;
     private static final float MAX_ZOOM = 3.00F;
     private static final float ZOOM_STEP = 1.10F;
@@ -90,6 +90,10 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     private static final int PAN_THRESHOLD = 3;
     /// Thinnest half width a wire's solid core draws at, in GUI pixels.
     private static final float WIRE_MIN_HALF_WIDTH = 0.5F;
+    /// Alpha a node waiting for its cut's paste draws at, and the wires on it.
+    private static final float CUT_ALPHA = 0.5F;
+    /// Graph-space shift between one paste and the next at the same press.
+    private static final int PASTE_STEP = 24;
 
     private static final int COLOR_WIRE = 0xFFFFFFFF;
     private static final int COLOR_PIN_COMPATIBLE = 0xFF59FF8C;
@@ -181,6 +185,13 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// subjects of group move / delete. Left-click on a node selects just it; a left-drag
     /// on empty canvas marquee-selects everything it covers.
     private final List<AbstractNodeWidget> selectedNodes = new ArrayList<>();
+
+    /// The nodes waiting for their cut's paste.
+    private final List<AbstractNodeWidget> cutNodes = new ArrayList<>();
+
+    /// Where the next paste lands, in graph space: the last press on the canvas.
+    private int pasteX;
+    private int pasteY;
 
     /// Node-drag state. `draggingNode` is the grabbed node; the whole selection moves with
     /// it, each node offset from its own start position captured in `dragStartPositions`.
@@ -721,12 +732,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// are in the copied set (a wire leaving the selection is dropped). Returns null when nothing
     /// copyable is selected.
     public @Nullable ScriptGraphData copySelection() {
-        // Unresolved placeholders are excluded: they have no describable state (toData() refuses)
-        // and duplicating an unreadable raw row would duplicate the failure.
-        List<AbstractNodeWidget> copied = selectedNodes.stream()
-            .filter(AbstractNodeWidget::isCopyable)
-            .filter(n -> !(n instanceof UnresolvedNodeWidget))
-            .toList();
+        List<AbstractNodeWidget> copied = copyableSelection();
         if (copied.isEmpty()) return null;
 
         Map<AbstractNodeWidget, Integer> idOf = new HashMap<>();
@@ -751,6 +757,44 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         return new ScriptGraphData(out, wires);
     }
 
+    /// The selected nodes [#copySelection] takes.
+    private List<AbstractNodeWidget> copyableSelection() {
+        // Unresolved placeholders are excluded: they have no describable state (toData() refuses)
+        // and duplicating an unreadable raw row would duplicate the failure.
+        return selectedNodes.stream()
+            .filter(AbstractNodeWidget::isCopyable)
+            .filter(n -> !(n instanceof UnresolvedNodeWidget))
+            .toList();
+    }
+
+    /// Marks the nodes [#copySelection] takes as cut, and answers what marks the same nodes again.
+    public Runnable markSelectionCut() {
+        List<AbstractNodeWidget> cut = copyableSelection();
+
+        Runnable mark = () -> {
+            cutNodes.clear();
+            cutNodes.addAll(cut);
+        };
+
+        mark.run();
+
+        return mark;
+    }
+
+    // ***************************************************************
+    // [CutSource]
+    // ***************************************************************
+
+    @Override
+    public void clearCut() {
+        cutNodes.clear();
+    }
+
+    @Override
+    public void deleteCut() {
+        deleteNodes(cutNodes);
+    }
+
     private static Class<?> wrap(Class<?> t) {
         if (!t.isPrimitive()) return t;
         if (t == boolean.class) return Boolean.class;
@@ -771,6 +815,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         nodes.clear();
         connections.clear();
         selectedNodes.clear();
+        cutNodes.clear();
         unresolvedWires.clear();
 
         Map<Integer, AbstractNodeWidget> byId = new HashMap<>();
@@ -843,12 +888,16 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         pushRecordedValues();
 
         for (Connection c : connections) {
+            int color = pinWireColor(c.fromNode().outputPin(c.fromPin()));
+
+            if (cutNodes.contains(c.fromNode()) || cutNodes.contains(c.toNode())) color = ARGB.multiplyAlpha(color, CUT_ALPHA);
+
             drawConnection(g,
                 graphToScreenX(c.fromNode().outputPinCenterX(c.fromPin())),
                 graphToScreenY(c.fromNode().outputPinCenterY(c.fromPin())),
                 graphToScreenX(c.toNode().inputPinCenterX(c.toPin())),
                 graphToScreenY(c.toNode().inputPinCenterY(c.toPin())),
-                pinWireColor(c.fromNode().outputPin(c.fromPin())),
+                color,
                 executedWeight(c));
         }
 
@@ -888,7 +937,11 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             g.pose().scale(zoom, zoom);
 
             for (AbstractWidget node : nodes) {
+                boolean cut = cutNodes.contains(node);
+
+                if (cut) ((GuiGraphicsExtractorAccessor) g).akytheralabs$setAlpha(CUT_ALPHA);
                 node.extractRenderState(g, graphMouseX, graphMouseY, a);
+                if (cut) ((GuiGraphicsExtractorAccessor) g).akytheralabs$setAlpha(1.0F);
             }
 
             g.pose().popMatrix();
@@ -1581,14 +1634,14 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     }
 
     /// Pastes a clipboard [ScriptGraphData] onto this canvas: each node row is rebuilt as its widget
-    /// (shifted by `dx` / `dy` in graph space so the paste doesn't sit exactly on the originals), and
-    /// kept only when `canPlace` accepts it — so a node illegal on this canvas (e.g. a State Machine
-    /// pasted into the Event Graph, or a duplicate signature) is silently dropped, mirroring UE. A
-    /// pasted wire survives only when **both** of its endpoints survived the filter. The pasted nodes
-    /// become the new selection and the whole paste is recorded as one undoable unit (one Ctrl+Z
-    /// reverts the lot). Entry rows never reach the clipboard, so the rebuild's entry factory is a
-    /// no-op. Returns the nodes actually added (empty = nothing could be placed here).
-    public List<AbstractNodeWidget> pasteGraph(ScriptGraphData data, int dx, int dy, Predicate<AbstractNodeWidget> canPlace) {
+    /// with the top-left corner of the rows at the last press on the canvas. A pasted wire survives only
+    /// when **both** of its endpoints were rebuilt. The pasted nodes become the new selection and the whole
+    /// paste is recorded as one undoable unit (one Ctrl+Z reverts the lot). Entry rows never reach the
+    /// clipboard, so the rebuild's entry factory is a no-op. Returns the nodes actually added.
+    public List<AbstractNodeWidget> pasteGraph(ScriptGraphData data) {
+        int dx = pasteX - data.nodes().stream().mapToInt(GraphNode::x).min().orElse(pasteX);
+        int dy = pasteY - data.nodes().stream().mapToInt(GraphNode::y).min().orElse(pasteY);
+
         Map<Integer, AbstractNodeWidget> byId = new HashMap<>();
         List<AbstractNodeWidget> added = new ArrayList<>();
 
@@ -1600,7 +1653,6 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             widget.setPinLiterals(row.literals());
             widget.setX(widget.getX() + dx);
             widget.setY(widget.getY() + dy);
-            if (!canPlace.test(widget)) continue;
 
             if (scriptOwnerType != null) widget.setScriptOwnerType(scriptOwnerType);
             byId.put(row.id(), widget);
@@ -1623,6 +1675,9 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
         applyPaste(added, pastedWires);
         setSelection(added);
+
+        pasteX += PASTE_STEP;
+        pasteY += PASTE_STEP;
 
         HistoryManager.getInstance().pushHistory(this, new WorkHistory() {
             @Override
@@ -1958,6 +2013,9 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
         int gx = screenToGraphX(event.x());
         int gy = screenToGraphY(event.y());
+
+        pasteX = gx;
+        pasteY = gy;
 
         // A click outside the node being inline-edited commits and closes its editor (a click
         // back on the same node lets its body handler keep / restart editing).

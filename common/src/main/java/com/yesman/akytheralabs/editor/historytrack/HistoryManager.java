@@ -43,6 +43,9 @@ public final class HistoryManager {
     /// back to `false`.
     private boolean needsSavePoint = false;
 
+    /// What [#pushHistory] hands its entries to while a [#capture] runs, or null.
+    private @Nullable List<WorkHistory> captured;
+
     /// Record a change for future undo.
     public void pushHistory(WorkHistory workHistory) {
         pushHistory(null, workHistory);
@@ -53,6 +56,11 @@ public final class HistoryManager {
     public void pushHistory(@Nullable Object scope, WorkHistory workHistory) {
         if (replaying) return;
 
+        if (captured != null) {
+            captured.add(workHistory);
+            return;
+        }
+
         if (needsSavePoint) {
             ScreenSavePoint savePoint = new ScreenSavePoint();
 
@@ -60,6 +68,8 @@ public final class HistoryManager {
             toUndo.push(savePoint);
             needsSavePoint = false;
         }
+
+        if (!toUndo.isEmpty() && !toUndo.peek().staysUnder(workHistory)) scopes.remove(toUndo.pop());
 
         if (!workHistory.verifyLastHistory(toUndo)) return;
 
@@ -77,6 +87,28 @@ public final class HistoryManager {
         // A new change makes the redo stack unreachable.
         toRedo.forEach(scopes::remove);
         toRedo.clear();
+    }
+
+    /// Runs `changes` and answers the entries they pushed, in order, instead of recording them.
+    public List<WorkHistory> capture(final Runnable changes) {
+        List<WorkHistory> entries = new ArrayList<>();
+
+        captured = entries;
+
+        try {
+            changes.run();
+        } finally {
+            captured = null;
+        }
+
+        return entries;
+    }
+
+    /// Drops `entry` from both stacks. For an entry that changed no data.
+    public void discard(final WorkHistory entry) {
+        toUndo.remove(entry);
+        toRedo.remove(entry);
+        scopes.remove(entry);
     }
 
     /// Drops every entry pushed under `scope` from both stacks: the changes of an editor that is gone,

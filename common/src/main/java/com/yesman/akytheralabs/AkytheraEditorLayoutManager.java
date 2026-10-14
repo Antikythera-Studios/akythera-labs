@@ -9,6 +9,7 @@ import com.yesman.akythera.client.api.gui.ClampedNumberBox;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
+import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ScreenSavePoint;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -204,6 +205,7 @@ public final class AkytheraEditorLayoutManager {
     public void removeLastScreen() {
         ModalManager.getInstance().closeAllModals();
         HistoryManager.getInstance().popScreen();
+        NodeClipboard.getInstance().cancelCut();
         screenStacks.pop();
     }
 

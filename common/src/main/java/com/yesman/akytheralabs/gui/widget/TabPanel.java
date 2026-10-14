@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import net.minecraft.client.gui.Font;
@@ -135,9 +136,9 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
         relocateHeaderRects();
     }
 
-    /// Removes the tab at `index` (running its `onClose` first), and every history entry recorded under its
-    /// content, see [HistoryManager#removeHistory]. Adjusts the active tab so one stays selected: a tab at
-    /// or before the active index shifts it left, never below 0.
+    /// Removes the tab at `index` (running its `onClose` first), every history entry recorded under its
+    /// content, see [HistoryManager#removeHistory], and a cut pending on it. Adjusts the active tab so one stays
+    /// selected: a tab at or before the active index shifts it left, never below 0.
     public void removeTab(int index) {
         if (index < 0 || index >= tabs.size()) return;
 
@@ -145,6 +146,7 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
         Tab removed = tabs.remove(index);
         if (removed.onClose != null) removed.onClose.run();
 
+        NodeClipboard.getInstance().cancelCut(removed.content);
         HistoryManager.getInstance().removeHistory(removed.content);
 
         if (tabs.isEmpty()) {
