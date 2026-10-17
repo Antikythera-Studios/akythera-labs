@@ -3,8 +3,8 @@ package com.yesman.akytheralabs.gui.widget.particle;
 import com.yesman.akythera.core.blueprint.particle.KeyframeTrack;
 import com.yesman.akytheralabs.akythera.particle.ParticleEmitterHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.animation.AnimTrackEntry;
-import com.yesman.akytheralabs.gui.widget.animation.AnimationTrackList;
+import com.yesman.akytheralabs.gui.widget.animation.TimelineList;
+import com.yesman.akytheralabs.gui.widget.animation.TimelineTrackEntry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -18,7 +18,7 @@ import java.util.List;
 /// One keyed channel of an emitter on the emitter track, under the emitter's row: one [EmitterKeyWidget] per key over
 /// the time axis, on a faint band where the time span lets keys live. A press off the keys selects the emitter and
 /// starts a box selection ([EmitterTrackPanel#pressEmptyTrack]).
-public final class EmitterKeyRow extends AnimTrackEntry {
+public final class EmitterKeyRow extends TimelineTrackEntry {
     private static final int LABEL_INDENT = 20;
     private static final int BLOCK_COLOR = 0xFF2E2E2E;
     private static final int SPAN_BAND_COLOR = 0x22FFFFFF;
@@ -48,7 +48,7 @@ public final class EmitterKeyRow extends AnimTrackEntry {
         int rowTop = getContentY();
         int rowH = getContentHeight();
 
-        g.fill(rowLeft, rowTop, rowLeft + AnimationTrackList.NAME_BLOCK_W - 4, rowTop + rowH, BLOCK_COLOR);
+        g.fill(rowLeft, rowTop, rowLeft + TimelineList.NAME_BLOCK_W - 4, rowTop + rowH, BLOCK_COLOR);
         g.text(font, rowLabel(), rowLeft + LABEL_INDENT, rowTop + (rowH - font.lineHeight) / 2, 0xFF999999, false);
     }
 

@@ -34,9 +34,9 @@ import java.util.function.Supplier;
 
 /// One notify-track row. Self-contained: owns its notify / notify-state widgets, its
 /// inline rename editor, and its right-click menus (rename / remove track, add notify /
-/// state). Built by the editor screens and handed to the generic [AnimationTrackList]
+/// state). Built by the editor screens and handed to the generic [TimelineList]
 /// through the host panel's row builder.
-public final class NotifyRow extends AnimTrackEntry {
+public final class NotifyRow extends TimelineTrackEntry {
     final AnimationTrackEditorPanel parent;
     final NotifyTrackHolder.Track track;
     final List<NotifyWidget> notifyWidgets = new ArrayList<>();
@@ -60,7 +60,7 @@ public final class NotifyRow extends AnimTrackEntry {
         this.nameEditor = EditorEditBox.stringBox(
             Minecraft.getInstance().font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
-            AnchoredWidget.pixel(0), AnchoredWidget.pixel(AnimationTrackList.ROW_H),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(TimelineList.ROW_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             () -> "",
@@ -117,7 +117,7 @@ public final class NotifyRow extends AnimTrackEntry {
         int rowLeft = getContentX();
         int rowTop = getContentY();
         int rowHeight = getContentHeight();
-        int blockRight = rowLeft + AnimationTrackList.NAME_BLOCK_W - (AnimationTrackEditorPanel.DIVIDER_W + 2);
+        int blockRight = rowLeft + TimelineList.NAME_BLOCK_W - (AnimationTrackEditorPanel.DIVIDER_W + 2);
 
         // Track name block (left fixed pane)
         boolean isSelected = parent.selectedRow() == this;
@@ -129,7 +129,7 @@ public final class NotifyRow extends AnimTrackEntry {
         } else {
             nameEditor.setX(rowLeft + 4);
             nameEditor.setY(rowTop + (rowHeight - 14) / 2);
-            nameEditor.setWidth(AnimationTrackList.NAME_BLOCK_W - 12);
+            nameEditor.setWidth(TimelineList.NAME_BLOCK_W - 12);
             nameEditor.setHeight(14);
             nameEditor.extractRenderState(g, mouseX, mouseY, a);
         }
@@ -151,7 +151,7 @@ public final class NotifyRow extends AnimTrackEntry {
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
-        boolean inNameBlock = event.x() < getContentX() + AnimationTrackList.NAME_BLOCK_W;
+        boolean inNameBlock = event.x() < getContentX() + TimelineList.NAME_BLOCK_W;
 
         if (event.button() == 1) {
             if (inNameBlock) openTrackNameMenu(event);

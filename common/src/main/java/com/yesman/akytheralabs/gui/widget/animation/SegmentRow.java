@@ -31,7 +31,7 @@ import java.util.List;
 /// Independent of the sections row. Dragging a block onto another's spot reorders the
 /// segment list ([AnimationMontageHolder#moveSegment]); the merged preview clip
 /// hot-reloads off the holder's dirty flag.
-public final class SegmentRow extends AnimTrackEntry {
+public final class SegmentRow extends TimelineTrackEntry {
     private static final int BLOCK_COLOR = 0xFF5E9B43;
     private static final int BLOCK_COLOR_SELECTED = 0xFF6FA84F;
     private static final int BLOCK_COLOR_GHOST = 0xCC7ABF55;
@@ -104,7 +104,7 @@ public final class SegmentRow extends AnimTrackEntry {
     public void extractContent(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, boolean hovered, float a) {
         Font font = Minecraft.getInstance().font;
         int rowLeft = getContentX();
-        int blockRight = rowLeft + AnimationTrackList.NAME_BLOCK_W - (AnimationTrackEditorPanel.DIVIDER_W + 2);
+        int blockRight = rowLeft + TimelineList.NAME_BLOCK_W - (AnimationTrackEditorPanel.DIVIDER_W + 2);
         int rowBottom = getY() + getHeight();
         int top = lane == Lane.TOP ? getContentY() : getY();
         int bottom = lane == Lane.TOP ? rowBottom : getContentY() + getContentHeight();

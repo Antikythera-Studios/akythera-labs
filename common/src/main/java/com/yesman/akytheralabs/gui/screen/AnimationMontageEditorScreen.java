@@ -41,11 +41,11 @@ import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
-import com.yesman.akytheralabs.gui.widget.animation.AnimTrackEntry;
 import com.yesman.akytheralabs.gui.widget.animation.AnimationTrackEditorPanel;
 import com.yesman.akytheralabs.gui.widget.animation.NotifyRow;
 import com.yesman.akytheralabs.gui.widget.animation.SectionRow;
 import com.yesman.akytheralabs.gui.widget.animation.SegmentRow;
+import com.yesman.akytheralabs.gui.widget.animation.TimelineTrackEntry;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
@@ -280,8 +280,8 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
     /// All rows for the track panel: the montage Sections indicator row, the two Segments
     /// lanes (top/bottom), then the notify rows. Clicking a section/segment/notify opens its
     /// matching tab. Rebuilt live by the panel.
-    private List<AnimTrackEntry> buildAllRows(AnimationTrackEditorPanel panel) {
-        List<AnimTrackEntry> rows = new ArrayList<>();
+    private List<TimelineTrackEntry> buildAllRows(AnimationTrackEditorPanel panel) {
+        List<TimelineTrackEntry> rows = new ArrayList<>();
         rows.add(new SectionRow(panel, holder, () -> tabPanel.setActiveIndex(TAB_MONTAGE_SECTIONS), montageSectionsPage::rebuildChain));
         rows.add(new SegmentRow(panel, holder, SegmentRow.Lane.TOP, () -> tabPanel.setActiveIndex(TAB_ASSET_BROWSER), segmentInteraction));
         rows.add(new SegmentRow(panel, holder, SegmentRow.Lane.BOTTOM, () -> tabPanel.setActiveIndex(TAB_ASSET_BROWSER), segmentInteraction));

@@ -17,10 +17,10 @@ import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
-import com.yesman.akytheralabs.gui.widget.animation.AnimTrackEntry;
-import com.yesman.akytheralabs.gui.widget.animation.AnimationTrackList;
 import com.yesman.akytheralabs.gui.widget.animation.CurrentFrameIndicator;
 import com.yesman.akytheralabs.gui.widget.animation.FrameScrollBar;
+import com.yesman.akytheralabs.gui.widget.animation.TimelineList;
+import com.yesman.akytheralabs.gui.widget.animation.TimelineTrackEntry;
 import com.yesman.akytheralabs.gui.widget.animation.TrackTimeline;
 import com.yesman.akytheralabs.gui.widget.viewer.ParticleSystemPreviewComponent;
 import com.yesman.akythera.core.util.helper.MathUtils;
@@ -90,7 +90,7 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
     /// Told this panel whenever the rows are built again from the emitters, after an emitter is added or removed.
     private final Consumer<EmitterTrackPanel> onEmittersChanged;
 
-    private final AnimationTrackList trackList = new AnimationTrackList();
+    private final TimelineList trackList = new TimelineList();
     private final CurrentFrameIndicator frameIndicator;
     private final FrameScrollBar scrollBar;
     private final PreviewEndMarker endMarker;
@@ -148,8 +148,8 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
         int buttonTop = HEADER_H - BUTTON - 4;
         int footerButton = FOOTER_H - FOOTER_INSET * 2;
 
-        this.addButton = headerButton(font, AnimationTrackList.NAME_BLOCK_W - (BUTTON + 6) * 2, buttonTop, AkytheraLabsButtonTheme.MONTAGE_SEQ_ADD_BUTTON, this::addEmitter);
-        this.deleteButton = headerButton(font, AnimationTrackList.NAME_BLOCK_W - (BUTTON + 6), buttonTop, AkytheraLabsButtonTheme.MONTAGE_SEQ_REMOVE_BUTTON, () -> {
+        this.addButton = headerButton(font, TimelineList.NAME_BLOCK_W - (BUTTON + 6) * 2, buttonTop, AkytheraLabsButtonTheme.MONTAGE_SEQ_ADD_BUTTON, this::addEmitter);
+        this.deleteButton = headerButton(font, TimelineList.NAME_BLOCK_W - (BUTTON + 6), buttonTop, AkytheraLabsButtonTheme.MONTAGE_SEQ_REMOVE_BUTTON, () -> {
             if (selected != null) deleteEmitter(selected);
         });
         this.playButton = footerButton(font, FOOTER_INSET, footerButton, AkytheraLabsButtonTheme.ANIM_TRACK_RESUME_BUTTON, preview::play);
@@ -224,7 +224,7 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
     }
 
     public void rebuildEntries() {
-        trackList.rebuild(holder.getEmitters().stream().<AnimTrackEntry>flatMap(emitter -> Stream.of(
+        trackList.rebuild(holder.getEmitters().stream().<TimelineTrackEntry>flatMap(emitter -> Stream.of(
             new EmitterRow(this, emitter),
             new EmitterKeyRow(this, emitter, ParticleEmitterHolder.KeyChannel.PIVOT),
             new EmitterKeyRow(this, emitter, ParticleEmitterHolder.KeyChannel.TRANSFORM)
@@ -489,13 +489,13 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
     }
 
     public int getTrackStart() {
-        return getX() + AnimationTrackList.NAME_BLOCK_W + DIVIDER_W;
+        return getX() + TimelineList.NAME_BLOCK_W + DIVIDER_W;
     }
 
     @Override
     protected void onPanelResized(final ScreenRectangle rect) {
         ScreenRectangle headerRect = new ScreenRectangle(rect.left(), rect.top(), rect.width(), HEADER_H);
-        ScreenRectangle footerRect = new ScreenRectangle(rect.left(), rect.bottom() - FOOTER_H, AnimationTrackList.NAME_BLOCK_W, FOOTER_H);
+        ScreenRectangle footerRect = new ScreenRectangle(rect.left(), rect.bottom() - FOOTER_H, TimelineList.NAME_BLOCK_W, FOOTER_H);
 
         addButton.relocate(headerRect);
         deleteButton.relocate(headerRect);
@@ -581,7 +581,7 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
             endMarker.extractRenderState(g, mouseX, mouseY, a);
         }
 
-        for (AnimTrackEntry row : trackList.children()) {
+        for (TimelineTrackEntry row : trackList.children()) {
             if (row instanceof EmitterRow emitterRow) {
                 emitterRow.extractTrackArea(g, mouseX, mouseY, a);
             } else if (row instanceof EmitterKeyRow keyRow) {
@@ -614,6 +614,7 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
         // apart before the list takes it
         boolean emptySpace = event.button() == 0
             && trackList.isMouseOver(event.x(), event.y())
+            && !trackList.isOnScrollbar(event.x(), event.y())
             && trackList.children().stream().noneMatch(row -> row.isMouseOver(event.x(), event.y()));
         boolean consumed = super.mouseClicked(event, doubleClick);
 
@@ -635,7 +636,7 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
             selectedKeys.clear();
             selectedKeys.addAll(box.kept());
 
-            for (AnimTrackEntry row : trackList.children()) {
+            for (TimelineTrackEntry row : trackList.children()) {
                 if (row instanceof EmitterKeyRow keyRow) selectedKeys.addAll(keyRow.keysIn(box.getX(), box.getY(), box.getRight(), box.getBottom()));
             }
 

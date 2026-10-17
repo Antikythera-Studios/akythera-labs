@@ -12,14 +12,14 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 
-/// Base row for the [AnimationTrackList].
+/// Base row for the [TimelineList].
 ///
 /// Each row is a container entry that owns its own editable child widgets and returns
 /// them from [#children] — a decoupled parent→child hierarchy, not one flat widget bag.
 /// The list is generic: it doesn't know about notifies/sections/segments. The editor
 /// screens build the concrete rows ([NotifyRow], `SectionRow`, `SegmentRow`) and hand
 /// them in via the host panel's row builder.
-public abstract class AnimTrackEntry extends ContainerObjectSelectionList.Entry<@NonNull AnimTrackEntry> {
+public abstract class TimelineTrackEntry extends ContainerObjectSelectionList.Entry<@NonNull TimelineTrackEntry> {
     /// Left name-block label.
     protected abstract Component rowLabel();
 
@@ -58,7 +58,7 @@ public abstract class AnimTrackEntry extends ContainerObjectSelectionList.Entry<
         int rowLeft = getContentX();
         int rowTop = getContentY();
         int rowH = getContentHeight();
-        int blockRight = rowLeft + AnimationTrackList.NAME_BLOCK_W - (AnimationTrackEditorPanel.DIVIDER_W + 2);
+        int blockRight = rowLeft + TimelineList.NAME_BLOCK_W - (AnimationTrackEditorPanel.DIVIDER_W + 2);
 
         g.fill(rowLeft, rowTop, blockRight, rowTop + rowH, 0xFF363636);
         g.text(font, rowLabel(), rowLeft + 8, rowTop + (rowH - font.lineHeight) / 2, 0xFFCCCCCC, false);

@@ -46,7 +46,7 @@ public final class FrameScrollBar extends AbstractWidget implements AnchoredWidg
 
         // X: span the track-strip area — left offset = name block width + divider, right offset = 0.
         // Y: bottom-anchored inside the footer strip with a small inset so it doesn't touch the edges.
-        this.x1 = AnchoredWidget.pixel(AnimationTrackList.NAME_BLOCK_W + AnimationTrackEditorPanel.DIVIDER_W);
+        this.x1 = AnchoredWidget.pixel(TimelineList.NAME_BLOCK_W + AnimationTrackEditorPanel.DIVIDER_W);
         this.x2 = AnchoredWidget.pixel(2);
         this.y1 = AnchoredWidget.pixel(4);
         this.y2 = AnchoredWidget.pixel(AnimationTrackEditorPanel.FOOTER_H - 8);

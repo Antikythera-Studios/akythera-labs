@@ -38,7 +38,7 @@ import java.util.List;
 ///
 /// Independent of the segments row — sections are just named time-stamps on the
 /// merged timeline ([AnimationMontageHolder#getSections]).
-public final class SectionRow extends AnimTrackEntry {
+public final class SectionRow extends TimelineTrackEntry {
     private static final int SNAP_PX = 6;
     private static final int CHIP_H = 20;
     /// Horizontal padding added to a name's text width to size both a chip and its rename box.

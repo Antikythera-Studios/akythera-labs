@@ -30,9 +30,9 @@ import com.yesman.akytheralabs.gui.panel.animation.NotifyDetailsPanel;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
-import com.yesman.akytheralabs.gui.widget.animation.AnimTrackEntry;
 import com.yesman.akytheralabs.gui.widget.animation.AnimationTrackEditorPanel;
 import com.yesman.akytheralabs.gui.widget.animation.NotifyRow;
+import com.yesman.akytheralabs.gui.widget.animation.TimelineTrackEntry;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
@@ -144,7 +144,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
             holder,
             notifyDetailsPanel::onSelectionChanged,
             panel -> {
-                List<AnimTrackEntry> rows = new ArrayList<>();
+                List<TimelineTrackEntry> rows = new ArrayList<>();
                 for (NotifyTrackHolder.Track t : holder.getNotifyTrackHolder().getTracks()) {
                     rows.add(new NotifyRow(panel, t));
                 }

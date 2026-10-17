@@ -3,8 +3,8 @@ package com.yesman.akytheralabs.gui.widget.particle;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.akythera.particle.ParticleEmitterHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
-import com.yesman.akytheralabs.gui.widget.animation.AnimTrackEntry;
-import com.yesman.akytheralabs.gui.widget.animation.AnimationTrackList;
+import com.yesman.akytheralabs.gui.widget.animation.TimelineList;
+import com.yesman.akytheralabs.gui.widget.animation.TimelineTrackEntry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -19,7 +19,7 @@ import java.util.List;
 /// press selects the emitter, and off the span also moves the playhead there and starts a box selection
 /// ([EmitterTrackPanel#pressEmptyTrack]); a right-press also opens the add / delete menu. A flagged emitter
 /// ([EmitterTrackPanel#isFlagged]) shows a red `!` that explains itself on hover.
-public final class EmitterRow extends AnimTrackEntry {
+public final class EmitterRow extends TimelineTrackEntry {
     private static final int SELECTED_BLOCK_COLOR = 0xFF385470;
     private static final int ERROR_COLOR = 0xFFFF5555;
 
@@ -49,12 +49,12 @@ public final class EmitterRow extends AnimTrackEntry {
 
         if (parent.isFlagged(emitter)) {
             Font font = Minecraft.getInstance().font;
-            int markX = getContentX() + AnimationTrackList.NAME_BLOCK_W - ERROR_MARK_RIGHT;
+            int markX = getContentX() + TimelineList.NAME_BLOCK_W - ERROR_MARK_RIGHT;
             int markY = getContentY() + (getContentHeight() - font.lineHeight) / 2;
 
             g.text(font, "!", markX, markY, ERROR_COLOR, false);
 
-            if (hovered && mouseX < getContentX() + AnimationTrackList.NAME_BLOCK_W) {
+            if (hovered && mouseX < getContentX() + TimelineList.NAME_BLOCK_W) {
                 g.setTooltipForNextFrame(font, font.split(Component.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_ERROR_NO_PARTICLE), 220), mouseX, mouseY);
             }
         }

@@ -38,7 +38,7 @@ import java.util.function.Function;
 /// Reusable animation-track editor as a [AdjustablePanelManager.PanelArea]
 /// so it can drop into any panel section without extra glue. It owns:
 ///   - the title strip with the "+ track" button and per-frame ruler
-///   - the scrolling track list ([AnimationTrackList])
+///   - the scrolling track list ([TimelineList])
 ///   - the playhead overlay ([CurrentFrameIndicator])
 ///
 /// The list is generic: the host screen supplies ALL rows via a row builder (see the
@@ -70,9 +70,9 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     /// Builds ALL rows for the list, given this panel. Run on every rebuild so the rows
     /// re-read live holder state. The host screen decides what rows exist (notify only,
     /// or sections + segments + notify).
-    private final Function<AnimationTrackEditorPanel, List<AnimTrackEntry>> rowBuilderFn;
+    private final Function<AnimationTrackEditorPanel, List<TimelineTrackEntry>> rowBuilderFn;
 
-    private final AnimationTrackList trackList;
+    private final TimelineList trackList;
     private final CurrentFrameIndicator frameIndicator;
     private final AkytheraButton addTrackButton;
 
@@ -114,7 +114,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         Model3DViewer model3DViewer,
         PlayableAnimationHolder<?> playableAnimationHolder,
         Consumer<NotifyTrackHolder.@Nullable NotifyRef> onSelectionChanged,
-        Function<AnimationTrackEditorPanel, List<AnimTrackEntry>> rowBuilderFn
+        Function<AnimationTrackEditorPanel, List<TimelineTrackEntry>> rowBuilderFn
     ) {
         this.holder = holder;
         this.model3DViewer = model3DViewer;
@@ -127,14 +127,14 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         this.addTrackButton = AkytheraButton.buttonBuilder(
                 Minecraft.getInstance().font, LocalizedMessage.EMPTY, () -> onAddTrackPressed()
             )
-            .xUnits(AnchoredWidget.pixel(AnimationTrackList.NAME_BLOCK_W - ADD_BUTTON_W - 8), AnchoredWidget.pixel(ADD_BUTTON_W))
+            .xUnits(AnchoredWidget.pixel(TimelineList.NAME_BLOCK_W - ADD_BUTTON_W - 8), AnchoredWidget.pixel(ADD_BUTTON_W))
             .yUnits(AnchoredWidget.pixel(HEADER_H - ADD_BUTTON_H - 4), AnchoredWidget.pixel(ADD_BUTTON_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH)
             .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
             .theme(AkytheraLabsButtonTheme.AKYTHERA_CONTENT_ADD_BUTTON)
             .build();
 
-        this.trackList = new AnimationTrackList();
+        this.trackList = new TimelineList();
         this.frameIndicator = new CurrentFrameIndicator(this);
 
         // Footer: play/pause buttons, frame number box, scroll/zoom bar. All four anchor to the
@@ -336,7 +336,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     }
 
     public int getTrackStart() {
-        return getX() + AnimationTrackList.NAME_BLOCK_W + DIVIDER_W;
+        return getX() + TimelineList.NAME_BLOCK_W + DIVIDER_W;
     }
 
     public void setSelected(NotifyTrackHolder.@Nullable NotifyRef ref) {
@@ -357,11 +357,11 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     }
 
     /// Row-level selection (which name block is highlighted), delegated to the list.
-    public void setSelectedRow(@Nullable AnimTrackEntry row) {
+    public void setSelectedRow(@Nullable TimelineTrackEntry row) {
         trackList.setSelected(row);
     }
 
-    public @Nullable AnimTrackEntry selectedRow() {
+    public @Nullable TimelineTrackEntry selectedRow() {
         return trackList.getSelected();
     }
 
@@ -415,8 +415,8 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
     /// The row currently showing an inline editor (rename box), or null. Used to route
     /// keyboard/char/click input to it generically — the panel doesn't care what row type.
-    private @Nullable AnimTrackEntry editingRow() {
-        for (AnimTrackEntry row : trackList.children()) {
+    private @Nullable TimelineTrackEntry editingRow() {
+        for (TimelineTrackEntry row : trackList.children()) {
             if (row.activeInlineEditor() != null) return row;
         }
 
@@ -433,7 +433,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         trackList.updateSizeAndPosition(rect.width(), listH, rect.left(), listTop);
         frameIndicator.setBounds(rect.left(), rect.top(), rect.width(), rect.height() - FOOTER_H);
 
-        ScreenRectangle footerRect = new ScreenRectangle(rect.left(), rect.bottom() - FOOTER_H, AnimationTrackList.NAME_BLOCK_W, FOOTER_H);
+        ScreenRectangle footerRect = new ScreenRectangle(rect.left(), rect.bottom() - FOOTER_H, TimelineList.NAME_BLOCK_W, FOOTER_H);
 
         // Relocate Footer children
         playButton.relocate(footerRect);
@@ -544,7 +544,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
             }
         }
 
-        for (AnimTrackEntry row : trackList.children()) {
+        for (TimelineTrackEntry row : trackList.children()) {
             // Draw each row's track-area widgets after the frame measures
             row.extractTrackArea(g, mouseX, mouseY, a);
         }
@@ -558,7 +558,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
         // While a row is renaming, route input to its inline editor first; clicks outside
         // it commit and dismiss before falling through to the normal hit-test.
-        AnimTrackEntry editing = editingRow();
+        TimelineTrackEntry editing = editingRow();
         if (editing != null) {
             AbstractWidget editor = editing.activeInlineEditor();
             if (editor != null && editor.isMouseOver(event.x(), event.y())) {
@@ -603,7 +603,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
     @Override
     public boolean keyPressed(@NonNull KeyEvent event) {
-        AnimTrackEntry editing = editingRow();
+        TimelineTrackEntry editing = editingRow();
         if (editing != null) {
             if (event.isEscape()) {
                 editing.commitInlineEdit();
@@ -616,7 +616,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
         // Not editing: RENAME (F2) starts the selected row's inline rename, if it has one.
         if (EditorKeyMappings.RENAME.matches(event)) {
-            AnimTrackEntry selected = selectedRow();
+            TimelineTrackEntry selected = selectedRow();
             if (selected != null) {
                 selected.beginInlineEdit();
                 return true;
@@ -625,7 +625,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
         // DELETE removes the selected row's selected item (e.g. a montage segment), if any.
         if (EditorKeyMappings.DELETE.matches(event)) {
-            AnimTrackEntry selected = selectedRow();
+            TimelineTrackEntry selected = selectedRow();
             if (selected != null) {
                 selected.deleteSelected();
                 return true;
@@ -637,7 +637,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
     @Override
     public boolean charTyped(@NonNull CharacterEvent event) {
-        AnimTrackEntry editing = editingRow();
+        TimelineTrackEntry editing = editingRow();
         if (editing != null) {
             AbstractWidget editor = editing.activeInlineEditor();
             if (editor != null) return editor.charTyped(event);
@@ -653,7 +653,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     @Override
     public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
         if (isMouseOverTrack(mx, my)) {
-            float xFraction = (float)(mx - (getX() + AnimationTrackList.NAME_BLOCK_W + DIVIDER_W)) / getWidth();
+            float xFraction = (float)(mx - (getX() + TimelineList.NAME_BLOCK_W + DIVIDER_W)) / getWidth();
             float scope = visualFrameEnd - visualFrameStart;
             float zoom = scope * 0.1F;
             int sign = Mth.sign(scrollY);
