@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.akythera.animation.notify;
 
 import com.yesman.akythera.api.animation.notify.AnimationNotifyState;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.core.util.LogicalSide;
 import com.yesman.akytheralabs.SourceTemplateEngine;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
@@ -33,8 +34,8 @@ public abstract class AnimationNotifyStateHolder<T extends AnimationNotifyState<
     /// Returns the original class's simple name
     public abstract String notifyName();
 
-    /// Plays [AnimationNotifyState#onBegin] in the editor's previewer.
-    public abstract void simulateBegin(Model3DViewer previewer);
+    /// Plays [AnimationNotifyState#onBegin] in the editor's previewer, for the notify state's window. Times are in seconds.
+    public abstract void simulateBegin(Model3DViewer previewer, TimeWindow window);
 
     /// Plays [AnimationNotifyState#onTick] in the editor's previewer. Times are in seconds.
     public abstract void simulateTick(Model3DViewer previewer, float prevElapsedTime, float currentElapsedTime);

@@ -20,6 +20,7 @@ import org.jspecify.annotations.Nullable;
 import com.yesman.akytheralabs.SourceTemplateEngine;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -39,9 +40,11 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
             Codec.FLOAT.optionalFieldOf("phase_offset", 0.0F).forGetter(AnimationSequenceHolder::phaseOffset),
             Identifier.CODEC.optionalFieldOf("preview_entity_type")
                 .forGetter(ParseUtils.provideOptional(AnimationSequenceHolder::getPreviewEntityType)),
+            PreviewItem.CODEC.listOf().optionalFieldOf("preview_items", List.of())
+                .forGetter(AnimationSequenceHolder::getPreviewItems),
             NotifyTrackHolder.EDITOR_CODEC.optionalFieldOf("notify_tracks", new NotifyTrackHolder())
                 .forGetter(AnimationSequenceHolder::getNotifyTrackHolder)
-        ).apply(instance, (animClip, fadeInTime, fadeOutTime, loops, rootMotion, rateScale, phaseOffset, previewEntityType, notifyTrackHolder) -> {
+        ).apply(instance, (animClip, fadeInTime, fadeOutTime, loops, rootMotion, rateScale, phaseOffset, previewEntityType, previewItems, notifyTrackHolder) -> {
             AnimationSequenceHolder h = new AnimationSequenceHolder();
             h.setAnimClip(animClip);
 
@@ -52,6 +55,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
             h.setRateScale(rateScale);
             h.setPhaseOffset(phaseOffset);
             previewEntityType.ifPresent(h::setPreviewEntityType);
+            h.setPreviewItems(previewItems);
 
             if (!notifyTrackHolder.getTracks().isEmpty()) {
                 h.notifyTrackHolder = notifyTrackHolder;
@@ -84,6 +88,9 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
 
     @Nullable
     private Identifier previewEntityType;
+
+    /// The items the preview holds, one per slot. Editor-only.
+    private List<PreviewItem> previewItems = List.of();
 
     private NotifyTrackHolder notifyTrackHolder = new NotifyTrackHolder();
 
@@ -216,6 +223,14 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
 
     public void setPreviewEntityType(@Nullable Identifier previewEntityType) {
         this.previewEntityType = previewEntityType;
+    }
+
+    public List<PreviewItem> getPreviewItems() {
+        return previewItems;
+    }
+
+    public void setPreviewItems(List<PreviewItem> previewItems) {
+        this.previewItems = List.copyOf(previewItems);
     }
 
     /// The tokens `animation_sequence_template.ftl` renders: the trimmed `animation_path` that the

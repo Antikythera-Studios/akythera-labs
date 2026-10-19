@@ -147,6 +147,25 @@ public final class NotifyRow extends TimelineTrackEntry {
         for (NotifyWidget w : notifyWidgets) w.updatePosition(rowTop, rowHeight);
         for (NotifyStateWidget w : notifyStateWidgets) w.extractRenderState(g, mouseX, mouseY, a);
         for (NotifyWidget w : notifyWidgets) w.extractRenderState(g, mouseX, mouseY, a);
+
+        AnimationTrackEditorPanel.NotifyGhost ghost = parent.ghost();
+
+        if (ghost != null && ghost.placement().track() == track) {
+            int x1 = parent.frameToX(ghost.placement().from() * 60.0F);
+
+            switch (ghost.dragged()) {
+                case NotifyTrackHolder.NotifyRef.Point point -> NotifyWidget.drawFlag(
+                    g, x1, rowTop + (rowHeight - NotifyWidget.FLAG_H) / 2, NotifyWidget.ghostColorFor(point.mutableNotify().holder.logicalSide())
+                );
+                case NotifyTrackHolder.NotifyRef.State state -> NotifyStateWidget.drawBar(
+                    g,
+                    x1,
+                    Math.max(x1 + 2, parent.frameToX(ghost.placement().to() * 60.0F)),
+                    rowTop + (rowHeight - NotifyStateWidget.BAR_H) / 2,
+                    NotifyWidget.ghostColorFor(state.mutableNotifyState().holder.logicalSide())
+                );
+            }
+        }
     }
 
     @Override
@@ -170,10 +189,11 @@ public final class NotifyRow extends TimelineTrackEntry {
                 return true;
             }
 
-            // Handle mouse press of notifies
+            // Handle mouse press of notifies. A pressed notify selects its row, which the DELETE key acts on
             for (NotifyWidget w : notifyWidgets) {
                 if (w.isMouseOver(event.x(), event.y()) && w.mouseClicked(event, doubleClick)) {
                     setFocused(w); setDragging(true);
+                    parent.setSelectedRow(this);
                     return true;
                 }
             }
@@ -181,6 +201,7 @@ public final class NotifyRow extends TimelineTrackEntry {
             for (NotifyStateWidget w : notifyStateWidgets) {
                 if (w.isMouseOver(event.x(), event.y()) && w.mouseClicked(event, doubleClick)) {
                     setFocused(w); setDragging(true);
+                    parent.setSelectedRow(this);
                     return true;
                 }
             }
@@ -318,36 +339,15 @@ public final class NotifyRow extends TimelineTrackEntry {
             .entry()
                 .predicate(() -> parent.getSelected() != null)
                 .message(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_CONTEXT_REMOVE_NOTIFY))
-                .onPress(_ -> removeSelectedNotify())
+                .onPress(_ -> parent.removeSelectedNotify())
                 .done()
             .build();
     }
 
-    private void removeSelectedNotify() {
-        var ref = parent.getSelected();
-
-        if (ref instanceof NotifyTrackHolder.NotifyRef.Point(
-            NotifyTrackHolder.Track t, NotifyTrackHolder.MutableNotify mutableNotify
-        )) {
-            int index = t.notifies.indexOf(mutableNotify);
-            t.notifies.remove(mutableNotify);
-
-            HistoryManager.getInstance().pushHistory(new ListRemove<>(
-                t.notifies, index, mutableNotify, parent::rebuildEntries
-            ));
-        } else if (ref instanceof NotifyTrackHolder.NotifyRef.State(
-            NotifyTrackHolder.Track t, NotifyTrackHolder.MutableNotifyState mutableNotifyState
-        )) {
-            int index = t.notifyStates.indexOf(mutableNotifyState);
-            t.notifyStates.remove(mutableNotifyState);
-
-            HistoryManager.getInstance().pushHistory(new ListRemove<>(
-                t.notifyStates, index, mutableNotifyState, parent::rebuildEntries
-            ));
-        }
-
-        parent.setSelected(null);
-        parent.rebuildEntries();
+    /// The DELETE key removes this track's selected notify or notify state.
+    @Override
+    protected void deleteSelected() {
+        if (parent.getSelected() != null && parent.getSelected().track() == track) parent.removeSelectedNotify();
     }
 
     private <T> void openTypePicker(Component title, Registry<T> registry, Consumer<T> onPick) {

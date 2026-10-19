@@ -2,11 +2,10 @@ package com.yesman.akytheralabs.gui.widget.animation;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.DraggingDataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
-import com.yesman.akytheralabs.editor.historytrack.NotifyStateRangeChange;
 import com.yesman.akytheralabs.editor.historytrack.PendingDataChange;
-import com.yesman.akytheralabs.editor.historytrack.PendingNotifyStateRangeChange;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
@@ -15,7 +14,8 @@ import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 
 /// Windowed mutableNotify-state widget. Three drag modes: drag the left edge, the
-/// right edge, or the body to translate.
+/// right edge, or the body to translate. An edge drag resizes the window live; a body drag moves an
+/// [AnimationTrackEditorPanel.NotifyGhost], and the state takes its place on release.
 public final class NotifyStateWidget extends AbstractWidget {
     public static final int BAR_H = 14;
 
@@ -60,15 +60,11 @@ public final class NotifyStateWidget extends AbstractWidget {
 
     @Override
     protected void extractWidgetRenderState(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
-        int color = NotifyWidget.colorFor(model.holder.logicalSide());
         int x1 = getX();
         int x2 = x1 + getWidth();
         int y = getY();
 
-        g.fill(x1, y, x2, y + BAR_H, color);
-        // Edge highlights
-        g.fill(x1, y, x1 + 2, y + BAR_H, 0xFF000000);
-        g.fill(x2 - 2, y, x2, y + BAR_H, 0xFF000000);
+        drawBar(g, x1, x2, y, NotifyWidget.colorFor(model.holder.logicalSide()));
 
         // Selection outline
         if (parent.getSelected() instanceof NotifyTrackHolder.NotifyRef.State s && s.mutableNotifyState() == model) {
@@ -100,8 +96,10 @@ public final class NotifyStateWidget extends AbstractWidget {
         else if (Math.abs(event.x() - rightX) <= threshold) dragMode = DragMode.MOVE_RIGHT_EDGE;
         else dragMode = DragMode.MOVE_WINDOW;
 
+        NotifyTrackHolder.NotifyRef.State dragged = new NotifyTrackHolder.NotifyRef.State(track, model);
+
         dragGrabTime = parent.xToFrame(event.x()) / 60.0F;
-        parent.setSelected(new NotifyTrackHolder.NotifyRef.State(track, model));
+        parent.setSelected(dragged);
 
         switch (dragMode) {
             case MOVE_LEFT_EDGE -> HistoryManager.getInstance().pushHistory(new PendingDataChange<>(
@@ -110,15 +108,14 @@ public final class NotifyStateWidget extends AbstractWidget {
             case MOVE_RIGHT_EDGE -> HistoryManager.getInstance().pushHistory(new PendingDataChange<>(
                 DragMode.MOVE_RIGHT_EDGE, model.to, v -> model.to = v
             ));
-            case MOVE_WINDOW -> HistoryManager.getInstance().pushHistory(new PendingNotifyStateRangeChange(
-                model, model.from, model.to
-            ));
+            case MOVE_WINDOW -> parent.setGhost(new AnimationTrackEditorPanel.NotifyGhost(dragged, placementIn(track, model.from)));
             default -> {}
         }
 
         return true;
     }
 
+    /// Resizes the window by an edge, or moves the ghost by the body.
     @Override
     public boolean mouseDragged(@NonNull MouseButtonEvent event, double dx, double dy) {
         float time = Math.max(0F, parent.xToFrame(event.x()) / 60.0F);
@@ -128,12 +125,18 @@ public final class NotifyStateWidget extends AbstractWidget {
             case MOVE_LEFT_EDGE -> model.from = Math.min(time, model.to - minLength);
             case MOVE_RIGHT_EDGE -> model.to = Math.max(time, model.from + minLength);
             case MOVE_WINDOW -> {
-                float delta = time - dragGrabTime;
-                float width = model.to - model.from;
-                float newFrom = Math.max(0F, model.from + delta);
-                model.from = newFrom;
-                model.to = newFrom + width;
-                dragGrabTime = time;
+                AnimationTrackEditorPanel.NotifyGhost ghost = parent.ghost();
+
+                if (ghost != null && ghost.drags(model)) {
+                    NotifyTrackHolder.Track hovered = parent.notifyTrackAt(event.x(), event.y());
+
+                    parent.setGhost(new AnimationTrackEditorPanel.NotifyGhost(
+                        ghost.dragged(),
+                        placementIn(hovered == null ? ghost.placement().track() : hovered, Math.max(0F, model.from + time - dragGrabTime))
+                    ));
+                }
+
+                return true;
             }
             default -> {
                 return false;
@@ -154,14 +157,44 @@ public final class NotifyStateWidget extends AbstractWidget {
             case MOVE_RIGHT_EDGE -> HistoryManager.getInstance().pushHistory(new DraggingDataChange<>(
                 DragMode.MOVE_RIGHT_EDGE, model.to, v -> model.to = v
             ));
-            case MOVE_WINDOW -> HistoryManager.getInstance().pushHistory(new NotifyStateRangeChange(
-                model, model.from, model.to
-            ));
+            case MOVE_WINDOW -> {
+                AnimationTrackEditorPanel.NotifyGhost ghost = parent.ghost();
+
+                if (ghost != null && ghost.drags(model)) {
+                    AnimationTrackEditorPanel.NotifyPlacement placed = placementIn(track, model.from);
+
+                    parent.setGhost(null);
+
+                    if (!ghost.placement().equals(placed)) {
+                        parent.placeNotifyState(model, ghost.placement());
+
+                        HistoryManager.getInstance().pushHistory(new DataChange<>(
+                            placed, ghost.placement(), placement -> parent.placeNotifyState(model, placement)
+                        ));
+                    }
+                }
+            }
             default -> {}
         }
 
         dragMode = DragMode.NONE;
         return false;
+    }
+
+    /// The notify state's window moved to start at `from` in `target`: at its own index in its own track, else at the
+    /// end.
+    private AnimationTrackEditorPanel.NotifyPlacement placementIn(final NotifyTrackHolder.Track target, final float from) {
+        int index = target == track ? track.notifyStates.indexOf(model) : target.notifyStates.size();
+
+        return new AnimationTrackEditorPanel.NotifyPlacement(target, index, from, from + model.to - model.from);
+    }
+
+    /// Draws a notify state's bar from `x1` to `x2`, its top at `y`.
+    static void drawBar(final GuiGraphicsExtractor g, final int x1, final int x2, final int y, final int color) {
+        g.fill(x1, y, x2, y + BAR_H, color);
+        // Edge highlights
+        g.fill(x1, y, x1 + 2, y + BAR_H, 0xFF000000);
+        g.fill(x2 - 2, y, x2, y + BAR_H, 0xFF000000);
     }
 
     @Override

@@ -8,11 +8,13 @@ import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.client.api.gui.viewer.Ray;
 import com.yesman.akythera.client.api.particle.AkytheraParticleSystem;
 import com.yesman.akythera.core.blueprint.particle.ParticleSystemBlueprint;
+import com.yesman.akythera.core.blueprint.particle.EmitterSpawnRule;
 import com.yesman.akythera.core.blueprint.particle.InstantSpawnRule;
 import com.yesman.akythera.core.blueprint.particle.KeyframeTrack;
 import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleEmitterBlueprint;
 import com.yesman.akythera.core.blueprint.particle.TrailParticleBlueprint;
+import com.yesman.akythera.core.blueprint.particle.TrailSpawnRule;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
@@ -37,8 +39,8 @@ import java.util.Set;
 
 /// Plays the piece a [ParticleBlueprintHolder] builds in [Model3DViewer], with no level: a system with one
 /// [InstantSpawnRule] emitter spawns it at [#ORIGIN], and a new system starts [#REPLAY_DELAY] after the particle is
-/// gone. A trail's system instead turns once around [#SWEEP_CENTER] over the trail's lifetime, so the trail sweeps the
-/// floor. The particles play in a [PreviewParticles].
+/// gone. A trail spawns by a [TrailSpawnRule] instead, and its system turns once about the Z axis over [#SWEEP_TICKS],
+/// so the trail sweeps a disc standing on the floor. The particles play in a [PreviewParticles].
 ///
 /// Focused, by a press on a particle or by a row that names it in [EditorEditable#viewerFocus], it outlines each
 /// particle's bounding box, and a scale gizmo on the first one resizes the box: X and Z both set its width.
@@ -48,8 +50,8 @@ public final class ParticlePreviewComponent implements LocatableComponent {
     /// Where the particle spawns, in the viewer's world space.
     public static final Vec3 ORIGIN = new Vec3(0.0D, 1.0D, 0.0D);
 
-    /// What a trail's system turns around, just above the floor.
-    private static final Vec3 SWEEP_CENTER = new Vec3(0.0D, 0.05D, 0.0D);
+    /// Ticks a trail's system takes to turn once, the time span of its emitter.
+    private static final int SWEEP_TICKS = 20;
 
     private static final int BOUNDING_BOX_COLOR = 0xFFFFCC00;
 
@@ -63,22 +65,9 @@ public final class ParticlePreviewComponent implements LocatableComponent {
     private static final ResourceKey<ParticleBlueprint> PREVIEW_KEY =
         ResourceKey.create(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY, AkytheraLabs.identifier("preview"));
 
-    private static final ParticleSystemBlueprint SYSTEM = new ParticleSystemBlueprint(
-        List.of(new ParticleEmitterBlueprint(
-            "preview",
-            Either.left(PREVIEW_KEY),
-            0.0F,
-            new InstantSpawnRule(1),
-            false,
-            Transform.IDENTITY,
-            Transform.IDENTITY,
-            KeyframeTrack.empty(),
-            KeyframeTrack.empty(),
-            List.of(),
-            List.of()
-        )),
-        List.of()
-    );
+    private static final ParticleSystemBlueprint SYSTEM = previewSystem(new InstantSpawnRule(1));
+
+    private static final ParticleSystemBlueprint TRAIL_SYSTEM = previewSystem(new TrailSpawnRule(SWEEP_TICKS / 20.0F));
 
     private final ParticleBlueprintHolder holder;
 
@@ -151,7 +140,7 @@ public final class ParticlePreviewComponent implements LocatableComponent {
         try {
             for (; pendingTicks >= 1.0F; pendingTicks -= 1.0F) {
                 if (particles.isEmpty() && idleTicks++ >= REPLAY_DELAY) {
-                    system = new AkytheraParticleSystem(null, SYSTEM, systemTransformAt(0), null, particles);
+                    system = new AkytheraParticleSystem(null, playing instanceof TrailParticleBlueprint ? TRAIL_SYSTEM : SYSTEM, systemTransformAt(0), null, particles);
                     particles.addSystem(system);
                     playTicks = 0;
                     idleTicks = 0;
@@ -187,14 +176,34 @@ public final class ParticlePreviewComponent implements LocatableComponent {
         }
     }
 
-    /// Where the system stands `ticks` into a play: at [#ORIGIN], or for a trail, turned `ticks / lifetime` of the way
-    /// around [#SWEEP_CENTER].
+    /// Where the system stands `ticks` into a play: at [#ORIGIN], or for a trail, turned `ticks / SWEEP_TICKS` of the way
+    /// about the Z axis through a point one trail length above the floor.
     private Transform systemTransformAt(final int ticks) {
         if (!(playing instanceof TrailParticleBlueprint trail)) return Transform.fromTranslation(ORIGIN);
 
-        double turns = (double)ticks / trail.properties().lifetime();
+        double turns = (double)ticks / SWEEP_TICKS;
 
-        return Transform.of(SWEEP_CENTER, new Quaterniond().rotateY(turns * Mth.TWO_PI), new Vec3(1.0D, 1.0D, 1.0D));
+        return Transform.of(new Vec3(0.0D, trail.length() + 0.05D, 0.0D), new Quaterniond().rotateZ(turns * Mth.TWO_PI), new Vec3(1.0D, 1.0D, 1.0D));
+    }
+
+    /// A system of one emitter that spawns the previewed piece by `spawn`.
+    private static ParticleSystemBlueprint previewSystem(final EmitterSpawnRule spawn) {
+        return new ParticleSystemBlueprint(
+            List.of(new ParticleEmitterBlueprint(
+                "preview",
+                Either.left(PREVIEW_KEY),
+                0.0F,
+                spawn,
+                false,
+                Transform.IDENTITY,
+                Transform.IDENTITY,
+                KeyframeTrack.empty(),
+                KeyframeTrack.empty(),
+                List.of(),
+                List.of()
+            )),
+            List.of()
+        );
     }
 
     /// Writes a bounding box size: X the width, Y the height.

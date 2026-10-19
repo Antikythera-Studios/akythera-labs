@@ -87,7 +87,8 @@ public @interface EditorEditable {
     /// Fills an [EditorComboBox] from the named method, resolved like [#setter] but on the class
     /// declaring the field, which returns the values the field may hold as a [List]. The method takes
     /// no parameter, or one the fill's **context** object is assignable to — a Details row's context
-    /// being the shown holder's parent.
+    /// being the shown holder's parent — else one the factory's **root**, the blueprint holder the fills
+    /// belong to ([EditorWidgetFactory#root]), is assignable to.
     String candidates() default "";
 
     /// For [#candidates] rows only; ignored otherwise. Names the method, resolved like [#candidates],

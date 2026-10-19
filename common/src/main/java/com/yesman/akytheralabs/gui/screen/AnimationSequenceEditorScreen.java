@@ -16,6 +16,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
+import com.yesman.akytheralabs.akythera.animation.PreviewItem;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
@@ -32,6 +33,7 @@ import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.animation.AnimationTrackEditorPanel;
 import com.yesman.akytheralabs.gui.widget.animation.NotifyRow;
+import com.yesman.akytheralabs.gui.widget.animation.PreviewItemSelectModal;
 import com.yesman.akytheralabs.gui.widget.animation.TimelineTrackEntry;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
@@ -39,6 +41,8 @@ import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
+import com.yesman.akytheralabs.gui.widget.viewer.NotifyParticlePreviewComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.PreviewPatchComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -103,6 +107,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
+                .on(TopMenuOption.SELECT_PREVIEW_ITEM, this::openPreviewItemSelectModal)
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -119,6 +124,8 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         model3DViewer.addComponent(new CameraComponent(true));
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
+        model3DViewer.addComponent(new PreviewPatchComponent(holder::getPreviewEntityType, holder::getPreviewItems));
+        model3DViewer.addComponent(new NotifyParticlePreviewComponent(holder::getNotifyTrackHolder));
         EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, holder.getPreviewEntityType(), true, true);
 
         propertiesHeader = new PanelHeader(
@@ -214,6 +221,16 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         addRenderableWidget(model3DViewer);
         addRenderableWidget(propertiesHeader);
         addRenderableWidget(propertiesTable);
+    }
+
+    /// Picks the preview items. A change lands on the undo stack.
+    private void openPreviewItemSelectModal() {
+        PreviewItemSelectModal.open(font, model3DViewer, holder.getPreviewItems(), items -> {
+            List<PreviewItem> previous = holder.getPreviewItems();
+
+            holder.setPreviewItems(items);
+            HistoryManager.getInstance().pushHistory(new DataChange<>(previous, holder.getPreviewItems(), holder::setPreviewItems));
+        });
     }
 
     private void openPreviewModelSelectModal() {

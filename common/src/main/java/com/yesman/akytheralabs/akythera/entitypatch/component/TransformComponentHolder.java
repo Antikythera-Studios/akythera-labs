@@ -46,7 +46,6 @@ public interface TransformComponentHolder {
 
             if (holder instanceof MeshComponentHolder mesh && mesh.getMesh() != null && !mesh.getMesh().checkType(AssetAccessor.Type.STATIC_MESH)
                 || holder instanceof SkinnedArmorRendererHolder
-                || holder instanceof ItemInSlotRendererHolder item && item.isModel3d()
             ) {
                 for (ComponentAttachableHolder walked = host; walked != null; walked = walked instanceof ComponentDataHolder<?> data ? hostOf.apply(data) : null) {
                     if (walked instanceof ArmatureComponentHolder armature) return modelTransform(armature);

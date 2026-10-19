@@ -266,12 +266,12 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
         return flagged.contains(emitter) && !emitter.hasParticle();
     }
 
-    /// Opens the menu that keys the selected emitter's pivot or emitter transform at the playhead, at `x` / `y`. Only a
-    /// [ParticleEmitterHolder.SpawnType#SPAWN_RATE] emitter takes keys.
+    /// Opens the menu that keys the selected emitter's pivot or emitter transform at the playhead, at `x` / `y`. Only an
+    /// emitter with a time span ([ParticleEmitterHolder#hasTimeSpan]) takes keys.
     ///
     /// @return whether the menu opened
     public boolean openInsertMenu(final int x, final int y) {
-        if (selected == null || selected.getSpawnType() != ParticleEmitterHolder.SpawnType.SPAWN_RATE) return false;
+        if (selected == null || !selected.hasTimeSpan()) return false;
 
         ModalManager.getInstance().openModalWidget(insertMenu, x, y);
 
@@ -719,7 +719,7 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
             for (CopiedKey key : clipboard) {
                 ParticleEmitterHolder target = oneSource && selected != null ? selected : key.emitter();
 
-                if (!holder.getEmitters().contains(target) || target.getSpawnType() != ParticleEmitterHolder.SpawnType.SPAWN_RATE) continue;
+                if (!holder.getEmitters().contains(target) || !target.hasTimeSpan()) continue;
 
                 before.putIfAbsent(target, target.getTimeline());
                 target.insertKey(key.channel(), key.seconds() + offset, key.value());

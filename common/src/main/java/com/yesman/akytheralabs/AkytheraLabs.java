@@ -5,12 +5,14 @@ import com.yesman.akythera.api.animation.notify.impl.LockMovementNotifyState;
 import com.yesman.akythera.api.animation.notify.impl.LogNotify;
 import com.yesman.akythera.api.animation.notify.impl.LogNotifyState;
 import com.yesman.akythera.api.animation.notify.impl.PlaySoundNotify;
+import com.yesman.akythera.api.animation.notify.impl.TrailParticleNotifyState;
 import com.yesman.akytheralabs.dataholder.DataHolderMapper;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.CancelOnMoveNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.LockMovementNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.LogNotifyHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.LogNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.PlaySoundNotifyHolder;
+import com.yesman.akytheralabs.akythera.animation.notify.impl.TrailParticleNotifyStateHolder;
 import net.minecraft.resources.Identifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,5 +43,6 @@ public class AkytheraLabs {
         DataHolderMapper.registerNotifyState(LogNotifyState.CODEC, LogNotifyStateHolder::new);
         DataHolderMapper.registerNotifyState(LockMovementNotifyState.CODEC, LockMovementNotifyStateHolder::new);
         DataHolderMapper.registerNotifyState(CancelOnMoveNotifyState.CODEC, CancelOnMoveNotifyStateHolder::new);
+        DataHolderMapper.registerNotifyState(TrailParticleNotifyState.CODEC, TrailParticleNotifyStateHolder::new);
     }
 }

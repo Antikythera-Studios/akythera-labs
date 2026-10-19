@@ -4,6 +4,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.animation.notify.impl.LogNotifyState;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.core.util.LogicalSide;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
@@ -46,7 +47,7 @@ public final class LogNotifyStateHolder extends AnimationNotifyStateHolder<LogNo
     }
 
     @Override
-    public void simulateBegin(Model3DViewer previewer) {
+    public void simulateBegin(Model3DViewer previewer, TimeWindow window) {
         AkytheraLabs.LOGGER.info("Debug notify state: begin notified in previewer");
     }
 

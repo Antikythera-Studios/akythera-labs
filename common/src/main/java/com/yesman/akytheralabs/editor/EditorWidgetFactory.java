@@ -686,6 +686,11 @@ public final class EditorWidgetFactory {
     @Nullable
     private Model3DViewer viewer;
 
+    /// The blueprint holder every fill of this factory belongs to, offered to [EditorEditable#candidates] where the
+    /// method wants it and not the fill's context. Null where the fills belong to none.
+    @Nullable
+    private Object root;
+
     /// The viewer component types the rows of this factory's fills name in [EditorEditable#viewerFocus].
     private final Set<Class<? extends Model3DViewerComponent>> viewerFocusTypes = new HashSet<>();
 
@@ -695,6 +700,12 @@ public final class EditorWidgetFactory {
 
     public EditorWidgetFactory(Font font) {
         this.font = font;
+    }
+
+    /// Hands the fills of this factory the blueprint holder they belong to, see [EditorEditable#candidates].
+    public EditorWidgetFactory root(final Object root) {
+        this.root = root;
+        return this;
     }
 
     /// Hands the fills of this factory a viewer, see [EditorEditable#direction] and [EditorEditable#viewerFocus].
@@ -2573,7 +2584,7 @@ public final class EditorWidgetFactory {
     ///
     /// The list is snapshotted per fill. A stored value it does not contain still displays.
     private static List<? extends AbstractWidget> candidateCombo(EditorWidgetFactory factory, ValueSlot slot) {
-        List<Object> candidates = resolveListMethod(slot, factory.context, slot.annotation().candidates());
+        List<Object> candidates = resolveListMethod(slot, factory.context, factory.root, slot.annotation().candidates());
         Function<Object, Component> label = candidateMapper(slot, slot.annotation().candidateLabel(), "candidateLabel");
         Function<Object, Component> category = candidateMapper(slot, slot.annotation().candidateCategory(), "candidateCategory");
 
@@ -2630,9 +2641,9 @@ public final class EditorWidgetFactory {
     }
 
     /// Invokes the [EditorEditable] method `name` names on the slot's owner, resolved on the class
-    /// declaring the field. A name matching no such method throws; a context the method wants but
-    /// this fill did not supply yields no values.
-    private static List<Object> resolveListMethod(ValueSlot slot, @Nullable Object context, String name) {
+    /// declaring the field, with the fill's context, else the factory's root, when the method takes one. A name matching
+    /// no such method throws; a parameter neither fits yields no values.
+    private static List<Object> resolveListMethod(ValueSlot slot, @Nullable Object context, @Nullable Object root, String name) {
         Method source = findEditorMethod(declaringClassOf(slot), name, 1);
 
         if (!List.class.isAssignableFrom(source.getReturnType())) {
@@ -2644,9 +2655,12 @@ public final class EditorWidgetFactory {
         Object[] args = new Object[source.getParameterCount()];
 
         if (args.length == 1) {
-            // isInstance(null) is false, so a fill with no context takes this exit too.
-            if (!source.getParameterTypes()[0].isInstance(context)) return List.of();
-            args[0] = context;
+            Class<?> parameter = source.getParameterTypes()[0];
+
+            // isInstance(null) is false, so a fill with neither takes this exit too.
+            if (parameter.isInstance(context)) args[0] = context;
+            else if (parameter.isInstance(root)) args[0] = root;
+            else return List.of();
         }
 
         List<?> values = (List<?>) invokeEditorMethod(source, slot.owner(), args);
@@ -2816,7 +2830,7 @@ public final class EditorWidgetFactory {
             registries = List.of(currentKey.registryKey());
         } else {
             registries = (List<ResourceKey<? extends Registry<T>>>) (List<?>)
-                resolveListMethod(slot, context, named);
+                resolveListMethod(slot, context, root, named);
 
             // A slot that names a registry list and gets none back is miswired, not in a state.
             if (registries.isEmpty()) {

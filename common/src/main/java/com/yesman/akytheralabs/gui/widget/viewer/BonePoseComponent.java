@@ -82,7 +82,7 @@ public final class BonePoseComponent implements LocatableComponent {
         return view.rayTrace(owner, ray);
     }
 
-    /// Picks the bone under the cursor and raises the gizmo onto it. A freshly raised gizmo starts in
+    /// Picks the bone under the cursor and raises the gizmo onto it. The viewer's first gizmo starts in
     /// [GizmoComponent.Mode#ROTATE], which is what posing is done with.
     @Override
     public void onFocused(final Model3DViewer owner) {

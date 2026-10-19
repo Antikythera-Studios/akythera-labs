@@ -12,7 +12,7 @@ import java.util.EnumSet;
 import java.util.Set;
 
 /// A [Model3DViewerComponent] that sits somewhere: focusing one raises a [GizmoComponent] bound to
-/// it, and focusing anything else drops the gizmo again.
+/// it, and focusing anything else unbinds the gizmo again.
 ///
 /// The transform is split into the space the component is placed in and the offset it is edited by
 /// — a bone socket is drawn at `bone × offset` but the author edits `offset`. The gizmo draws at the
@@ -66,7 +66,9 @@ public interface LocatableComponent extends Model3DViewerComponent {
         gizmo.installModeButtons(owner);
     }
 
-    /// Hands the gizmo to `newFocus` when it is locatable too, and drops it otherwise.
+    /// Hands the gizmo to `newFocus` when it is locatable too, and unbinds it otherwise. An unbound gizmo stays in the
+    /// viewer, drawing nothing, so its mode and orientation outlive a focus that a rebuild of the stand-ins clears and
+    /// sets again.
     @Override
     default void onReleased(final Model3DViewer owner, final @Nullable Model3DViewerComponent newFocus) {
         GizmoComponent gizmo = owner.getComponent(GizmoComponent.class);
@@ -75,7 +77,7 @@ public interface LocatableComponent extends Model3DViewerComponent {
 
         gizmo.removeModeButtons(owner);
 
-        if (!(newFocus instanceof LocatableComponent)) owner.removeComponent(gizmo);
+        if (!(newFocus instanceof LocatableComponent)) gizmo.bind(null);
     }
 
     /// The press reaches the gizmo through here — it is a sibling in the viewer and never focused,

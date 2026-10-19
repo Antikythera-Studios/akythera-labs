@@ -56,7 +56,7 @@ public final class EmitterKeyRow extends TimelineTrackEntry {
     protected void extractTrackArea(@NonNull GuiGraphicsExtractor g, int mouseX, int mouseY, float a) {
         int centerY = getContentY() + getContentHeight() / 2;
 
-        if (emitter.getSpawnType() == ParticleEmitterHolder.SpawnType.SPAWN_RATE) {
+        if (emitter.hasTimeSpan()) {
             int x1 = parent.frameToX(emitter.getStart() * 60.0F);
             int x2 = parent.frameToX((emitter.getStart() + emitter.getDuration()) * 60.0F);
 

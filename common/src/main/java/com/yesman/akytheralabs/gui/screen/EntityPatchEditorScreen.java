@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.gui.screen;
 import com.yesman.akythera.api.animation.animator.Animator;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.component.PatchComponent;
+import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.ExecutionRecord;
@@ -48,7 +49,7 @@ import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentH
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.EntityPatchComponentHolders;
-import com.yesman.akytheralabs.akythera.entitypatch.component.ItemInSlotRendererHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.EquipmentSlotBinderHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.MeshComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.SkinnedArmorRendererHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformComponentHolder;
@@ -57,6 +58,7 @@ import com.yesman.akytheralabs.akythera.physics.ClothPhysicsDataHolder;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
+import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
@@ -156,7 +158,7 @@ public final class EntityPatchEditorScreen extends Screen
     private final List<EntityModelComponent> meshPreviews = new ArrayList<>();
 
     /// The item model drawn for each item renderer that draws one, which a focus on that component drags.
-    private final Map<ItemInSlotRendererHolder, ItemModelComponent> equipmentPreviews = new IdentityHashMap<>();
+    private final Map<EquipmentSlotBinderHolder, ItemModelComponent> equipmentPreviews = new IdentityHashMap<>();
 
     /// The marker raised for the focused armature or mesh, neither of which has a stand-in of its own. Null while the
     /// focus is elsewhere.
@@ -388,7 +390,7 @@ public final class EntityPatchEditorScreen extends Screen
 
         // Details (right): the focused component, the picked function's signature, or else the parent's
         // properties
-        detailsPanel = new ComponentDetailsPanel(minecraft.font, this, session::onSignaturesEdited);
+        detailsPanel = new ComponentDetailsPanel(minecraft.font, this, session::onSignaturesEdited).root(holder);
         detailsPanel.showSlots(session.propertySlots());
         session.setFunctionSelectionHandler(function -> {
             if (function != null) {
@@ -781,7 +783,7 @@ public final class EntityPatchEditorScreen extends Screen
         @Nullable ComponentDataHolder<?> component, @Nullable ComponentAttachableHolder host
     ) {
         Runnable onWrite = component instanceof MeshComponentHolder
-            || component instanceof ItemInSlotRendererHolder
+            || component instanceof EquipmentSlotBinderHolder
             || component instanceof SkinnedArmorRendererHolder
             ? () -> minecraft.execute(this::rebuildSocketPreviews)
             : null;
@@ -807,8 +809,8 @@ public final class EntityPatchEditorScreen extends Screen
             case TransformSocketHolder socket -> previewOf(socket);
             case ColliderComponentHolder collider -> colliderPreviewOf(collider);
             case SkinnedArmorRendererHolder armor -> addFocusMarker(armor);
-            case ItemInSlotRendererHolder item when item.isModel3d() -> addFocusMarker(item);
-            case ItemInSlotRendererHolder item -> equipmentPreviews.get(item);
+            case EquipmentSlotBinderHolder item when item.isModel3d() -> hostOf(item) instanceof TransformSocketHolder socket ? previewOf(socket) : null;
+            case EquipmentSlotBinderHolder item -> equipmentPreviews.get(item);
             case ArmatureComponentHolder armature -> addFocusMarker(armature);
             case MeshComponentHolder mesh -> addFocusMarker(mesh);
             case null, default -> null;
@@ -922,18 +924,18 @@ public final class EntityPatchEditorScreen extends Screen
             .forEach(armor -> addWornPreview(armor, model));
 
         ComponentAttachableHolder.flattenEnabled(holder)
-            .filter(ItemInSlotRendererHolder.class::isInstance)
-            .map(ItemInSlotRendererHolder.class::cast)
+            .filter(EquipmentSlotBinderHolder.class::isInstance)
+            .map(EquipmentSlotBinderHolder.class::cast)
             .filter(equipment -> !equipment.isModel3d())
             .forEach(equipment -> {
                 ItemModelComponent itemModel = new ItemModelComponent(equipment::getPreviewItem);
 
                 itemModel.setDisplayContextSource(equipment::getItemDisplayContext);
                 itemModel.placeUnder(
-                    () -> space.parentTransform(equipment),
-                    equipment.getLocalTransform(),
-                    equipment::getTransformInheritPolicy,
-                    () -> detailsPanel.showComponent(equipment, hostOf(equipment)));
+                    () -> hostOf(equipment) instanceof TransformComponentHolder socket ? space.modelTransform(socket) : Transform.IDENTITY,
+                    TransformHolder.identity(),
+                    () -> TransformInheritPolicy.LOC_ROT_SCA,
+                    null);
 
                 equipmentPreviews.put(equipment, itemModel);
                 model3DViewer.addComponent(itemModel);

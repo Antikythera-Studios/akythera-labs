@@ -7,16 +7,19 @@ import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent.EditorScrubAnimator;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.animation.notify.AnimationNotifyTrack;
+import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.core.util.helper.MathUtils;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.akythera.animation.PlayableAnimationHolder;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ListInsert;
+import com.yesman.akytheralabs.editor.historytrack.ListRemove;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.EditorEditBox;
+import com.yesman.akytheralabs.gui.widget.viewer.NotifyParticlePreviewComponent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -102,6 +105,9 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     /// Currently opened model previewer
     private final Model3DViewer model3DViewer;
     private NotifyTrackHolder.@Nullable NotifyRef selected;
+
+    /// The dragged notify or notify state's landing place, or null while none is dragged.
+    private @Nullable NotifyGhost ghost;
 
     /// Footer children.
     private final AkytheraButton playButton;
@@ -210,10 +216,12 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         return String.format("%.1f", currentFrame);
     }
 
+    /// Moves the playhead, removing the particles notify states play in the preview.
     @Override
     public void setCurrentFrame(float frame) {
         if (isDebugDriven()) return;
 
+        clearNotifyParticles();
         applyCurrentFrame(frame);
     }
 
@@ -234,10 +242,19 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         return playing;
     }
 
+    /// A pause removes the particles notify states play in the preview.
     public void setPlaying(boolean playing) {
         if (isDebugDriven()) return;
 
+        if (!playing) clearNotifyParticles();
+
         applyPlaying(playing);
+    }
+
+    private void clearNotifyParticles() {
+        NotifyParticlePreviewComponent particles = model3DViewer.getComponent(NotifyParticlePreviewComponent.class);
+
+        if (particles != null) particles.clear();
     }
 
     /// Writes the playback state past the [#isDebugDriven] gate.
@@ -248,14 +265,17 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         if (a != null) a.setUpdatePose(playing);
     }
 
-    /// Fires the notifies left before the end and returns the playhead to 0. Stops unless the animation loops.
+    /// Fires the notifies left before the end and returns the playhead to 0. Stops unless the animation loops. The
+    /// particles notify states play stay to their end.
     public void onPlaybackEnds() {
         EditorScrubAnimator headlessAnimator = getHeadlessAnimator();
         if (headlessAnimator != null) simulateNotifies(headlessAnimator.getElapsedTime());
 
-        if (!playableAnimationHolder.loops()) setPlaying(false);
+        if (isDebugDriven()) return;
 
-        setCurrentFrame(0F);
+        if (!playableAnimationHolder.loops()) applyPlaying(false);
+
+        applyCurrentFrame(0F);
     }
 
     /// Plays every notify and notify state the playhead passes from [#simulatedTime] to `toTime`, by the
@@ -269,7 +289,7 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
             }
 
             for (NotifyTrackHolder.MutableNotifyState state : track.notifyStates) {
-                if (fromTime < state.from && state.from <= toTime) state.holder.simulateBegin(model3DViewer);
+                if (fromTime < state.from && state.from <= toTime) state.holder.simulateBegin(model3DViewer, TimeWindow.create(state.from, state.to));
                 if (state.from < toTime && fromTime <= state.to) state.holder.simulateTick(model3DViewer, fromTime, toTime);
                 if (fromTime < state.to && state.to <= toTime) state.holder.simulateEnd(model3DViewer);
             }
@@ -354,6 +374,91 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
     public NotifyTrackHolder.@Nullable NotifyRef getSelected() {
         return selected;
+    }
+
+    /// Removes the selected notify or notify state, recorded for undo.
+    public void removeSelectedNotify() {
+        switch (selected) {
+            case NotifyTrackHolder.NotifyRef.Point(NotifyTrackHolder.Track track, NotifyTrackHolder.MutableNotify notify) -> {
+                int index = track.notifies.indexOf(notify);
+                track.notifies.remove(notify);
+
+                HistoryManager.getInstance().pushHistory(new ListRemove<>(track.notifies, index, notify, this::rebuildEntries));
+            }
+            case NotifyTrackHolder.NotifyRef.State(NotifyTrackHolder.Track track, NotifyTrackHolder.MutableNotifyState state) -> {
+                int index = track.notifyStates.indexOf(state);
+                track.notifyStates.remove(state);
+
+                HistoryManager.getInstance().pushHistory(new ListRemove<>(track.notifyStates, index, state, this::rebuildEntries));
+            }
+            case null -> {
+                return;
+            }
+        }
+
+        setSelected(null);
+        rebuildEntries();
+    }
+
+    /// The notify track whose row is at `x` / `y`, or null when no notify row is there.
+    public NotifyTrackHolder.@Nullable Track notifyTrackAt(final double x, final double y) {
+        return trackList.getChildAt(x, y).orElse(null) instanceof NotifyRow row ? row.track : null;
+    }
+
+    /// Moves `notify` to `placement`, out of whichever track holds it, and follows it with the selection.
+    public void placeNotify(final NotifyTrackHolder.MutableNotify notify, final NotifyPlacement placement) {
+        holder.getTracks().forEach(track -> track.notifies.remove(notify));
+        placement.track().notifies.add(Math.min(placement.index(), placement.track().notifies.size()), notify);
+        notify.time = placement.from();
+
+        if (selected instanceof NotifyTrackHolder.NotifyRef.Point point && point.mutableNotify() == notify) {
+            setSelected(new NotifyTrackHolder.NotifyRef.Point(placement.track(), notify));
+        }
+
+        rebuildEntries();
+    }
+
+    /// Moves `state` to `placement`, out of whichever track holds it, and follows it with the selection.
+    public void placeNotifyState(final NotifyTrackHolder.MutableNotifyState state, final NotifyPlacement placement) {
+        holder.getTracks().forEach(track -> track.notifyStates.remove(state));
+        placement.track().notifyStates.add(Math.min(placement.index(), placement.track().notifyStates.size()), state);
+        state.from = placement.from();
+        state.to = placement.to();
+
+        if (selected instanceof NotifyTrackHolder.NotifyRef.State ref && ref.mutableNotifyState() == state) {
+            setSelected(new NotifyTrackHolder.NotifyRef.State(placement.track(), state));
+        }
+
+        rebuildEntries();
+    }
+
+    /// Where a notify or notify state sits, as one undo value of a drag that may change its track.
+    ///
+    /// @param index its index in the track's list
+    /// @param from  a notify's time, or a notify state's start, in seconds
+    /// @param to    a notify state's end, in seconds. Equal to `from` for a notify
+    public record NotifyPlacement(NotifyTrackHolder.Track track, int index, float from, float to) {
+    }
+
+    public @Nullable NotifyGhost ghost() {
+        return ghost;
+    }
+
+    public void setGhost(@Nullable NotifyGhost ghost) {
+        this.ghost = ghost;
+    }
+
+    /// A dragged notify or notify state, drawn translucent at the placement it takes on release.
+    ///
+    /// @param dragged the notify or notify state in the track it is dragged from
+    public record NotifyGhost(NotifyTrackHolder.NotifyRef dragged, NotifyPlacement placement) {
+        /// Whether `notify` is the [NotifyTrackHolder.MutableNotify] or [NotifyTrackHolder.MutableNotifyState] dragged.
+        public boolean drags(final Object notify) {
+            return switch (dragged) {
+                case NotifyTrackHolder.NotifyRef.Point point -> point.mutableNotify() == notify;
+                case NotifyTrackHolder.NotifyRef.State state -> state.mutableNotifyState() == notify;
+            };
+        }
     }
 
     /// Row-level selection (which name block is highlighted), delegated to the list.
@@ -556,6 +661,12 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
+        // A right press during a notify drag cancels it
+        if (event.button() == 1 && ghost != null) {
+            ghost = null;
+            return true;
+        }
+
         // While a row is renaming, route input to its inline editor first; clicks outside
         // it commit and dismiss before falling through to the normal hit-test.
         TimelineTrackEntry editing = editingRow();

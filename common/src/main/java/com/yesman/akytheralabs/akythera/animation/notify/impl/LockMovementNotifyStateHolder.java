@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.akythera.animation.notify.impl;
 
 import com.yesman.akythera.api.animation.notify.impl.LockMovementNotifyState;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.core.util.LogicalSide;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
@@ -34,7 +35,7 @@ public final class LockMovementNotifyStateHolder extends AnimationNotifyStateHol
     }
 
     @Override
-    public void simulateBegin(Model3DViewer previewer) {
+    public void simulateBegin(Model3DViewer previewer, TimeWindow window) {
     }
 
     @Override

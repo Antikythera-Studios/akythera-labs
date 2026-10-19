@@ -78,6 +78,12 @@ public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelAre
         addWidget(table);
     }
 
+    /// Hands the rows the blueprint holder they belong to, see [EditorWidgetFactory#root].
+    public ComponentDetailsPanel root(final Object root) {
+        factory.root(root);
+        return this;
+    }
+
     /// Hands the rows a viewer, see [EditorWidgetFactory#viewer].
     public ComponentDetailsPanel viewer(final Model3DViewer viewer) {
         factory.viewer(viewer);

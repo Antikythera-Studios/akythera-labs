@@ -7,6 +7,7 @@ import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.client.api.particle.AkytheraParticleEmitter;
 import com.yesman.akythera.client.api.particle.AkytheraParticleSystem;
+import com.yesman.akythera.client.api.particle.AkytheraTrailParticle;
 import com.yesman.akythera.client.api.particle.ParticleHost;
 import com.yesman.akythera.client.api.particle.module.DataDrivenParticleModule;
 import com.yesman.akythera.client.api.particle.module.ParticleInitializerModule;
@@ -44,8 +45,14 @@ import java.util.Optional;
 /// the play and removes the orphans there. Emitters that name no particle are left out. An edit to the emitters restarts a running
 /// play, and rebuilds a paused one at its next [#play].
 ///
+/// A frame draws the particles between the system's last two ticks, so while playing [#time] answers that drawn time,
+/// one tick behind the last tick, and a paused play draws the last tick itself.
+///
 /// The pieces and the module node graphs the emitters name come from the open project, else from the loaded registry.
 public final class ParticleSystemPreviewComponent implements Model3DViewerComponent {
+    /// Two times closer than this, in seconds, are the same tick.
+    private static final float TIME_EPSILON = 1.0E-4F;
+
     private final ParticleSystemHolder holder;
     private final PreviewParticles particles = new PreviewParticles(ParticleSystemPreviewComponent::piece);
 
@@ -63,8 +70,14 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
     /// Whether the playhead moved since the particles last ticked.
     private boolean seeked;
 
-    /// The playhead, in seconds, at the last tick or seek.
+    /// The playhead, in seconds: the system's time at its last tick, or where it was seeked to.
     private float time;
+
+    /// The system's time at its next tick, in seconds.
+    private float nextTick;
+
+    /// The playhead the running play started from, in seconds.
+    private float playStart;
 
     /// Ticks not played yet, below one. Also the partial tick frames are drawn at.
     private float pendingTicks;
@@ -102,12 +115,15 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
             system.seek(time);
             particles.addSystem(system);
             source = current;
+            nextTick = time;
         } else if (seeked) {
             system.seek(time);
+            nextTick = time;
         }
 
         seeked = false;
         playing = true;
+        playStart = time;
     }
 
     /// Builds the system again: at once for a running play, which starts over, else at the next [#play].
@@ -135,10 +151,12 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
         system = null;
         source = null;
         time = 0.0F;
+        nextTick = 0.0F;
         pendingTicks = 0.0F;
     }
 
-    /// Freezes the particles, moves the playhead to `seconds` within the preview's end, and removes the orphans.
+    /// Freezes the particles, moves the playhead to `seconds` within the preview's end, and removes the orphans and the
+    /// trails. A trail whose emitter covers the playhead spawns again there at the next [#play].
     public void seek(final float seconds) {
         playing = false;
         finished = false;
@@ -146,6 +164,7 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
         time = Math.clamp(seconds, 0.0F, endTime());
         pendingTicks = 0.0F;
         removeOrphans();
+        particles.removeParticles(particle -> particle instanceof AkytheraTrailParticle);
     }
 
     /// Removes the particles whose emitter is not in the track, or whose emitter's time span does not cover the
@@ -169,9 +188,9 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
         return playing;
     }
 
-    /// The playhead, in seconds, between ticks while playing.
+    /// The playhead, in seconds: the time the particles are drawn at.
     public float time() {
-        return playing ? Math.min(time + pendingTicks / 20.0F, endTime()) : time;
+        return playing ? Math.clamp(time + (pendingTicks - 1.0F) / 20.0F, playStart, endTime()) : time;
     }
 
     @Override
@@ -192,9 +211,10 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
 
             // A half-configured piece may throw while playing
             try {
-                for (; pendingTicks >= 1.0F && time < end; pendingTicks -= 1.0F) {
+                for (; pendingTicks >= 1.0F && nextTick <= end + TIME_EPSILON; pendingTicks -= 1.0F) {
                     particles.tick();
-                    time = Math.min(time + 0.05F, end);
+                    time = Math.min(nextTick, end);
+                    nextTick += 0.05F;
                 }
 
                 particles.frameUpdate(a * 0.05F, pendingTicks);
@@ -204,14 +224,14 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
                 return;
             }
 
-            if (time >= end) {
+            if (nextTick > end + TIME_EPSILON) {
                 pause();
                 finished = true;
                 pendingTicks = 0.0F;
             }
         }
 
-        particles.draw(model3DViewer, poseStack, byteBuffer, pendingTicks);
+        particles.draw(model3DViewer, poseStack, byteBuffer, playing ? pendingTicks : 1.0F);
     }
 
     @Override
@@ -226,7 +246,7 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
     }
 
     /// The piece `key` names: the open project's, else the loaded registry's. Null when neither has one that builds.
-    private static @Nullable ParticleBlueprint piece(final ResourceKey<ParticleBlueprint> key) {
+    static @Nullable ParticleBlueprint piece(final ResourceKey<ParticleBlueprint> key) {
         AkytheraProject project = AkytheraProject.getCurrentProjectOrNull();
         ParticleBlueprintHolder projectPiece = project == null ? null : project.<ParticleBlueprint, ParticleBlueprintHolder>getDataHolder(key).orElse(null);
 
@@ -239,7 +259,7 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
 
     /// The part of a holder a play is built from: the emitters that name a particle, with the modules the open project
     /// holds as [ProjectInitializer] and [ProjectUpdater]. Two are equal when they play the same.
-    private record Source(List<ParticleEmitterBlueprint> emitters) {
+    record Source(List<ParticleEmitterBlueprint> emitters) {
         /// Null while an emitter does not build, such as one with a module graph that does not compile.
         static @Nullable Source of(final ParticleSystemHolder holder) {
             AkytheraProject project = AkytheraProject.getCurrentProject();

@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.akythera.animation.notify;
 import com.google.gson.JsonElement;
 import com.yesman.akythera.api.animation.notify.AnimationNotifyState;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.core.util.LogicalSide;
 import org.jspecify.annotations.Nullable;
 
@@ -34,7 +35,7 @@ public final class FailedAnimationNotifyStateHolder extends AnimationNotifyState
     }
 
     @Override
-    public void simulateBegin(Model3DViewer previewer) {
+    public void simulateBegin(Model3DViewer previewer, TimeWindow window) {
     }
 
     @Override

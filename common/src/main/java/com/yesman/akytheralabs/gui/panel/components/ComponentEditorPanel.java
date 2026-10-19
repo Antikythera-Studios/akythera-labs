@@ -1200,7 +1200,7 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
     // ***************************************************************
 
     private void attachComponent(ComponentAttachableHolder host, Identifier typeId, Consumer<ComponentDataHolder<?>> configure) {
-        ComponentDataHolder<?> holder = registry.createDefault(typeId, host);
+        ComponentDataHolder<?> holder = registry.createDefault(typeId, host, root);
         if (holder == null) return;
 
         String fixed = holder.fixedName();

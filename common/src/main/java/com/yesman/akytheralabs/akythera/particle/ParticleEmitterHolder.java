@@ -4,10 +4,13 @@ import com.mojang.datafixers.util.Either;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.client.api.particle.AkytheraParticle;
+import com.yesman.akythera.client.api.particle.AkytheraTrailParticle;
+import com.yesman.akythera.core.blueprint.particle.EmitterSpawnRule;
 import com.yesman.akythera.core.blueprint.particle.InstantSpawnRule;
 import com.yesman.akythera.core.blueprint.particle.KeyframeTrack;
 import com.yesman.akythera.core.blueprint.particle.ParticleEmitterBlueprint;
 import com.yesman.akythera.core.blueprint.particle.SpawnRateRule;
+import com.yesman.akythera.core.blueprint.particle.TrailSpawnRule;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
@@ -31,8 +34,10 @@ import java.util.stream.Stream;
 /// A channel with keys plays its keys alone: its transform field is then a scratch value the editor writes the keyed
 /// transform at the playhead into ([#moveToTime]), and an edit to it shows until the playhead moves or a key takes it
 /// ([#insertKey]).
+///
+/// An emitter of a trail spawns by a [TrailSpawnRule] whatever its [#spawnType] says.
 public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmitterBlueprint> {
-    /// The shortest time span of a [SpawnType#SPAWN_RATE] emitter, in seconds, as [SpawnRateRule] allows.
+    /// The shortest time span of an emitter, in seconds, as [SpawnRateRule] and [TrailSpawnRule] allow.
     public static final float MIN_DURATION = 0.05F;
 
     /// Two keys closer than this, in seconds, are at the same time.
@@ -96,7 +101,7 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
     /// In seconds since the system started. Edited on the emitter track only.
     private float start;
 
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_SPAWN_TYPE, order = 3, rebuildOnWrite = true)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_SPAWN_TYPE, order = 3, rebuildOnWrite = true, visibleWhen = "picksSpawnType")
     private SpawnType spawnType = SpawnType.INSTANT;
 
     @EditorEditable(label = LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_COUNT, order = 4, min = 1, visibleWhen = "isInstant")
@@ -106,13 +111,14 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
     @EditorEditable(label = LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_RATE, order = 5, min = 0, visibleWhen = "isSpawnRate")
     private float rate = DEFAULT_RATE;
 
-    /// The time span, in seconds. Edited on the emitter track only.
+    /// The time span of a spawn rate or trail emitter, in seconds. Edited on the emitter track only.
     private float duration = DEFAULT_DURATION;
 
     @EditorEditable(label = LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_LOOP, order = 7, visibleWhen = "isSpawnRate")
     private boolean loop;
 
-    /// An [SpawnType#INSTANT] emitter finishes on the tick after it spawns, so the row is hidden for it.
+    /// Shown for a spawn rate emitter only: an instant emitter finishes on the tick after it spawns, and a trail stays
+    /// after its emitter finishes.
     @EditorEditable(label = LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_HIDE_PARTICLES_ON_FINISH, order = 8, visibleWhen = "isSpawnRate")
     private boolean hideParticlesOnFinish;
 
@@ -141,12 +147,16 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
 
     // Whether a row shows, see [EditorEditable#visibleWhen]
 
+    boolean picksSpawnType() {
+        return !isTrail();
+    }
+
     boolean isInstant() {
-        return spawnType == SpawnType.INSTANT;
+        return !isTrail() && spawnType == SpawnType.INSTANT;
     }
 
     boolean isSpawnRate() {
-        return spawnType == SpawnType.SPAWN_RATE;
+        return !isTrail() && spawnType == SpawnType.SPAWN_RATE;
     }
 
     @Override
@@ -166,6 +176,7 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
                 duration = spawnRate.duration();
                 loop = spawnRate.loop();
             }
+            case TrailSpawnRule trail -> duration = trail.duration();
             default -> throw new IllegalArgumentException("The editor can't edit the spawn rule " + object.spawn().getClass().getSimpleName());
         }
 
@@ -199,8 +210,8 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
                 case ParticleRef.None _ -> throw new IllegalStateException("Emitter " + name + " names no particle");
             },
             start,
-            spawnType == SpawnType.INSTANT ? new InstantSpawnRule(count) : new SpawnRateRule(rate, duration, loop),
-            spawnType == SpawnType.SPAWN_RATE && hideParticlesOnFinish,
+            spawnRule(),
+            isSpawnRate() && hideParticlesOnFinish,
             playedPivotKeys.isEmpty() ? pivot.makeObject() : playedPivotKeys.keys().getFirst().value(),
             playedTransformKeys.isEmpty() ? transform.makeObject() : playedTransformKeys.keys().getFirst().value(),
             playedPivotKeys,
@@ -210,14 +221,30 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
         );
     }
 
+    private EmitterSpawnRule spawnRule() {
+        if (isTrail()) return new TrailSpawnRule(duration);
+
+        return spawnType == SpawnType.INSTANT ? new InstantSpawnRule(count) : new SpawnRateRule(rate, duration, loop);
+    }
+
     /// The keys of `keys` the emitter plays: those inside the time span, and none for an instant emitter.
     private KeyframeTrack<Transform> playedKeys(final KeyframeTrack<Transform> keys) {
-        return isSpawnRate() ? new KeyframeTrack<>(keys.keys().stream().filter(key -> key.time() <= duration).toList()) : KeyframeTrack.empty();
+        return hasTimeSpan() ? new KeyframeTrack<>(keys.keys().stream().filter(key -> key.time() <= duration).toList()) : KeyframeTrack.empty();
     }
 
     /// Whether the emitter names a particle piece or a vanilla particle.
     public boolean hasParticle() {
         return particle != ParticleRef.NONE;
+    }
+
+    /// Whether the emitter spawns a trail, which spawns by a [TrailSpawnRule].
+    public boolean isTrail() {
+        return particle.particleClass() == AkytheraTrailParticle.class;
+    }
+
+    /// Whether the emitter has a time span, which takes keys: a spawn rate or trail emitter.
+    public boolean hasTimeSpan() {
+        return isSpawnRate() || isTrail();
     }
 
     /// The space [#getTransform] is in, in the system's space.
@@ -274,22 +301,18 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
         this.start = Math.max(start, 0.0F);
     }
 
-    public SpawnType getSpawnType() {
-        return spawnType;
-    }
-
-    /// The time span in seconds: [#duration] for a [SpawnType#SPAWN_RATE] emitter, zero for an instant one.
+    /// The time span in seconds: [#duration] for an emitter with one ([#hasTimeSpan]), zero for an instant one.
     public float getSpan() {
-        return spawnType == SpawnType.SPAWN_RATE ? duration : 0.0F;
+        return hasTimeSpan() ? duration : 0.0F;
     }
 
-    /// The time span a [SpawnType#SPAWN_RATE] emitter has, in seconds, kept while the emitter is instant.
+    /// The time span of a spawn rate or trail emitter, in seconds, kept while the emitter is instant.
     public float getDuration() {
         return duration;
     }
 
-    /// In seconds, at least [#MIN_DURATION] and never before the last key. Only a [SpawnType#SPAWN_RATE] emitter has
-    /// one.
+    /// In seconds, at least [#MIN_DURATION] and never before the last key. Only an emitter with a time span
+    /// ([#hasTimeSpan]) has one.
     public void setDuration(final float duration) {
         this.duration = Math.max(duration, Math.max(MIN_DURATION, lastKeyTime()));
     }
@@ -323,7 +346,7 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
     /// Keys `channel` at `seconds` since the system started with `value`, replacing a key at the same time. A time
     /// outside the time span grows the span to it. An instant emitter takes no keys.
     public void insertKey(final KeyChannel channel, final float seconds, final Transform value) {
-        if (!isSpawnRate()) return;
+        if (!hasTimeSpan()) return;
 
         if (seconds < start) {
             float grown = start - seconds;
@@ -355,9 +378,9 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
 
     /// Writes each keyed channel's transform at `seconds` since the system started into its transform field.
     public void moveToTime(final float seconds) {
-        if (!isSpawnRate()) return;
+        if (!hasTimeSpan()) return;
 
-        float spanTime = new SpawnRateRule(rate, duration, loop).spanTime(Math.max(seconds - start, 0.0F));
+        float spanTime = spawnRule().spanTime(Math.max(seconds - start, 0.0F));
 
         for (KeyChannel channel : KeyChannel.values()) {
             KeyframeTrack<Transform> keys = getKeys(channel);
@@ -403,7 +426,7 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
     }
 
     public boolean loops() {
-        return spawnType == SpawnType.SPAWN_RATE && loop;
+        return isSpawnRate() && loop;
     }
 
     /// Which of an emitter's transforms a key animates.
@@ -422,7 +445,7 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
     public record Timeline(float start, float duration, KeyframeTrack<Transform> pivotKeys, KeyframeTrack<Transform> transformKeys) {
     }
 
-    /// How an emitter spawns, see [InstantSpawnRule] and [SpawnRateRule].
+    /// How an emitter that spawns no trail spawns, see [InstantSpawnRule] and [SpawnRateRule].
     public enum SpawnType implements StringRepresentable {
         INSTANT, SPAWN_RATE;
 

@@ -49,7 +49,7 @@ public final class EmitterSpanWidget extends AbstractWidget {
     /// Recomputes the bounds from the emitter's start and span and the row's current top.
     public void updatePosition(final int rowTop, final int rowHeight) {
         int startX = parent.frameToX(emitter.getStart() * 60.0F);
-        boolean instant = emitter.getSpawnType() == ParticleEmitterHolder.SpawnType.INSTANT;
+        boolean instant = !emitter.hasTimeSpan();
 
         setX(instant ? startX - MARKER_W / 2 : startX);
         setY(rowTop + (rowHeight - BAR_H) / 2);
@@ -61,7 +61,7 @@ public final class EmitterSpanWidget extends AbstractWidget {
         int x1 = getX();
         int x2 = x1 + getWidth();
         int y = getY();
-        boolean instant = emitter.getSpawnType() == ParticleEmitterHolder.SpawnType.INSTANT;
+        boolean instant = !emitter.hasTimeSpan();
 
         if (emitter.loops()) g.fill(x2, y + 3, parent.getRight(), y + BAR_H - 3, LOOP_TAIL_COLOR);
 
@@ -86,7 +86,7 @@ public final class EmitterSpanWidget extends AbstractWidget {
 
     /// The edge of a time span `mouseX` / `mouseY` is on, or [DragMode#NONE].
     private DragMode edgeAt(final double mouseX, final double mouseY) {
-        if (emitter.getSpawnType() == ParticleEmitterHolder.SpawnType.INSTANT || mouseY < getY() || mouseY >= getY() + BAR_H) return DragMode.NONE;
+        if (!emitter.hasTimeSpan() || mouseY < getY() || mouseY >= getY() + BAR_H) return DragMode.NONE;
 
         int threshold = AnimationTrackEditorPanel.EDGE_DRAG_THRESHOLD;
 

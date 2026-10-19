@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.api.world.patch.item.ItemPatch;
@@ -27,12 +28,13 @@ import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
-import com.yesman.akytheralabs.akythera.entitypatch.component.ItemInSlotRendererHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.EquipmentSlotBinderHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformSocketHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHolders;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
+import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -275,14 +277,14 @@ public final class ItemPatchEditorScreen extends Screen
         }
 
         TransformSocketHolder socket = null;
-        ItemInSlotRendererHolder equipment = null;
+        EquipmentSlotBinderHolder equipment = null;
 
         for (ComponentDataHolder<?> attached : armature.getComponents().values()) {
             if (!(attached instanceof TransformSocketHolder candidate)) continue;
 
             equipment = candidate.getComponents().values().stream()
-                .filter(ItemInSlotRendererHolder.class::isInstance)
-                .map(ItemInSlotRendererHolder.class::cast)
+                .filter(EquipmentSlotBinderHolder.class::isInstance)
+                .map(EquipmentSlotBinderHolder.class::cast)
                 .filter(e -> e.getEquipmentSlot() == EquipmentSlot.MAINHAND)
                 .findFirst()
                 .orElse(null);
@@ -302,7 +304,8 @@ public final class ItemPatchEditorScreen extends Screen
             Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.width(),
             Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.height());
 
-        ItemInSlotRendererHolder anchor = equipment;
+        EquipmentSlotBinderHolder anchor = equipment;
+        TransformSocketHolder anchorSocket = socket;
         TransformComponentHolder.Space playerSpace = new TransformComponentHolder.Space(
             component -> ComponentAttachableHolder.hostOf(patch, component),
             bone -> model.getArmatureComponent().getBoneModelTransform(bone),
@@ -314,7 +317,7 @@ public final class ItemPatchEditorScreen extends Screen
         ItemModelComponent itemModel = new ItemModelComponent(this::previewItem);
         itemModel.setDisplayContextSource(anchor::getItemDisplayContext);
         itemModel.placeUnder(
-            () -> playerSpace.parentTransform(anchor), anchor.getLocalTransform(), anchor::getTransformInheritPolicy, null);
+            () -> playerSpace.modelTransform(anchorSocket), TransformHolder.identity(), () -> TransformInheritPolicy.LOC_ROT_SCA, null);
 
         model3DViewer.addComponent(itemModel);
 

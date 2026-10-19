@@ -56,9 +56,11 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
                 .forGetter(AnimationMontageHolder::layerSignature),
             Identifier.CODEC.optionalFieldOf("preview_entity_type")
                 .forGetter(ParseUtils.provideOptional(AnimationMontageHolder::getPreviewEntityType)),
+            PreviewItem.CODEC.listOf().optionalFieldOf("preview_items", List.of())
+                .forGetter(AnimationMontageHolder::getPreviewItems),
             NotifyTrackHolder.EDITOR_CODEC.optionalFieldOf("notify_tracks", new NotifyTrackHolder())
                 .forGetter(AnimationMontageHolder::getNotifyTrackHolder)
-        ).apply(instance, (segs, secs, orders, fin, fout, lps, rm, sig, pm, nth) -> {
+        ).apply(instance, (segs, secs, orders, fin, fout, lps, rm, sig, pm, items, nth) -> {
             AnimationMontageHolder h = new AnimationMontageHolder();
             segs.forEach(h::addSegment);
             h.sections.putAll(secs);
@@ -69,6 +71,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             h.rootMotion = rm;
             h.layerSignature = sig;
             pm.ifPresent(h::setPreviewEntityType);
+            h.setPreviewItems(items);
             if (!nth.getTracks().isEmpty()) h.notifyTrackHolder = nth;
             return h;
         })
@@ -108,6 +111,9 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
 
     @Nullable
     private Identifier previewEntityType;
+
+    /// The items the preview holds, one per slot. Editor-only.
+    private List<PreviewItem> previewItems = List.of();
 
     /// Notified with the new value whenever [#rootMotion] flips.
     @Nullable
@@ -523,5 +529,13 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
 
     public void setPreviewEntityType(@Nullable Identifier previewEntityType) {
         this.previewEntityType = previewEntityType;
+    }
+
+    public List<PreviewItem> getPreviewItems() {
+        return previewItems;
+    }
+
+    public void setPreviewItems(List<PreviewItem> previewItems) {
+        this.previewItems = List.copyOf(previewItems);
     }
 }

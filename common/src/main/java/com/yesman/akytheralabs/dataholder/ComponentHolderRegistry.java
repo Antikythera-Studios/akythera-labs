@@ -60,6 +60,12 @@ public final class ComponentHolderRegistry {
     @FunctionalInterface
     public interface DefaultFactory<H extends ComponentDataHolder<?>> {
         H create(@Nullable ComponentAttachableHolder host);
+
+        /// [#create] for a component attached from a menu, where `root` is the blueprint holder the tree `host` sits
+        /// in hangs off, for a type whose defaults depend on the whole tree.
+        default H create(ComponentAttachableHolder host, ComponentAttachableHolder root) {
+            return create(host);
+        }
     }
 
     /// How a registry's attach menu lists what it offers: one submenu per category, holding the types and the
@@ -101,6 +107,9 @@ public final class ComponentHolderRegistry {
 
     private final Map<Identifier, Entry> types = new ConcurrentHashMap<>();
 
+    /// Former type ids, read only, mapped to the type id they decode as.
+    private final Map<Identifier, Identifier> aliases = new ConcurrentHashMap<>();
+
     /// How the attach menu groups the types, see [AttachMenu]. Null lists the types alone, ungrouped.
     @Nullable
     private AttachMenu attachMenu;
@@ -129,7 +138,7 @@ public final class ComponentHolderRegistry {
     private final Codec<ComponentDataHolder<?>> codec = Identifier.CODEC.partialDispatch(
         "type",
         holder -> DataResult.success(typeIdOf(holder)),
-        id -> Optional.ofNullable(types.get(id))
+        id -> Optional.ofNullable(types.get(aliases.getOrDefault(id, id)))
             .<DataResult<MapCodec<? extends ComponentDataHolder<?>>>>map(entry -> DataResult.success(entry.codec()))
             .orElseGet(() -> DataResult.error(() -> "No editor holder registered for component type " + id))
     );
@@ -189,6 +198,11 @@ public final class ComponentHolderRegistry {
         typeIdsByClass.put(holderClass, typeId);
     }
 
+    /// Reads a holder stored under the former id `alias` as one of `typeId`. It is written back under `typeId`.
+    public void registerAlias(Identifier alias, Identifier typeId) {
+        aliases.put(alias, typeId);
+    }
+
     public Codec<ComponentDataHolder<?>> codec() {
         return codec;
     }
@@ -219,6 +233,13 @@ public final class ComponentHolderRegistry {
     ) {
         Entry entry = types.get(typeId);
         return entry == null ? null : entry.defaultFactory().create(host);
+    }
+
+    /// [#createDefault] for a component about to be attached under `host` in the tree hanging off `root`, see
+    /// [DefaultFactory#create(ComponentAttachableHolder, ComponentAttachableHolder)].
+    public @Nullable ComponentDataHolder<?> createDefault(Identifier typeId, ComponentAttachableHolder host, ComponentAttachableHolder root) {
+        Entry entry = types.get(typeId);
+        return entry == null ? null : entry.defaultFactory().create(host, root);
     }
 
     /// `holder` encoded without its children, so two hosts compare by their own declaration. Null for

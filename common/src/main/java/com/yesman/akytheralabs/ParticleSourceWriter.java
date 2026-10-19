@@ -15,6 +15,7 @@ import com.yesman.akythera.core.blueprint.particle.SpawnRateRule;
 import com.yesman.akythera.core.blueprint.particle.SpriteParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.StaticMeshParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.TrailParticleBlueprint;
+import com.yesman.akythera.core.blueprint.particle.TrailSpawnRule;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import net.minecraft.resources.Identifier;
@@ -56,6 +57,7 @@ public final class ParticleSourceWriter {
                 case InstantSpawnRule instant -> "new InstantSpawnRule(" + instant.count() + ")";
                 case SpawnRateRule rate -> "new SpawnRateRule(" + SourceTemplateEngine.floatLiteral(rate.rate()) + ", "
                     + SourceTemplateEngine.floatLiteral(rate.duration()) + ", " + rate.loop() + ")";
+                case TrailSpawnRule trail -> "new TrailSpawnRule(" + SourceTemplateEngine.floatLiteral(trail.duration()) + ")";
                 default -> throw new IllegalStateException("No source form for the spawn rule " + emitter.spawn().getClass().getSimpleName());
             },
             String.valueOf(emitter.hideParticlesOnFinish()),

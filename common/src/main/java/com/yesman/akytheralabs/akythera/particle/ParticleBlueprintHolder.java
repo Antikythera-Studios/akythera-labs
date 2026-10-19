@@ -155,7 +155,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
     private float bbHeight = ParticleProperties.DEFAULT.bbHeight();
 
     /// In ticks.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_LIFETIME, order = 4, min = 1)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_LIFETIME, order = 4, min = 1, visibleWhen = "hasLifetime")
     private int lifetime = ParticleProperties.DEFAULT.lifetime();
 
     @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_GRAVITY, order = 5)
@@ -221,7 +221,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
     @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_LENGTH, order = 19, min = 0, visibleWhen = "isTrail")
     private float length = DEFAULT_LENGTH;
 
-    /// The share of the lifetime after which the trail fades out. 1 never fades.
+    /// The share of the emitter's time span after which the trail fades out. 1 never fades.
     @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_FADE_OUT, order = 20, min = 0, max = 1, visibleWhen = "isTrail")
     private float fadeOut = 1.0F;
 
@@ -254,6 +254,11 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
 
     boolean isTrail() {
         return type == Type.TRAIL;
+    }
+
+    /// A trail lives as long as its emitter's time span.
+    boolean hasLifetime() {
+        return !isTrail();
     }
 
     boolean usesTexture() {

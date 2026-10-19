@@ -9,6 +9,7 @@ import com.yesman.akytheralabs.gui.widget.OverlayingWindowModal;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.AbstractSelectionList;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
@@ -39,10 +40,23 @@ public final class ItemSelectModal extends OverlayingWindowModal {
     private static final int ROW_H = 18;
     private static final int ITEM_ICON_SIZE = 12;
 
+    /// Top of the [#header] row, from the modal's top, in pixels.
+    public static final int HEADER_Y = TITLE_H;
+
+    /// Height of the [#header] row, in pixels.
+    public static final int HEADER_H = 24;
+
     private final Font font;
     private final Consumer<Item> onItemSelected;
     private final EditorEditBox<String> searchBox;
     private ItemList itemList;
+
+    /// A row between the title and the search box, labeled [#headerLabel], or null for none.
+    private final @Nullable AbstractWidget header;
+    private final Component headerLabel;
+
+    /// The height [#header] takes, zero without one.
+    private final int headerHeight;
 
     /// Lists every registered item.
     public ItemSelectModal(Font font, Consumer<Item> onItemSelected) {
@@ -51,14 +65,29 @@ public final class ItemSelectModal extends OverlayingWindowModal {
 
     /// Lists the registered items `filter` accepts, in hover-name order.
     public ItemSelectModal(Font font, Predicate<Item> filter, Consumer<Item> onItemSelected) {
-        super(AnchoredWidget.pixel(WIDTH), AnchoredWidget.pixel(HEIGHT), Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_ITEM_SELECT_MODAL));
+        this(font, filter, onItemSelected, Component.empty(), null);
+    }
+
+    /// [#ItemSelectModal(Font, Predicate, Consumer)] with `header`, labeled `headerLabel`, in a row of [#HEADER_H]
+    /// above the search box. `header` is anchored inside the modal, its `y1` counted from the modal's top.
+    public <W extends AbstractWidget & AnchoredWidget> ItemSelectModal(
+        Font font, Predicate<Item> filter, Consumer<Item> onItemSelected, Component headerLabel, @Nullable W header
+    ) {
+        super(
+            AnchoredWidget.pixel(WIDTH),
+            AnchoredWidget.pixel(HEIGHT + (header == null ? 0 : HEADER_H)),
+            Component.translatable(LangKeys.GUI_MAIN_SCREEN_WIDGET_ITEM_SELECT_MODAL)
+        );
         this.font = font;
         this.onItemSelected = onItemSelected;
+        this.header = header;
+        this.headerLabel = headerLabel;
+        this.headerHeight = header == null ? 0 : HEADER_H;
 
         this.searchBox = EditorEditBox.stringBox(
             font,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
-            AnchoredWidget.pixel(TITLE_H), AnchoredWidget.pixel(SEARCH_H),
+            AnchoredWidget.pixel(TITLE_H + headerHeight), AnchoredWidget.pixel(SEARCH_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             () -> "",
@@ -92,12 +121,12 @@ public final class ItemSelectModal extends OverlayingWindowModal {
 
     @Override
     public @NonNull List<? extends GuiEventListener> children() {
-        return List.of(searchBox, itemList);
+        return header == null ? List.of(searchBox, itemList) : List.of(header, searchBox, itemList);
     }
 
     @Override
     protected int contentHeight() {
-        return HEIGHT;
+        return HEIGHT + headerHeight;
     }
 
     @Override
@@ -178,6 +207,12 @@ public final class ItemSelectModal extends OverlayingWindowModal {
 
         searchBox.extractRenderState(graphics, mouseX, mouseY, a);
         itemList.extractRenderState(graphics, mouseX, mouseY, a);
+
+        // Drawn last, so an open dropdown lies over the list
+        if (header != null) {
+            graphics.text(font, headerLabel, getX() + 6, getY() + TITLE_H + (HEADER_H - font.lineHeight) / 2, 0xFFAAAAAA, false);
+            header.extractRenderState(graphics, mouseX, mouseY, a);
+        }
     }
 
     @Override
@@ -193,7 +228,7 @@ public final class ItemSelectModal extends OverlayingWindowModal {
         private final List<Item> allItems;
 
         ItemList(List<Item> allItems) {
-            super(Minecraft.getInstance(), WIDTH, HEIGHT - LIST_TOP, LIST_TOP, ROW_H);
+            super(Minecraft.getInstance(), WIDTH, HEIGHT - LIST_TOP, LIST_TOP + headerHeight, ROW_H);
             this.allItems = allItems;
             rebuild("");
         }
@@ -293,7 +328,7 @@ public final class ItemSelectModal extends OverlayingWindowModal {
         // ***************************************************************
         private Unit x1 = AnchoredWidget.pixel(0);
         private Unit x2 = AnchoredWidget.pixel(0);
-        private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H);
+        private Unit y1 = AnchoredWidget.pixel(TITLE_H + SEARCH_H + headerHeight);
         private Unit y2 = AnchoredWidget.pixel(0);
         private AnchoredWidget.HorizontalAnchorType horizontalAnchorType = HorizontalAnchorType.LEFT_RIGHT;
         private AnchoredWidget.VerticalAnchorType verticalAnchorType = VerticalAnchorType.TOP_BOTTOM;

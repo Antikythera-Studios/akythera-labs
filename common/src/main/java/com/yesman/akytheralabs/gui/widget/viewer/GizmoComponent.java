@@ -212,6 +212,9 @@ public final class GizmoComponent implements Model3DViewerComponent {
 
         if (active == null) hovered = hitTest(viewer, frame, mouseX, mouseY);
 
+        // The gizmo stands inside whatever it moves, so it reads over the scene in either projection
+        viewer.clearDepth();
+
         RenderType renderType = RenderTypes.debugQuads();
         BufferBuilder builder = new BufferBuilder(byteBuffer, renderType.primitiveTopology(), renderType.format());
         PoseStack.Pose pose = poseStack.last();
