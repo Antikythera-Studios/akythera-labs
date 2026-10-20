@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.screen;
 
 import com.mojang.datafixers.util.Pair;
 import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.api.component.impl.ArmatureComponent;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.client.api.gui.WidgetTable;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
@@ -78,9 +79,6 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
 
     // Details table layout
     private static final int ROW_H = 20;
-
-    /// Trajectory sampling interval (sec) — mirrors the root-motion fixed tick (0.05).
-    private static final float TRAJECTORY_SAMPLE_STEP = 0.05F;
 
     private final AdjustablePanelManager panelManager;
 
@@ -584,11 +582,11 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         float total = blendedTotalTime(bs, previewX, previewY);
         if (total <= 0.0F) return List.of();
 
-        int steps = Math.clamp((int) (total / TRAJECTORY_SAMPLE_STEP), 1, 4000);
+        int steps = Math.clamp((int) (total / RootMotionTrajectoryComponent.SAMPLE_STEP), 1, 4000);
         List<Vec3> pts = new ArrayList<>(steps + 1);
 
         for (int i = 0; i <= steps; i++) {
-            float t = Math.min(i * TRAJECTORY_SAMPLE_STEP, total);
+            float t = Math.min(i * RootMotionTrajectoryComponent.SAMPLE_STEP, total);
             pts.add(blendedRoot(bs, previewX, previewY, t));
         }
 
@@ -700,6 +698,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         private final Supplier<@Nullable BlendSpace2D> blendSupplier;
         private final Supplier<Float> xSupplier;
         private final Supplier<Float> ySupplier;
+        private @Nullable ArmatureComponent armatureComponent;
         private float elapsedTime = 0.0F;
         private boolean updatePose = true;
         @Nullable private Runnable onPlaybackEnds;
@@ -808,6 +807,16 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         @Override
         public <O> O getOwner() {
             throw new UnsupportedOperationException("BlendSpaceAnimator has no owner");
+        }
+
+        @Override
+        public @Nullable ArmatureComponent getArmatureComponent() {
+            return armatureComponent;
+        }
+
+        @Override
+        public void setArmatureComponent(final ArmatureComponent armatureComponent) {
+            this.armatureComponent = armatureComponent;
         }
 
         @Override

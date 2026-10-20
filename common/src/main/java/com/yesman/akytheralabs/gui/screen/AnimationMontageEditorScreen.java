@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.SingletonAccessor;
+import com.yesman.akythera.api.component.impl.ArmatureComponent;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.client.api.gui.WidgetTable;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
@@ -87,9 +88,6 @@ import java.util.function.Supplier;
 public final class AnimationMontageEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
-
-    /// Trajectory sampling interval (sec) — mirrors the root-motion fixed tick (0.05).
-    private static final float TRAJECTORY_SAMPLE_STEP = 0.05F;
 
     private static final int TAB_MONTAGE_SECTIONS = 0;
     private static final int TAB_ASSET_BROWSER = 1;
@@ -473,8 +471,8 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         SectionInfo info = buildSectionInfo();
         float elapsed = 0.0F;
         float windowStart = sectionStart(info, 0.0F);
-        Vec3 accumBase = rootLoc(clip, windowStart);
-        pts.add(accumBase.add(rootLoc(clip, elapsed).subtract(rootLoc(clip, windowStart))));
+        Vec3 accumBase = RootMotionTrajectoryComponent.rootLocation(clip, windowStart);
+        pts.add(accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, elapsed).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStart))));
 
         // Mirrors MontageAnimator's visited-section pause so the drawn path ends where playback holds.
         Set<String> visited = new HashSet<>();
@@ -484,24 +482,24 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
             if (start != null) visited.add(start);
         }
 
-        int maxSteps = (int) (total / TRAJECTORY_SAMPLE_STEP) * 4 + 100;
+        int maxSteps = (int) (total / RootMotionTrajectoryComponent.SAMPLE_STEP) * 4 + 100;
 
         for (int i = 0; i < maxSteps; i++) {
-            MontageAnimator.StepResult result = MontageAnimator.step(info, elapsed, TRAJECTORY_SAMPLE_STEP, total, visited);
+            MontageAnimator.StepResult result = MontageAnimator.step(info, elapsed, RootMotionTrajectoryComponent.SAMPLE_STEP, total, visited);
 
             // Loop back: the path ends at the loop boundary (one pass) — add the exit point and stop.
             if (result.loopedBack()) {
-                pts.add(accumBase.add(rootLoc(clip, result.left().to()).subtract(rootLoc(clip, windowStart))));
+                pts.add(accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, result.left().to()).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStart))));
                 break;
             }
 
             if (result.transitioned()) {
-                accumBase = accumBase.add(rootLoc(clip, result.left().to()).subtract(rootLoc(clip, windowStart)));
+                accumBase = accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, result.left().to()).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStart)));
                 windowStart = result.entered().from();
             }
 
             elapsed = result.newElapsed();
-            pts.add(accumBase.add(rootLoc(clip, elapsed).subtract(rootLoc(clip, windowStart))));
+            pts.add(accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, elapsed).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStart))));
 
             if (result.ended()) break;
         }
@@ -514,12 +512,6 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         if (info == null) return 0.0F;
         String name = info.getSectionAt(t);
         return name == null ? 0.0F : info.getSectionTimeWindow(name).from();
-    }
-
-    /// Raw root-bone location at `t` (clip pose keeps the root, unlike `AnimationMontage.getPose`).
-    private static Vec3 rootLoc(AnimationClip clip, float t) {
-        return clip.getPose(Math.clamp(t, 0.0F, clip.getTotalTime()))
-            .orElseZero(ArmatureLoader.ROOT_BONE).loc();
     }
 
     /// Writes the entry asynchronously behind an await modal. The returned future completes on the
@@ -699,6 +691,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         private final Supplier<@Nullable AssetAccessor<AnimationClip>> clipSupplier;
         private final Supplier<@Nullable SectionInfo> sectionSupplier;
         private final BooleanSupplier rootMotionEnabled;
+        private @Nullable ArmatureComponent armatureComponent;
         private float elapsedTime = 0.0F;
         private boolean updatePose = true;
         @Nullable
@@ -796,12 +789,12 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
 
             if (r.loopedBack()) {
                 if (!simFrozen) {
-                    frozenSimPos = accumBase.add(rootLoc(clip, r.left().to()).subtract(rootLoc(clip, windowStartTime)));
+                    frozenSimPos = accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, r.left().to()).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStartTime)));
                     simFrozen = true;
                 }
             } else if (r.transitioned()) {
                 // Close out the window we're leaving: accumBase becomes simPos at the exit point.
-                accumBase = accumBase.add(rootLoc(clip, r.left().to()).subtract(rootLoc(clip, windowStartTime)));
+                accumBase = accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, r.left().to()).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStartTime)));
                 windowStartTime = r.entered().from();
             }
 
@@ -815,7 +808,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         private void seatSimLinear() {
             AnimationClip clip = clip();
             windowStartTime = 0.0F;
-            accumBase = clip == null ? Vec3.ZERO : rootLoc(clip, 0.0F);
+            accumBase = clip == null ? Vec3.ZERO : RootMotionTrajectoryComponent.rootLocation(clip, 0.0F);
             simInit = true;
 
             // Restart the played-section set + unfreeze the tracker, seeding the section the playhead
@@ -838,7 +831,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
             AnimationClip clip = clip();
             if (clip == null) return Vec3.ZERO;
             if (!simInit) seatSimLinear();
-            return accumBase.add(rootLoc(clip, elapsedTime).subtract(rootLoc(clip, windowStartTime)));
+            return accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, elapsedTime).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStartTime)));
         }
 
         private void fireEnd() {
@@ -912,6 +905,16 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         @Override
         public <O> O getOwner() {
             throw new UnsupportedOperationException("MontageAnimator has no owner");
+        }
+
+        @Override
+        public @Nullable ArmatureComponent getArmatureComponent() {
+            return armatureComponent;
+        }
+
+        @Override
+        public void setArmatureComponent(final ArmatureComponent armatureComponent) {
+            this.armatureComponent = armatureComponent;
         }
 
         @Override

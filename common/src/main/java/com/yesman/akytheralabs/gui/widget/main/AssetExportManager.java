@@ -120,32 +120,31 @@ public final class AssetExportManager {
         return FileSystemHelper.writeJson(file, MappingTemplate.CODEC, cleaned);
     }
 
-    /// Iterate `entries`, remap each via `template`, optionally synthesise a root-bone
-    /// track, encode as `.akasset` and write into `destDir`. One-bad-file-doesn't-kill-
-    /// the-batch: each per-entry failure becomes an [ExportResult.Failure]; other entries
-    /// still export.
+    /// `entry`'s clip remapped by its template, with a generated [ArmatureLoader#ROOT_BONE] track while
+    /// `generateRootBone` is on, see [#generateRootBone]. What [#exportAll] writes and the retarget preview plays.
+    public AnimationClip retarget(RetargetEntry entry, Armature sourceArmature, boolean generateRootBone) {
+        AnimationClip remapped = remap(entry.clip, entry.template);
+
+        if (!generateRootBone) return remapped;
+
+        String topBone = entry.template.getTarget(sourceArmature.getRootBone().getName());
+
+        return topBone == null || topBone.isEmpty() || topBone.equals(ArmatureLoader.ROOT_BONE) ? remapped : generateRootBone(remapped, topBone);
+    }
+
+    /// Retarget each of `entries` ([#retarget]), encode as `.akasset` and write into `destDir`. One bad file doesn't
+    /// kill the batch: each per-entry failure becomes an [ExportResult.Failure]; other entries still export.
     public List<ExportResult<RetargetEntry>> exportAll(
         List<RetargetEntry> entries,
         Armature sourceArmature,
-        Armature destArmature,
         Path destDir,
         boolean generateRootBone
     ) {
-        String sourceRootName = sourceArmature.getRootBone().getName();
-        String destRootName = destArmature.getRootBone().getName();
-
         List<ExportResult<RetargetEntry>> results = new ArrayList<>(entries.size());
 
         for (RetargetEntry e : entries) {
             try {
-                AnimationClip remapped = remap(e.clip, e.template);
-
-                if (generateRootBone) {
-                    String topBone = e.template.getTarget(sourceRootName);
-                    if (topBone != null && !topBone.isEmpty()) {
-                        remapped = generateRootBone(remapped, topBone, destRootName);
-                    }
-                }
+                AnimationClip remapped = retarget(e, sourceArmature, generateRootBone);
 
                 AkAssetWriter writer = new AkAssetWriter();
                 remapped.visitBoneTracks(writer::addAnimBoneTrack);
@@ -164,12 +163,14 @@ public final class AssetExportManager {
         return results;
     }
 
-    /// Synthesise a new root-bone track from `topBone`'s keyframes: XZ verbatim,
-    /// Y clamped at 0 (root never sinks). The top bone keeps a Y residue
-    /// (`y - max(0, y)`) so the world-position invariant holds.
-    public AnimationClip generateRootBone(AnimationClip remapped, String topBone, String rootBoneName) {
+    /// Moves `topBone`'s travel onto a new [ArmatureLoader#ROOT_BONE] track, the bone root motion reads. The root takes
+    /// the XZ movement since the first keyframe and the height above the bind pose, never below it. `topBone` keeps the
+    /// height below the bind pose, its rotation and its scale.
+    public AnimationClip generateRootBone(AnimationClip remapped, String topBone) {
         BoneAnimationTrack top = remapped.getBoneTransform(topBone);
-        if (top == null) return remapped;
+        if (top == null || top.keyframes().isEmpty()) return remapped;
+
+        Vec3 start = top.keyframes().getFirst().transform().loc();
 
         List<Keyframe> rootKfs = new ArrayList<>(top.length());
         List<Keyframe> residualKfs = new ArrayList<>(top.length());
@@ -179,7 +180,7 @@ public final class AssetExportManager {
             double rootY = Math.max(0.0, t.loc().y);
 
             Transform rootT = new Transform(
-                new Vec3(t.loc().x, rootY, t.loc().z),
+                new Vec3(t.loc().x - start.x, rootY, t.loc().z - start.z),
                 new Quaterniond(),
                 new Vec3(1.0, 1.0, 1.0)
             );
@@ -201,7 +202,7 @@ public final class AssetExportManager {
                 b.addBoneAnimation(bone, track);
             }
         });
-        b.addBoneAnimation(rootBoneName, new BoneAnimationTrack(rootKfs));
+        b.addBoneAnimation(ArmatureLoader.ROOT_BONE, new BoneAnimationTrack(rootKfs));
 
         return b.build();
     }
@@ -779,6 +780,13 @@ public final class AssetExportManager {
 
         public void clearMapping(String src) {
             sourceToTarget.remove(src);
+        }
+
+        /// Replaces this template's armature and mapping with `other`'s.
+        public void copyFrom(MappingTemplate other) {
+            armatureId = other.armatureId;
+            sourceToTarget.clear();
+            sourceToTarget.putAll(other.sourceToTarget);
         }
 
         /// Whether every bone of `clipBones` has a non-empty target mapping.

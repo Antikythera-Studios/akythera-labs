@@ -25,6 +25,7 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.*;
 import com.yesman.akytheralabs.gui.widget.main.AssetExportManager.ExportResult;
 import com.yesman.akytheralabs.gui.widget.main.AssetExportManager.TemplateEntry;
+import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -85,15 +86,16 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     // Bone-mapping row geometry (middle column)
     private static final int BONE_ROW_H = 18;
-    private static final int BONE_LABEL_W = 96;       // clip bone name
+    private static final int BONE_LABEL_W = 96;       // clip bone name space the combo leaves free
+    private static final int BONE_ARROW_GAP = 6;      // least space from the longest clip bone name to "->"
     private static final int BONE_ARROW_W = 18;       // "->"
     private static final int BONE_COMBO_H = 14;
 
-    // Inline widget dimensions for rows inside BoneMappingPanel
-    // (template combo / import / export-as-template).
+    // Template strip above BoneMappingPanel, and the export-as-template row inside it.
     private static final int TEMPLATE_BTN_H = BONE_COMBO_H;
     private static final int IMPORT_BTN_W = 40;
     private static final int EXPORT_AS_TEMPLATE_BTN_W = 120;
+    private static final int TEMPLATE_STRIP_H = BONE_ROW_H * 4; // title, separator, picker, root motion option
 
     private static final long INCOMPAT_MESSAGE_DURATION_MS = 5000;
 
@@ -135,6 +137,14 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     private final AkytheraButton exportPathBrowseBtn;
     private final AkytheraButton exportAllBtn;
     private final AkytheraButton closeScreenButton;
+
+    /// The fixed Template strip above [#boneMappingPanel], shown while a target armature is picked. The template applies
+    /// to every animation. [#rebuildTemplateCombo] rebuilds the combo.
+    private EditorComboBox<TemplateEntry> templateCombo;
+    private final AkytheraButton importTemplateBtn;
+
+    /// The Generate Root Motion switch, under the template picker in the Template strip. Bound to [#generateRootBone].
+    private final CheckBox generateRootBoneBox;
 
     private boolean generateRootBone = false;
 
@@ -227,6 +237,13 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         preview.addComponent(new CameraComponent(true));
         preview.addComponent(new BackgroundComponent(18, 18, 18, 255));
         preview.addComponent(new GridFloorComponent(1.0F, 50, 68, 68, 68, 255));
+        preview.addComponent(new RootMotionTrajectoryComponent(
+            () -> generateRootBone && previewAnimation != null ? RootMotionTrajectoryComponent.sampleRootPath(previewAnimation.get()) : List.of(),
+            () -> previewAnimation == null || !(preview.getComponent(EntityModelComponent.class) instanceof EntityModelComponent model
+                && model.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator scrub)
+                ? null
+                : RootMotionTrajectoryComponent.rootLocation(previewAnimation.get(), scrub.getElapsedTime())
+        ));
 
         // Footer widgets: all centered in the top FOOTER_ROW_H band of the bottom bar.
         // bottom offset (BOTTOM_HEIGHT y1) = WARNING_AREA_H + (FOOTER_ROW_H - FOOTER_WIDGET_H) / 2.
@@ -275,7 +292,36 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             .theme(AkytheraLabsButtonTheme.TOP_MENU_BUTTON)
             .build();
 
+        this.importTemplateBtn = AkytheraButton.buttonBuilder(
+                font,
+                LocalizedMessage.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_IMPORT_TEMPLATE),
+                () -> onPressImport()
+            )
+            .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(IMPORT_BTN_W))
+            .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(TEMPLATE_BTN_H))
+            .horizontalAnchorType(HorizontalAnchorType.LEFT_WIDTH)
+            .verticalAnchorType(VerticalAnchorType.TOP_HEIGHT)
+            .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+            .build();
+
+        this.generateRootBoneBox = new CheckBox(
+            font,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(CHECKBOX_H),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(CHECKBOX_H),
+            HorizontalAnchorType.LEFT_WIDTH,
+            VerticalAnchorType.TOP_HEIGHT,
+            () -> generateRootBone,
+            v -> {
+                generateRootBone = v;
+                reloadPreviewAnimation();
+            },
+            Component.empty(),
+            false
+        );
+        generateRootBoneBox.setWidgetValue(generateRootBone);
+
         refreshTemplateList();
+        rebuildTemplateCombo();
     }
 
     private static String defaultExportPath() {
@@ -324,12 +370,12 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         animList.setY1(AnchoredWidget.pixel(animListTop));
         animList.setY2(AnchoredWidget.pixel(Math.max(0, animListBottom - animListTop)));
 
-        // Bone Mapping panel (middle column): from just below the "Bone Mapping" header to
-        // the bottom bar, between the left and right column separators. The Template /
-        // Bones / Export-as-Template strips live as rows inside the list.
+        // Bone Mapping panel (middle column): from just below the "Bone Mapping" header and the
+        // fixed Template strip to the bottom bar, between the left and right column separators.
+        // The Bones / Export-as-Template / Options strips live as rows inside the list.
         int boneLeft = (int)(getWidth() * LEFT_PCT    / 100.0F) + 4;
         int boneRight = getWidth() - (int)(getWidth() * PREVIEW_PCT / 100.0F);
-        int boneTop = TITLE_H + LIST_LABEL_H + 8;
+        int boneTop = TITLE_H + LIST_LABEL_H + 8 + TEMPLATE_STRIP_H;
         int boneBottom = getHeight() - BOTTOM_BAR_H - 4;
         boneMappingPanel.setX1(AnchoredWidget.pixel(boneLeft));
         boneMappingPanel.setX2(AnchoredWidget.pixel(Math.max(0, boneRight - boneLeft)));
@@ -377,15 +423,19 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     @Override
     public @NonNull List<? extends GuiEventListener> children() {
-        return List.of(
+        List<GuiEventListener> children = new ArrayList<>(List.of(
             closeScreenButton,
             modelSearchBox, modelList,
             armatureSearchBox, armatureList,
             animList,
-            boneMappingPanel,
-            preview,
-            exportPathBox, exportPathBrowseBtn, exportAllBtn
-        );
+            boneMappingPanel
+        ));
+
+        if (currentArmature != null) children.addAll(List.of(templateCombo, importTemplateBtn, generateRootBoneBox));
+
+        children.addAll(List.of(preview, exportPathBox, exportPathBrowseBtn, exportAllBtn));
+
+        return children;
     }
 
     @Override
@@ -502,6 +552,43 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         g.fill(leftRight + 1, getY() + TITLE_H + 1, rightLeft - 1, boneMappingPanel.getY(), 0xFF111111);
         g.text(font, Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_BONE_MAPPING), leftRight + 6, getY() + TITLE_H + 4, 0xFFCCCCCC, false);
 
+        // Template strip: title, separator, the picker row and the root motion option, fixed above the bone mapping list
+        if (currentArmature != null) {
+            Component templateLabel = Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_TEMPLATE);
+            int stripLeft = boneMappingPanel.getX();
+            int stripRight = boneMappingPanel.getRight() - SCROLLBAR_W;
+            int stripTop = boneMappingPanel.getY() - TEMPLATE_STRIP_H;
+            int separatorY = stripTop + BONE_ROW_H + BONE_ROW_H / 2;
+            int pickerTop = stripTop + BONE_ROW_H * 2;
+
+            g.text(font, templateLabel, stripLeft + 4, stripTop + BONE_ROW_H - font.lineHeight, 0xFFCCCCCC, false);
+            g.fill(stripLeft + 4, separatorY, stripRight - 4, separatorY + 1, 0xFF333333);
+            g.text(font, templateLabel, stripLeft + 4, pickerTop + (BONE_ROW_H - font.lineHeight) / 2, 0xFFAAAAAA, false);
+
+            int btnY = pickerTop + (BONE_ROW_H - TEMPLATE_BTN_H) / 2;
+            int importX = stripRight - IMPORT_BTN_W - 4;
+            int comboLeft = stripLeft + 4 + font.width(templateLabel) + 8;
+            ScreenRectangle modalRect = getRectangle();
+
+            templateCombo.setX1(AnchoredWidget.pixel(comboLeft - getX()));
+            templateCombo.setX2(AnchoredWidget.pixel(Math.max(0, importX - 6 - comboLeft)));
+            templateCombo.setY1(AnchoredWidget.pixel(btnY - getY()));
+            templateCombo.setY2(AnchoredWidget.pixel(TEMPLATE_BTN_H));
+            templateCombo.relocate(modalRect);
+
+            importTemplateBtn.setX1(AnchoredWidget.pixel(importX - getX()));
+            importTemplateBtn.setY1(AnchoredWidget.pixel(btnY - getY()));
+            importTemplateBtn.relocate(modalRect);
+
+            Component optionLabel = Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_OPTION_GENERATE_ROOT_BONE);
+            int optionTop = pickerTop + BONE_ROW_H;
+            g.text(font, optionLabel, stripLeft + 4, optionTop + (BONE_ROW_H - font.lineHeight) / 2, 0xFFAAAAAA, false);
+
+            generateRootBoneBox.setX1(AnchoredWidget.pixel(stripLeft + 4 + font.width(optionLabel) + 6 - getX()));
+            generateRootBoneBox.setY1(AnchoredWidget.pixel(optionTop + (BONE_ROW_H - CHECKBOX_H) / 2 - getY()));
+            generateRootBoneBox.relocate(modalRect);
+        }
+
         for (GuiEventListener e : children()) {
             if (e instanceof AbstractWidget w) w.extractRenderState(g, mouseX, mouseY, a);
         }
@@ -541,13 +628,13 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         applyPreviewAnimationToComponent();
     }
 
-    /// Rebuilds `previewAnimation` from the focused entry's clip + template and pushes it
+    /// Rebuilds `previewAnimation` from the focused entry ([AssetExportManager#retarget]) and pushes it
     /// onto the previewer. Cleared (→ bind pose) when no entry is focused.
     private void reloadPreviewAnimation() {
-        if (focusedEntry == null) {
+        if (focusedEntry == null || sourceArmature == null) {
             previewAnimation = null;
         } else {
-            AnimationClip remapped = AssetExportManager.INSTANCE.remap(focusedEntry.clip, focusedEntry.template);
+            AnimationClip remapped = AssetExportManager.INSTANCE.retarget(focusedEntry, sourceArmature.get(), generateRootBone);
             Identifier id = AkytheraLabs.identifier("retarget_preview/" + focusedEntry.source.getFileName().toString().toLowerCase());
             previewAnimation = InMemoryAssetAccessor.animation(id, remapped);
         }
@@ -576,6 +663,14 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     /// bone-mapping panel.
     private void onSelectArmature(AssetAccessor<? extends Armature> accessor) {
         currentArmature = accessor;
+
+        // A skeletal mesh preview is skinned by the target armature; a vanilla model maps its own
+        EntityModelComponent model = preview.getComponent(EntityModelComponent.class);
+
+        if (model != null && modelList.getSelected() != null && modelList.getSelected().getRow() instanceof SkeletalMeshRow) {
+            model.setArmature(accessor);
+        }
+
         Armature arm = accessor.get();
         List<String> names = new ArrayList<>(arm.getBoneCount());
         arm.visitBones(b -> names.add(b.getName()));
@@ -592,7 +687,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         refreshTemplateList();
         failedExports.clear();          // prior failures referenced now-stale mappings
 
-        rebuildBoneMappingPanel();      // rebuilds the TemplateRow combo with the new armature's templates
+        rebuildBoneMappingPanel();      // rebuilds the template combo with the new armature's templates
         reloadPreviewAnimation();       // wiped templates → preview goes back to bind pose
     }
 
@@ -606,21 +701,12 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         templateEntries = AssetExportManager.INSTANCE.loadTemplates(templatesDir());
     }
 
+    /// Replaces every animation's mapping with `picked`'s. `(none)` leaves existing picks alone.
     private void onPickTemplate(@Nullable TemplateEntry picked) {
         selectedTemplate = picked;
 
-        if (focusedEntry == null) return;
-
         if (picked != null) {
-            // Replace mapping on the focused entry + every selected entry with the
-            // template's. `(none)` leaves existing picks alone — the lower-surprise choice.
-            Map<String, String> tmplMap = picked.template().mapping();
-            Identifier armId = picked.template().armatureId();
-            for (RetargetEntry e : selectedEntries) {
-                e.template.mapping().clear();
-                e.template.mapping().putAll(tmplMap);
-                e.template.setArmatureId(armId);
-            }
+            for (RetargetEntry e : entries) e.template.copyFrom(picked.template());
         }
 
         rebuildBoneMappingPanel();
@@ -686,7 +772,6 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         List<ExportResult<RetargetEntry>> results = AssetExportManager.INSTANCE.exportAll(
             new ArrayList<>(entries),
             sourceArmature.get(),
-            currentArmature.get(),
             destDir,
             generateRootBone
         );
@@ -780,6 +865,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
                 new AssetExportManager.MappingTemplate(templateArmId)
             );
 
+            if (selectedTemplate != null) entry.template.copyFrom(selectedTemplate.template());
+
             entries.add(entry);
 
             return true;
@@ -867,6 +954,33 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     private void rebuildBoneMappingPanel() {
         boneMappingPanel.rebuild();
+        rebuildTemplateCombo();
+    }
+
+    /// Rebuilds [#templateCombo] over the templates of [#currentArmature], showing [#selectedTemplate].
+    private void rebuildTemplateCombo() {
+        List<TemplateEntry> compatible = currentArmature == null
+            ? List.of()
+            : templateEntries.stream()
+                .filter(e -> Objects.equals(e.template().armatureId(), currentArmature.identifier()))
+                .toList();
+
+        templateCombo = new EditorComboBox<>(
+            font,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(TEMPLATE_BTN_H),
+            HorizontalAnchorType.LEFT_WIDTH, VerticalAnchorType.TOP_HEIGHT,
+            () -> selectedTemplate,
+            this::onPickTemplate,
+            Math.clamp(compatible.size() + 1, 4, 12),
+            Component.empty(),
+            compatible,
+            TemplateEntry::displayName
+        );
+
+        if (selectedTemplate != null && compatible.contains(selectedTemplate)) {
+            templateCombo.setValueQuiet(selectedTemplate);
+        }
     }
 
     /// Propagates a bone pick to every selected entry's template, then rebuilds the panel so each
@@ -882,8 +996,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             }
         }
 
-        // Diverged from the template — back to freeform mode. Combo gets reset when the
-        // panel rebuilds (TemplateRow's ctor reads `selectedTemplate`).
+        // Diverged from the template — back to freeform mode. The template combo is rebuilt
+        // from `selectedTemplate` with the panel.
         selectedTemplate = null;
 
         rebuildBoneMappingPanel();
@@ -952,7 +1066,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     private void onSelectModelRow(ModelRow row) {
         switch (row) {
-            case SkeletalMeshRow sr -> preview.displaySkeletalMesh(sr.accessor(), null, true, true);
+            case SkeletalMeshRow sr -> preview.displaySkeletalMesh(sr.accessor(), currentArmature, true, true);
             case VanillaModelRow vr -> preview.displayEntity(
                 BuiltInRegistries.ENTITY_TYPE.getKey(vr.type()),
                 EntityModelComponent.ModelType.VANILLA_ENTITY,
@@ -1309,14 +1423,15 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     // ---------------- Bone Mapping list ----------------
 
-    /// Scrollable list of bone-mapping rows + the Template/Bones sections inline. Switched
-    /// to `ContainerObjectSelectionList` so each row can host child widgets — the template
-    /// combo + Import button live inside `TemplateRow`, the per-bone combo inside `MappingRow`,
-    /// and the Export-as-Template button inside `ExportAsTemplateRow`. Row order:
-    ///   `SectionTitleRow("Template")` → `LineSeparatorRow` → `TemplateRow`
-    ///   `SectionTitleRow("Bones")`    → `LineSeparatorRow` → one `MappingRow` per clip bone
-    ///   `ExportAsTemplateRow`
+    /// Scrollable list of the focused animation's bone-mapping rows, below the fixed Template strip. A
+    /// `ContainerObjectSelectionList` so each row can host child widgets — the per-bone combo inside `MappingRow`, the
+    /// Export-as-Template button inside `ExportAsTemplateRow`. Row order:
+    ///   `SectionTitleRow("Bones")`   → `LineSeparatorRow` → one `MappingRow` per clip bone
+    ///   `LineSeparatorRow` → `ExportAsTemplateRow`
     private final class BoneMappingPanel extends ContainerObjectSelectionList<BoneMappingRow> implements AnchoredWidget {
+        /// Width of the focused animation's longest bone name, in pixels. Places every row's arrow.
+        private int boneNameWidth;
+
         BoneMappingPanel() {
             super(Minecraft.getInstance(), 0, 0, 0, BONE_ROW_H);
         }
@@ -1328,9 +1443,8 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
                 return;
             }
 
-            addEntry(new SectionTitleRow(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_TEMPLATE));
-            addEntry(new LineSeparatorRow());
-            addEntry(new TemplateRow());
+            boneNameWidth = focusedEntry.boneNames.stream().mapToInt(font::width).max().orElse(0);
+
             addEntry(new SectionTitleRow(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_BONES));
             addEntry(new LineSeparatorRow());
 
@@ -1340,9 +1454,6 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
             addEntry(new LineSeparatorRow());
             addEntry(new ExportAsTemplateRow());
-            addEntry(new SectionTitleRow(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_OPTIONS));
-            addEntry(new LineSeparatorRow());
-            addEntry(new OptionsRow());
 
             updateSizeAndPosition(getWidth(), getHeight(), getX(), getY());
         }
@@ -1436,99 +1547,6 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         }
     }
 
-    /// Template picker + Import button. Combo items are filtered to templates whose
-    /// `armatureId` matches `currentArmature`. The row is reconstructed on every
-    /// `BoneMappingPanel.rebuild()` so changes to `templateEntries` / `currentArmature` /
-    /// `selectedTemplate` flow through naturally.
-    private final class TemplateRow extends BoneMappingRow {
-        private final EditorComboBox<TemplateEntry> combo;
-        private final AkytheraButton importBtn;
-        private final List<GuiEventListener> children;
-
-        TemplateRow() {
-            List<TemplateEntry> compatible = currentArmature == null
-                ? List.of()
-                : templateEntries.stream()
-                    .filter(e -> Objects.equals(e.template().armatureId(), currentArmature.identifier()))
-                    .toList();
-
-            this.combo = new EditorComboBox<>(
-                font,
-                AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
-                AnchoredWidget.pixel(0), AnchoredWidget.pixel(TEMPLATE_BTN_H),
-                HorizontalAnchorType.LEFT_WIDTH, VerticalAnchorType.TOP_HEIGHT,
-                () -> selectedTemplate,
-                AnimationRetargetModal.this::onPickTemplate,
-                Math.clamp(compatible.size() + 1, 4, 12),
-                Component.empty(),
-                compatible,
-                TemplateEntry::displayName
-            );
-
-            if (selectedTemplate != null && compatible.contains(selectedTemplate)) {
-                combo.setValueQuiet(selectedTemplate);
-            }
-
-            this.importBtn = AkytheraButton.buttonBuilder(
-                    font,
-                    LocalizedMessage.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_IMPORT_TEMPLATE),
-                    () -> onPressImport()
-                )
-                .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(IMPORT_BTN_W))
-                .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(TEMPLATE_BTN_H))
-                .horizontalAnchorType(HorizontalAnchorType.LEFT_WIDTH)
-                .verticalAnchorType(VerticalAnchorType.TOP_HEIGHT)
-                .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
-                .build();
-
-            this.children = List.of(combo, importBtn);
-        }
-
-        @Override
-        public @NonNull List<? extends GuiEventListener> children() {
-            return children;
-        }
-
-        @Override
-        public @NonNull List<? extends NarratableEntry> narratables() {
-            return List.of(combo, importBtn);
-        }
-
-        @Override
-        public void extractContent(@NonNull GuiGraphicsExtractor g, int mx, int my, boolean hovered, float a) {
-            Component label = Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_TEMPLATE);
-            int labelX = getX() + 4;
-            int labelY = getY() + (getHeight() - font.lineHeight) / 2;
-            int labelW = font.width(label) + 8;
-            g.text(font, label, labelX, labelY, 0xFFAAAAAA, false);
-
-            int rowRight = getX() + getWidth();
-            int btnY = getY() + (getHeight() - TEMPLATE_BTN_H) / 2;
-            int importX = rowRight - IMPORT_BTN_W - 4;
-            int comboLeft = labelX + labelW;
-            int comboW = Math.max(0, importX - 6 - comboLeft);
-
-            int modalX = AnimationRetargetModal.this.getX();
-            int modalY = AnimationRetargetModal.this.getY();
-            ScreenRectangle modalRect = AnimationRetargetModal.this.getRectangle();
-
-            combo.setX1(AnchoredWidget.pixel(comboLeft - modalX));
-            combo.setX2(AnchoredWidget.pixel(comboW));
-            combo.setY1(AnchoredWidget.pixel(btnY - modalY));
-            combo.setY2(AnchoredWidget.pixel(TEMPLATE_BTN_H));
-            combo.relocate(modalRect);
-
-            importBtn.setX1(AnchoredWidget.pixel(importX - modalX));
-            importBtn.setX2(AnchoredWidget.pixel(IMPORT_BTN_W));
-            importBtn.setY1(AnchoredWidget.pixel(btnY - modalY));
-            importBtn.setY2(AnchoredWidget.pixel(TEMPLATE_BTN_H));
-            importBtn.relocate(modalRect);
-
-            combo.extractRenderState(g, mx, my, a);
-            importBtn.extractRenderState(g, mx, my, a);
-        }
-    }
-
     /// One-bone mapping row: `<clipBone>  ->  [combo]`. The combo is marked red when the
     /// row's source bone has no target — works the same under template-lock so the user
     /// sees which slots the template doesn't fill.
@@ -1597,7 +1615,6 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             int textBaseY = getY() + (getHeight() - font.lineHeight) / 2;
             int labelX = getX() + 6;
             g.text(font, Component.literal(clipBone), labelX, textBaseY, 0xFFCCCCCC, false);
-            g.text(font, Component.literal("->"), labelX + BONE_LABEL_W, textBaseY, 0xFF888888, false);
 
             int labelEnd = labelX + BONE_LABEL_W + BONE_ARROW_W;
             int comboY = getY() + (getHeight() - BONE_COMBO_H) / 2;
@@ -1611,61 +1628,14 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             combo.setY1(AnchoredWidget.pixel(comboY - modalY));
             combo.setY2(AnchoredWidget.pixel(BONE_COMBO_H));
             combo.relocate(modalRect);
+
+            // Centered between the longest name and the combo; the combo covers it when they are too close
+            Component arrow = Component.literal("->");
+            int nameEnd = labelX + boneMappingPanel.boneNameWidth;
+            int arrowX = Math.max(nameEnd + BONE_ARROW_GAP, (nameEnd + combo.getX() - font.width(arrow)) / 2);
+            g.text(font, arrow, arrowX, textBaseY, 0xFF888888, false);
+
             combo.extractRenderState(g, mx, my, a);
-        }
-    }
-
-    /// Inline "Generate Root Bone" option row. The CheckBox's data provider / consumer
-    /// pair targets the modal's `generateRootBone` field, so toggle state survives panel
-    /// rebuilds even though the row itself is re-instantiated.
-    private final class OptionsRow extends BoneMappingRow {
-        private final CheckBox checkbox;
-        private final List<GuiEventListener> children;
-
-        OptionsRow() {
-            this.checkbox = new CheckBox(
-                font,
-                AnchoredWidget.pixel(0), AnchoredWidget.pixel(CHECKBOX_H),
-                AnchoredWidget.pixel(0), AnchoredWidget.pixel(CHECKBOX_H),
-                HorizontalAnchorType.LEFT_WIDTH,
-                VerticalAnchorType.TOP_HEIGHT,
-                () -> generateRootBone,
-                v -> generateRootBone = v,
-                Component.empty(),
-                false
-            );
-            this.children = List.of(checkbox);
-        }
-
-        @Override
-        public @NonNull List<? extends GuiEventListener> children() {
-            return children;
-        }
-
-        @Override
-        public @NonNull List<? extends NarratableEntry> narratables() {
-            return List.of(checkbox);
-        }
-
-        @Override
-        public void extractContent(@NonNull GuiGraphicsExtractor g, int mx, int my, boolean hovered, float a) {
-            Component label = Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_OPTION_GENERATE_ROOT_BONE);
-            int labelX = getX() + 6;
-            int labelY = getY() + (getHeight() - font.lineHeight) / 2;
-            g.text(font, label, labelX, labelY, 0xFFCCCCCC, false);
-
-            int boxX = labelX + font.width(label) + 6;
-            int boxY = getY() + (getHeight() - CHECKBOX_H) / 2;
-            int modalX = AnimationRetargetModal.this.getX();
-            int modalY = AnimationRetargetModal.this.getY();
-            ScreenRectangle modalRect = AnimationRetargetModal.this.getRectangle();
-
-            checkbox.setX1(AnchoredWidget.pixel(boxX - modalX));
-            checkbox.setX2(AnchoredWidget.pixel(CHECKBOX_H));
-            checkbox.setY1(AnchoredWidget.pixel(boxY - modalY));
-            checkbox.setY2(AnchoredWidget.pixel(CHECKBOX_H));
-            checkbox.relocate(modalRect);
-            checkbox.extractRenderState(g, mx, my, a);
         }
     }
 

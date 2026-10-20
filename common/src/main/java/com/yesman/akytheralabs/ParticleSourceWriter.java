@@ -136,7 +136,6 @@ public final class ParticleSourceWriter {
                     + BlueprintSourceWriter.registryKey(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, byDataPack.resourceKey().identifier().toString()) + ")";
                 default -> throw new IllegalStateException("No source form for the animator script factory " + armature.scriptFactory().getClass().getSimpleName());
             },
-            String.valueOf(armature.useRootMotion()),
             transform(armature.transform()),
             "TransformInheritPolicy." + armature.transformInheritPolicy().name(),
             "Map.of()",

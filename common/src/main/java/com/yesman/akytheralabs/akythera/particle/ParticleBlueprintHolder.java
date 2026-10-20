@@ -369,7 +369,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
         return mesh;
     }
 
-    /// The particle's own armature component, or empty while [#armature] is on the `<none>` placeholder. It never roots
+    /// The particle's own armature component, or empty while [#armature] is on the `<none>` placeholder. It has no root
     /// motion, and takes on the particle's whole space.
     ///
     /// @throws IllegalStateException for a picked armature without an animator script
@@ -381,7 +381,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
         }
 
         return Optional.of(new ArmatureComponentBlueprint(
-            armature, animatorScript.toFactory(), false, armatureTransform.makeObject(), TransformInheritPolicy.LOC_ROT_SCA, Map.of(), true
+            armature, animatorScript.toFactory(), armatureTransform.makeObject(), TransformInheritPolicy.LOC_ROT_SCA, Map.of(), true
         ));
     }
 

@@ -27,6 +27,7 @@ public final class EntityPatchComponentHolders {
 
     public static final Identifier ARMATURE = Akythera.identifier("armature");
     public static final Identifier ENTITY_MOVEMENT = Akythera.identifier("entity_movement");
+    public static final Identifier ROOT_MOTION = Akythera.identifier("root_motion");
     public static final Identifier ABILITY_SYSTEM = Akythera.identifier("ability_system");
     public static final Identifier TRANSFORM_SOCKET = Akythera.identifier("transform_socket");
     public static final Identifier COLLIDER = Akythera.identifier("collider");
@@ -43,6 +44,8 @@ public final class EntityPatchComponentHolders {
             _ -> ArmatureComponentHolder.createDefault(), ArmatureComponentHolder.EDITOR_CODEC);
         REGISTRY.register(ENTITY_MOVEMENT, EntityMovementComponentHolder.class,
             _ -> EntityMovementComponentHolder.createDefault(), EntityMovementComponentHolder.EDITOR_CODEC);
+        REGISTRY.register(ROOT_MOTION, RootMotionComponentHolder.class,
+            _ -> RootMotionComponentHolder.createDefault(), RootMotionComponentHolder.EDITOR_CODEC);
         REGISTRY.register(ABILITY_SYSTEM, AbilitySystemComponentHolder.class,
             _ -> AbilitySystemComponentHolder.createDefault(), AbilitySystemComponentHolder.EDITOR_CODEC,
             (host, _) -> host instanceof EntityPatchBlueprintHolder blueprint

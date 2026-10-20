@@ -94,7 +94,6 @@
   "gui.akytheralabs.animation_retarget_modal.section.bone_mapping": "본 매핑",
   "gui.akytheralabs.animation_retarget_modal.section.template": "템플릿",
   "gui.akytheralabs.animation_retarget_modal.section.bones": "본",
-  "gui.akytheralabs.animation_retarget_modal.section.options": "부가설정",
   "gui.akytheralabs.animation_retarget_modal.option.generate_root_bone": "루트 모션 생성",
   "gui.akytheralabs.animation_retarget_modal.export_to": "내보내기 위치:",
   "gui.akytheralabs.animation_retarget_modal.export_all": "전체 내보내기",

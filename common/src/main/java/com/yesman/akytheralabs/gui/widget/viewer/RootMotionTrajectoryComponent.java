@@ -4,15 +4,21 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.client.core.renderer.RenderUtils;
+import com.yesman.akythera.core.animation.keyframe.AnimationClip;
+import com.yesman.akythera.core.asset.loader.ArmatureLoader;
+import com.yesman.akythera.core.math.Transform;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -23,6 +29,9 @@ import java.util.function.Supplier;
 /// so it knows nothing about holders. Flat quads on the XZ plane via [RenderTypes#debugQuads]
 /// (translucent, no cull), same approach as [GridFloorComponent].
 public final class RootMotionTrajectoryComponent implements Model3DViewerComponent {
+    /// Trajectory sampling interval, in seconds. The root-motion fixed tick.
+    public static final float SAMPLE_STEP = 0.05F;
+
     private static final int LINE_COLOR = 0xFFFFCC00; // path
     private static final int DOT_COLOR = 0xFFFFE08A; // per-point dots
     private static final int EDGE_COLOR = 0xFFFF4040; // big start/end dots
@@ -32,7 +41,8 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
     private static final float EDGE_HALF = 0.09F;
     private static final float GIZMO_HALF = 0.11F;
 
-    /// Ordered polyline points of the trajectory (preview space). Built by the editor screen —
+    /// Ordered polyline points of the trajectory, in the previewed armature's own space, which the preview model's
+    /// armature transform places like the body. Built by the editor screen —
     /// a sequence/blendspace samples its root over time; a montage runs a section-ordered playback
     /// simulation. Re-fetched each frame so edits show up live.
     private final Supplier<List<Vec3>> pathSupplier;
@@ -45,10 +55,33 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
         this.gizmoSupplier = gizmoSupplier;
     }
 
+    /// `clip`'s root path sampled every [#SAMPLE_STEP], the end point included. Empty for no clip.
+    public static List<Vec3> sampleRootPath(@Nullable AnimationClip clip) {
+        if (clip == null) return List.of();
+
+        float total = clip.getTotalTime();
+        List<Vec3> points = new ArrayList<>();
+
+        for (float t = 0.0F; t < total; t += SAMPLE_STEP) points.add(rootLocation(clip, t));
+
+        points.add(rootLocation(clip, total));
+
+        return points;
+    }
+
+    /// `clip`'s raw [ArmatureLoader#ROOT_BONE] location at `t`, which a playable's pose clears under root motion.
+    public static Vec3 rootLocation(AnimationClip clip, float t) {
+        return clip.getPose(Math.clamp(t, 0.0F, clip.getTotalTime())).orElseZero(ArmatureLoader.ROOT_BONE).loc();
+    }
+
     @Override
     public void extractComponent(GuiGraphicsExtractor graphics, Model3DViewer model3DViewer, PoseStack poseStack, ByteBufferBuilder byteBuffer, int mouseX, int mouseY, float a) {
-        List<Vec3> path = pathSupplier.get();
-        if (path == null || path.isEmpty()) return;
+        List<Vec3> sampled = pathSupplier.get();
+        if (sampled == null || sampled.isEmpty()) return;
+
+        EntityModelComponent model = model3DViewer.getComponent(EntityModelComponent.class);
+        Transform armature = model == null ? Transform.IDENTITY : model.getArmatureComponent().modelTransform();
+        List<Vec3> path = sampled.stream().map(armature::mul).toList();
 
         RenderType renderType = RenderTypes.debugQuads();
         BufferBuilder builder = new BufferBuilder(byteBuffer, renderType.primitiveTopology(), renderType.format());
@@ -64,7 +97,7 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
         }
 
         Vec3 gizmo = gizmoSupplier.get();
-        if (gizmo != null) emitDot(builder, pose, gizmo, GIZMO_HALF, GIZMO_COLOR);
+        if (gizmo != null) emitDot(builder, pose, armature.mul(gizmo), GIZMO_HALF, GIZMO_COLOR);
 
         MeshData meshData = builder.build();
 

@@ -9,7 +9,6 @@ import com.yesman.akythera.client.api.gui.viewer.*;
 import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
-import com.yesman.akythera.core.asset.loader.ArmatureLoader;
 import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
@@ -68,9 +67,6 @@ import java.util.function.Predicate;
 public final class AnimationSequenceEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
-
-    /// Trajectory sampling interval (sec) — mirrors the root-motion fixed tick (0.05).
-    private static final float TRAJECTORY_SAMPLE_STEP = 0.05F;
 
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
@@ -286,7 +282,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         if (!holder.isRootMotion()) return;
 
         model3DViewer.addComponent(new RootMotionTrajectoryComponent(
-            () -> samplePath(holder.getAnimClip().get()),
+            () -> RootMotionTrajectoryComponent.sampleRootPath(holder.getAnimClip().get()),
             () -> {
                 AnimationClip clip = holder.getAnimClip().get();
                 if (clip == null) return Vec3.ZERO;
@@ -294,28 +290,9 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
                 EntityModelComponent c = model3DViewer.getComponent(EntityModelComponent.class);
                 float elapsed = (c != null && c.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator s)
                     ? s.getElapsedTime() : 0.0F;
-                return rootLoc(clip, elapsed);
+                return RootMotionTrajectoryComponent.rootLocation(clip, elapsed);
             }
         ));
-    }
-
-    /// Samples the clip's root path at a fixed interval for the trajectory polyline (a single clip
-    /// has no sections, so the path is just the raw root over time).
-    private static List<Vec3> samplePath(@Nullable AnimationClip clip) {
-        if (clip == null) return List.of();
-
-        float total = clip.getTotalTime();
-        List<Vec3> pts = new ArrayList<>();
-        for (float t = 0.0F; t < total; t += TRAJECTORY_SAMPLE_STEP) pts.add(rootLoc(clip, t));
-        pts.add(rootLoc(clip, total)); // exact end point
-
-        return pts;
-    }
-
-    /// Raw root-bone location at `t` (clip pose keeps the root, unlike `AnimationSequence.getPose`).
-    private static Vec3 rootLoc(AnimationClip clip, float t) {
-        return clip.getPose(Math.clamp(t, 0.0F, clip.getTotalTime()))
-            .orElseZero(ArmatureLoader.ROOT_BONE).loc();
     }
 
     /// Writes the entry asynchronously behind an await modal. The returned future completes on the

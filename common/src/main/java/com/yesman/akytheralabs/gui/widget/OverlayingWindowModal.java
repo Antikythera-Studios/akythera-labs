@@ -58,6 +58,9 @@ public abstract class OverlayingWindowModal extends AbstractContainerWidget impl
     @Override
     public boolean mouseClicked(@NonNull MouseButtonEvent event, boolean doubleClick) {
         if (super.mouseClicked(event, doubleClick)) {
+            // Vanilla starts a drag on the left button alone; the editor also drags on the right one
+            if (AkytheraEditorLayoutManager.acceptsDragButton(event)) setDragging(true);
+
             return true;
         }
 
@@ -87,7 +90,16 @@ public abstract class OverlayingWindowModal extends AbstractContainerWidget impl
             return true;
         }
 
-        return super.mouseReleased(event);
+        if (super.mouseReleased(event)) return true;
+
+        if (event.button() != 0 && AkytheraEditorLayoutManager.acceptsDragButton(event) && isDragging()) {
+            setDragging(false);
+            GuiEventListener focused = getFocused();
+
+            return focused != null && focused.mouseReleased(event);
+        }
+
+        return false;
     }
 
     @Override
@@ -111,7 +123,12 @@ public abstract class OverlayingWindowModal extends AbstractContainerWidget impl
             }
         }
 
-        return super.mouseDragged(event, dx, dy);
+        if (super.mouseDragged(event, dx, dy)) return true;
+
+        GuiEventListener focused = getFocused();
+
+        return event.button() != 0 && focused != null && isDragging() && AkytheraEditorLayoutManager.acceptsDragButton(event)
+            && focused.mouseDragged(event, dx, dy);
     }
 
     private static void dragChildrenRecursively(GuiEventListener e, int xMove, int yMove) {

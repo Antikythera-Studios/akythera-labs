@@ -56,19 +56,16 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
                 .forGetter(h -> trimDirectory(h.armature.identifier())),
             AnimatorScriptRef.CODEC.fieldOf("script")
                 .forGetter(h -> h.animatorScript),
-            Codec.BOOL.fieldOf("use_root_motion")
-                .forGetter(ArmatureComponentHolder::getUseRootMotion),
             TransformHolder.CODEC.optionalFieldOf("transform")
                 .forGetter(h -> Optional.of(h.localTransform)),
             TransformInheritPolicy.CODEC.optionalFieldOf("transform_inherit_policy", TransformInheritPolicy.LOC_ROT_SCA)
                 .forGetter(TransformComponentHolder::getTransformInheritPolicy),
             ComponentAttachableHolder.componentsField(() -> EntityPatchComponentHolders.REGISTRY)
                 .forGetter(ComponentAttachableHolder::componentsOf)
-        ).apply(instance, (armatureId, script, useRootMotion, transform, transformInheritPolicy, components) -> {
+        ).apply(instance, (armatureId, script, transform, transformInheritPolicy, components) -> {
             ArmatureComponentHolder holder = new ArmatureComponentHolder(
                 resolveArmature(armatureId),
                 script,
-                useRootMotion,
                 transform.orElseGet(TransformHolder::identity),
                 transformInheritPolicy
             );
@@ -83,16 +80,13 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
     @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_ANIM_SCRIPT, order = 1)
     private AnimatorScriptRef animatorScript;
 
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_ROOT_MOTION, order = 2)
-    private boolean useRootMotion;
-
     /// The elements of the patch's space the skeleton takes on.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_TRANSFORM_INHERIT_POLICY, order = 3)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_TRANSFORM_INHERIT_POLICY, order = 2)
     private TransformInheritPolicy transformInheritPolicy;
 
     /// Where the skeleton sits in the patch's space. A nested editor object, rendered as location / rotation / scale
     /// rows under one "Local Transform" heading.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_SECTION_LOCAL_TRANSFORM, order = 4)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_SECTION_LOCAL_TRANSFORM, order = 3)
     private TransformHolder localTransform;
 
     /// The attached component holders by name — the armature's [ComponentAttachableHolder] children,
@@ -102,13 +96,11 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
     public ArmatureComponentHolder(
         AssetAccessor<? extends Armature> armature,
         AnimatorScriptRef animatorScript,
-        boolean useRootMotion,
         TransformHolder localTransform,
         TransformInheritPolicy transformInheritPolicy
     ) {
         this.armature = armature;
         this.animatorScript = animatorScript;
-        this.useRootMotion = useRootMotion;
         this.localTransform = localTransform;
         this.transformInheritPolicy = transformInheritPolicy;
     }
@@ -121,7 +113,6 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
         return new ArmatureComponentHolder(
             resolveArmature(EMPTY_REFERENCE),
             AnimatorScriptRef.none(),
-            false,
             TransformHolder.identity(),
             TransformInheritPolicy.LOC_ROT_SCA
         );
@@ -164,20 +155,12 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
         return animatorScript;
     }
 
-    public boolean getUseRootMotion() {
-        return useRootMotion;
-    }
-
     public void setArmature(AssetAccessor<? extends Armature> armature) {
         this.armature = armature;
     }
 
     public void setAnimatorScript(AnimatorScriptRef animatorScript) {
         this.animatorScript = animatorScript;
-    }
-
-    public void setUseRootMotion(boolean useRootMotion) {
-        this.useRootMotion = useRootMotion;
     }
 
     @Override
@@ -199,11 +182,12 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
     }
 
     /// What an armature hosts: a [TransformSocketHolder] binding a bone, the entity's own model
-    /// — [MeshComponentHolder]s drawing meshes, or a [PALPoseBinderHolder] leaving it to PAL — and a
-    /// [SkinnedArmorRendererHolder] drawing what one armor slot wears over it.
+    /// — [MeshComponentHolder]s drawing meshes, or a [PALPoseBinderHolder] leaving it to PAL — a
+    /// [SkinnedArmorRendererHolder] drawing what one armor slot wears over it, and a
+    /// [RootMotionComponentHolder] moving the entity by its montages' root motion.
     @Override
     public List<Class<?>> attachableTypes() {
-        return List.of(TransformSocketHolder.class, MeshComponentHolder.class, PALPoseBinderHolder.class, SkinnedArmorRendererHolder.class);
+        return List.of(TransformSocketHolder.class, MeshComponentHolder.class, PALPoseBinderHolder.class, SkinnedArmorRendererHolder.class, RootMotionComponentHolder.class);
     }
 
     @Override
@@ -239,7 +223,6 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
     public void readFrom(ArmatureComponentBlueprint object) {
         armature = object.armature();
         animatorScript = AnimatorScriptRef.of(object.scriptFactory());
-        useRootMotion = object.useRootMotion();
         localTransform.readFrom(object.transform());
         transformInheritPolicy = object.transformInheritPolicy();
 
@@ -250,7 +233,7 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
     @Override
     public ArmatureComponentBlueprint makeObject() {
         return new ArmatureComponentBlueprint(
-            armature, animatorScript.toFactory(), useRootMotion, localTransform.makeObject(), transformInheritPolicy,
+            armature, animatorScript.toFactory(), localTransform.makeObject(), transformInheritPolicy,
             ComponentAttachableHolder.lowerComponents(components), isEnabled());
     }
 
@@ -271,7 +254,7 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
     /// Tokens for `components/armature.ftl`: the trimmed armature namespace and path the fragment
     /// rebuilds into an [ArmatureManager#accessor] call, the animator script as a `script_kind`
     /// (`class` / `datapack`) and `script_id` pair lowering to the matching
-    /// `ArmatureComponentBlueprint.ByClass` / `ByDataPack`, the root-motion flag, the transform's
+    /// `ArmatureComponentBlueprint.ByClass` / `ByDataPack`, the transform's
     /// [TransformHolder#sourceTokens] and the inherit policy's constant name. A script whose id resolves nowhere emits an empty `script_id`.
     @Override
     public Map<String, Object> getDTO() {
@@ -280,7 +263,6 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
         Map<String, Object> dto = new HashMap<>();
         dto.put("armature_namespace", armatureId.getNamespace());
         dto.put("armature_path", armatureId.getPath());
-        dto.put("use_root_motion", useRootMotion);
         dto.put("transform", localTransform.sourceTokens());
         dto.put("transform_inherit_policy", transformInheritPolicy.name());
 
