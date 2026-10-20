@@ -5,7 +5,6 @@ import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.ExecutionRecord;
 import com.yesman.akythera.api.data.modularize.node.ScriptFailure;
-import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.blueprint.script.BlueprintExecutor;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
@@ -24,6 +23,8 @@ import com.yesman.akytheralabs.gui.widget.VariableDropModal;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.BlueprintFieldGetterNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.BlueprintFieldSetterNodeWidget;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
+import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import com.yesman.akytheralabs.gui.widget.script.FunctionCallNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.MethodEntryNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.NodeSuggestContext;
@@ -40,6 +41,7 @@ import com.yesman.akytheralabs.gui.widget.script.node.ParentCallNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.ReturnNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.VariableGetterNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.VariableSetterNodeData;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -82,6 +84,9 @@ public final class BlueprintEditorSession {
 
     /// What a canvas rebuilds its rows with: no row of a blueprint canvas asks the host for an entry.
     private static final ScriptNodeGraphWidget.EntryNodeFactory NO_ENTRY = (_, _, _) -> null;
+
+    /// The key a Compile marks the Event Graph's nodes under. A function canvas is keyed [#functionKey].
+    public static final String EVENT_GRAPH_KEY = "event";
 
     private final Font font;
     private final BlueprintLayout layout;
@@ -532,13 +537,7 @@ public final class BlueprintEditorSession {
 
     /// A canvas implementing `function`, or the Event Graph for null, knowing `canvasMembers`.
     private ScriptNodeGraphWidget newCanvas(final @Nullable String function, final BlueprintMembers canvasMembers) {
-        ScriptNodeGraphWidget canvas = new ScriptNodeGraphWidget(
-            font,
-            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
-            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
-            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
-            AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
-        );
+        ScriptNodeGraphWidget canvas = ScriptNodeGraphWidget.create(font, ownerType);
 
         // The host palette, then the entries of the events, the calls of the declared functions, the Return
         // and Parent nodes of the canvas' own function, and the parent's fields
@@ -616,7 +615,6 @@ public final class BlueprintEditorSession {
             return suggestions;
         });
 
-        canvas.setScriptOwnerType(ownerType);
         canvas.setUsage(usages);
         canvas.setBlueprintMembers(canvasMembers, function);
         canvas.setSelectionHandler(selectionHandler);
@@ -832,24 +830,13 @@ public final class BlueprintEditorSession {
         data.setVariables(variableDrafts.stream().map(VariableDraft::toData).toList());
     }
 
-    /// Validates every open canvas, every declared function's signature, every member variable's name and
-    /// default value, and every property value, and names the first page that failed, or null when all passed.
-    /// A function name must be a Java identifier no other member of the blueprint has, every input needs a
-    /// type, no member variable may share its name with a local a graph run binds, and every member variable's
-    /// default value and every property value must encode.
-    public @Nullable Component validate() {
-        Component failed = eventGraph.validate().isEmpty()
-            ? null
-            : Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_TAB_EVENT_GRAPH);
-
-        for (Map.Entry<String, ScriptNodeGraphWidget> open : openCanvases.entrySet()) {
-            if (!open.getValue().validate().isEmpty() && failed == null) failed = Component.literal(open.getKey());
-        }
-
-        for (ExternalTab open : externalTabs.values()) {
-            if (!open.canvas().validate().isEmpty() && failed == null) failed = open.title();
-        }
-
+    /// Validates every declared function's signature, every member variable's name and default value, and every
+    /// property value, and names the first that failed, or null when all passed. A function name must be a Java
+    /// identifier no other member of the blueprint has, every input needs a type, no member variable may share
+    /// its name with a local a graph run binds, and every member variable's default value and every property
+    /// value must encode. The canvases are checked by [#compileCanvases].
+    public @Nullable Component validateMembers() {
+        Component failed = null;
         Set<String> names = new HashSet<>();
 
         for (UserFunctionDraft function : functions) {
@@ -900,6 +887,58 @@ public final class BlueprintEditorSession {
         return name.chars().skip(1).allMatch(Character::isJavaIdentifierPart);
     }
 
+    /// The key a Compile marks the nodes of the function `name`'s canvas under.
+    public static String functionKey(final String name) {
+        return "function/" + name;
+    }
+
+    /// Validates every canvas of `data`, a script owned by `ownerType` of a parent laid out by `layout`, into
+    /// `compilation`: the Event Graph under [#EVENT_GRAPH_KEY], each override and declared function under
+    /// [#functionKey].
+    public static void compileCanvases(
+        final Compilation compilation, final BlueprintScriptData data, final BlueprintLayout layout, final Class<?> ownerType
+    ) {
+        BlueprintMembers members = data.members(layout);
+
+        compilation.canvas(EVENT_GRAPH_KEY, canvasOf(ownerType, members, null, data.getEventGraph()),
+            Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_TAB_EVENT_GRAPH));
+
+        data.getOverrides().forEach((name, graph) ->
+            compilation.canvas(functionKey(name), canvasOf(ownerType, members, name, graph), Component.literal(name)));
+
+        for (BlueprintScriptData.UserFunction function : data.getFunctions()) {
+            compilation.canvas(functionKey(function.name()), canvasOf(ownerType, members, function.name(), function.graph()),
+                Component.literal(function.name()));
+        }
+    }
+
+    /// A canvas showing `graph`, built as this session builds the canvas implementing `function` (the Event
+    /// Graph for null), for a compile to validate with no screen.
+    public static ScriptNodeGraphWidget canvasOf(
+        final Class<?> ownerType, final BlueprintMembers members, final @Nullable String function, final ScriptGraphData graph
+    ) {
+        ScriptNodeGraphWidget canvas = ScriptNodeGraphWidget.create(Minecraft.getInstance().font, ownerType);
+
+        canvas.setBlueprintMembers(members, function);
+        canvas.importGraph(graph, NO_ENTRY);
+
+        return canvas;
+    }
+
+    /// Shows the node marks of `failure` on every canvas on screen.
+    public void showCompileFailure(final CompileFailure failure) {
+        failure.showOn(EVENT_GRAPH_KEY, eventGraph);
+        openCanvases.forEach((name, canvas) -> failure.showOn(functionKey(name), canvas));
+
+        if (externalCanvases == null) return;
+
+        externalTabs.forEach((key, open) -> {
+            String compileKey = externalCanvases.compileKey(key);
+
+            if (compileKey != null) failure.showOn(compileKey, open.canvas());
+        });
+    }
+
     /// Shows `records`, keyed by run site, on the canvases drawing them: every event's on the Event Graph,
     /// and each function's on its open tab.
     public void showDebugRecords(final Map<String, ExecutionRecord> records) {
@@ -940,6 +979,9 @@ public final class BlueprintEditorSession {
 
         /// The locals their runs bind, which no member variable may be named.
         Set<String> boundLocals();
+
+        /// The key a Compile marks the nodes of the canvas opened under `key` with, or null when it marks none.
+        @Nullable String compileKey(Object key);
     }
 
     /// The open tab of a canvas kept outside the data, and where it keeps its graph.

@@ -30,7 +30,10 @@ import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
+import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -221,6 +224,30 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
             }
             case BlueprintParentRef.SourceCodeScript sourceCode -> new SourceCodeWidgetBlueprint(usage(), sourceCode.ctor(), title, sourceCode.script());
         };
+    }
+
+    /// Also validates the graph of every widget event and binding, under its [WidgetGraphSite#key]. A source
+    /// code script lowers nothing from the canvases, so it checks none.
+    @Override
+    public void compile(final Compilation compilation) {
+        if (parent instanceof BlueprintParentRef.SourceCodeScript) return;
+
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType());
+
+        BlueprintMembers members = script.members(layout());
+
+        for (WidgetGraphSite site : widgetGraphSites()) {
+            compilation.canvas(site.key(),
+                BlueprintEditorSession.canvasOf(ownerType(), members.with(site.widgetSignatures()), site.signature().name(), site.graph()),
+                Component.literal(site.key()));
+        }
+
+        List<String> unknownPaths = ComponentPaths.unknown(this, script);
+
+        if (!unknownPaths.isEmpty()) compilation.fail(Component.literal("No widget at " + String.join(", ", unknownPaths)));
+
+        compilation.unresolved(script.failedNodes());
+        compilation.build(this::makeObject);
     }
 
     /// Every graph the widgets of the tree hold for one of their events or bindings, at every depth, in tree order.

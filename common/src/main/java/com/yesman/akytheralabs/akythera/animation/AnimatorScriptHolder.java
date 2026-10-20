@@ -15,11 +15,23 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
+import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
+import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.script.StateMachineData;
+import com.yesman.akytheralabs.gui.widget.script.node.AnimInterfaceNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.AnimLayerNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.CachedPoseNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.EntryPointNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
 import com.yesman.akytheralabs.gui.widget.script.node.MethodEntryNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.StateMachineNodeData;
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.Holder;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
@@ -29,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -125,6 +138,176 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
 
         // Cached poses register themselves at construct time.
         return new DataDrivenAnimatorScript.AnimatorScriptBlueprint(body, anim.poseGetter());
+    }
+
+    /// Also validates the Anim Graph and every state machine's sub-graphs, keyed by [ScriptCanvasKeys]. A
+    /// transition's condition is **required**: an empty one is an undefined transition and fails like an
+    /// unwired `Can Enter Transition` result. Wire a `true` literal into the result for an unconditional one.
+    @Override
+    public void compile(final Compilation compilation) {
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), OWNER_TYPE);
+
+        Map<UniqueProperty, Integer> duplicated = duplicatedProperties();
+        Function<NodeData, @Nullable Component> duplicateErrors = data -> {
+            UniqueProperty property = uniquePropertyOf(data);
+            Integer held = property == null ? null : duplicated.get(property);
+
+            return held == null ? null : Component.translatable(
+                LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VALIDATION_DUPLICATE, property.label(), property.value(), held);
+        };
+
+        Component animGraphPage = Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_TAB_ANIM_GRAPH);
+
+        // An empty Anim Graph has no Output Pose wired, the same as a seeded one left unwired
+        if (poseGraph.isEmpty()) {
+            compilation.fail(animGraphPage);
+        } else {
+            compilation.canvas(ScriptCanvasKeys.ANIM_GRAPH, canvasOf(poseGraph), animGraphPage, duplicateErrors);
+        }
+
+        stateMachines.forEach((machineName, machine) -> {
+            for (StateMachineData.TransitionData entry : machine.entryTransitions()) {
+                String to = ScriptCanvasKeys.stateName(entry.to());
+
+                compileCondition(compilation, ScriptCanvasKeys.transition(machineName, ScriptCanvasKeys.ENTRY, to),
+                    entry.conditionGraph(), transitionPage(ScriptCanvasKeys.ENTRY, to));
+            }
+
+            for (StateMachineData.StateData state : machine.states()) {
+                String from = ScriptCanvasKeys.stateName(state.state());
+
+                if (!state.poseGraph().isEmpty()) {
+                    compilation.canvas(ScriptCanvasKeys.statePose(machineName, from), canvasOf(state.poseGraph()),
+                        Component.literal(from), duplicateErrors);
+                }
+
+                for (StateMachineData.TransitionData transition : state.transitions()) {
+                    String to = ScriptCanvasKeys.stateName(transition.to());
+
+                    compileCondition(compilation, ScriptCanvasKeys.transition(machineName, from, to),
+                        transition.conditionGraph(), transitionPage(from, to));
+                }
+            }
+
+            // A group edge carries one condition canvas, shared by every member the compile expands it onto
+            for (StateMachineData.GroupData group : machine.groups()) {
+                for (StateMachineData.TransitionData transition : group.transitions()) {
+                    String to = ScriptCanvasKeys.stateName(transition.to());
+
+                    compileCondition(compilation, ScriptCanvasKeys.groupTransition(machineName, group.name(), to),
+                        transition.conditionGraph(), transitionPage(group.name(), to));
+                }
+            }
+        });
+
+        List<String> unresolved = Stream.concat(Stream.concat(script.canvases(), Stream.of(poseGraph)), stateMachineGraphs())
+            .flatMap(graph -> graph.failedNodes().stream())
+            .map(failed -> "Unresolved node (id " + failed.id() + "): " + failed.message())
+            .toList();
+
+        if (!unresolved.isEmpty()) compilation.fail(Component.literal(String.join("; ", unresolved)));
+
+        List<String> duplicates = new ArrayList<>();
+        duplicated.forEach((property, held) -> duplicates.add(property.label() + " '" + property.value() + "' carried by " + held + " nodes"));
+
+        // State signatures register per machine, so they are counted per machine
+        stateMachines.forEach((machineName, machine) -> {
+            Map<String, Integer> signatures = new LinkedHashMap<>();
+
+            for (StateMachineData.StateData state : machine.states()) {
+                signatures.merge(ScriptCanvasKeys.stateName(state.state()), 1, Integer::sum);
+            }
+
+            signatures.forEach((name, held) -> {
+                if (held > 1) duplicates.add("State '" + name + "' on '" + machineName + "' carried by " + held + " states");
+            });
+        });
+
+        if (!duplicates.isEmpty()) compilation.fail(Component.literal(String.join("; ", duplicates)));
+
+        // A data block or asset deleted in the content browser leaves a reference that no longer resolves
+        List<Identifier> missing = AnimGraphCompiler.findMissingReferences(poseGraph, stateMachines);
+
+        if (!missing.isEmpty()) {
+            compilation.fail(Component.literal(
+                "Missing references: " + missing.stream().map(Identifier::toString).collect(Collectors.joining(", "))));
+        }
+
+        compilation.build(this::makeObject);
+    }
+
+    /// Validates the transition condition `graph` under `key`. An empty condition fails on `page` with no canvas.
+    private static void compileCondition(final Compilation compilation, final String key, final ScriptGraphData graph, final Component page) {
+        if (graph.isEmpty()) {
+            compilation.fail(page);
+            return;
+        }
+
+        compilation.canvas(key, canvasOf(graph), page);
+    }
+
+    /// A data-flow canvas of the animator showing `graph`, for a compile to validate with no screen.
+    private static ScriptNodeGraphWidget canvasOf(final ScriptGraphData graph) {
+        ScriptNodeGraphWidget canvas = ScriptNodeGraphWidget.create(Minecraft.getInstance().font, OWNER_TYPE);
+
+        canvas.importGraph(graph, (_, _, _) -> null);
+
+        return canvas;
+    }
+
+    /// Every pose and condition sub-graph of every state machine.
+    private Stream<ScriptGraphData> stateMachineGraphs() {
+        return stateMachines.values().stream().flatMap(machine -> Stream.of(
+            machine.states().stream().map(StateMachineData.StateData::poseGraph),
+            machine.states().stream().flatMap(state -> state.transitions().stream()).map(StateMachineData.TransitionData::conditionGraph),
+            machine.entryTransitions().stream().map(StateMachineData.TransitionData::conditionGraph),
+            machine.groups().stream().flatMap(group -> group.transitions().stream()).map(StateMachineData.TransitionData::conditionGraph)
+        ).flatMap(graphs -> graphs));
+    }
+
+    /// The page name of a transition's condition, matching its sub-tab title (`<from> to <to>`, Entry's
+    /// edges as `Entry to <to>`).
+    private static Component transitionPage(final String from, final String to) {
+        return Component.literal((from.isEmpty() ? "Entry" : from) + " to " + to);
+    }
+
+    /// Every [UniqueProperty] carried by more than one node of a pose canvas — the Anim Graph and each
+    /// state's driver — with how many carry it.
+    private Map<UniqueProperty, Integer> duplicatedProperties() {
+        Map<UniqueProperty, Integer> counts = new LinkedHashMap<>();
+        Stream<ScriptGraphData> poseGraphs = Stream.concat(Stream.of(poseGraph),
+            stateMachines.values().stream().flatMap(machine -> machine.states().stream()).map(StateMachineData.StateData::poseGraph));
+
+        poseGraphs.forEach(graph -> {
+            for (GraphNode row : graph.nodes()) {
+                UniqueProperty property = uniquePropertyOf(row.data());
+
+                if (property != null) counts.merge(property, 1, Integer::sum);
+            }
+        });
+
+        counts.values().removeIf(held -> held < 2);
+
+        return counts;
+    }
+
+    /// The uniqueness `data` carries, or null when it carries none. Each of these is a name or key the
+    /// animator resolves *by*, so a second holder makes the script ambiguous: an **Anim Layer**
+    /// signature and an **Animation Interface** key each register once per animator
+    /// (`BlendingAnimator#addAnimInterface` throws on a duplicate), a **State Machine** name keys the
+    /// topology store, and a **Cached Pose** name is what every `Use cached pose` getter reads back.
+    private static @Nullable UniqueProperty uniquePropertyOf(final NodeData data) {
+        return switch (data) {
+            case StateMachineNodeData machine -> new UniqueProperty("State Machine", machine.machineName());
+            case CachedPoseNodeData cache -> new UniqueProperty("Cached Pose", cache.cacheName());
+            case AnimLayerNodeData layer -> new UniqueProperty("Anim Layer", layer.signatureId().toString());
+            case AnimInterfaceNodeData key -> new UniqueProperty("Animation Interface key", key.interfaceKeyId().toString());
+            default -> null;
+        };
+    }
+
+    /// A name or key its node must be the only holder of: the label naming the kind, plus the value itself.
+    private record UniqueProperty(String label, String value) {
     }
 
     // ***************************************************************

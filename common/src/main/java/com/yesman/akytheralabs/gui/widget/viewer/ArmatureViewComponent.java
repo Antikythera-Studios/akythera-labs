@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.widget.viewer;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
@@ -18,6 +19,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
@@ -401,6 +403,12 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         }
 
         return true;
+    }
+
+    /// Takes the Shift press while Shift-click picks a pair, so the camera does not move down under it.
+    @Override
+    public boolean onKeyPressed(final Model3DViewer owner, final KeyEvent event) {
+        return onShiftPicked != null && (event.key() == InputConstants.KEY_LSHIFT || event.key() == InputConstants.KEY_RSHIFT);
     }
 
     /// Labels the pick as `name(id)` in the viewer's top-right corner.

@@ -42,7 +42,6 @@ import com.yesman.akytheralabs.gui.panel.script.VariableDraft;
 import com.yesman.akytheralabs.gui.panel.script.VariableEditController;
 import com.yesman.akytheralabs.gui.panel.script.VariablePanel;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
-import com.yesman.akytheralabs.gui.widget.CompileResultToast;
 import com.yesman.akytheralabs.gui.widget.EditorComboBox;
 import com.yesman.akytheralabs.gui.widget.RefusalPopup;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
@@ -57,6 +56,8 @@ import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
+import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import com.yesman.akytheralabs.gui.widget.script.ComponentGetterNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
@@ -217,6 +218,16 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
                     })
                     .flatMap(signature -> signature.parameters().stream().map(BlueprintSignature.Parameter::name))
                     .collect(Collectors.toSet());
+            }
+
+            /// The [WidgetBlueprintHolder.WidgetGraphSite#key] of the widget graph the tab draws.
+            @Override
+            public @Nullable String compileKey(final Object key) {
+                if (!(key instanceof WidgetGraphKey graphKey)) return null;
+
+                String path = pathIn(holder, "", graphKey.widget());
+
+                return path == null ? null : path + "." + graphKey.name();
             }
         });
 
@@ -639,52 +650,12 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
             }, minecraft);
     }
 
-    /// Compiles the live canvases into the runtime blueprint in memory only. Marks any invalid node with a red
-    /// ERROR banner, aborts on the first failure, and pops a toast with the outcome.
+    /// Compiles the flushed canvases into the runtime blueprint in memory only, and pops a toast with the
+    /// outcome. The nodes it flags are marked by [#extractRenderState].
     private void compile() {
         flushToHolder();
-
-        // A source code script lowers nothing from the canvases
-        if (holder.getParent() instanceof BlueprintParentRef.SourceCodeScript) {
-            CompileResultToast.show(true, null);
-            return;
-        }
-
-        Component failedPage = session.validate();
-
-        if (failedPage != null) {
-            AkytheraLabs.LOGGER.warn("Compile of widget blueprint '{}' failed on page '{}'", resourceKey.identifier(), failedPage.getString());
-            CompileResultToast.show(false, failedPage);
-            return;
-        }
-
-        List<String> unknownPaths = ComponentPaths.unknown(holder, holder.getScript());
-
-        if (!unknownPaths.isEmpty()) {
-            AkytheraLabs.LOGGER.warn("Compile of widget blueprint '{}' aborted: no widget at {}", resourceKey.identifier(), unknownPaths);
-            CompileResultToast.show(false, Component.literal("No widget at " + String.join(", ", unknownPaths)));
-            return;
-        }
-
-        List<ScriptGraphData.FailedNode> failedNodes = holder.getScript().failedNodes();
-
-        if (!failedNodes.isEmpty()) {
-            for (ScriptGraphData.FailedNode f : failedNodes) {
-                AkytheraLabs.LOGGER.warn("Compile of widget blueprint '{}' aborted: unresolved node (id {}): {}", resourceKey.identifier(), f.id(), f.message());
-            }
-
-            CompileResultToast.show(false, Component.literal("Unresolved nodes: " + failedNodes.size()));
-            return;
-        }
-
-        try {
-            WidgetBlueprint blueprint = holder.makeObject();
-            AkytheraLabs.LOGGER.info("Compiled widget blueprint '{}': {}", resourceKey.identifier(), blueprint);
-            CompileResultToast.show(true, null);
-        } catch (RuntimeException e) {
-            AkytheraLabs.LOGGER.error("Failed to compile widget blueprint '{}'", resourceKey.identifier(), e);
-            CompileResultToast.show(false, Component.literal(e.getMessage() == null ? resourceKey.identifier().toString() : e.getMessage()));
-        }
+        session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
+        Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
     }
 
     /// Writes the session's canvases and variables back onto the holder. Widgets are edited on the holder's own
@@ -729,7 +700,8 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
     }
 
     /// Marks the blueprint's runtime failures: on the Event Graph or a function tab, and for a widget event or
-    /// binding (`<path>.<name>`) on its open tab and its row in the Widgets panel.
+    /// binding (`<path>.<name>`) on its open tab and its row in the Widgets panel. Re-shows the node marks of a
+    /// failed compile too.
     @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         Map<String, ScriptFailure> failures = ScriptRecorder.failures(resourceKey);
@@ -760,6 +732,10 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
 
             widgetPanel.setRuntimeErrors(widgetErrors);
         }
+
+        CompileFailure compileFailure = holder.getCompileFailure();
+
+        if (compileFailure != null) session.showCompileFailure(compileFailure);
 
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }

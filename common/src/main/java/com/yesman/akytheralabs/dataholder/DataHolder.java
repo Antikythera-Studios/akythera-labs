@@ -4,6 +4,8 @@ import com.google.gson.JsonElement;
 import com.mojang.serialization.Codec;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
+import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
@@ -69,6 +71,19 @@ public interface DataHolder<T> {
         return null;
     }
 
+    /// Runs this entry's part of Compile into `compilation`, from the stored data alone: validates every canvas
+    /// it holds and builds the runtime object. An entry with no script checks nothing.
+    default void compile(final Compilation compilation) {}
+
+    /// Records the outcome of a Compile: the failure it stopped at, or null for a success. Kept through
+    /// saves and edits until the next Compile.
+    default void markCompileFailed(@Nullable CompileFailure failure) {}
+
+    /// The failure of the last Compile, or null when it succeeded or none ran.
+    default @Nullable CompileFailure getCompileFailure() {
+        return null;
+    }
+
     /// The exception [AkytheraProject] hit loading this asset. Every holder field is unreliable
     /// while this is non-null.
     @Nullable Exception getDeserializationFailureException();
@@ -87,9 +102,9 @@ public interface DataHolder<T> {
 
     /// The first failure **this** entry carries, checked in severity order — the root decode failure
     /// ([#getDeserializationFailureException]), then a nested-content failure
-    /// ([#getNestedFailureException]), then the runtime-object failure ([#getObjectCreationFailure])
-    /// — or null when the entry itself is healthy (it may still depend on a broken one, see
-    /// [#getFailureException]).
+    /// ([#getNestedFailureException]), then the runtime-object failure ([#getObjectCreationFailure]),
+    /// then the last Compile's failure ([#getCompileFailure]) — or null when the entry itself is
+    /// healthy (it may still depend on a broken one, see [#getFailureException]).
     default @Nullable Exception getOwnFailureException() {
         Exception decodeFailure = getDeserializationFailureException();
         if (decodeFailure != null) return decodeFailure;
@@ -97,7 +112,10 @@ public interface DataHolder<T> {
         Exception nestedFailure = getNestedFailureException();
         if (nestedFailure != null) return nestedFailure;
 
-        return getObjectCreationFailure();
+        Exception objectFailure = getObjectCreationFailure();
+        if (objectFailure != null) return objectFailure;
+
+        return getCompileFailure();
     }
 
     /// The project entries this holder **depends on** — used to inherit their broken state (see

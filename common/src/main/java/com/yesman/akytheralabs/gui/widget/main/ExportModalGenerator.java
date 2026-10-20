@@ -208,6 +208,7 @@ public final class ExportModalGenerator {
     /// Gated behind [BrokenEntriesModalGenerator] over `compile`'s own entries only.
     public static void openCompile(Font font, Component title, Compile compile) {
         AkytheraProject project = AkytheraProject.getCurrentProject();
+        project.compileAll();
         BrokenEntriesModalGenerator.confirmProceed(
             font,
             project,

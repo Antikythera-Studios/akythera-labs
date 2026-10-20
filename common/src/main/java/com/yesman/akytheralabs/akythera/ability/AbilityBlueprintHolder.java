@@ -14,6 +14,8 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
+import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import org.jspecify.annotations.Nullable;
 
@@ -83,6 +85,13 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
     @Override
     public AbilityBlueprint makeObject() {
         return new AbilityBlueprint(ctor, script.compile(layout(), ownerType()));
+    }
+
+    @Override
+    public void compile(final Compilation compilation) {
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType());
+        compilation.unresolved(script.failedNodes());
+        compilation.build(this::makeObject);
     }
 
     @Override

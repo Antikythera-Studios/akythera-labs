@@ -31,6 +31,7 @@ import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.akythera.asset.ReferencePose;
 import com.yesman.akytheralabs.akythera.entitypatch.component.AnimatorScriptRef;
+import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleModuleList;
 import com.yesman.akytheralabs.akythera.particle.ParticleModulesProducer;
 import com.yesman.akytheralabs.akythera.particle.ParticleRef;
@@ -66,8 +67,10 @@ import com.yesman.akytheralabs.gui.widget.main.ReferencePoseSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.RegistryLookupModal;
 import com.yesman.akytheralabs.gui.widget.main.SoundSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.TextureSelectModal;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.ContextEntryNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
+import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.viewer.DirectionArrowComponent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -2457,6 +2460,53 @@ public final class EditorWidgetFactory {
         return System.identityHashCode(owner) + "/" + slotName;
     }
 
+    /// The context pins the canvas of a field shaped by `shape` carries.
+    private static List<ContextEntryNodeWidget.ContextParam> nodeGraphParams(EditorNodeGraph shape) {
+        List<ContextEntryNodeWidget.ContextParam> params = new ArrayList<>();
+
+        for (int i = 0; i < shape.contextParams().length; i++) {
+            Class<?> type = i < shape.contextParamTypes().length ? shape.contextParamTypes()[i] : Object.class;
+            params.add(new ContextEntryNodeWidget.ContextParam(shape.contextParams()[i], type));
+        }
+
+        return params;
+    }
+
+    /// Validates every authored [EditorNodeGraph] field of the components under `host` into `compilation`, each
+    /// in a canvas shaped like its "Edit Node Graph" tab and under the [#nodeGraphTabKey] the tab opens with. An
+    /// empty canvas is unauthored and checks nothing.
+    public static void compileNodeGraphs(Compilation compilation, ComponentAttachableHolder host, Class<?> ownerType) {
+        Font font = Minecraft.getInstance().font;
+
+        ComponentAttachableHolder.flatten(host).forEach(component -> {
+            for (Class<?> c = component.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+                for (Field field : c.getDeclaredFields()) {
+                    EditorNodeGraph shape = field.getAnnotation(EditorNodeGraph.class);
+
+                    if (shape == null || field.getType() != ScriptGraphData.class) continue;
+
+                    field.setAccessible(true);
+
+                    if (!(tryGet(field, component) instanceof ScriptGraphData graph) || graph.isEmpty()) continue;
+
+                    ScriptNodeGraphWidget canvas = ScriptNodeGraphWidget.create(font, ownerType);
+                    canvas.importGraph(graph, ContextEntryNodeWidget.factory(font, nodeGraphParams(shape)));
+                    canvas.setResultType(shape.resultType());
+
+                    EditorEditable editable = field.getAnnotation(EditorEditable.class);
+                    Component fallback = editable == null || editable.label().isEmpty()
+                        ? Component.literal(field.getName())
+                        : Component.translatable(editable.label());
+                    Component title = component instanceof NodeGraphTitleProvider titles
+                        ? titles.nodeGraphTabTitle(field.getName(), fallback)
+                        : fallback;
+
+                    compilation.canvas(nodeGraphTabKey(component, field.getName()), canvas, title);
+                }
+            }
+        });
+    }
+
     /// An "Edit Node Graph" button for a [ScriptGraphData] slot. Opens the slot's canvas as a
     /// closeable center tab of the hosting [NodeGraphTabHost] screen, shaped by the declaring
     /// field's [EditorNodeGraph] annotation (context pins, result type); the tab's flush writes the
@@ -2467,15 +2517,8 @@ public final class EditorWidgetFactory {
         String labelText = slot.label();
 
         EditorNodeGraph shape = f == null ? null : f.getAnnotation(EditorNodeGraph.class);
-        List<ContextEntryNodeWidget.ContextParam> params = new ArrayList<>();
+        List<ContextEntryNodeWidget.ContextParam> params = shape == null ? List.of() : nodeGraphParams(shape);
         Class<?> resultType = shape == null ? boolean.class : shape.resultType();
-
-        if (shape != null) {
-            for (int i = 0; i < shape.contextParams().length; i++) {
-                Class<?> type = i < shape.contextParamTypes().length ? shape.contextParamTypes()[i] : Object.class;
-                params.add(new ContextEntryNodeWidget.ContextParam(shape.contextParams()[i], type));
-            }
-        }
 
         AkytheraButton button = AkytheraButton.buttonBuilder(factory.font, LocalizedMessage.handwritten("Edit Node Graph"), () -> {
             if (!(AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof NodeGraphTabHost editor)) return;

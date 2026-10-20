@@ -11,6 +11,8 @@ import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
+import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import org.jspecify.annotations.Nullable;
 
@@ -55,6 +57,13 @@ public final class AbilityCueBlueprintHolder extends AbstractDataHolder<AbilityC
     @Override
     public AbilityCueBlueprint makeObject() {
         return new AbilityCueBlueprint(script.compile(layout(), AbilityCue.class));
+    }
+
+    @Override
+    public void compile(final Compilation compilation) {
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), AbilityCue.class);
+        compilation.unresolved(script.failedNodes());
+        compilation.build(this::makeObject);
     }
 
     @Override

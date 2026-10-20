@@ -63,7 +63,6 @@ import com.yesman.akytheralabs.akythera.asset.ArmatureMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.akythera.asset.MeshMetadataHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
-import com.yesman.akytheralabs.akythera.widget.WidgetBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleBlueprintHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleInitializerScriptHolder;
@@ -71,6 +70,7 @@ import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleUpdaterScriptHolder;
 import com.yesman.akytheralabs.akythera.physics.ArmaturePhysicsDataHolder;
 import com.yesman.akytheralabs.akythera.physics.ClothPhysicsDataHolder;
+import com.yesman.akytheralabs.akythera.widget.WidgetBlueprintHolder;
 import com.yesman.akytheralabs.dataholder.*;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
@@ -82,6 +82,7 @@ import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.main.ProjectSetupModalGenerator;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -1166,6 +1167,19 @@ public final class AkytheraProject {
     /// confirms them before any export or world reload.
     public List<ResourceKey<?>> findBrokenEntries() {
         return findBrokenEntries(_ -> true);
+    }
+
+    /// Runs Compile ([DataHolder#compile]) on every entry and records each outcome on its holder, so a script
+    /// whose canvas fails validation is broken before anything leaves the editor.
+    public void compileAll() {
+        for (ProjectObjectRegistry<?, ?> registry : modifiableRegistries.values()) {
+            for (Map.Entry<? extends ResourceKey<?>, ? extends DataHolder<?>> e : registry.dataHolderEntrySet()) {
+                Compilation compilation = new Compilation();
+
+                e.getValue().compile(compilation);
+                e.getValue().markCompileFailed(compilation.result());
+            }
+        }
     }
 
     /// The broken entries whose key passes `filter` — the gate a per-category or per-selection

@@ -427,6 +427,11 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         this.errors = (errors == null || errors.isEmpty()) ? List.of() : List.copyOf(errors);
     }
 
+    /// The errors [#setErrors] and [#addError] flagged on this node.
+    public List<Component> validationErrors() {
+        return errors;
+    }
+
     /// Appends one more validation error, keeping the ones already flagged — the hook for a problem
     /// the owning canvas cannot see on its own, such as a name duplicated across the script's canvases.
     /// The next [#setErrors] (every [ScriptNodeGraphWidget#validate]) clears it again.

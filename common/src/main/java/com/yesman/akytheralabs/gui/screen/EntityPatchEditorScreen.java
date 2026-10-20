@@ -75,7 +75,6 @@ import com.yesman.akytheralabs.gui.panel.script.VariableDraft;
 import com.yesman.akytheralabs.gui.panel.script.VariableEditController;
 import com.yesman.akytheralabs.gui.panel.script.VariablePanel;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
-import com.yesman.akytheralabs.gui.widget.CompileResultToast;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.VariableDropModal;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
@@ -87,18 +86,20 @@ import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
+import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import com.yesman.akytheralabs.gui.widget.viewer.ArmatureViewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ColliderPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.StaticMeshPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.TransformComponentPreviewComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.resources.model.EquipmentClientInfo;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.resources.model.EquipmentClientInfo;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -529,23 +530,7 @@ public final class EntityPatchEditorScreen extends Screen
             graph.addNode(new TransitionResultNodeWidget(
                 minecraft.font, title, RESULT_ROOT_X, RESULT_ROOT_Y));
         } else {
-            // The entry row's pin types are structural (not persisted) — re-type them from `params`
-            // by label; an unknown label degrades to a wildcard pin.
-            graph.importGraph(data,
-                (x, y, labels) ->
-                    new ContextEntryNodeWidget(
-                        minecraft.font, Component.literal("Params"),
-                        labels.stream()
-                            .map(
-                                label ->
-                                params.stream().filter(p -> p.name().equals(label))
-                                    .findFirst()
-                                    .orElse(new ContextEntryNodeWidget.ContextParam(label, Object.class))
-                            )
-                            .toList(),
-                        x, y
-                    )
-            );
+            graph.importGraph(data, ContextEntryNodeWidget.factory(minecraft.font, params));
         }
 
         graph.setResultType(resultType);
@@ -701,71 +686,15 @@ public final class EntityPatchEditorScreen extends Screen
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
-    /// Compiles the live canvas into the runtime blueprint in memory only. Marks any invalid node with
-    /// a red ERROR banner, aborts on the first failure, and pops a toast with the outcome.
+    /// Compiles the flushed canvases into the runtime blueprint in memory only, and pops a toast with the
+    /// outcome. The nodes the compile flags are marked by [#extractRenderState].
     private void compile() {
         ScriptRecorder.removeFailures(runtimeKey);
         flushToHolder();
+        session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
+        openGraphs.values().forEach(ScriptNodeGraphWidget::clearValidationErrors);
 
-        // A source code script lowers nothing from the canvases
-        if (holder.getParent() instanceof BlueprintParentRef.SourceCodeScript) {
-            CompileResultToast.show(true, null);
-            return;
-        }
-
-        Component failedPage = validateLiveCanvases();
-
-        if (failedPage != null) {
-            AkytheraLabs.LOGGER.warn("Compile of entity patch '{}' failed on page '{}'", resourceKey.identifier(), failedPage.getString());
-            CompileResultToast.show(false, failedPage);
-            return;
-        }
-
-        List<String> unknownPaths = ComponentPaths.unknown(holder, holder.getScript());
-
-        if (!unknownPaths.isEmpty()) {
-            AkytheraLabs.LOGGER.warn("Compile of entity patch '{}' aborted — no component at {}", resourceKey.identifier(), unknownPaths);
-            CompileResultToast.show(false, Component.literal("No component at " + String.join(", ", unknownPaths)));
-            return;
-        }
-
-        // Unresolved (failed-decode) nodes are a hard compile error
-        List<ScriptGraphData.FailedNode> failedNodes = holder.getScript().failedNodes();
-
-        if (!failedNodes.isEmpty()) {
-            for (ScriptGraphData.FailedNode f : failedNodes) {
-                AkytheraLabs.LOGGER.warn("Compile of entity patch '{}' aborted — unresolved node (id {}): {}",
-                    resourceKey.identifier(), f.id(), f.message());
-            }
-
-            CompileResultToast.show(false, Component.literal("Unresolved nodes: " + failedNodes.size()));
-            return;
-        }
-
-        try {
-            EntityPatchBlueprint blueprint = holder.makeObject();
-            AkytheraLabs.LOGGER.info("Compiled entity patch '{}': {}", resourceKey.identifier(), blueprint);
-            CompileResultToast.show(true, null);
-        } catch (RuntimeException e) {
-            AkytheraLabs.LOGGER.error("Failed to compile entity patch '{}'", resourceKey.identifier(), e);
-            CompileResultToast.show(false, Component.literal(resourceKey.identifier().toString()));
-        }
-    }
-
-    /// Validates every canvas with widgets on screen — the session's canvases plus each open result /
-    /// condition sub-tab — and names the first that failed, or null when all passed.
-    /// [ScriptNodeGraphWidget#validate] paints a node's red "ERROR!" banner, so no canvas is skipped
-    /// once one has failed.
-    private @Nullable Component validateLiveCanvases() {
-        Component failedPage = session.validate();
-
-        for (Map.Entry<String, ScriptNodeGraphWidget> open : openGraphs.entrySet()) {
-            if (!open.getValue().validate().isEmpty() && failedPage == null) {
-                failedPage = Component.literal(open.getKey());
-            }
-        }
-
-        return failedPage;
+        Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
     }
 
     /// Writes the session's canvases and variables and any open result tab back onto the holder.
@@ -1316,6 +1245,13 @@ public final class EntityPatchEditorScreen extends Screen
             });
 
             componentPanel.setRuntimeErrors(componentErrors);
+        }
+
+        CompileFailure compileFailure = holder.getCompileFailure();
+
+        if (compileFailure != null) {
+            session.showCompileFailure(compileFailure);
+            openGraphs.forEach(compileFailure::showOn);
         }
 
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);

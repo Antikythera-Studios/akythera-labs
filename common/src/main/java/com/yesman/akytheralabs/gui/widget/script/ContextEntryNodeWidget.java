@@ -27,6 +27,21 @@ public final class ContextEntryNodeWidget extends AbstractNodeWidget {
         relayout();
     }
 
+    /// Rebuilds the stored row of a canvas carrying `params`, re-typing its pins by label. Pin types are
+    /// structural (not persisted), and an unknown label degrades to a wildcard pin.
+    public static ScriptNodeGraphWidget.EntryNodeFactory factory(final Font font, final List<ContextParam> params) {
+        return (x, y, labels) -> new ContextEntryNodeWidget(
+            font, Component.literal("Params"),
+            labels.stream()
+                .map(label -> params.stream()
+                    .filter(param -> param.name().equals(label))
+                    .findFirst()
+                    .orElse(new ContextParam(label, Object.class)))
+                .toList(),
+            x, y
+        );
+    }
+
     /// The canvas' origin can never be removed.
     @Override
     public boolean isDeletable() {

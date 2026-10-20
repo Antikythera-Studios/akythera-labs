@@ -20,19 +20,21 @@ import java.util.stream.Collectors;
 /// flavors, see [ExportModalGenerator]) and the Worldview reload button ([WorldviewPanel]).
 ///
 /// A broken entry ([DataHolder#getFailureException] — a file that failed to load, one carrying salvaged
-/// nested content such as a dangling animation id in an Anim Graph, or one whose runtime object can't be
-/// built) is **excluded** from the export rather than emitted as defaults. That is a silent omission, so it
-/// is confirmed first: the modal names every affected file and only the OK button proceeds.
+/// nested content such as a dangling animation id in an Anim Graph, one whose runtime object can't be
+/// built, or a script whose Compile failed) is **excluded** from the export rather than emitted as defaults.
+/// That is a silent omission, so it is confirmed first: the modal names every affected file and only the OK
+/// button proceeds.
 public final class BrokenEntriesModalGenerator {
     private static final int POPUP_W = 420;
 
     private BrokenEntriesModalGenerator() {
     }
 
-    /// Runs `onProceed` straight away for a healthy project; otherwise opens the warning listing
-    /// the broken entries' files ([AkytheraProject#findBrokenEntries]) and runs it only if the user
-    /// confirms. Cancel just closes.
+    /// Compiles every entry ([AkytheraProject#compileAll]), then runs `onProceed` straight away for a healthy
+    /// project; otherwise opens the warning listing the broken entries' files
+    /// ([AkytheraProject#findBrokenEntries]) and runs it only if the user confirms. Cancel just closes.
     public static void confirmProceed(Font font, AkytheraProject project, Runnable onProceed) {
+        project.compileAll();
         confirmProceed(font, project, project.findBrokenEntries(), onProceed);
     }
 

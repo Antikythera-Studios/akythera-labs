@@ -19,6 +19,7 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintParentRef;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
+import com.yesman.akytheralabs.akythera.blueprint.ComponentPaths;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
@@ -29,7 +30,12 @@ import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.dataholder.FailedComponentHolder;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
+import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
 import java.util.HashMap;
@@ -40,7 +46,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.SequencedMap;
 import java.util.stream.Stream;
-import net.minecraft.resources.Identifier;
 
 /// Modifiable data holder for an [EntityPatchBlueprint] (registry
 /// [AkytheraRegistries.DataPack#ENTITY_PATCH_KEY]).
@@ -159,6 +164,22 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
             case BlueprintParentRef.SourceCodeScript sourceCode ->
                 new SourceCodeEntityPatchBlueprint(sourceCode.ctor(), sourceCode.script());
         };
+    }
+
+    /// A source code script lowers nothing from the canvases, so it checks none.
+    @Override
+    public void compile(final Compilation compilation) {
+        if (parent instanceof BlueprintParentRef.SourceCodeScript) return;
+
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType());
+        EditorWidgetFactory.compileNodeGraphs(compilation, this, ownerType());
+
+        List<String> unknownPaths = ComponentPaths.unknown(this, script);
+
+        if (!unknownPaths.isEmpty()) compilation.fail(Component.literal("No component at " + String.join(", ", unknownPaths)));
+
+        compilation.unresolved(script.failedNodes());
+        compilation.build(this::makeObject);
     }
 
     /// Everything the attached components reference — armature accessors, animator script holders

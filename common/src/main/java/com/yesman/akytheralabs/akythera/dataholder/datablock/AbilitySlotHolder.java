@@ -17,8 +17,7 @@ import java.util.List;
 /// [DataBlockHolder] for the `AbilitySlot` editable data block. The made object reads its id and
 /// group **live** off this holder, like [WeaponStanceHolder].
 ///
-/// A stored group that no longer resolves decodes as unset, so the slot still opens and the group is
-/// picked again. The slot counts as broken until it is.
+/// A stored group that no longer resolves decodes as unset.
 public final class AbilitySlotHolder extends DataBlockHolder<AbilitySlot> {
     public static final Codec<AbilitySlotHolder> CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
@@ -31,18 +30,9 @@ public final class AbilitySlotHolder extends DataBlockHolder<AbilitySlot> {
         })
     );
 
-    /// [#getObjectCreationFailure] while no group is picked.
-    private static final IllegalStateException NO_GROUP = new IllegalStateException("The slot belongs to no group");
-
-    /// The group this slot belongs to. Null until one is picked.
+    /// The group this slot is listed under in UI. Null for a slot no UI lists.
     @EditorEditable(label = LangKeys.GUI_DATA_BLOCK_ROW_GROUP)
     private @Nullable AbilitySlotGroup group;
-
-    /// Fails while no group is picked, since the engine codec needs one.
-    @Override
-    public @Nullable Exception getObjectCreationFailure() {
-        return group == null ? NO_GROUP : super.getObjectCreationFailure();
-    }
 
     @Override
     public void readFrom(final AbilitySlot object) {
@@ -63,7 +53,7 @@ public final class AbilitySlotHolder extends DataBlockHolder<AbilitySlot> {
             }
 
             @Override
-            public AbilitySlotGroup group() {
+            public @Nullable AbilitySlotGroup group() {
                 return group;
             }
 

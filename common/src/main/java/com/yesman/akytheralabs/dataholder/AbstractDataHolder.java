@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.*;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
@@ -28,6 +29,9 @@ public abstract class AbstractDataHolder<T> implements DataHolder<T> {
 
     @Nullable
     private Exception objectCreationFailure;
+
+    @Nullable
+    private CompileFailure compileFailure;
 
     public @Nullable ResourceKey<T> getOwnResourceKey() {
         return ownResourceKey;
@@ -71,6 +75,16 @@ public abstract class AbstractDataHolder<T> implements DataHolder<T> {
     @Override
     public @Nullable Exception getObjectCreationFailure() {
         return objectCreationFailure;
+    }
+
+    @Override
+    public void markCompileFailed(@Nullable CompileFailure failure) {
+        compileFailure = failure;
+    }
+
+    @Override
+    public @Nullable CompileFailure getCompileFailure() {
+        return compileFailure;
     }
 
     /// The first nested decode failure among a group of child holders — a child's own decode failure,

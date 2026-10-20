@@ -28,7 +28,6 @@ import com.yesman.akytheralabs.gui.panel.script.VariableDraft;
 import com.yesman.akytheralabs.gui.panel.script.VariableEditController;
 import com.yesman.akytheralabs.gui.panel.script.VariablePanel;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
-import com.yesman.akytheralabs.gui.widget.CompileResultToast;
 import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
 import com.yesman.akytheralabs.gui.widget.RefusalPopup;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
@@ -42,9 +41,10 @@ import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
+import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import com.yesman.akytheralabs.gui.widget.script.NodeWidgetFactory;
 import com.yesman.akytheralabs.gui.widget.script.PlayAbilityCueNodeWidget;
-import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.script.ScriptNodeSuggestions;
 import com.yesman.akytheralabs.gui.widget.script.ScriptVariableGetterNodeWidget;
@@ -166,29 +166,8 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.COMPILE, () -> {
                     session.flush();
-
-                    Component failedPage = session.validate();
-
-                    if (failedPage != null) {
-                        AkytheraLabs.LOGGER.warn("Compile of ability '{}' failed on page '{}'", resourceKey.identifier(), failedPage.getString());
-                        CompileResultToast.show(false, failedPage);
-                        return;
-                    }
-
-                    List<ScriptGraphData.FailedNode> failedNodes = holder.getScript().failedNodes();
-
-                    if (!failedNodes.isEmpty()) {
-                        CompileResultToast.show(false, Component.literal("Unresolved nodes: " + failedNodes.size()));
-                        return;
-                    }
-
-                    try {
-                        AkytheraLabs.LOGGER.info("Compiled ability '{}': {}", resourceKey.identifier(), holder.makeObject());
-                        CompileResultToast.show(true, null);
-                    } catch (RuntimeException e) {
-                        AkytheraLabs.LOGGER.error("Failed to compile ability '{}'", resourceKey.identifier(), e);
-                        CompileResultToast.show(false, Component.literal(resourceKey.identifier().toString()));
-                    }
+                    session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
+                    Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
                 })
                 // Parent picker: every ability constructor. A pick re-opens the screen, and undo reaches
                 // the screen open at the time.
@@ -451,6 +430,16 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
     @Override
     public void extractBackground(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
         // Draw nothing
+    }
+
+    /// Re-shows the marks of a failed compile every frame, so they reach tabs opened after it.
+    @Override
+    public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        CompileFailure failure = holder.getCompileFailure();
+
+        if (failure != null) session.showCompileFailure(failure);
+
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }
 
     @Override

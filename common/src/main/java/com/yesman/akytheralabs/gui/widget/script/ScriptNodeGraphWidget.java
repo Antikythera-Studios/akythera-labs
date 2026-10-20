@@ -149,6 +149,9 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// state/transition sub-graphs. Suppresses the execution-flow constructs in the suggestion menu.
     private boolean dataFlowOnly;
 
+    /// How many times [#importGraph] has rebuilt the nodes of this canvas.
+    private int importCount;
+
     /// The members of the blueprint this canvas belongs to, which shape its entry, call, parent and return
     /// nodes as they rebuild.
     private BlueprintMembers members = BlueprintMembers.NONE;
@@ -268,6 +271,22 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         this.y2 = y2;
         this.horizontalAnchorType = horizontalAnchorType;
         this.verticalAnchorType = verticalAnchorType;
+    }
+
+    /// A canvas filling its host, whose nodes default an unwired owner pin to `ownerType`. What the editor's
+    /// canvases are built from, and what a compile with no screen validates a stored graph in.
+    public static ScriptNodeGraphWidget create(final Font font, final Class<?> ownerType) {
+        ScriptNodeGraphWidget canvas = new ScriptNodeGraphWidget(
+            font,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+            AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
+        );
+
+        canvas.setScriptOwnerType(ownerType);
+
+        return canvas;
     }
 
     public void addNode(AbstractNodeWidget node) {
@@ -453,7 +472,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     ///
     /// Unresolved placeholders re-emit their raw rows under their ORIGINAL ids (the raw JSON is
     /// byte-preserved), so live nodes are numbered around those ids to avoid collisions.
-    private Map<AbstractNodeWidget, Integer> assignIds() {
+    public Map<AbstractNodeWidget, Integer> assignIds() {
         Set<Integer> reservedIds = new HashSet<>();
         for (AbstractNodeWidget node : nodes) {
             if (node instanceof UnresolvedNodeWidget u && u.data().id() >= 0) reservedIds.add(u.data().id());
@@ -583,6 +602,11 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// Drops every mark [#markRuntimeError] placed.
     public void clearRuntimeErrors() {
         for (AbstractNodeWidget node : nodes) node.setRuntimeError(null);
+    }
+
+    /// Drops every validation error on the nodes, as a [#validate] finding nothing does.
+    public void clearValidationErrors() {
+        for (AbstractNodeWidget node : nodes) node.setErrors(null);
     }
 
     /// The [ScriptFunction] a row calls, or null for a row that is not a plain call — the operators,
@@ -808,10 +832,16 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         return t;
     }
 
+    /// [#importCount].
+    public int importCount() {
+        return importCount;
+    }
+
     /// Rebuilds the canvas from persisted data: clears the live nodes / wires, lets each
     /// [GraphNode] build its widget (an entry row through `entryFactory`), then re-adds every wire
     /// whose endpoints resolve to in-range pins. A no-op for [ScriptGraphData#EMPTY].
     public void importGraph(ScriptGraphData data, EntryNodeFactory entryFactory) {
+        importCount++;
         nodes.clear();
         connections.clear();
         selectedNodes.clear();

@@ -1,6 +1,8 @@
 package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -41,13 +43,15 @@ public final class CompileResultToast implements Toast {
         this.subtitle = subtitle;
     }
 
-    /// Pops the toast for a compile outcome. `page` names where a failure came from and is dropped on
-    /// success.
-    public static void show(boolean success, @Nullable Component page) {
+    /// Records the outcome of compiling `holder` on it ([DataHolder#markCompileFailed]) and pops the toast,
+    /// naming the page `failure` failed on. Null is a success.
+    public static void show(DataHolder<?> holder, @Nullable CompileFailure failure) {
+        boolean success = failure == null;
         Identifier icon = AkytheraLabs.identifier(success ? "widget/compile_success" : "widget/compile_fail");
         Component title = Component.literal(success ? "Compile Succeeded" : "Compile Failed");
 
-        Minecraft.getInstance().gui.toastManager().addToast(new CompileResultToast(icon, title, success ? null : page));
+        holder.markCompileFailed(failure);
+        Minecraft.getInstance().gui.toastManager().addToast(new CompileResultToast(icon, title, success ? null : failure.page()));
     }
 
     @Override

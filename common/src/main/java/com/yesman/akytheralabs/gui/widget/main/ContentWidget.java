@@ -114,10 +114,7 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
     private static final int LABEL_HEIGHT = 12;
     private static final int ICON_SIZE = 16;
 
-    /// Height of the red strip drawn along the widget's bottom edge when the
-    /// referencing [DataHolder] failed to load.
-    private static final int ERROR_BAR_HEIGHT = 3;
-    private static final int COLOR_ERROR = 0xFFD03A3A;
+    private static final int COLOR_ERROR = 0xFFD03A3A; // tile border
     private static final int COLOR_ERROR_BORDER = 0xFF7A1F1F;
     private static final int COLOR_ERROR_TEXT = 0xFFFF8A8A;
 
@@ -249,7 +246,7 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
 
         // 1px border on each edge — turns red when the holder failed to load
         int borderColor = loadingFailure != null
-            ? COLOR_ERROR_BORDER
+            ? COLOR_ERROR
             : (dragHighlighted || highlighted ? 0xFF5A8AAA : 0xFF3A3A3A);
         guiGraphics.outline(x, y, w, h, borderColor);
 
@@ -269,28 +266,23 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
             guiGraphics.fill(x, y, x + w, y + h, COLOR_CUT_VEIL);
         }
 
-        if (loadingFailure != null) {
-            // Red strip on the bottom edge, inside the border and below the label baseline.
-            guiGraphics.fill(x + 1, y + h - ERROR_BAR_HEIGHT - 1, x + w - 1, y + h - 1, COLOR_ERROR);
-
-            // The content browser scissors its grid, so the tooltip is deferred to the frame's
-            // tail (drawn outside the clip, above every other widget).
-            if (hovered) {
-                ((GuiGraphicsAccessor) guiGraphics).akythera$setDeferredWidgetRenderer(
-                    () -> drawFailureTooltip(guiGraphics, loadingFailure, mouseX, mouseY)
-                );
-            }
+        // The content browser scissors its grid, so the tooltip is deferred to the frame's
+        // tail (drawn outside the clip, above every other widget).
+        if (loadingFailure != null && hovered) {
+            ((GuiGraphicsAccessor) guiGraphics).akythera$setDeferredWidgetRenderer(
+                () -> drawFailureTooltip(guiGraphics, loadingFailure, mouseX, mouseY)
+            );
         }
     }
 
     /// The load failure of the referencing object ([DataHolder#getFailureException] — a root decode
-    /// failure, a nested-content failure, or an unbuildable runtime object), or null when it loaded
-    /// fine / isn't a [DataHolder] at all (directories and raw asset accessors never carry one). Any
-    /// of the three red-marks the tile; only a root decode failure gates opening behind the replace
-    /// popup. The nested channel is a live query, so it clears the moment a clean save / compile
+    /// failure, a nested-content failure, an unbuildable runtime object, or a failed Compile), or null
+    /// when it loaded fine / isn't a [DataHolder] at all (directories and raw asset accessors never
+    /// carry one). Any of them red-marks the tile; only a root decode failure gates opening behind the
+    /// replace popup. The nested channel is a live query, so it clears the moment a clean save / compile
     /// heals and flushes the content.
     private @Nullable Exception getLoadingFailureException() {
-        if (!(referencingObject instanceof DataHolder<?> dataHolder)) return null;
+        if (!(getReferencingObject() instanceof DataHolder<?> dataHolder)) return null;
 
         return dataHolder.getFailureException();
     }
@@ -519,7 +511,7 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
                 // A decode-failed entry never opens its editor directly — the only way forward is
                 // the gated replace-with-default popup (its data is defaults + retained raw; an
                 // object-creation failure alone opens normally, the data is intact and editable).
-                if (referencingObject instanceof AbstractDataHolder<?> failed
+                if (getReferencingObject() instanceof AbstractDataHolder<?> failed
                     && failed.getDeserializationFailureException() != null
                     && failed.getOwnResourceKey() != null) {
                     showReplaceFailedEntryPopup(failed);
@@ -858,6 +850,14 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
         /// The project registry entry this widget stands for. Re-read after a rename, which re-keys it.
         public ResourceKey<@NonNull T> getResourceKey() {
             return resourceKey;
+        }
+
+        /// The holder the project registers under [#resourceKey] now. A "Quit" without saving swaps in a
+        /// disk-reloaded one ([AkytheraProject#reloadEntryFromDisk]), which the holder this widget was built
+        /// with no longer is.
+        @Override
+        public @Nullable D getReferencingObject() {
+            return AkytheraProject.getCurrentProject().<T, D>getDataHolder(resourceKey).orElseGet(super::getReferencingObject);
         }
 
         @Override

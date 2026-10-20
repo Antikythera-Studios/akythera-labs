@@ -28,10 +28,8 @@ import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.akythera.animation.AnimGraphCompiler;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
-import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
@@ -60,12 +58,10 @@ import com.yesman.akytheralabs.gui.widget.main.RegistryLookupModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
-import com.yesman.akytheralabs.gui.widget.script.node.AnimInterfaceNodeData;
-import com.yesman.akytheralabs.gui.widget.script.node.AnimLayerNodeData;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
+import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import com.yesman.akytheralabs.gui.widget.script.node.CachedPoseGetterNodeData;
-import com.yesman.akytheralabs.gui.widget.script.node.CachedPoseNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
-import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.StateMachineNodeData;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -168,10 +164,6 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Sub-graphs (state pose / transition condition) carry no ENTRY rows — their root rebuilds
     /// directly — so their import never consults an entry factory.
     private final ScriptNodeGraphWidget.EntryNodeFactory subGraphEntryFactory = (_, _, _) -> null;
-
-    /// Whether [#compile] has run since this screen opened. Until it has, a freshly-opened sub-tab is
-    /// left unmarked — nothing has been compiled, so there is no verdict to put on its nodes.
-    private boolean compiled;
 
     /// Whether the canvases carry [ScriptRecorder] failure marks, so they are cleared once the
     /// failures are gone.
@@ -513,7 +505,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
             // Anim Layer nodes register one engine AnimationLayer per AnimationLayerSignature. Every
             // signature is offered whether or not one is already placed — a duplicate is reported by
-            // the compile ([#collectDuplicateProperties]), not blocked here. Layers are stored in
+            // the compile ([AnimatorScriptHolder#compile]), not blocked here. Layers are stored in
             // `construct`, which only sees the root graph, so they are offered on the root Anim Graph
             // only.
             if (graph == poseGraph) {
@@ -547,7 +539,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             // offered per resource type (the engine's two interface kinds). A key registers once per
             // animator (BlendingAnimator#addAnimInterface throws on a duplicate), and every key is
             // offered regardless: a duplicate is reported by the compile
-            // ([#collectDuplicateProperties]), not blocked here.
+            // ([AnimatorScriptHolder#compile]), not blocked here.
             for (Identifier id : AkytheraProject.getCurrentProject()
                     .getMergedDataBlockIdentifiers(AnimationInterfaceKey.ENUM_MANAGER)) {
                 String name = id.toString();
@@ -761,7 +753,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
     /// The Animation Interface key row: the lookup offers every merged [AnimationInterfaceKey] block.
     /// A key registers once per animator, but re-keying to one another node already uses is reported by
-    /// the compile ([#collectDuplicateProperties]) rather than kept off the list.
+    /// the compile ([AnimatorScriptHolder#compile]) rather than kept off the list.
     private ScriptNodeDetailsPanel.IdentifierRow interfaceKeyRow(AnimInterfaceNodeWidget node) {
         Supplier<@Nullable Identifier> current = () -> Identifier.tryParse(node.interfaceKeyName());
 
@@ -1043,7 +1035,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Renames a Cached Pose node to `rawName` (trimmed) and retargets every getter referencing the old
     /// name, so the cache and its `Use cached pose` readers stay linked. Returns false — rejecting the
     /// edit — only when the name is blank; a name another cache already defines is reported by the
-    /// compile ([#collectDuplicateProperties]).
+    /// compile ([AnimatorScriptHolder#compile]).
     private boolean renameCachedPose(PoseCachingNodeWidget node, String rawName) {
         String oldName = node.cacheName();
         String newName = rawName.trim();
@@ -1250,11 +1242,6 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             openEditors.removeIf(e -> e.content() == graph);
         });
         blueprintEditor.setActiveIndex(blueprintEditor.indexOfContent(graph));
-
-        // Mark the canvas on sight, but only once a compile has given a verdict to show: a compile
-        // validates what is on screen at the time, so without this a page the toast already named
-        // opens with no banner on the node that failed it.
-        if (compiled) graph.validate();
     }
 
     /// A pose / condition sub-graph canvas with the standard editor hookups for the given usage(s).
@@ -1385,7 +1372,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Nothing here keeps a name or key unique. A paste may land a State Machine named like one the
     /// script already has — a cut and re-paste is exactly that, and re-issuing the name would be the
     /// wrong answer to it — and the compile reports what actually collided
-    /// ([#collectDuplicateProperties]). A carried machine whose name is already registered keeps the
+    /// ([AnimatorScriptHolder#compile]). A carried machine whose name is already registered keeps the
     /// registered topology: the two nodes then name one machine.
     private void pasteClipboard() {
         NodeClipboard clipboard = NodeClipboard.getInstance();
@@ -1453,310 +1440,23 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
-    /// Compiles the live canvas into the runtime blueprint *in memory only* — it evaluates the node
-    /// connections and builds the actual [DataDrivenAnimatorScript.AnimatorScriptBlueprint] tree (via
-    /// [AnimatorScriptHolder#makeObject] / [ScriptGraphCompiler])
-    /// without touching the file system, so the author can sanity-check that the graph lowers
-    /// cleanly. Mirrors [#save]'s flatten-to-holder step but skips `saveEntry`.
+    /// Compiles the flushed canvases into the runtime blueprint *in memory only*, through
+    /// [AnimatorScriptHolder#compile], and pops a toast with the outcome. Mirrors [#save]'s flatten-to-holder
+    /// step but skips `saveEntry`. The nodes it flags are marked by [#extractRenderState].
     private void compile() {
         ScriptRecorder.removeFailures(resourceKey);
 
-        // Flatten the live canvases / open sub-editors onto the holder first, so the validation below
-        // (which inspects the state pose sub-graphs as stored data) and makeObject see the same wiring.
         session.flush();
         holder.setPoseGraph(poseGraph.exportGraph());
         flushOpenEditors();
         pruneOrphanedStateMachines();
         holder.setStateMachines(stateMachines);
 
-        // Validate each page in turn: an unconnected required input or an incompatible wire marks the
-        // offending nodes (UE-style red "ERROR!" banner) and aborts the build, like UE's failed
-        // compile. The first failing page names the toast (e.g. "Event Graph" / "akythera:idle").
-        compiled = true;
-        Component failedPage = firstFailedPage();
+        session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
+        poseGraph.clearValidationErrors();
+        openSubGraphs.values().forEach(ScriptNodeGraphWidget::clearValidationErrors);
 
-        if (failedPage != null) {
-            AkytheraLabs.LOGGER.warn("Compile of '{}' failed on page '{}'", resourceKey.identifier(), failedPage.getString());
-            CompileResultToast.show(false, failedPage);
-            return;
-        }
-
-        // Any unresolved (failed-decode) node is a hard compile error — the compilers throw on it
-        // (ScriptGraphData#requireNoFailedNodes). Report each row here first so the user sees
-        // which nodes, not just the throw.
-        List<String> unresolved = collectUnresolvedNodes();
-
-        if (!unresolved.isEmpty()) {
-            AkytheraLabs.LOGGER.warn("Compile of '{}' aborted — unresolved nodes: {}", resourceKey.identifier(), unresolved);
-            CompileResultToast.show(false, Component.literal(String.join("; ", unresolved)));
-            return;
-        }
-
-        // A name or key the editor let collide while the graph was authored. Nothing on a canvas keeps
-        // one unique, so this is where a collision is caught — before makeObject builds a script whose
-        // parts silently overwrite each other.
-        List<String> duplicates = collectDuplicateProperties();
-
-        if (!duplicates.isEmpty()) {
-            AkytheraLabs.LOGGER.warn("Compile of '{}' aborted — duplicated properties: {}", resourceKey.identifier(), duplicates);
-            CompileResultToast.show(false, Component.literal(String.join("; ", duplicates)));
-            return;
-        }
-
-        // A data block referenced by a state / transition / anim layer, or an asset a pose player is
-        // bound to, may have been deleted in the content browser while this script was open: the
-        // reference no longer resolves. Report it and abort before makeObject() resolves any holder's
-        // value() (which would throw) or lowers a dangling asset id.
-        List<Identifier> missing = AnimGraphCompiler.findMissingReferences(holder.getPoseGraph(), stateMachines);
-
-        if (!missing.isEmpty()) {
-            AkytheraLabs.LOGGER.warn("Compile of '{}' aborted — missing references: {}", resourceKey.identifier(), missing);
-            CompileResultToast.show(false, Component.literal(
-                "Missing references: " + String.join(", ", missing.stream().map(Identifier::toString).toList())));
-            return;
-        }
-
-        try {
-            DataDrivenAnimatorScript.AnimatorScriptBlueprint blueprint = holder.makeObject();
-            AkytheraLabs.LOGGER.info("Compiled animator script '{}': {}", resourceKey.identifier(), blueprint);
-            CompileResultToast.show(true, null);
-        } catch (RuntimeException e) {
-            AkytheraLabs.LOGGER.error("Failed to compile animator script '{}'", resourceKey.identifier(), e);
-            CompileResultToast.show(false, Component.literal(resourceKey.identifier().toString()));
-        }
-    }
-
-    /// Every unresolved (failed-decode) node across the holder's graphs — the blueprint canvases, the Anim
-    /// Graph, and every state machine's pose and condition sub-graphs — as report lines for the compile
-    /// toast. Non-empty aborts the compile: the compilers hard-fail on these rows.
-    private List<String> collectUnresolvedNodes() {
-        List<String> out = new ArrayList<>();
-        holder.getScript().canvases().forEach(canvas -> appendUnresolved(canvas, out));
-        appendUnresolved(holder.getPoseGraph(), out);
-
-        for (StateMachineData machine : stateMachines.values()) {
-            for (StateMachineData.StateData s : machine.states()) {
-                appendUnresolved(s.poseGraph(), out);
-                for (StateMachineData.TransitionData t : s.transitions()) appendUnresolved(t.conditionGraph(), out);
-            }
-            for (StateMachineData.TransitionData t : machine.entryTransitions()) appendUnresolved(t.conditionGraph(), out);
-        }
-
-        return out;
-    }
-
-    private static void appendUnresolved(ScriptGraphData graph, List<String> out) {
-        for (ScriptGraphData.FailedNode f : graph.failedNodes()) {
-            out.add("Unresolved node (id " + f.id() + "): " + f.message());
-        }
-    }
-
-    /// A name or key its node must be the only holder of: the label naming the kind, plus the value
-    /// itself, read off the persisted payload.
-    private record UniqueProperty(String label, String value) {}
-
-    /// The uniqueness `data` carries, or null when it carries none. Each of these is a name or key the
-    /// animator resolves *by*, so a second holder makes the script ambiguous: an **Anim Layer**
-    /// signature and an **Animation Interface** key each register once per animator
-    /// (`BlendingAnimator#addAnimInterface` throws on a duplicate), a **State Machine** name keys the
-    /// topology store, and a **Cached Pose** name is what every `Use cached pose` getter reads back.
-    private static @Nullable UniqueProperty uniquePropertyOf(NodeData data) {
-        return switch (data) {
-            case StateMachineNodeData machine -> new UniqueProperty("State Machine", machine.machineName());
-            case CachedPoseNodeData cache -> new UniqueProperty("Cached Pose", cache.cacheName());
-            case AnimLayerNodeData layer -> new UniqueProperty("Anim Layer", layer.signatureId().toString());
-            case AnimInterfaceNodeData key -> new UniqueProperty("Animation Interface key", key.interfaceKeyId().toString());
-            default -> null;
-        };
-    }
-
-    /// Every [UniqueProperty] carried by more than one node, as the report lines for the compile toast
-    /// — and, on the way, the red "ERROR!" banner on each live node carrying one, so a duplicate reads
-    /// on the canvas the way a wiring error does ([#markDuplicateNodes]).
-    ///
-    /// Counted over every pose canvas — the root Anim Graph and each state's driver — from the holder,
-    /// which [#compile] has already flushed the live canvases onto, so a closed tab counts too. State
-    /// signatures are counted separately, per machine: `addState` registers them in that scope, and
-    /// they belong to the machine canvas rather than to a node.
-    private List<String> collectDuplicateProperties() {
-        List<ScriptGraphData> poseGraphs = new ArrayList<>();
-        poseGraphs.add(holder.getPoseGraph());
-
-        for (StateMachineData machine : stateMachines.values()) {
-            for (StateMachineData.StateData state : machine.states()) poseGraphs.add(state.poseGraph());
-        }
-
-        Map<UniqueProperty, Integer> counts = new LinkedHashMap<>();
-
-        for (ScriptGraphData graph : poseGraphs) {
-            for (GraphNode row : graph.nodes()) {
-                UniqueProperty property = uniquePropertyOf(row.data());
-                if (property != null) counts.merge(property, 1, Integer::sum);
-            }
-        }
-
-        Map<UniqueProperty, Integer> duplicated = new LinkedHashMap<>();
-        counts.forEach((property, held) -> {
-            if (held > 1) duplicated.put(property, held);
-        });
-
-        markDuplicateNodes(duplicated);
-
-        List<String> out = new ArrayList<>();
-        duplicated.forEach((property, held) ->
-            out.add(property.label() + " '" + property.value() + "' carried by " + held + " nodes"));
-
-        for (Map.Entry<String, StateMachineData> entry : stateMachines.entrySet()) {
-            Map<String, Integer> signatures = new LinkedHashMap<>();
-
-            for (StateMachineData.StateData state : entry.getValue().states()) {
-                signatures.merge(ScriptCanvasKeys.stateName(state.state()), 1, Integer::sum);
-            }
-
-            signatures.forEach((name, held) -> {
-                if (held > 1) out.add("State '" + name + "' on '" + entry.getKey() + "' carried by " + held + " states");
-            });
-        }
-
-        return out;
-    }
-
-    /// Flags every live node carrying a duplicated property with the red outline + "ERROR!" banner and
-    /// the count as its tooltip. Runs over the canvases with widgets on screen — the root Anim Graph
-    /// and every open sub-graph tab; a node in a closed tab is named by the toast line alone.
-    ///
-    /// Additive over [ScriptNodeGraphWidget#validate], which [#compile] ran first (via
-    /// [#firstFailedPage]): that pass rewrites every node's error state, so resolving the duplicate and
-    /// compiling again is what clears the flag.
-    private void markDuplicateNodes(Map<UniqueProperty, Integer> duplicated) {
-        if (duplicated.isEmpty()) return;
-
-        List<ScriptNodeGraphWidget> live = new ArrayList<>(openSubGraphs.values());
-        live.add(poseGraph);
-
-        for (ScriptNodeGraphWidget canvas : live) {
-            canvas.addPayloadErrors(data -> {
-                UniqueProperty property = uniquePropertyOf(data);
-                Integer held = property == null ? null : duplicated.get(property);
-
-                return held == null ? null : Component.translatable(
-                    LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VALIDATION_DUPLICATE,
-                    property.label(), property.value(), held);
-            });
-        }
-    }
-
-    /// The first page that fails validation, as the Component naming it for the compile toast, or null
-    /// when every page is valid. Checks the live Event Graph and Anim Graph (which also marks their
-    /// nodes' error banners), then per state machine: each state's pose sub-graph (named by its state
-    /// id, e.g. `akythera:idle`), each transition's condition sub-graph (named like its tab,
-    /// e.g. `akythera:idle to akythera:walk`), and each group edge's condition.
-    /// Pages are keyed through [ScriptCanvasKeys], the same spelling the sub-tabs and the compiler
-    /// use, so an open tab is found and its nodes marked rather than a throwaway probe's. A transition's condition is **required**: it fails
-    /// whether it shows as an unwired `Can Enter Transition` result (page visited) or an empty /
-    /// never-authored condition graph (page never visited) — both mean an undefined condition, so the
-    /// outcome is the same regardless of whether the page was ever opened. Wire a `true` literal into
-    /// the result for an unconditional (always-true) transition.
-    private @Nullable Component firstFailedPage() {
-        // Validate every live canvas up front so any currently-open tab shows its red ERROR banners
-        // (not just the first failing page): the session's canvases and the Anim Graph are always
-        // live, and any open state-pose / transition-condition sub-tab is live too.
-        Component blueprintFailed = session.validate();
-        boolean poseFailed = !poseGraph.validate().isEmpty();
-        for (ScriptNodeGraphWidget open : openSubGraphs.values()) open.validate();
-
-        if (blueprintFailed != null) {
-            return blueprintFailed;
-        }
-
-        if (poseFailed) {
-            return Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_TAB_ANIM_GRAPH);
-        }
-
-        for (Map.Entry<String, StateMachineData> machineEntry : stateMachines.entrySet()) {
-            String machineName = machineEntry.getKey();
-            StateMachineData machine = machineEntry.getValue();
-
-            for (StateMachineData.TransitionData entry : machine.entryTransitions()) {
-                String to = ScriptCanvasKeys.stateName(entry.to());
-
-                if (transitionConditionHasErrors(
-                    ScriptCanvasKeys.transition(machineName, ScriptCanvasKeys.ENTRY, to), entry.conditionGraph())) {
-                    return transitionPage(ScriptCanvasKeys.ENTRY, to);
-                }
-            }
-
-            for (StateMachineData.StateData state : machine.states()) {
-                String from = ScriptCanvasKeys.stateName(state.state());
-
-                if (subGraphHasErrors(ScriptCanvasKeys.statePose(machineName, from), state.poseGraph(),
-                    ScriptFunction.Usage.ANIM_GRAPH, ScriptFunction.Usage.SCRIPT)) {
-                    return Component.literal(from);
-                }
-
-                for (StateMachineData.TransitionData transition : state.transitions()) {
-                    String to = ScriptCanvasKeys.stateName(transition.to());
-
-                    if (transitionConditionHasErrors(
-                        ScriptCanvasKeys.transition(machineName, from, to), transition.conditionGraph())) {
-                        return transitionPage(from, to);
-                    }
-                }
-            }
-
-            // A group edge carries one condition canvas, shared by every member the compile expands it
-            // onto, so it is checked here rather than per member.
-            for (StateMachineData.GroupData group : machine.groups()) {
-                for (StateMachineData.TransitionData transition : group.transitions()) {
-                    String to = ScriptCanvasKeys.stateName(transition.to());
-
-                    if (transitionConditionHasErrors(
-                        ScriptCanvasKeys.groupTransition(machineName, group.name(), to), transition.conditionGraph())) {
-                        return transitionPage(group.name(), to);
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /// The compile-toast page name for a transition's condition graph, matching its sub-tab title
-    /// (`<from> to <to>`, Entry's outgoing edges shown as `Entry to <to>`).
-    private static Component transitionPage(String from, String to) {
-        return Component.literal((from.isEmpty() ? "Entry" : from) + " to " + to);
-    }
-
-    /// Whether a transition's condition sub-graph fails validation. A transition condition is
-    /// **required** (unlike a state's optional pose graph): an empty / never-authored condition is an
-    /// undefined transition and is flagged exactly as an open page's unwired `Can Enter Transition`
-    /// result is — so the result is identical whether or not the page was ever visited (opening a page
-    /// seeds the result node, which the closed-tab path would otherwise never see). To make a
-    /// transition fire unconditionally, wire a `true` literal into the result.
-    private boolean transitionConditionHasErrors(String openKey, ScriptGraphData data) {
-        ScriptNodeGraphWidget open = openSubGraphs.get(openKey);
-        if (open != null) return !open.validate().isEmpty();
-        if (data.isEmpty()) return true; // undefined condition — same as an unwired result node
-        return graphDataHasErrors(data, ScriptFunction.Usage.SCRIPT);
-    }
-
-    /// Whether the sub-graph stored under `openKey` (its [#openSubGraphs] key) fails validation. When
-    /// its tab is **open**, the live widget is validated so its offending node gets the red "ERROR!"
-    /// banner the user sees; when closed, a throwaway probe is used (nothing is on screen to mark).
-    private boolean subGraphHasErrors(String openKey, ScriptGraphData data, ScriptFunction.Usage... usage) {
-        ScriptNodeGraphWidget open = openSubGraphs.get(openKey);
-        if (open != null) return !open.validate().isEmpty();
-        return graphDataHasErrors(data, usage);
-    }
-
-    /// Whether a stored (closed-tab) sub-graph fails validation, checked by importing it into a
-    /// throwaway canvas of the given usage(s) and running the same [ScriptNodeGraphWidget#validate].
-    /// An empty sub-graph (never authored) is not an error.
-    private boolean graphDataHasErrors(ScriptGraphData data, ScriptFunction.Usage... usage) {
-        if (data.isEmpty()) return false;
-        ScriptNodeGraphWidget probe = makeSubGraph(usage);
-        probe.importGraph(data, (_, _, _) -> null);
-        return !probe.validate().isEmpty();
+        Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
     }
 
     /// Node-graph refactor hook: when a variable is renamed, retarget the blueprint's
@@ -1976,6 +1676,14 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                     }
                 }
             }
+        }
+
+        CompileFailure compileFailure = holder.getCompileFailure();
+
+        if (compileFailure != null) {
+            session.showCompileFailure(compileFailure);
+            compileFailure.showOn(ScriptCanvasKeys.ANIM_GRAPH, poseGraph);
+            openSubGraphs.forEach(compileFailure::showOn);
         }
 
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);

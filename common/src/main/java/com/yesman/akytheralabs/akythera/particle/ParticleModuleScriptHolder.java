@@ -9,6 +9,8 @@ import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
+import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import org.jspecify.annotations.Nullable;
 
@@ -49,6 +51,13 @@ public abstract class ParticleModuleScriptHolder<T> extends AbstractDataHolder<T
     /// The node graph lowered to what the engine runs.
     public BlueprintBody compileBody() {
         return script.compile(layout(), AkytheraParticleEmitter.class);
+    }
+
+    @Override
+    public void compile(final Compilation compilation) {
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), AkytheraParticleEmitter.class);
+        compilation.unresolved(script.failedNodes());
+        compilation.build(this::makeObject);
     }
 
     @Override

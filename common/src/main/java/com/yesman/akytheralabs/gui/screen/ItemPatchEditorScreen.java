@@ -633,23 +633,7 @@ public final class ItemPatchEditorScreen extends Screen
             graph.addNode(new TransitionResultNodeWidget(
                 minecraft.font, Component.literal("Condition"), RESULT_ROOT_X, RESULT_ROOT_Y));
         } else {
-            // The entry row's pin types are structural (not persisted) — re-type them from `params`
-            // by label; an unknown label degrades to a wildcard pin.
-            graph.importGraph(data,
-                (x, y, labels) ->
-                    new ContextEntryNodeWidget(
-                        minecraft.font, Component.literal("Params"),
-                        labels.stream()
-                            .map(
-                                label ->
-                                params.stream().filter(p -> p.name().equals(label))
-                                    .findFirst()
-                                    .orElse(new ContextEntryNodeWidget.ContextParam(label, Object.class))
-                            )
-                            .toList(),
-                        x, y
-                    )
-            );
+            graph.importGraph(data, ContextEntryNodeWidget.factory(minecraft.font, params));
         }
 
         graph.setResultType(resultType);
@@ -787,35 +771,13 @@ public final class ItemPatchEditorScreen extends Screen
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
-    /// Builds the runtime blueprint in memory only, surfacing dangling references and bad modifier ids
-    /// before export.
+    /// Builds the runtime blueprint in memory only, surfacing broken condition graphs, dangling references and
+    /// bad modifier ids before export, and pops a toast with the outcome. The nodes the compile flags are marked
+    /// by [#extractRenderState].
     private void compile() {
         flushToHolder();
-
-        if (validateLiveCanvases()) {
-            AkytheraLabs.LOGGER.warn("Compile of item patch '{}' failed validation", resourceKey.identifier());
-            return;
-        }
-
-        try {
-            ItemPatchBlueprint blueprint = holder.makeObject();
-            AkytheraLabs.LOGGER.info("Compiled item patch '{}': {}", resourceKey.identifier(), blueprint);
-        } catch (RuntimeException e) {
-            AkytheraLabs.LOGGER.error("Failed to compile item patch '{}'", resourceKey.identifier(), e);
-        }
-    }
-
-    /// Validates every canvas with widgets on screen — each open result / condition sub-tab — and
-    /// returns whether any failed. [ScriptNodeGraphWidget#validate] paints a node's red "ERROR!"
-    /// banner, so no canvas is skipped once one has failed.
-    private boolean validateLiveCanvases() {
-        boolean failed = false;
-
-        for (ScriptNodeGraphWidget open : openGraphs.values()) {
-            if (!open.validate().isEmpty()) failed = true;
-        }
-
-        return failed;
+        openGraphs.values().forEach(ScriptNodeGraphWidget::clearValidationErrors);
+        Compilation.compileInEditor(holder, _ -> {});
     }
 
     /// Flushes any open graph tabs. Components and the parent reference are edited on the holder in
@@ -891,6 +853,16 @@ public final class ItemPatchEditorScreen extends Screen
     @Override
     public void extractBackground(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
         // Draw nothing
+    }
+
+    /// Re-shows the marks of a failed compile every frame, so they reach graph tabs opened after it.
+    @Override
+    public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        CompileFailure failure = holder.getCompileFailure();
+
+        if (failure != null) openGraphs.forEach(failure::showOn);
+
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }
 
     @Override

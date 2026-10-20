@@ -2,21 +2,24 @@ package com.yesman.akytheralabs.akythera.itempatch;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.yesman.akythera.api.world.patch.item.ItemPatch;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.RootAttachableComponent;
+import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHolders;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.dataholder.FailedComponentHolder;
-import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
-import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
-import com.yesman.akytheralabs.akythera.entitypatch.component.RootAttachableComponent;
-import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHolders;
 import com.yesman.akytheralabs.editor.EditorEditable;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -130,6 +133,13 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
             parent.identifier().equals(DataHolder.EMPTY_REFERENCE) ? Optional.empty() : Optional.of(exportedKey(parent));
 
         return new ItemPatchBlueprint(parentOpt, ComponentAttachableHolder.lowerComponents(components));
+    }
+
+    /// Validates the components' node graphs ([EditorWidgetFactory#compileNodeGraphs]), then builds the patch.
+    @Override
+    public void compile(final Compilation compilation) {
+        EditorWidgetFactory.compileNodeGraphs(compilation, this, ItemPatch.class);
+        compilation.build(this::makeObject);
     }
 
     @Override

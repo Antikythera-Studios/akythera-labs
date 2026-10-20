@@ -25,7 +25,6 @@ import com.yesman.akytheralabs.gui.panel.script.VariableDraft;
 import com.yesman.akytheralabs.gui.panel.script.VariableEditController;
 import com.yesman.akytheralabs.gui.panel.script.VariablePanel;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
-import com.yesman.akytheralabs.gui.widget.CompileResultToast;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.VariableDropModal;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
@@ -36,7 +35,8 @@ import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
-import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
+import com.yesman.akytheralabs.gui.widget.script.Compilation;
+import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.script.ScriptNodeSuggestions;
 import com.yesman.akytheralabs.gui.widget.script.ScriptVariableGetterNodeWidget;
@@ -73,6 +73,7 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
     private final BlueprintEditorSession session;
 
     private final ResourceKey<AbilityCueBlueprint> resourceKey;
+    private final AbilityCueBlueprintHolder holder;
 
     /// Working copies of the blueprint's variables; flushed to the holder by [#session] on save.
     private final List<VariableDraft> variableDrafts = new ArrayList<>();
@@ -84,6 +85,7 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
         super(Component.literal(resourceKey.identifier().toString()));
 
         this.resourceKey = resourceKey;
+        this.holder = holder;
 
         graphTabs = new TabPanel(
             minecraft.font,
@@ -121,29 +123,8 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.COMPILE, () -> {
                     session.flush();
-
-                    Component failedPage = session.validate();
-
-                    if (failedPage != null) {
-                        AkytheraLabs.LOGGER.warn("Compile of ability cue '{}' failed on page '{}'", resourceKey.identifier(), failedPage.getString());
-                        CompileResultToast.show(false, failedPage);
-                        return;
-                    }
-
-                    List<ScriptGraphData.FailedNode> failedNodes = holder.getScript().failedNodes();
-
-                    if (!failedNodes.isEmpty()) {
-                        CompileResultToast.show(false, Component.literal("Unresolved nodes: " + failedNodes.size()));
-                        return;
-                    }
-
-                    try {
-                        AkytheraLabs.LOGGER.info("Compiled ability cue '{}': {}", resourceKey.identifier(), holder.makeObject());
-                        CompileResultToast.show(true, null);
-                    } catch (RuntimeException e) {
-                        AkytheraLabs.LOGGER.error("Failed to compile ability cue '{}'", resourceKey.identifier(), e);
-                        CompileResultToast.show(false, Component.literal(resourceKey.identifier().toString()));
-                    }
+                    session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
+                    Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
                 })
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
@@ -339,6 +320,16 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
     @Override
     public void extractBackground(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
         // Draw nothing
+    }
+
+    /// Re-shows the marks of a failed compile every frame, so they reach tabs opened after it.
+    @Override
+    public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        CompileFailure failure = holder.getCompileFailure();
+
+        if (failure != null) session.showCompileFailure(failure);
+
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }
 
     @Override
