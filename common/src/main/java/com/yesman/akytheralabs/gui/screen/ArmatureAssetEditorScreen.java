@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.WidgetTable;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
@@ -10,14 +11,13 @@ import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
-import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.armature.Bone;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
-import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.asset.ArmatureMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.ArmatureMetadataHolder.PairEntry;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -53,7 +53,6 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -81,6 +80,9 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
     private final ArmatureViewComponent armatureView;
     private final MirrorPairPanel pairPanel;
     private final PanelHeader pairHeader;
+    private final PanelHeader constraintHeader;
+    private final WidgetTable constraintTable;
+    private @Nullable ScreenRectangle constraintRect;
 
     /// The sidecar view, taken off the accessor so the pairs edited here survive a close and reopen.
     private final ArmatureMetadataHolder holder;
@@ -95,7 +97,7 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
         super(Component.translatable(LangKeys.GUI_ARMATURE_ASSET_SCREEN_TITLE));
 
         this.holder = accessor.metadata();
-        this.boneNames = boneNamesOf(accessor.getOrHandleException(AkytheraLabs.LOGGER::error));
+        this.boneNames = holder.boneNames();
 
         topMenuBar = new TopMenuBar(
             minecraft.font,
@@ -140,6 +142,17 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
         pairPanel.setY1(AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT + 2));
         pairPanel.rebuild();
 
+        constraintHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ARMATURE_ASSET_SCREEN_SECTION_JOINT_CONSTRAINTS));
+        constraintTable = new WidgetTable(
+            this,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT + 2), AnchoredWidget.pixel(0),
+            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+            AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
+            ROW_H
+        );
+        fillConstraints();
+
         panelManager = new AdjustablePanelManager(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TOP_BAR_H), AnchoredWidget.pixel(0),
@@ -147,30 +160,27 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
 
-        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 60);
+        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 60, 50);
 
         var leftAndRight = panelManager.getRoot()
-            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.getFirst());
+            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.get(0));
+        var pairsAndConstraints = leftAndRight.get(1)
+            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, layoutRatios.get(1));
 
         leftAndRight.get(0).resizeCallback(model3DViewer::relocate);
         leftAndRight.get(0).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
-        leftAndRight.get(1).resizeCallback(rect -> {
+        pairsAndConstraints.get(0).resizeCallback(rect -> {
             pairHeader.relocate(rect);
             pairPanel.relocate(rect);
+        });
+        pairsAndConstraints.get(1).resizeCallback(rect -> {
+            constraintRect = rect;
+            constraintHeader.relocate(rect);
+            constraintTable.relocate(rect);
         });
 
         topMenuBar.setDirtyChecker(this::hasUnsavedChanges);
         savePoint = HistoryManager.getInstance().currentSavePoint();
-    }
-
-    private static List<String> boneNamesOf(final @Nullable Armature armature) {
-        if (armature == null) return List.of();
-
-        List<String> names = new ArrayList<>();
-        armature.visitBones(bone -> names.add(bone.getName()));
-        names.sort(Comparator.naturalOrder());
-
-        return List.copyOf(names);
     }
 
     @Override
@@ -186,8 +196,16 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
         addRenderableWidget(model3DViewer);
         addRenderableWidget(pairHeader);
         addRenderableWidget(pairPanel);
+        addRenderableWidget(constraintHeader);
+        addRenderableWidget(constraintTable);
 
         frameCamera();
+    }
+
+    private void fillConstraints() {
+        new EditorWidgetFactory(font).fillWidgetTable(constraintTable, holder, this::fillConstraints, holder);
+
+        if (constraintRect != null) constraintTable.relocate(constraintRect);
     }
 
     private void frameCamera() {

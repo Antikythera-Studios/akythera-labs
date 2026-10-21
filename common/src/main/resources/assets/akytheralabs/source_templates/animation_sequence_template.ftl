@@ -70,7 +70,9 @@ public final class ${className} extends AnimationSequenceProvider {
                 ${dto.fade_in_time},
                 ${dto.fade_out_time},
                 ${dto.loops},
-                ${dto.root_motion}
+                ${dto.root_motion},
+                ${dto.rate_scale},
+                ${dto.phase_offset}
             )
         );
 </#list>

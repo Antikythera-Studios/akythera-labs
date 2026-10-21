@@ -17,6 +17,7 @@ import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.core.animation.driver.AnimationStateTransition;
+import com.yesman.akythera.core.animation.driver.ModifyBoneDriver;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
@@ -454,6 +455,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// The submenu the pose mixers are filed under.
     private static final String BLEND_CATEGORY = "Blend";
 
+    private static final String BONE_CONTROL_CATEGORY = "Bone Control";
+
     /// The pose-specific nodes offered in any ANIM_GRAPH canvas (the root Anim Graph or a state's pose
     /// sub-graph): the pose **sources** — a State Machine, and a "Use cached pose" getter per cached
     /// pose defined on the **root** Anim Graph — plus the pose **mixers** (Blend / Apply Additive /
@@ -491,6 +494,29 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 Component.literal("Layered Blend per Bone"),
                 (font, x, y) -> new LayeredBlendPerBoneNodeWidget(font, x, y),
                 BLEND_CATEGORY
+            ));
+            suggestions.add(new NodeSuggestModal.Suggestion<>(
+                Component.literal("Play Rate"),
+                (font, x, y) -> new PlayRateNodeWidget(font, x, y)
+            ));
+            suggestions.add(new NodeSuggestModal.Suggestion<>(
+                Component.literal("Look At"),
+                (font, x, y) -> new LookAtNodeWidget(font, x, y),
+                BONE_CONTROL_CATEGORY
+            ));
+
+            for (ModifyBoneDriver.Space space : ModifyBoneDriver.Space.values()) {
+                suggestions.add(new NodeSuggestModal.Suggestion<>(
+                    ModifyBoneNodeWidget.title(space),
+                    (font, x, y) -> new ModifyBoneNodeWidget(font, space, x, y),
+                    BONE_CONTROL_CATEGORY
+                ));
+            }
+
+            suggestions.add(new NodeSuggestModal.Suggestion<>(
+                Component.literal("Orientation Warp"),
+                (font, x, y) -> new OrientationWarpNodeWidget(font, x, y),
+                BONE_CONTROL_CATEGORY
             ));
 
             // Anim Layer nodes register one engine AnimationLayer per AnimationLayerSignature. Every

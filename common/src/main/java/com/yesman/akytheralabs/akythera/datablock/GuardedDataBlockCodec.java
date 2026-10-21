@@ -26,12 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /// Never-failing wrapper around an [EnumerableDataBlockManager]'s name codec — the data block counterpart of
 /// [AbstractDataHolder#guarded].
 ///
-/// A data block a data pack defines is registered by `EnumerableDataBlockReloadListener`, a
-/// `PackType#SERVER_DATA` reload listener. `WorldLoader` runs `RegistryDataLoader#load` — which
-/// decodes every data pack registry, animator scripts included — and only afterwards
-/// `ReloadableServerResources#loadResources`, where that listener runs. An id no mod hardcodes is
-/// therefore unknown while the registries that reference it decode, and the plain name codec fails
-/// the whole world load over it.
+/// A data block the open project declares but no loaded data pack defines is unknown to the engine,
+/// and the plain name codec fails the whole decode over it.
 ///
 /// This wrapper decodes such an id to a stand-in instead. The stand-in answers as the real block
 /// from the moment the listener registers it, so the pass is a deferral rather than a substitution:

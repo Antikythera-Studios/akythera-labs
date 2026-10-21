@@ -49,14 +49,17 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
         instance -> instance.group(
             EditorAssetAccessors.MESH_CODEC.optionalFieldOf("mesh")
                 .forGetter(h -> Optional.of(h.mesh)),
+            EditorAssetAccessors.MESH_CODEC.optionalFieldOf("slim_mesh")
+                .forGetter(h -> Optional.of(h.slimMesh)),
             ScriptGraphData.CODEC.optionalFieldOf("render_type_getter", ScriptGraphData.EMPTY)
                 .forGetter(h -> h.renderTypeGetter),
             TransformHolder.CODEC.optionalFieldOf("transform")
                 .forGetter(h -> Optional.of(h.localTransform)),
             TransformInheritPolicy.CODEC.optionalFieldOf("transform_inherit_policy", TransformInheritPolicy.LOC_ROT_SCA)
                 .forGetter(TransformComponentHolder::getTransformInheritPolicy)
-        ).apply(instance, (mesh, renderTypeGetter, transform, transformInheritPolicy) -> new MeshComponentHolder(
+        ).apply(instance, (mesh, slimMesh, renderTypeGetter, transform, transformInheritPolicy) -> new MeshComponentHolder(
             mesh.orElseGet(() -> EditorAssetAccessors.mesh(DataHolder.EMPTY_REFERENCE)),
+            slimMesh.orElseGet(() -> EditorAssetAccessors.mesh(DataHolder.EMPTY_REFERENCE)),
             renderTypeGetter,
             transform.orElseGet(TransformHolder::identity),
             transformInheritPolicy))
@@ -67,26 +70,31 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
     @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_MESH, order = 0)
     private AssetAccessor<? extends Mesh<?>> mesh;
 
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_RENDER_TYPE_GETTER, order = 1)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_SLIM_MESH, order = 1)
+    private AssetAccessor<? extends Mesh<?>> slimMesh;
+
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_RENDER_TYPE_GETTER, order = 2)
     @EditorNodeGraph(resultType = RenderType.class)
     private ScriptGraphData renderTypeGetter;
 
     /// The elements of its host's space, or of its armature's for a skeletal mesh, the mesh takes on.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_TRANSFORM_INHERIT_POLICY, order = 2)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_TRANSFORM_INHERIT_POLICY, order = 3)
     private TransformInheritPolicy transformInheritPolicy;
 
     /// Where the mesh sits. A nested editor object, rendered as location / rotation / scale rows under one
     /// "Local Transform" heading.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_SECTION_LOCAL_TRANSFORM, order = 3)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_SECTION_LOCAL_TRANSFORM, order = 4)
     private TransformHolder localTransform;
 
     public MeshComponentHolder(
         AssetAccessor<? extends Mesh<?>> mesh,
+        AssetAccessor<? extends Mesh<?>> slimMesh,
         ScriptGraphData renderTypeGetter,
         TransformHolder localTransform,
         TransformInheritPolicy transformInheritPolicy
     ) {
         this.mesh = mesh;
+        this.slimMesh = slimMesh;
         this.renderTypeGetter = renderTypeGetter;
         this.localTransform = localTransform;
         this.transformInheritPolicy = transformInheritPolicy;
@@ -95,6 +103,7 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
     /// A freshly attached mesh component: nothing picked, so it draws nothing.
     public static MeshComponentHolder createDefault() {
         return new MeshComponentHolder(
+            EditorAssetAccessors.mesh(DataHolder.EMPTY_REFERENCE),
             EditorAssetAccessors.mesh(DataHolder.EMPTY_REFERENCE),
             ScriptGraphData.EMPTY,
             TransformHolder.identity(),
@@ -105,15 +114,27 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
     /// The authored mesh, or null while the row is on the `<none>` placeholder. The trimmed id is what
     /// the accessor was issued for — [MeshManager#DIRECTORY] is not part of an authored id.
     public @Nullable AssetAccessor<? extends Mesh<?>> getMesh() {
-        Identifier id = mesh.identifier();
-        Identifier trimmed = Identifier.fromNamespaceAndPath(
-            id.getNamespace(), id.getPath().replace(MeshManager.DIRECTORY, ""));
-
-        return trimmed.equals(DataHolder.EMPTY_REFERENCE) ? null : mesh;
+        return pickedOrNull(mesh);
     }
 
     public void setMesh(AssetAccessor<? extends Mesh<?>> mesh) {
         this.mesh = mesh;
+    }
+
+    public @Nullable AssetAccessor<? extends Mesh<?>> getSlimMesh() {
+        return pickedOrNull(slimMesh);
+    }
+
+    public void setSlimMesh(AssetAccessor<? extends Mesh<?>> slimMesh) {
+        this.slimMesh = slimMesh;
+    }
+
+    private static @Nullable AssetAccessor<? extends Mesh<?>> pickedOrNull(final AssetAccessor<? extends Mesh<?>> accessor) {
+        Identifier id = accessor.identifier();
+        Identifier trimmed = Identifier.fromNamespaceAndPath(
+            id.getNamespace(), id.getPath().replace(MeshManager.DIRECTORY, ""));
+
+        return trimmed.equals(DataHolder.EMPTY_REFERENCE) ? null : accessor;
     }
 
     public ScriptGraphData getRenderTypeGetter() {
@@ -147,6 +168,9 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
         mesh = object.mesh() == null
             ? EditorAssetAccessors.mesh(DataHolder.EMPTY_REFERENCE)
             : object.mesh();
+        slimMesh = object.slimMesh() == null
+            ? EditorAssetAccessors.mesh(DataHolder.EMPTY_REFERENCE)
+            : object.slimMesh();
 
         // Runtime PureNode trees cannot be decompiled back into editor canvases, so an imported
         // component opens with an empty canvas.
@@ -157,7 +181,7 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
 
     @Override
     public MeshComponentBlueprint makeObject() {
-        return new MeshComponentBlueprint(getMesh(), compileRenderType(), localTransform.makeObject(), transformInheritPolicy, isEnabled());
+        return new MeshComponentBlueprint(getMesh(), getSlimMesh(), compileRenderType(), localTransform.makeObject(), transformInheritPolicy, isEnabled());
     }
 
     /// The canvas lowered to its headless tree, or null while nothing is wired into the result. The
@@ -175,7 +199,7 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
     @Override
     public Stream<EditorReference> referencedReferences() {
         return Stream.concat(
-            mesh instanceof EditorReference ref ? Stream.of(ref) : Stream.empty(),
+            Stream.of(mesh, slimMesh).filter(EditorReference.class::isInstance).map(EditorReference.class::cast),
             renderTypeGetter.referencedReferences());
     }
 
@@ -210,11 +234,14 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
     @Override
     public Map<String, Object> getDTO() {
         AssetAccessor<? extends Mesh<?>> picked = getMesh();
+        AssetAccessor<? extends Mesh<?>> pickedSlim = getSlimMesh();
         PureNode renderType = compileRenderType();
 
         Map<String, Object> dto = new HashMap<>();
         dto.put("has_mesh", picked != null);
         dto.put("mesh", picked == null ? "null" : NodeTreeSourceRenderer.meshAccessor(picked));
+        dto.put("has_slim_mesh", pickedSlim != null);
+        dto.put("slim_mesh", pickedSlim == null ? "null" : NodeTreeSourceRenderer.meshAccessor(pickedSlim));
         dto.put("has_render_type_getter", renderType != null);
         dto.put("render_type_getter", renderType == null ? "null" : NodeTreeSourceRenderer.pure(renderType, 5));
         dto.put("render_type_lambda", renderType == null ? "null"

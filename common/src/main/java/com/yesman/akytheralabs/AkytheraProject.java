@@ -128,6 +128,8 @@ public final class AkytheraProject {
     /// The directory name under the game directory where all projects are stored
     public static final String PROJECTS_DIR_NAME = "akythera_projects";
 
+    public static final String PROJECTS_DIR_PROPERTY = "akytheralabs.projects_dir";
+
     /// The file name that marks a directory as a valid Akythera project
     public static final String PROJECT_SETTINGS_FILE = "project_settings.akproject";
 
@@ -215,7 +217,11 @@ public final class AkytheraProject {
 
     /// Returns the root directory that contains all Akythera projects.
     public static Path getProjectsRootDirectory() {
-        return Minecraft.getInstance().gameDirectory.toPath().resolve(PROJECTS_DIR_NAME);
+        String projectsDir = System.getProperty(PROJECTS_DIR_PROPERTY);
+
+        return projectsDir == null
+            ? Minecraft.getInstance().gameDirectory.toPath().resolve(PROJECTS_DIR_NAME)
+            : Path.of(projectsDir);
     }
 
     /// Scans the projects root directory and returns paths of all valid projects
@@ -352,10 +358,10 @@ public final class AkytheraProject {
         }
 
         currentProject = new AkytheraProject(name, version, projectRoot, layouts, folderStates, focusedNode);
-        currentProject.lastExportDataPath = exportDataPath;
-        currentProject.lastExportResourcePath = exportResourcePath;
-        currentProject.lastSourceDataPath = sourceDataPath;
-        currentProject.lastSourceResourcePath = sourceResourcePath;
+        currentProject.lastExportDataPath = FileSystemHelper.toRootResolvedIdString(projectRoot, exportDataPath);
+        currentProject.lastExportResourcePath = FileSystemHelper.toRootResolvedIdString(projectRoot, exportResourcePath);
+        currentProject.lastSourceDataPath = FileSystemHelper.toRootResolvedIdString(projectRoot, sourceDataPath);
+        currentProject.lastSourceResourcePath = FileSystemHelper.toRootResolvedIdString(projectRoot, sourceResourcePath);
         currentProject.loadRegistries();
         currentProject.discoverEditorAssets();
         currentProject.applyPreviewBindings(previewBindings);
@@ -1739,7 +1745,10 @@ public final class AkytheraProject {
     public void saveExportPaths(String dataPath, String resourcePath) {
         this.lastExportDataPath = FileSystemHelper.toIdString(dataPath);
         this.lastExportResourcePath = FileSystemHelper.toIdString(resourcePath);
-        persistSettingsPair("export_data_path", lastExportDataPath, "export_resource_path", lastExportResourcePath);
+        persistSettingsPair(
+            "export_data_path", FileSystemHelper.toRootRelativeIdString(projectRoot, lastExportDataPath),
+            "export_resource_path", FileSystemHelper.toRootRelativeIdString(projectRoot, lastExportResourcePath)
+        );
     }
 
     /// Remember the `Export as Source Code` destinations. Stored independently of the pack paths
@@ -1747,7 +1756,10 @@ public final class AkytheraProject {
     public void saveSourceExportPaths(String dataPath, String resourcePath) {
         this.lastSourceDataPath = FileSystemHelper.toIdString(dataPath);
         this.lastSourceResourcePath = FileSystemHelper.toIdString(resourcePath);
-        persistSettingsPair("source_data_path", lastSourceDataPath, "source_resource_path", lastSourceResourcePath);
+        persistSettingsPair(
+            "source_data_path", FileSystemHelper.toRootRelativeIdString(projectRoot, lastSourceDataPath),
+            "source_resource_path", FileSystemHelper.toRootRelativeIdString(projectRoot, lastSourceResourcePath)
+        );
     }
 
     /// Merge two string settings into project_settings.akproject (read → set the two keys → write)
@@ -2410,10 +2422,10 @@ public final class AkytheraProject {
         sb.append("    \"name\": \"").append(projectName).append("\",\n");
         sb.append("    \"version\": \"").append(version).append("\",\n");
         // Forward-slash normalized when saved, so safe to embed raw (no backslash escaping).
-        sb.append("    \"export_data_path\": \"").append(lastExportDataPath).append("\",\n");
-        sb.append("    \"export_resource_path\": \"").append(lastExportResourcePath).append("\",\n");
-        sb.append("    \"source_data_path\": \"").append(lastSourceDataPath).append("\",\n");
-        sb.append("    \"source_resource_path\": \"").append(lastSourceResourcePath).append("\",\n");
+        sb.append("    \"export_data_path\": \"").append(FileSystemHelper.toRootRelativeIdString(projectRoot, lastExportDataPath)).append("\",\n");
+        sb.append("    \"export_resource_path\": \"").append(FileSystemHelper.toRootRelativeIdString(projectRoot, lastExportResourcePath)).append("\",\n");
+        sb.append("    \"source_data_path\": \"").append(FileSystemHelper.toRootRelativeIdString(projectRoot, lastSourceDataPath)).append("\",\n");
+        sb.append("    \"source_resource_path\": \"").append(FileSystemHelper.toRootRelativeIdString(projectRoot, lastSourceResourcePath)).append("\",\n");
         sb.append("    \"focused\": \"").append(FileSystemHelper.toIdString(focusedNode)).append("\",\n");
 
         sb.append("    \"folder_states\": {");
@@ -2866,12 +2878,12 @@ public final class AkytheraProject {
 
     /// Transform file path to accessor id
     private Identifier getAccessorIdentifierFromPath(String directory, Path path) {
-        String fileSystemDirectory = directory.replaceAll("/", "\\\\");
+        String idPath = FileSystemHelper.toIdString(path);
 
-        if (!path.toString().contains(fileSystemDirectory)) {
+        if (!idPath.contains(directory)) {
             throw new IllegalArgumentException(
                 "Discovered asset path " + path +
-                " doesn't have directory " + fileSystemDirectory +
+                " doesn't have directory " + directory +
                 " on its path"
             );
         }
@@ -2879,9 +2891,7 @@ public final class AkytheraProject {
         return Identifier.fromNamespaceAndPath(
             projectName,
             ParseUtils.trimExtensions(
-                path.toString().substring(
-                    path.toString().indexOf(fileSystemDirectory)
-                ).replaceAll("\\\\", "/"),
+                idPath.substring(idPath.indexOf(directory)),
                 AssetLoader.BINARY_EXTENSION, "json"
             )
         );
@@ -3377,7 +3387,7 @@ public final class AkytheraProject {
             AnimationLoader loader = AnimationLoader.getLoader(id, rm, AssetLoader::readMetadata);
 
             if (loader instanceof JsonAssetLoader) {
-                throw new RuntimeException("Akythera Labs doesn't support json animationsToReplace. Please use animation retargeter to export your animationsToReplace as binary assets");
+                throw new RuntimeException("Akythera Labs doesn't support json animations. Please use animation retargeter to export your animations as binary assets");
             }
 
             AnimationClip animClip = loader.loadAnimationClip(null);

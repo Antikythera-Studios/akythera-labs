@@ -71,18 +71,18 @@ public final class FreemarkerExporter {
     /// Sub-directory (and sub-package) the generated [DataProvider] classes land in.
     private static final String PROVIDERS_DIR = "providers";
     /// Sub-directory (and sub-package) the generated `*AnimatorScript` classes land in.
-    private static final String SCRIPTS_DIR = "scripts\\animator";
+    private static final String SCRIPTS_DIR = "scripts/animator";
     /// Sub-directory (and sub-package) the generated `*EntityPatchScript` classes land in.
-    private static final String PATCHES_DIR = "scripts\\entitypatches";
+    private static final String PATCHES_DIR = "scripts/entitypatches";
     /// Sub-directory (and sub-package) the generated `*Ability` classes land in.
-    private static final String ABILITIES_DIR = "scripts\\abilities";
+    private static final String ABILITIES_DIR = "scripts/abilities";
     /// Sub-directory (and sub-package) the generated `*CueScript` classes land in.
-    private static final String ABILITY_CUES_DIR = "scripts\\abilitycues";
+    private static final String ABILITY_CUES_DIR = "scripts/abilitycues";
     /// Sub-directory (and sub-package) the generated `*ScreenScript`, `*WidgetScript` and `*HUDScript` classes
     /// land in.
-    private static final String WIDGETS_DIR = "scripts\\widgets";
+    private static final String WIDGETS_DIR = "scripts/widgets";
     /// Sub-directory (and sub-package) the generated `*ParticleInitializer` and `*ParticleUpdater` classes land in.
-    private static final String PARTICLES_DIR = "scripts\\particles";
+    private static final String PARTICLES_DIR = "scripts/particles";
     /// Sub-directory (and sub-package) the generated [EnumerableDataBlock] enums land in.
     private static final String DATA_BLOCKS_DIR = "datablocks";
 
@@ -834,6 +834,8 @@ public final class FreemarkerExporter {
     /// Append a sub-package segment to the chosen base package, tolerating a blank base (the modal
     /// leaves the package field empty when the export dir isn't under `src/main/java`).
     private static String subPackage(String base, String segment) {
-        return base.isBlank() ? segment : base + "." + segment.replaceAll("\\\\", ".");
+        String subPackage = segment.replace('/', '.');
+
+        return base.isBlank() ? subPackage : base + "." + subPackage;
     }
 }

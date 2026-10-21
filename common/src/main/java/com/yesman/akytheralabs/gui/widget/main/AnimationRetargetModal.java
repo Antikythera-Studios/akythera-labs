@@ -280,13 +280,13 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     private static String defaultExportPath() {
         return AkytheraProject.getCurrentProject().getProjectRoot()
-            .resolve("assets").resolve("animmodels").resolve("animationsToReplace")
+            .resolve("assets").resolve("animmodels").resolve("animations")
             .toString();
     }
 
     /// Left column splits into 3 equal-height sections (preview models / armatures /
-    /// animationsToReplace-to-retarget) plus a fixed one-row "Source Armature" slot between
-    /// armatures and animationsToReplace. Pixel heights are recomputed every relocate.
+    /// animations-to-retarget) plus a fixed one-row "Source Armature" slot between
+    /// armatures and animations. Pixel heights are recomputed every relocate.
     @Override
     public void relocate(ScreenRectangle screenRectangle) {
         // 1. Run base relocate — positions the modal and runs an initial child iteration
@@ -453,7 +453,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         g.fill(leftRight - 1, getY() + TITLE_H, leftRight, bottomY, 0xFF333333);
         g.fill(rightLeft - 1, getY() + TITLE_H, rightLeft, bottomY, 0xFF333333);
 
-        // "Source Armature" — one-row slot between armatures and animationsToReplace.
+        // "Source Armature" — one-row slot between armatures and animations.
         int srcArmTop = srcArmSectionTopY();
         g.text(font, Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_SOURCE_ARMATURE), getX() + 6, srcArmTop + 2, 0xFFAAAAAA, false);
         int slotTop = srcArmTop + LIST_LABEL_H + 2;
@@ -479,7 +479,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         g.fill(getX() + 1, animTop, leftRight - 1, animTop + 1, 0xFF3A3A3A);
         g.text(font, Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_SECTION_ANIMATIONS_TO_RETARGET), getX() + 6, animTop + 4, 0xFFAAAAAA, false);
 
-        // Hint in the animationsToReplace area when source armature is ready and no entries yet.
+        // Hint in the animations area when source armature is ready and no entries yet.
         if (sourceArmature != null && animList.children().isEmpty()) {
             Component hint = Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_MESSAGE_DRAG_AND_DROP_ANIMATIONS);
             List<FormattedCharSequence> split = font.split(hint, animList.getWidth() - 4);
@@ -506,7 +506,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             if (e instanceof AbstractWidget w) w.extractRenderState(g, mouseX, mouseY, a);
         }
 
-        // Inline incompat warning under the animationsToReplace list, fades after duration.
+        // Inline incompat warning under the animations list, fades after duration.
         long now = System.currentTimeMillis();
         int warnBaseY = getBottom() - BOTTOM_BAR_H - 12;
 

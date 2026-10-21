@@ -315,6 +315,7 @@
   "gui.akytheralabs.notify_tracks.field.type": "Notify Type",
   "gui.akytheralabs.notify_tracks.field.side": "Logical Side",
   "gui.akytheralabs.notify_tracks.field.sound": "사운드",
+  "gui.akytheralabs.notify_tracks.field.rotation": "회전",
   "gui.akytheralabs.main_screen.widget.project_settings.error.empty_name": "Project name can't be empty!",
   "gui.akytheralabs.main_screen.widget.project_settings.error.empty_version": "Version number can't be empty!",
   "gui.akytheralabs.main_screen.widget.project_settings.error.name_taken": "A project with this name already exists.",

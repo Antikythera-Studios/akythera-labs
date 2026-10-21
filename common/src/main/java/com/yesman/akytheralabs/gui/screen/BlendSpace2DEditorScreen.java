@@ -694,7 +694,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
 
     /// Headless animator that previews a [BlendSpace2D] for the editor. Reads its blendspace and control
     /// point (x, y) live from suppliers, so node/position/animation edits and cursor moves show up without
-    /// re-install. Pose = barycentric blend of the enclosing triangle's 3 corner animationsToReplace, mirroring
+    /// re-install. Pose = barycentric blend of the enclosing triangle's 3 corner animations, mirroring
     /// `BlendSpace2DDriver#getPose`. [#getOwner] / [#getMontagePlayer] unsupported.
     private static final class BlendSpaceAnimator implements EntityModelComponent.EditorScrubAnimator {
         private final Supplier<@Nullable BlendSpace2D> blendSupplier;

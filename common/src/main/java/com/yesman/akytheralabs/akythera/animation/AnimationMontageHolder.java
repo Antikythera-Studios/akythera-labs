@@ -41,7 +41,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
 {
     public static final Codec<AnimationMontageHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
-            EditorAssetAccessors.ANIMATION_CODEC.listOf().optionalFieldOf("animationsToReplace", List.of())
+            EditorAssetAccessors.ANIMATION_CODEC.listOf().optionalFieldOf("animations", List.of())
                 .forGetter(h -> h.segments),
             Codec.unboundedMap(Codec.STRING, Codec.FLOAT).optionalFieldOf("sections", Map.of())
                 .forGetter(h -> h.sections),

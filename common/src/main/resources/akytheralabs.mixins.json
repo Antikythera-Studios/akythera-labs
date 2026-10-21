@@ -10,6 +10,7 @@
     "BlendingAnimatorAccessor",
     "CachedPoseReferenceAccessor",
     "MixinAbstractWidget",
+    "MixinEnumerableDataBlockManager",
     "MixinGameRenderer",
     "MixinGameRendererAccessor",
     "MixinGlyphRenderState",
@@ -29,8 +30,7 @@
     "SoundManagerAccessor"
   ],
   "mixins": [
-    "MappedRegistryAccessor",
-    "MixinEnumerableDataBlockManager"
+    "MappedRegistryAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -67,6 +67,24 @@ public final class FileSystemHelper {
         return toIdString(root.relativize(file));
     }
 
+    public static String toRootRelativeIdString(Path root, String path) {
+        if (path.isBlank()) return path;
+
+        try {
+            String relative = toIdString(root.toAbsolutePath().normalize().relativize(Path.of(path).toAbsolutePath().normalize()));
+
+            return relative.isEmpty() ? "." : relative;
+        } catch (IllegalArgumentException e) {
+            return path;
+        }
+    }
+
+    public static String toRootResolvedIdString(Path root, String path) {
+        if (path.isBlank()) return path;
+
+        return toIdString(root.toAbsolutePath().resolve(path).normalize());
+    }
+
     // ---------- name + extension ----------
 
     /// Stem (everything before the last `.`). `"foo.json"` → `"foo"`,

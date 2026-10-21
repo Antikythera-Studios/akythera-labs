@@ -218,7 +218,7 @@ public final class ModelSkinHolder {
         try {
             if (model instanceof VanillaModelBaker.Bake bake) {
                 bake.model().resetPose();
-                geometry = reference == null ? bake.builder() : VanillaModelBaker.build(bake.model().root(), resolved, reference);
+                geometry = reference == null ? bake.builder() : VanillaModelBaker.build(bake.model().root(), resolved, reference, bake.textures());
             } else {
                 geometry = VanillaModelBaker.build(
                     Minecraft.getInstance().getModelManager().entityModels().get().bakeLayer((ModelLayerLocation) model),

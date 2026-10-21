@@ -532,7 +532,7 @@ public final class AnimationSelectModal extends OverlayingWindowModal
         void rebuild(String query) {
             clearEntries();
 
-            // Title row for the animationsToReplace category
+            // Title row for the animations category
             addEntry(new TitleEntry(Component.translatable(LangKeys.GUI_ANIMATION_SELECT_MODAL_CATEGORY_ANIMATIONS)));
 
             String lower = ParseUtils.toLowerCase(query);

@@ -68,6 +68,8 @@ public final class ScriptNodeSourceCompiler {
     /// Java identifiers in scope: the method's context parameters plus every local declared so far.
     private final Set<String> scopedNames = new HashSet<>();
 
+    private final Map<String, Class<?>> localTypes = new HashMap<>();
+
     /// The Java expression a [SourceDriverNode] renders as while a transition lambda is being
     /// written; null elsewhere.
     private @Nullable String sourceDriverExpr;
@@ -205,7 +207,7 @@ public final class ScriptNodeSourceCompiler {
                 out.add(line(indent, "}"));
             }
             case FlowFunctionNode fn -> {
-                out.add(line(indent, functionExpr(fn.function(), argsOf(fn.params())) + ";"));
+                out.add(line(indent, functionExpr(fn.function(), argsOf(fn.function(), fn.params())) + ";"));
                 if (fn.nextNode() != null) statements(fn.nextNode(), out, indent);
             }
             case ScriptVariableSetterNode setter -> out.add(line(indent, assignment(setter)));
@@ -267,7 +269,7 @@ public final class ScriptNodeSourceCompiler {
                     statements(fn, out, indent);
                     return false;
                 }
-                out.add(line(indent, "return " + functionExpr(fn.function(), argsOf(fn.params())) + ";"));
+                out.add(line(indent, "return " + functionExpr(fn.function(), argsOf(fn.function(), fn.params())) + ";"));
                 return true;
             }
             default -> {
@@ -298,7 +300,11 @@ public final class ScriptNodeSourceCompiler {
         String value = expr(setter.valueProvider());
 
         if (memberVariables.contains(name)) return memberExpr(name) + " = " + value + ";";
-        return scopedNames.add(name) ? "var " + name + " = " + value + ";" : name + " = " + value + ";";
+        if (!scopedNames.add(name)) return name + " = " + value + ";";
+
+        localTypes.put(name, staticType(setter.valueProvider()));
+
+        return "var " + name + " = " + value + ";";
     }
 
     // ***************************************************************
@@ -322,7 +328,7 @@ public final class ScriptNodeSourceCompiler {
                 : getter.variableName();
             case SourceDriverNode _ -> sourceDriverExpr != null ? sourceDriverExpr
                 : "null /* TODO: Source State Driver outside a transition */";
-            case PureFunctionNode fn -> functionExpr(fn.function(), argsOf(fn.params()));
+            case PureFunctionNode fn -> functionExpr(fn.function(), argsOf(fn.function(), fn.params()));
             case NumericOperatorNode op -> "(" + expr(op.a()) + " " + operatorSign(op.operator()) + " " + expr(op.b()) + ")";
             case LogicalOperationNode op -> logicalExpr(op);
             case InvertBooleanNode invert -> "!(" + expr(invert.child()) + ")";
@@ -348,6 +354,33 @@ public final class ScriptNodeSourceCompiler {
         List<String> args = new ArrayList<>(params.size());
         for (PureNode param : params) args.add(expr(param));
         return args;
+    }
+
+    private List<String> argsOf(ScriptFunction function, List<PureNode> params) {
+        List<Class<?>> parameterTypes = function.functionSignature().parameters();
+        List<String> args = new ArrayList<>(params.size());
+
+        for (int i = 0; i < params.size(); i++) {
+            PureNode param = params.get(i);
+            Class<?> expected = i < parameterTypes.size() ? parameterTypes.get(i) : Object.class;
+            String arg = expr(param);
+
+            args.add(staticType(param) == Object.class && !expected.isPrimitive() && expected != Object.class
+                ? "((" + typeName(expected) + ") " + arg + ")"
+                : arg);
+        }
+
+        return args;
+    }
+
+    private @Nullable Class<?> staticType(PureNode node) {
+        return switch (node) {
+            case SelfNode _ -> selfType;
+            case PureFunctionNode fn -> fn.function().functionSignature().returnType();
+            case ContextVariableAccessNode access -> localTypes.get(access.localVariableName());
+            case ScriptVariableGetterNode getter -> memberVariables.contains(getter.variableName()) ? null : localTypes.get(getter.variableName());
+            default -> null;
+        };
     }
 
     // ***************************************************************
