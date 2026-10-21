@@ -26,7 +26,6 @@ import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -330,19 +329,15 @@ public interface ResourceProcessor<T> {
         ResourceKey<? extends @NonNull Registry<@NonNull V>> registryKey,
         DatapackContentConstructor<V> constructor
     ) {
-        // Normalize to '/' up front: Identifier#getPath() always uses '/', but on Windows the
-        // OS path uses '\'. Registries whose path has a nested segment (e.g. "script/animator")
-        // would otherwise never match the search needle and slice the key mid-segment.
-        String pathString = path.toString().replace(File.separatorChar, '/');
-        String projectsPrefix = AkytheraProject.PROJECTS_DIR_NAME + "/";
-        int projectsRoot = pathString.indexOf(projectsPrefix);
+        Path projectsRoot = AkytheraProject.getProjectsRootDirectory().toAbsolutePath().normalize();
+        Path absolutePath = path.toAbsolutePath().normalize();
 
-        if (projectsRoot == -1) {
-            AkytheraLabs.LOGGER.error("Failed at parsing {}. Path doesn't indicate akythera_projects", registryKey);
+        if (!absolutePath.startsWith(projectsRoot)) {
+            AkytheraLabs.LOGGER.error("Failed at parsing {}. Path isn't under {}", registryKey, projectsRoot);
             return null;
         }
 
-        String relativeLocation = pathString.substring(projectsRoot).replace(projectsPrefix, "");
+        String relativeLocation = FileSystemHelper.relativeIdPath(projectsRoot, absolutePath);
         int beforeModId = relativeLocation.indexOf('/');
         String namespace = relativeLocation.substring(0, beforeModId);
         String relativePackLocation = relativeLocation.substring(beforeModId + 1);

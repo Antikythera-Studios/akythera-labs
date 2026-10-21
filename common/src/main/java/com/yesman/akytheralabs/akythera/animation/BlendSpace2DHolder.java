@@ -48,8 +48,10 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
             Codec.BOOL.optionalFieldOf("snap_to_grid", false)
                 .forGetter(BlendSpace2DHolder::isSnapToGrid),
             AxisNames.CODEC.optionalFieldOf("axis_names", AxisNames.DEFAULT)
-                .forGetter(h -> new AxisNames(h.axisNameX, h.axisNameY))
-        ).apply(instance, (fadeIn, fadeOut, sx, sy, mnX, mnY, mxX, mxY, lp, ns, prevModel, hDiv, vDiv, snap, axisNames) -> {
+                .forGetter(h -> new AxisNames(h.axisNameX, h.axisNameY)),
+            AxisWraps.CODEC.optionalFieldOf("axis_wraps", AxisWraps.DEFAULT)
+                .forGetter(h -> new AxisWraps(h.wrapX, h.wrapY))
+        ).apply(instance, (fadeIn, fadeOut, sx, sy, mnX, mnY, mxX, mxY, lp, ns, prevModel, hDiv, vDiv, snap, axisNames, axisWraps) -> {
             BlendSpace2DHolder h = new BlendSpace2DHolder();
             h.fadeInTime = fadeIn;
             h.fadeOutTime = fadeOut;
@@ -64,6 +66,8 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
             h.verticalDivision = vDiv;
             h.axisNameX = axisNames.x();
             h.axisNameY = axisNames.y();
+            h.wrapX = axisWraps.x();
+            h.wrapY = axisWraps.y();
 
             for (NodeData n : ns) {
                 MutableAnimNode mn = h.new MutableAnimNode(n.x(), n.y(), -1, n.animation());
@@ -99,25 +103,31 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
     @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_SMOOTH_X, min = 0F, order = 6, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_X_AXIS)
     private float smoothX;
 
-    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_HORIZONTAL_DIVISION, min = 1, order = 7, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_X_AXIS)
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_WRAP_X, order = 7, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_X_AXIS)
+    private boolean wrapX;
+
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_HORIZONTAL_DIVISION, min = 1, order = 8, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_X_AXIS)
     private int horizontalDivision = 8;
 
-    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_AXIS_NAME_Y, order = 8, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_AXIS_NAME_Y, order = 9, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
     private String axisNameY = "Y";
 
-    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_MIN_Y, order = 9, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_MIN_Y, order = 10, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
     private float minY = 0.0F;
 
-    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_MAX_Y, order = 10, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_MAX_Y, order = 11, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
     private float maxY = 4.317181F;
 
-    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_SMOOTH_Y, min = 0F, order = 11, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_SMOOTH_Y, min = 0F, order = 12, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
     private float smoothY;
 
-    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_VERTICAL_DIVISION, min = 1, order = 12, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_WRAP_Y, order = 13, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
+    private boolean wrapY;
+
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_VERTICAL_DIVISION, min = 1, order = 14, category = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_CATEGORY_Y_AXIS)
     private int verticalDivision = 8;
 
-    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_SNAP_TO_GRID, order = 13)
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_SNAP_TO_GRID, order = 15)
     private boolean snapToGrid = true;
 
     @Nullable
@@ -151,6 +161,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
             BlendSpace2D.builder()
                 .fadeInTime(fadeInTime).fadeOutTime(fadeOutTime)
                 .smoothX(smoothX).smoothY(smoothY)
+                .wrapX(wrapX).wrapY(wrapY)
                 .loops(loops)
                 .minX(nodeSpace.minX()).maxX(nodeSpace.maxX()).minY(nodeSpace.minY()).maxY(nodeSpace.maxY());
 
@@ -206,6 +217,8 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         dto.put("fade_out_time", SourceTemplateEngine.floatLiteral(fadeOutTime));
         dto.put("smooth_x", SourceTemplateEngine.floatLiteral(smoothX));
         dto.put("smooth_y", SourceTemplateEngine.floatLiteral(smoothY));
+        dto.put("wrap_x", Boolean.toString(wrapX));
+        dto.put("wrap_y", Boolean.toString(wrapY));
         dto.put("min_x", SourceTemplateEngine.floatLiteral(minX));
         dto.put("min_y", SourceTemplateEngine.floatLiteral(minY));
         dto.put("max_x", SourceTemplateEngine.floatLiteral(maxX));
@@ -292,6 +305,24 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
 
     public void setSmoothY(float smoothY) {
         this.smoothY = smoothY;
+        markBuiltObjectDirty();
+    }
+
+    public boolean isWrapX() {
+        return wrapX;
+    }
+
+    public void setWrapX(boolean wrapX) {
+        this.wrapX = wrapX;
+        markBuiltObjectDirty();
+    }
+
+    public boolean isWrapY() {
+        return wrapY;
+    }
+
+    public void setWrapY(boolean wrapY) {
+        this.wrapY = wrapY;
         markBuiltObjectDirty();
     }
 
@@ -542,6 +573,17 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
                 Codec.STRING.optionalFieldOf("x", "X").forGetter(AxisNames::x),
                 Codec.STRING.optionalFieldOf("y", "Y").forGetter(AxisNames::y)
             ).apply(i, AxisNames::new)
+        );
+    }
+
+    private record AxisWraps(boolean x, boolean y) {
+        static final AxisWraps DEFAULT = new AxisWraps(false, false);
+
+        static final Codec<AxisWraps> CODEC = RecordCodecBuilder.create(
+            i -> i.group(
+                Codec.BOOL.optionalFieldOf("x", false).forGetter(AxisWraps::x),
+                Codec.BOOL.optionalFieldOf("y", false).forGetter(AxisWraps::y)
+            ).apply(i, AxisWraps::new)
         );
     }
 

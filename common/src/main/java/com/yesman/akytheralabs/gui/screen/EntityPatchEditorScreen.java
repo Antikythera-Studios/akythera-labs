@@ -1072,6 +1072,7 @@ public final class EntityPatchEditorScreen extends Screen
         if (body == null) return;
 
         Identifier texture = layers.getFirst().getTextureLocation(wornModel.layerType());
+        List<Identifier> textures = layers.stream().map(layer -> layer.getTextureLocation(wornModel.layerType())).toList();
         EntityModelComponent preview = new EntityModelComponent(
             new AssetAccessor<SkeletalMesh>() {
                 @Override
@@ -1081,7 +1082,7 @@ public final class EntityPatchEditorScreen extends Screen
 
                     return resolvedArmature == null || !(bodyMesh instanceof SkeletalMesh skeletal)
                         ? null
-                        : VanillaModelBaker.bake(wornModel.model(), resolvedArmature, skeletal, stack.getItem(), slot);
+                        : VanillaModelBaker.bake(wornModel.model(), resolvedArmature, skeletal, stack.getItem(), slot, textures);
                 }
 
                 @Override

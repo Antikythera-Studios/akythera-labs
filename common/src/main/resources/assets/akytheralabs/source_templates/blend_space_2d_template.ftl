@@ -86,6 +86,7 @@ public final class ${className} extends BlendSpace2DProvider {
                 .builder()
                     .fadeInTime(${dto.fade_in_time}).fadeOutTime(${dto.fade_out_time})
                     .smoothX(${dto.smooth_x}).smoothY(${dto.smooth_y})
+                    .wrapX(${dto.wrap_x}).wrapY(${dto.wrap_y})
                     .minX(${dto.min_x}).maxX(${dto.max_x}).minY(${dto.min_y}).maxY(${dto.max_y})
                     .loops(${dto.loops})
 <#list dto.nodes as node>
