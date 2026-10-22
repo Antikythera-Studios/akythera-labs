@@ -144,12 +144,15 @@ public final class ParticlePreviewComponent implements LocatableComponent {
                     particles.addSystem(system);
                     playTicks = 0;
                     idleTicks = 0;
+                } else if (system != null) {
+                    system.moveTo(systemTransformAt(++playTicks));
                 }
 
                 particles.tick();
-
-                if (system != null) system.moveTo(systemTransformAt(++playTicks));
             }
+
+            // The system as this frame draws it
+            if (system != null) system.moveTo(systemTransformAt(playTicks + pendingTicks));
 
             particles.frameUpdate(a * 0.05F, pendingTicks);
         } catch (RuntimeException e) {
@@ -178,7 +181,7 @@ public final class ParticlePreviewComponent implements LocatableComponent {
 
     /// Where the system stands `ticks` into a play: at [#ORIGIN], or for a trail, turned `ticks / SWEEP_TICKS` of the way
     /// about the Z axis through a point one trail length above the floor.
-    private Transform systemTransformAt(final int ticks) {
+    private Transform systemTransformAt(final float ticks) {
         if (!(playing instanceof TrailParticleBlueprint trail)) return Transform.fromTranslation(ORIGIN);
 
         double turns = (double)ticks / SWEEP_TICKS;

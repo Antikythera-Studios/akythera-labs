@@ -105,8 +105,9 @@ public final class ParticleSourceWriter {
                 properties(trail.properties()),
                 SourceTemplateEngine.floatLiteral(trail.length()),
                 ScriptNodeSourceCompiler.valueLiteral(trail.color()),
-                SourceTemplateEngine.floatLiteral(trail.fadeOut()),
+                String.valueOf(trail.fadeOut()),
                 String.valueOf(trail.interpolation()),
+                SourceTemplateEngine.floatLiteral(trail.interpolationSpacing()),
                 String.valueOf(trail.trailLifetime()),
                 identifier(trail.texture())
             ));

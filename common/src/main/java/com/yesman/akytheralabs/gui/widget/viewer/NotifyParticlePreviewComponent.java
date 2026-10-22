@@ -50,6 +50,8 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
 
     /// Plays `particleSystem` on `socket` with every emitter's time span reshaped to `window`, as
     /// [TrailParticleNotifyState#onBegin] does. Nothing plays when the system or the socket can't be found.
+    ///
+    /// The system takes its first tick here, as in game, and the next tick comes one tick from now.
     public void play(final Model3DViewer viewer, final ResourceKey<ParticleSystemBlueprint> particleSystem, final String socket, final TimeWindow window) {
         ParticleSystemBlueprint blueprint = blueprint(particleSystem);
         Transform transform = socketTransform(viewer, socket);
@@ -67,6 +69,8 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
 
         particles.addSystem(system);
         sockets.put(system, socket);
+        system.tick();
+        pendingTicks = 0.0F;
     }
 
     @Override
@@ -93,13 +97,14 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
 
         // A half-configured piece may throw while playing
         try {
+            // The sockets as this frame draws them
+            sockets.forEach((system, socket) -> {
+                Transform transform = socketTransform(model3DViewer, socket);
+
+                if (transform != null) system.moveTo(transform);
+            });
+
             for (; pendingTicks >= 1.0F; pendingTicks -= 1.0F) {
-                sockets.forEach((system, socket) -> {
-                    Transform transform = socketTransform(model3DViewer, socket);
-
-                    if (transform != null) system.moveTo(transform);
-                });
-
                 particles.tick();
             }
 

@@ -33,6 +33,7 @@ import com.yesman.akytheralabs.gui.widget.viewer.ParticlePreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ParticleTransformComponent;
 import net.minecraft.core.ClientAsset;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
 import net.minecraft.util.StringRepresentable;
 import org.jspecify.annotations.Nullable;
 
@@ -49,6 +50,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
     private static final RGBA WHITE = new RGBA(1.0F, 1.0F, 1.0F);
     private static final float DEFAULT_LENGTH = 1.0F;
     private static final int DEFAULT_INTERPOLATION = 4;
+    private static final float DEFAULT_INTERPOLATION_SPACING = 1.0F;
     private static final int DEFAULT_TRAIL_LIFETIME = 6;
 
     /// The shared, sprite and color fields. Over [RecordCodecBuilder]'s 16 with the rest, so split off [#MESH_AND_TRAIL].
@@ -98,8 +100,9 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 TransformHolder.CODEC.optionalFieldOf("armature_transform").forGetter(MeshAndTrail::armatureTransform),
                 Codec.BOOL.optionalFieldOf("copy_attached_pose", false).forGetter(MeshAndTrail::copyAttachedPose),
                 Codec.FLOAT.optionalFieldOf("length", DEFAULT_LENGTH).forGetter(MeshAndTrail::length),
-                Codec.FLOAT.optionalFieldOf("fade_out", 1.0F).forGetter(MeshAndTrail::fadeOut),
+                Codec.INT.optionalFieldOf("fade_out", 0).forGetter(MeshAndTrail::fadeOut),
                 Codec.INT.optionalFieldOf("interpolation", DEFAULT_INTERPOLATION).forGetter(MeshAndTrail::interpolation),
+                Codec.FLOAT.optionalFieldOf("interpolation_spacing", DEFAULT_INTERPOLATION_SPACING).forGetter(MeshAndTrail::interpolationSpacing),
                 Codec.INT.optionalFieldOf("trail_lifetime", DEFAULT_TRAIL_LIFETIME).forGetter(MeshAndTrail::trailLifetime)
             ).apply(instance, MeshAndTrail::new)
     );
@@ -117,9 +120,10 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             rest.armatureTransform().ifPresent(armatureTransform -> holder.armatureTransform = armatureTransform);
             holder.copyAttachedPose = rest.copyAttachedPose();
             holder.length = rest.length();
-            holder.fadeOut = rest.fadeOut();
             holder.interpolation = rest.interpolation();
+            holder.interpolationSpacing = rest.interpolationSpacing();
             holder.trailLifetime = rest.trailLifetime();
+            holder.setFadeOut(rest.fadeOut());
 
             return holder;
         },
@@ -134,6 +138,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             holder.length,
             holder.fadeOut,
             holder.interpolation,
+            holder.interpolationSpacing,
             holder.trailLifetime
         ))
     ).codec();
@@ -221,16 +226,23 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
     @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_LENGTH, order = 19, min = 0, visibleWhen = "isTrail")
     private float length = DEFAULT_LENGTH;
 
-    /// The share of the emitter's time span after which the trail fades out. 1 never fades.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_FADE_OUT, order = 20, min = 0, max = 1, visibleWhen = "isTrail")
-    private float fadeOut = 1.0F;
+    /// In ticks, at most [#trailLifetime]. A point with less lifetime left fades by `lifetime left / fadeOut`. 0 never
+    /// fades.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_FADE_OUT, order = 20, min = 0, visibleWhen = "isTrail")
+    private int fadeOut;
 
-    /// Quads drawn per sampled edge.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_INTERPOLATION, order = 21, min = 1, max = 32, visibleWhen = "isTrail")
+    /// At most this many points sampled between two ticks, besides the one at each tick. Fewer when fewer keep two
+    /// points at most [#length] × [#interpolationSpacing] apart.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_INTERPOLATION, order = 21, min = 0, max = 32, visibleWhen = "isTrail")
     private int interpolation = DEFAULT_INTERPOLATION;
 
-    /// In ticks, how long one sampled edge stays.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_TRAIL_LIFETIME, order = 22, min = 1, visibleWhen = "isTrail")
+    /// The longest gap between two points that needs no more points between, as a share of [#length]. 0 always samples
+    /// [#interpolation] points.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_INTERPOLATION_SPACING, order = 22, min = 0, visibleWhen = "isTrail")
+    private float interpolationSpacing = DEFAULT_INTERPOLATION_SPACING;
+
+    /// In ticks, how long one sampled point stays.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_TRAIL_LIFETIME, order = 23, min = 1, visibleWhen = "isTrail")
     private int trailLifetime = DEFAULT_TRAIL_LIFETIME;
 
     /// The sprite a new particle and a new list element start with, see [EditorEditable#defaultElement].
@@ -317,6 +329,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 this.length = trail.length();
                 this.fadeOut = trail.fadeOut();
                 this.interpolation = trail.interpolation();
+                this.interpolationSpacing = trail.interpolationSpacing();
                 this.trailLifetime = trail.trailLifetime();
             }
             default -> throw new IllegalArgumentException("The editor can't edit " + object.getClass().getSimpleName());
@@ -354,6 +367,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 color,
                 fadeOut,
                 interpolation,
+                interpolationSpacing,
                 trailLifetime,
                 texturePath.orElseThrow(() -> new IllegalStateException("A trail particle needs a texture"))
             );
@@ -412,6 +426,17 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
         this.bbHeight = Math.max(height, 0.0F);
     }
 
+    /// Clamped into 0 to [#trailLifetime].
+    public void setFadeOut(final int fadeOut) {
+        this.fadeOut = Mth.clamp(fadeOut, 0, trailLifetime);
+    }
+
+    /// Pulls [#fadeOut] down to the new lifetime.
+    public void setTrailLifetime(final int trailLifetime) {
+        this.trailLifetime = trailLifetime;
+        this.fadeOut = Math.min(fadeOut, trailLifetime);
+    }
+
     public Type getType() {
         return type;
     }
@@ -438,8 +463,9 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
         Optional<TransformHolder> armatureTransform,
         boolean copyAttachedPose,
         float length,
-        float fadeOut,
+        int fadeOut,
         int interpolation,
+        float interpolationSpacing,
         int trailLifetime
     ) {
     }
