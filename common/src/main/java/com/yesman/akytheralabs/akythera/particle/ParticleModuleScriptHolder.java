@@ -55,7 +55,7 @@ public abstract class ParticleModuleScriptHolder<T> extends AbstractDataHolder<T
 
     @Override
     public void compile(final Compilation compilation) {
-        BlueprintEditorSession.compileCanvases(compilation, script, layout(), AkytheraParticleEmitter.class);
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), AkytheraParticleEmitter.class, null);
         compilation.unresolved(script.failedNodes());
         compilation.build(this::makeObject);
     }

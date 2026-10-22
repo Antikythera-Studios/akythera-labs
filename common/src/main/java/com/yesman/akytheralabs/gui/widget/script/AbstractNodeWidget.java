@@ -302,6 +302,11 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         this.canvas = canvas;
     }
 
+    /// The canvas this node was last drawn on, or null before it is first drawn.
+    protected @Nullable ScriptNodeGraphWidget canvas() {
+        return canvas;
+    }
+
     /// The canvas this node sits on, so the edits of its literal editors and Details rows are dropped with
     /// the canvas' tab. The node itself before it is first drawn.
     @Override

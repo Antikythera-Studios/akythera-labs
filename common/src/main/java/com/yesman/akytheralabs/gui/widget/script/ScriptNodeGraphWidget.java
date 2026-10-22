@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.datafixers.util.Pair;
+import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.api.data.modularize.AkytheraScriptFunctions;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
@@ -18,6 +19,8 @@ import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintMembers;
+import com.yesman.akytheralabs.akythera.blueprint.ComponentPaths;
+import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -59,9 +62,11 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.SequencedMap;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.BiFunction;
@@ -137,6 +142,11 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// [DataDrivenScript] being edited.
     @Nullable
     private Class<?> scriptOwnerType;
+
+    /// The component tree the [ComponentGetterNodeWidget]s on this canvas read, or null when the canvas
+    /// belongs to no component host.
+    @Nullable
+    private ComponentAttachableHolder componentRoot;
 
     /// The [ScriptFunction.Usage]s this canvas accepts — stamped onto every [NodeSuggestContext]
     /// before the suggestion provider runs (UE's per-graph palette). A canvas may accept several: the
@@ -348,6 +358,16 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     public void setScriptOwnerType(Class<?> ownerType) {
         this.scriptOwnerType = ownerType;
         for (AbstractNodeWidget node : nodes) node.setScriptOwnerType(ownerType);
+    }
+
+    /// Sets [#componentRoot].
+    public void setComponentRoot(@Nullable ComponentAttachableHolder componentRoot) {
+        this.componentRoot = componentRoot;
+    }
+
+    /// Every component path [#componentRoot] holds, see [ComponentPaths#known]. Empty when there is none.
+    public SequencedMap<String, Class<? extends PatchComponent>> componentPaths() {
+        return componentRoot == null ? new LinkedHashMap<>() : ComponentPaths.known(componentRoot);
     }
 
     /// Whether `function` is the untyped `akythera:select`, which reloads as the type-detecting

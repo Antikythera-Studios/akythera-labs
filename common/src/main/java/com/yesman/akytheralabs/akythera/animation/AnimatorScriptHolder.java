@@ -145,7 +145,7 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
     /// unwired `Can Enter Transition` result. Wire a `true` literal into the result for an unconditional one.
     @Override
     public void compile(final Compilation compilation) {
-        BlueprintEditorSession.compileCanvases(compilation, script, layout(), OWNER_TYPE);
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), OWNER_TYPE, null);
 
         Map<UniqueProperty, Integer> duplicated = duplicatedProperties();
         Function<NodeData, @Nullable Component> duplicateErrors = data -> {

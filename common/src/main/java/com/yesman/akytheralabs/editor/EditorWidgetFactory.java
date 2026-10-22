@@ -2460,6 +2460,11 @@ public final class EditorWidgetFactory {
         return System.identityHashCode(owner) + "/" + slotName;
     }
 
+    /// Whether `key` is a [#nodeGraphTabKey] of `owner`.
+    public static boolean isNodeGraphTabKeyOf(String key, Object owner) {
+        return key.startsWith(System.identityHashCode(owner) + "/");
+    }
+
     /// The context pins the canvas of a field shaped by `shape` carries.
     private static List<ContextEntryNodeWidget.ContextParam> nodeGraphParams(EditorNodeGraph shape) {
         List<ContextEntryNodeWidget.ContextParam> params = new ArrayList<>();
@@ -2490,6 +2495,7 @@ public final class EditorWidgetFactory {
                     if (!(tryGet(field, component) instanceof ScriptGraphData graph) || graph.isEmpty()) continue;
 
                     ScriptNodeGraphWidget canvas = ScriptNodeGraphWidget.create(font, ownerType);
+                    canvas.setComponentRoot(host);
                     canvas.importGraph(graph, ContextEntryNodeWidget.factory(font, nodeGraphParams(shape)));
                     canvas.setResultType(shape.resultType());
 

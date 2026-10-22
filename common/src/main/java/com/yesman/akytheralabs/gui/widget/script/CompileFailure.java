@@ -3,17 +3,19 @@ package com.yesman.akytheralabs.gui.widget.script;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import net.minecraft.network.chat.Component;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /// A failed Compile, kept on the entry's [DataHolder] until the next Compile: the page it failed on, and the
 /// validation errors of every node it flagged, by canvas key and node id.
 public final class CompileFailure extends IllegalStateException {
     private final Component page;
 
-    /// Canvas key → node id → the errors the compile flagged the node with.
+    /// Canvas key → node id → the errors the compile flagged the node with, for every canvas the compile failed on.
     private final Map<String, Map<Integer, List<Component>>> marks;
 
     /// Canvas key → the canvas the marks of that key were last shown on.
@@ -35,6 +37,11 @@ public final class CompileFailure extends IllegalStateException {
     /// The page the compile failed on, as the toast names it.
     public Component page() {
         return page;
+    }
+
+    /// The keys of every canvas the compile failed on.
+    public Set<String> failedCanvases() {
+        return Collections.unmodifiableSet(marks.keySet());
     }
 
     /// Puts the errors stored under `key` back on `canvas`'s nodes. A canvas seen for the first time, or rebuilt

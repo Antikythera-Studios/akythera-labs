@@ -46,7 +46,7 @@ public final class Compilation {
         return failedPage != null;
     }
 
-    /// Validates `canvas` and keeps its node errors under `key`, failing on `page` when it holds any.
+    /// Validates `canvas` and keeps its node errors under `key`, failing on `page` when it is invalid.
     public void canvas(final String key, final ScriptNodeGraphWidget canvas, final Component page) {
         canvas(key, canvas, page, null);
     }
@@ -69,8 +69,10 @@ public final class Compilation {
             if (!errors.isEmpty()) flagged.put(id, errors);
         });
 
-        if (!flagged.isEmpty()) marks.put(key, flagged);
-        if (invalid || !flagged.isEmpty()) fail(page);
+        if (invalid || !flagged.isEmpty()) {
+            marks.put(key, flagged);
+            fail(page);
+        }
     }
 
     /// Fails on the unresolved (failed-decode) nodes `failedNodes`, which no compiler lowers.

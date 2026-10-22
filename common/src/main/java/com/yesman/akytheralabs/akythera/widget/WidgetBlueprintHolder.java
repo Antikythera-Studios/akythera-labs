@@ -232,13 +232,13 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
     public void compile(final Compilation compilation) {
         if (parent instanceof BlueprintParentRef.SourceCodeScript) return;
 
-        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType());
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType(), this);
 
         BlueprintMembers members = script.members(layout());
 
         for (WidgetGraphSite site : widgetGraphSites()) {
             compilation.canvas(site.key(),
-                BlueprintEditorSession.canvasOf(ownerType(), members.with(site.widgetSignatures()), site.signature().name(), site.graph()),
+                BlueprintEditorSession.canvasOf(ownerType(), members.with(site.widgetSignatures()), site.signature().name(), site.graph(), this),
                 Component.literal(site.key()));
         }
 

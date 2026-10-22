@@ -35,6 +35,7 @@ import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHolders;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -859,8 +860,17 @@ public final class ItemPatchEditorScreen extends Screen
     @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         CompileFailure failure = holder.getCompileFailure();
+        Set<ComponentDataHolder<?>> compileFailed = Collections.newSetFromMap(new IdentityHashMap<>());
 
-        if (failure != null) openGraphs.forEach(failure::showOn);
+        if (failure != null) {
+            openGraphs.forEach(failure::showOn);
+
+            ComponentAttachableHolder.flatten(holder)
+                .filter(component -> failure.failedCanvases().stream().anyMatch(key -> EditorWidgetFactory.isNodeGraphTabKeyOf(key, component)))
+                .forEach(compileFailed::add);
+        }
+
+        componentPanel.setCompileFailed(compileFailed);
 
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }

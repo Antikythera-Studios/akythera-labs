@@ -3,19 +3,16 @@ package com.yesman.akytheralabs.gui.widget.script;
 import com.yesman.akythera.api.component.ComponentAttachable;
 import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
-import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.akythera.blueprint.ComponentPaths;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.components.ComponentEditorPanel;
-import com.yesman.akytheralabs.gui.screen.ComponentPathHost;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsComboBoxTheme;
 import com.yesman.akytheralabs.gui.widget.EditorComboBox;
 import com.yesman.akytheralabs.gui.widget.script.node.ComponentGetterNodeData;
 import com.yesman.akytheralabs.gui.widget.script.node.NodeData;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 
@@ -87,11 +84,12 @@ public final class ComponentGetterNodeWidget extends AbstractNodeWidget {
         return Component.literal("Get " + path);
     }
 
-    /// The components of the patch being edited, empty on a screen that edits none.
-    private static SequencedMap<String, Class<? extends PatchComponent>> paths() {
-        Screen screen = AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen();
+    /// The components of the canvas' component tree ([ScriptNodeGraphWidget#componentPaths]), empty before the
+    /// node is first drawn.
+    private SequencedMap<String, Class<? extends PatchComponent>> paths() {
+        ScriptNodeGraphWidget canvas = canvas();
 
-        return screen instanceof ComponentPathHost host ? host.componentPaths() : new LinkedHashMap<>();
+        return canvas == null ? new LinkedHashMap<>() : canvas.componentPaths();
     }
 
     /// The Details-row candidates for [#path]: the paths of [#paths], in patch order.

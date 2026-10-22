@@ -63,6 +63,7 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
     private static final int OVERRIDE_COLOR = 0xFFFFFFFF; // a row declaring something of its own
     private static final int INHERITED_COLOR = 0xFF7A7A7A; // a row holding what it inherits
     private static final int SWITCHED_OFF_COLOR = 0xFF4A4A4A; // a row switched off, or under one that is
+    private static final int COMPILE_FAILED_COLOR = 0xFFFF5555; // a row whose node graph failed the last Compile
     private static final int REVERT_BTN = 12; // the ✕ an overriding row carries
     private static final int TOGGLE_X = 4; // left inset of the switch box a row carries
     private static final int TOGGLE_BOX = 8; // side of that switch box
@@ -122,6 +123,9 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
     /// What a node graph of a listed component threw while the game ran, by component. Flagged like a
     /// failed decode.
     private Map<ComponentDataHolder<?>, Throwable> runtimeErrors = Map.of();
+
+    /// The components whose node graphs failed the last Compile.
+    private Set<ComponentDataHolder<?>> compileFailed = Set.of();
 
     /// The history top [#overriding] was taken against. An undo or redo of a value edit rebuilds
     /// nothing here, so a top that has moved on its own is the signal to re-read.
@@ -259,6 +263,14 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
         this.runtimeErrors = runtimeErrors;
     }
 
+    /// Replaces [#compileFailed], whose rows read [#COMPILE_FAILED_COLOR]. An empty set clears them.
+    public void setCompileFailed(Set<ComponentDataHolder<?>> compileFailed) {
+        if (compileFailed.equals(this.compileFailed)) return;
+
+        this.compileFailed = compileFailed;
+        overridingStale = true;
+    }
+
     /// Wires the callback a row dragged out of the panel is released to.
     public void setDropTarget(@Nullable DropTarget dropTarget) {
         this.dropTarget = dropTarget;
@@ -290,8 +302,9 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
         if (lastRect != null) table.relocate(lastRect);
     }
 
-    /// Re-reads which rows declare something of their own and recolors their name boxes. A row that is
-    /// switched off, or hangs under one that is, reads [#SWITCHED_OFF_COLOR] whatever it declares.
+    /// Re-reads which rows declare something of their own and recolors their name boxes. A row in
+    /// [#compileFailed] reads [#COMPILE_FAILED_COLOR]; otherwise a row that is switched off, or hangs under
+    /// one that is, reads [#SWITCHED_OFF_COLOR] whatever it declares.
     ///
     /// An edit in the Details panel writes straight into the holder and rebuilds nothing here, so the
     /// state is re-read whenever the history top has moved since the last pass.
@@ -308,7 +321,8 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
             EditorEditBox<String> box = nameBoxes.get(row.holder());
             if (box == null) continue;
 
-            if (!row.switchedOn()) box.setTextColor(SWITCHED_OFF_COLOR);
+            if (compileFailed.contains(row.holder())) box.setTextColor(COMPILE_FAILED_COLOR);
+            else if (!row.switchedOn()) box.setTextColor(SWITCHED_OFF_COLOR);
             else box.setTextColor(override ? OVERRIDE_COLOR : INHERITED_COLOR);
         }
     }

@@ -171,7 +171,7 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
     public void compile(final Compilation compilation) {
         if (parent instanceof BlueprintParentRef.SourceCodeScript) return;
 
-        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType());
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType(), this);
         EditorWidgetFactory.compileNodeGraphs(compilation, this, ownerType());
 
         List<String> unknownPaths = ComponentPaths.unknown(this, script);

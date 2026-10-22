@@ -61,7 +61,7 @@ public final class AbilityCueBlueprintHolder extends AbstractDataHolder<AbilityC
 
     @Override
     public void compile(final Compilation compilation) {
-        BlueprintEditorSession.compileCanvases(compilation, script, layout(), AbilityCue.class);
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), AbilityCue.class, null);
         compilation.unresolved(script.failedNodes());
         compilation.build(this::makeObject);
     }

@@ -12,6 +12,7 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintMembers;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintSignature;
+import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.ValueShape;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -120,6 +121,11 @@ public final class BlueprintEditorSession {
     @Nullable
     private ExternalCanvases externalCanvases;
 
+    /// The component tree every canvas of this session reads, see [ScriptNodeGraphWidget#setComponentRoot]. Null
+    /// when the blueprint hosts no components.
+    @Nullable
+    private ComponentAttachableHolder componentRoot;
+
     /// The value each property row edits, by property key, decoded from the data on first show. A null
     /// value is an unset leaf.
     private final Map<String, @Nullable Object> propertyValues = new HashMap<>();
@@ -217,6 +223,13 @@ public final class BlueprintEditorSession {
     /// Sets [#externalCanvases].
     public void setExternalCanvases(final @Nullable ExternalCanvases externalCanvases) {
         this.externalCanvases = externalCanvases;
+    }
+
+    /// Sets [#componentRoot], on the canvases already built too.
+    public void setComponentRoot(final @Nullable ComponentAttachableHolder componentRoot) {
+        this.componentRoot = componentRoot;
+
+        canvases().forEach(canvas -> canvas.setComponentRoot(componentRoot));
     }
 
     /// Opens, or brings up, a canvas kept outside the data under `key`: it implements `signature` among the
@@ -618,6 +631,7 @@ public final class BlueprintEditorSession {
         canvas.setUsage(usages);
         canvas.setBlueprintMembers(canvasMembers, function);
         canvas.setSelectionHandler(selectionHandler);
+        canvas.setComponentRoot(componentRoot);
 
         return canvas;
     }
@@ -894,20 +908,21 @@ public final class BlueprintEditorSession {
 
     /// Validates every canvas of `data`, a script owned by `ownerType` of a parent laid out by `layout`, into
     /// `compilation`: the Event Graph under [#EVENT_GRAPH_KEY], each override and declared function under
-    /// [#functionKey].
+    /// [#functionKey]. `componentRoot` is the component tree the canvases read, null when there is none.
     public static void compileCanvases(
-        final Compilation compilation, final BlueprintScriptData data, final BlueprintLayout layout, final Class<?> ownerType
+        final Compilation compilation, final BlueprintScriptData data, final BlueprintLayout layout, final Class<?> ownerType,
+        final @Nullable ComponentAttachableHolder componentRoot
     ) {
         BlueprintMembers members = data.members(layout);
 
-        compilation.canvas(EVENT_GRAPH_KEY, canvasOf(ownerType, members, null, data.getEventGraph()),
+        compilation.canvas(EVENT_GRAPH_KEY, canvasOf(ownerType, members, null, data.getEventGraph(), componentRoot),
             Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_TAB_EVENT_GRAPH));
 
         data.getOverrides().forEach((name, graph) ->
-            compilation.canvas(functionKey(name), canvasOf(ownerType, members, name, graph), Component.literal(name)));
+            compilation.canvas(functionKey(name), canvasOf(ownerType, members, name, graph, componentRoot), Component.literal(name)));
 
         for (BlueprintScriptData.UserFunction function : data.getFunctions()) {
-            compilation.canvas(functionKey(function.name()), canvasOf(ownerType, members, function.name(), function.graph()),
+            compilation.canvas(functionKey(function.name()), canvasOf(ownerType, members, function.name(), function.graph(), componentRoot),
                 Component.literal(function.name()));
         }
     }
@@ -915,11 +930,13 @@ public final class BlueprintEditorSession {
     /// A canvas showing `graph`, built as this session builds the canvas implementing `function` (the Event
     /// Graph for null), for a compile to validate with no screen.
     public static ScriptNodeGraphWidget canvasOf(
-        final Class<?> ownerType, final BlueprintMembers members, final @Nullable String function, final ScriptGraphData graph
+        final Class<?> ownerType, final BlueprintMembers members, final @Nullable String function, final ScriptGraphData graph,
+        final @Nullable ComponentAttachableHolder componentRoot
     ) {
         ScriptNodeGraphWidget canvas = ScriptNodeGraphWidget.create(Minecraft.getInstance().font, ownerType);
 
         canvas.setBlueprintMembers(members, function);
+        canvas.setComponentRoot(componentRoot);
         canvas.importGraph(graph, NO_ENTRY);
 
         return canvas;

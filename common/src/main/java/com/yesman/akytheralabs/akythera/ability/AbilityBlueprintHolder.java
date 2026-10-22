@@ -89,7 +89,7 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
 
     @Override
     public void compile(final Compilation compilation) {
-        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType());
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType(), null);
         compilation.unresolved(script.failedNodes());
         compilation.build(this::makeObject);
     }

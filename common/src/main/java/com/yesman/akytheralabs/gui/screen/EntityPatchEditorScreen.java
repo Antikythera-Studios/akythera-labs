@@ -2,7 +2,6 @@ package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.animation.animator.Animator;
 import com.yesman.akythera.api.asset.AssetAccessor;
-import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
@@ -111,12 +110,13 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.SequencedMap;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -134,7 +134,7 @@ import java.util.function.Supplier;
 /// every canvas on the screen and re-opens it, or a source code [EntityPatchScript], which locks
 /// everything below the top menu.
 public final class EntityPatchEditorScreen extends Screen
-    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost, ComponentPathHost, DebuggableScreen
+    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost, DebuggableScreen
 {
     private static final int TOP_BAR_H = 22;
 
@@ -256,6 +256,7 @@ public final class EntityPatchEditorScreen extends Screen
         session = new BlueprintEditorSession(
             minecraft.font, this, holder.layout(), ownerType(), holder.getScript(), centerTabs, variableDrafts,
             nodeSuggestions::build, this::onNodeSelected, ScriptFunction.Usage.SCRIPT);
+        session.setComponentRoot(holder);
 
         topMenuBar = new TopMenuBar(
             minecraft.font,
@@ -479,15 +480,6 @@ public final class EntityPatchEditorScreen extends Screen
     }
 
     // ***************************************************************
-    // [ComponentPathHost]
-    // ***************************************************************
-
-    @Override
-    public SequencedMap<String, Class<? extends PatchComponent>> componentPaths() {
-        return ComponentPaths.known(holder);
-    }
-
-    // ***************************************************************
     // [NodeGraphTabHost]
     // ***************************************************************
 
@@ -515,6 +507,7 @@ public final class EntityPatchEditorScreen extends Screen
         );
         graph.setSuggestionProvider(dataFlowNodeSuggestions::build);
         graph.setScriptOwnerType(ownerType());
+        graph.setComponentRoot(holder);
         graph.setUsage(ScriptFunction.Usage.SCRIPT);
         graph.setDataFlowOnly(true);
         graph.setSelectionHandler(this::onNodeSelected);
@@ -1248,11 +1241,18 @@ public final class EntityPatchEditorScreen extends Screen
         }
 
         CompileFailure compileFailure = holder.getCompileFailure();
+        Set<ComponentDataHolder<?>> compileFailed = Collections.newSetFromMap(new IdentityHashMap<>());
 
         if (compileFailure != null) {
             session.showCompileFailure(compileFailure);
             openGraphs.forEach(compileFailure::showOn);
+
+            ComponentAttachableHolder.flatten(holder)
+                .filter(component -> compileFailure.failedCanvases().stream().anyMatch(key -> EditorWidgetFactory.isNodeGraphTabKeyOf(key, component)))
+                .forEach(compileFailed::add);
         }
+
+        componentPanel.setCompileFailed(compileFailed);
 
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }

@@ -1,7 +1,6 @@
 package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.component.ComponentAttachable;
-import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.ScriptFailure;
@@ -77,6 +76,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -84,7 +84,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.SequencedMap;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -103,7 +102,7 @@ import java.util.stream.Stream;
 /// The parent is the container class the engine builds, which decides the [WidgetUsage]: `File > Change Parent`
 /// and the Widget Type row both re-open the screen on another one. A source code [WidgetContainerScript] locks
 /// everything below the top menu.
-public final class WidgetEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, ComponentPathHost {
+public final class WidgetEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
     private static final int TOP_BAR_H = 22;
 
     /// Height of a Details row, in screen pixels.
@@ -167,6 +166,7 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
         session = new BlueprintEditorSession(
             minecraft.font, this, holder.layout(), ownerType(), holder.getScript(), centerTabs, variableDrafts,
             nodeSuggestions::build, this::onNodeSelected, ScriptFunction.Usage.SCRIPT);
+        session.setComponentRoot(holder);
 
         // The graphs of the widgets' events and bindings live on the widgets, outside the session's data
         session.setExternalCanvases(new BlueprintEditorSession.ExternalCanvases() {
@@ -469,15 +469,6 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
     }
 
     // ***************************************************************
-    // [ComponentPathHost]
-    // ***************************************************************
-
-    @Override
-    public SequencedMap<String, Class<? extends PatchComponent>> componentPaths() {
-        return ComponentPaths.known(holder);
-    }
-
-    // ***************************************************************
     // Panel hooks
     // ***************************************************************
 
@@ -734,8 +725,22 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
         }
 
         CompileFailure compileFailure = holder.getCompileFailure();
+        Set<ComponentDataHolder<?>> compileFailed = Collections.newSetFromMap(new IdentityHashMap<>());
 
-        if (compileFailure != null) session.showCompileFailure(compileFailure);
+        if (compileFailure != null) {
+            session.showCompileFailure(compileFailure);
+
+            // A widget graph's canvas is keyed `<path>.<name>`, as its runtime failure's site is
+            for (String key : compileFailure.failedCanvases()) {
+                int split = key.lastIndexOf('.');
+
+                if (split >= 0 && ComponentPaths.at(holder, key.substring(0, split)) instanceof WidgetComponentHolder<?> widget) {
+                    compileFailed.add(widget);
+                }
+            }
+        }
+
+        widgetPanel.setCompileFailed(compileFailed);
 
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }
