@@ -1,10 +1,14 @@
 package com.yesman.akytheralabs.gui.widget.script.node;
 
 import com.mojang.serialization.MapCodec;
+import com.yesman.akythera.api.data.modularize.AkytheraScriptTypes;
 import com.yesman.akythera.api.data.modularize.node.ContextVariableAccessNode;
+import com.yesman.akythera.api.data.modularize.node.LiteralNode;
 import com.yesman.akythera.api.data.modularize.node.PureFunctionNode;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
+import com.yesman.akythera.api.data.modularize.node.SupplierAdapterNode;
 import com.yesman.akythera.core.animation.driver.AnimationDriver;
+import com.yesman.akythera.core.animation.driver.LayeredBlendPerBoneDriver;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.LayeredBlendPerBoneNodeWidget;
 import org.jspecify.annotations.Nullable;
@@ -12,10 +16,12 @@ import org.jspecify.annotations.Nullable;
 import java.util.List;
 import java.util.stream.IntStream;
 
-/// Hands the skeleton branch below the `Bone` input over to the layered pose. The armature the branch
-/// is walked on comes from the `animator` local, so the row names no armature of its own.
-public record LayeredBlendPerBoneNodeData() implements NodeData {
-    public static final MapCodec<LayeredBlendPerBoneNodeData> CODEC = MapCodec.unit(new LayeredBlendPerBoneNodeData());
+/// Hands branches of the skeleton over to the layered pose by [#setup]. The armature the branches are walked on
+/// comes from the `animator` local, so the row names no armature of its own.
+public record LayeredBlendPerBoneNodeData(LayeredBlendPerBoneDriver.LayerSetup setup) implements NodeData {
+    public static final MapCodec<LayeredBlendPerBoneNodeData> CODEC = LayeredBlendPerBoneDriver.LayerSetup.CODEC
+        .optionalFieldOf("setup", LayeredBlendPerBoneDriver.LayerSetup.EMPTY)
+        .xmap(LayeredBlendPerBoneNodeData::new, LayeredBlendPerBoneNodeData::setup);
 
     @Override
     public MapCodec<? extends NodeData> mapCodec() {
@@ -24,7 +30,7 @@ public record LayeredBlendPerBoneNodeData() implements NodeData {
 
     @Override
     public AbstractNodeWidget createWidget(NodeBuildContext ctx) {
-        return new LayeredBlendPerBoneNodeWidget(ctx.font(), ctx.x(), ctx.y());
+        return new LayeredBlendPerBoneNodeWidget(ctx.font(), setup, ctx.x(), ctx.y());
     }
 
     @Override
@@ -35,13 +41,13 @@ public record LayeredBlendPerBoneNodeData() implements NodeData {
                 new ContextVariableAccessNode("animator"),
                 in.valueOr(0, AnimationDriver.class),
                 in.valueOr(1, AnimationDriver.class),
-                in.valueOr(2, String.class),
-                in.valueOr(3, int.class)),
+                new LiteralNode<>(AkytheraScriptTypes.LAYER_SETUP.value(), setup),
+                new SupplierAdapterNode(in.valueOr(2, float.class), in.canvasKey())),
             in.id());
     }
 
     @Override
     public IntStream valueInputs() {
-        return IntStream.of(0, 1, 2, 3);
+        return IntStream.of(0, 1, 2);
     }
 }

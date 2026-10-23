@@ -18,6 +18,7 @@ public final class ModifyBoneNodeWidget extends AbstractPoseControlNodeWidget {
 
         addInput(new Pin("Bone", NodeColors.forType(String.class), false, String.class));
         addInput(new Pin("Rotation", NodeColors.forType(Vec3.class), false, Vec3.class));
+        addInput(new Pin("Replace", NodeColors.forType(float.class), false, float.class));
 
         relayout();
     }

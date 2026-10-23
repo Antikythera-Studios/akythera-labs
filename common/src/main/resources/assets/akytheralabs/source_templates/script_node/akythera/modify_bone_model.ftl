@@ -1,2 +1,2 @@
-<#-- akythera:modify_bone_model (animator, base, boneName, rotation) -> AnimationDriver --><#t>
-new ModifyBoneDriver(${params[0]}, ${params[1]}, ${params[2]}, ModifyBoneDriver.Space.MODEL, ${params[3]})<#t>
+<#-- akythera:modify_bone_model (animator, base, boneName, rotation, replace) -> AnimationDriver --><#t>
+new ModifyBoneDriver(${params[0]}, ${params[1]}, ${params[2]}, ModifyBoneDriver.Space.MODEL, ${params[3]}, ${params[4]})<#t>

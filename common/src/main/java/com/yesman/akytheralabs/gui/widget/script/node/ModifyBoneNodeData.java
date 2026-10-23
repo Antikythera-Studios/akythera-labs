@@ -37,12 +37,13 @@ public record ModifyBoneNodeData(ModifyBoneDriver.Space space) implements NodeDa
                 new ContextVariableAccessNode("animator"),
                 in.valueOr(0, AnimationDriver.class),
                 in.valueOr(1, String.class),
-                new SupplierAdapterNode(in.valueOr(2, Vec3.class), in.canvasKey())),
+                new SupplierAdapterNode(in.valueOr(2, Vec3.class), in.canvasKey()),
+                new SupplierAdapterNode(in.valueOr(3, float.class), in.canvasKey())),
             in.id());
     }
 
     @Override
     public IntStream valueInputs() {
-        return IntStream.of(0, 1, 2);
+        return IntStream.of(0, 1, 2, 3);
     }
 }

@@ -20,6 +20,7 @@ import com.yesman.akythera.api.world.ability.AbilityTag;
 import com.yesman.akythera.api.world.ability.AbilityTagSet;
 import com.yesman.akythera.api.world.patch.item.WeaponStance;
 import com.yesman.akythera.core.animation.AnimationLayerSignature;
+import com.yesman.akythera.core.animation.driver.LayeredBlendPerBoneDriver;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
@@ -565,6 +566,16 @@ public final class ScriptNodeSourceCompiler {
                 + set.tags().stream().map(tag -> dataBlockLookup("AbilityTag", tag)).collect(Collectors.joining(", ")) + "))";
             case AbilitySlot slot -> dataBlockLookup("AbilitySlot", slot);
             case AbilitySlotGroup group -> dataBlockLookup("AbilitySlotGroup", group);
+            case LayeredBlendPerBoneDriver.LayerSetup setup -> "new " + SourceNames.typeName(LayeredBlendPerBoneDriver.LayerSetup.class)
+                + "(List.of(" + setup.branchFilters().stream()
+                    .map(filter -> "new " + SourceNames.typeName(LayeredBlendPerBoneDriver.BranchFilter.class)
+                        + "(" + quote(filter.boneName()) + ", " + filter.blendDepth() + ")")
+                    .collect(Collectors.joining(", "))
+                + "), List.of(" + setup.weightSteps().stream()
+                    .map(step -> "new " + SourceNames.typeName(LayeredBlendPerBoneDriver.WeightStep.class)
+                        + "(" + quote(step.boneName()) + ", " + SourceTemplateEngine.floatLiteral(step.weight()) + ")")
+                    .collect(Collectors.joining(", "))
+                + "), " + setup.meshSpaceRotationBlend() + ")";
             case Enum<?> constant -> SourceNames.typeName(constant.getDeclaringClass()) + "." + constant.name();
             default -> "null /* TODO: unsupported literal of " + value.getClass().getSimpleName() + " */";
         };
