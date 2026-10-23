@@ -242,7 +242,6 @@
   "gui.akytheralabs.entity_patch_screen.row.bone_name": "Bone Name",
   "gui.akytheralabs.entity_patch_screen.row.bone_name.no_armature": "This socket rides no armature",
   "gui.akytheralabs.entity_patch_screen.row.mesh": "Mesh",
-  "gui.akytheralabs.entity_patch_screen.row.slim_mesh": "Slim Mesh",
   "gui.akytheralabs.entity_patch_screen.row.equipment_slot": "Equipment Slot",
   "gui.akytheralabs.entity_patch_screen.row.transform_inherit_policy": "Inherit Transform",
   "gui.akytheralabs.entity_patch_screen.row.display_context": "Display Context",
