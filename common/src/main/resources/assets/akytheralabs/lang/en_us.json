@@ -456,6 +456,8 @@
   "gui.akytheralabs.animator_script_screen.validation.incompatible": "Incompatible connection at '%s'",
   "gui.akytheralabs.animator_script_screen.validation.failed": "Compile failed: %s error(s)",
   "gui.akytheralabs.animator_script_screen.validation.no_default_animation": "No default animation selected",
+  "gui.akytheralabs.animator_script_screen.validation.empty_layer_setup": "No branch filter or weight step: Base passes through",
+  "gui.akytheralabs.animator_script_screen.validation.unnamed_layer_bone": "A branch filter or weight step names no bone",
   "gui.akytheralabs.animator_script_screen.validation.missing_asset": "No such asset '%s'",
   "gui.akytheralabs.animator_script_screen.validation.duplicate": "%s '%s' is carried by %s nodes; it must be unique",
   "gui.akytheralabs.animator_script_screen.details.interface_key": "Interface Key",

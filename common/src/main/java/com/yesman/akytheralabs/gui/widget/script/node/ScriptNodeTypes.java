@@ -86,7 +86,6 @@ public final class ScriptNodeTypes {
         register("additive_blend", AdditiveBlendNodeData.CODEC);
         register("layered_blend_per_bone", LayeredBlendPerBoneNodeData.CODEC);
         register("play_rate", PlayRateNodeData.CODEC);
-        register("look_at", LookAtNodeData.CODEC);
         register("modify_bone", ModifyBoneNodeData.CODEC);
         register("orientation_warp", OrientationWarpNodeData.CODEC);
         register("play_ability_cue", PlayAbilityCueNodeData.CODEC);

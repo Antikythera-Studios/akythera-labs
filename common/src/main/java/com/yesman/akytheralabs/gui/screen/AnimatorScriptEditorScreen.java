@@ -17,6 +17,7 @@ import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.core.animation.driver.AnimationStateTransition;
+import com.yesman.akythera.core.animation.driver.LayeredBlendPerBoneDriver;
 import com.yesman.akythera.core.animation.driver.ModifyBoneDriver;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
@@ -492,19 +493,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             ));
             suggestions.add(new NodeSuggestModal.Suggestion<>(
                 Component.literal("Layered Blend per Bone"),
-                (font, x, y) -> new LayeredBlendPerBoneNodeWidget(font, x, y),
+                (font, x, y) -> new LayeredBlendPerBoneNodeWidget(font, LayeredBlendPerBoneDriver.LayerSetup.EMPTY, x, y),
                 BLEND_CATEGORY
             ));
             suggestions.add(new NodeSuggestModal.Suggestion<>(
                 Component.literal("Play Rate"),
                 (font, x, y) -> new PlayRateNodeWidget(font, x, y)
             ));
-            suggestions.add(new NodeSuggestModal.Suggestion<>(
-                Component.literal("Look At"),
-                (font, x, y) -> new LookAtNodeWidget(font, x, y),
-                BONE_CONTROL_CATEGORY
-            ));
-
             for (ModifyBoneDriver.Space space : ModifyBoneDriver.Space.values()) {
                 suggestions.add(new NodeSuggestModal.Suggestion<>(
                     ModifyBoneNodeWidget.title(space),
@@ -675,6 +670,10 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             case AnimSequencePlayerNodeWidget sequencePlayer -> showSequencePlayerDetails(sequencePlayer);
             case BlendSpacePlayerNodeWidget blendSpacePlayer -> showBlendSpacePlayerDetails(blendSpacePlayer);
             case CachedPoseGetterNodeWidget cachedPoseGetter -> showCachedPoseGetterDetails(cachedPoseGetter);
+            case LayeredBlendPerBoneNodeWidget layeredBlend -> {
+                scriptNodeDetailsPanel.showSlots(layeredBlend.detailSlots());
+                return;
+            }
             default -> {
                 scriptNodeDetailsPanel.showSlots(node.literalSlots());
                 return;
