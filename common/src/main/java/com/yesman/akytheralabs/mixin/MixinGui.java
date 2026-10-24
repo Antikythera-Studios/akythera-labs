@@ -40,7 +40,7 @@ public abstract class MixinGui {
        int yMouse,
        GuiGraphicsExtractor graphics
     ) {
-        if (AkytheraEditorLayoutManager.getInstance().isActive()) {
+        if (AkytheraEditorLayoutManager.getInstance().isLayoutShown()) {
             // A tricky resolution. If we copy the main render target to another framebuffer (AkytheraEditorLayoutManager#editorRenderTarget),
             // fragments with alpha == 0.0 will be displayed in black, not the fog color set by LevelRenderState.CameraRenderState.fogData.
             //

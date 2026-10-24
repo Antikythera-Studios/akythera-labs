@@ -15,9 +15,6 @@ import java.util.Map;
 
 /// Exposes [MappedRegistry]'s private lookup state, so a dev-time reload can refill a frozen datapack
 /// registry in place — see [DataPackRegistryReloader].
-///
-/// `byKey` stays unexposed. A refill keeps it, which is what lets the existing [Holder.Reference]s
-/// rebind to the new values instead of dangling.
 @Mixin(MappedRegistry.class)
 public interface MappedRegistryAccessor<T> {
     @Accessor("frozen")
@@ -31,6 +28,9 @@ public interface MappedRegistryAccessor<T> {
 
     @Accessor("byLocation")
     Map<Identifier, Holder.Reference<T>> akythera$getByLocation();
+
+    @Accessor("byKey")
+    Map<ResourceKey<T>, Holder.Reference<T>> akythera$getByKey();
 
     @Accessor("byValue")
     Map<T, Holder.Reference<T>> akythera$getByValue();

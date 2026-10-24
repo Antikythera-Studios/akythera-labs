@@ -32,7 +32,7 @@ import java.nio.file.Path;
 /// The same modal creates a **meta** patch instead: one bound to no item, only ever reached through
 /// a child patch's parent reference. It lands under the browsed folder, and at
 /// `<projectName>/<metaName>` when that is the registry root — the leading segment is not
-/// decoration, [AkytheraProject#exportAsPacks] reads an item patch's id path as `<namespace>/<rest>`
+/// decoration, [AkytheraProject#exportDataPack] reads an item patch's id path as `<namespace>/<rest>`
 /// and drops an entry that has no such segment.
 public final class ItemPatchResourceProcessor implements ResourceProcessor<ItemPatchBlueprint> {
     public static final ItemPatchResourceProcessor INSTANCE = new ItemPatchResourceProcessor();

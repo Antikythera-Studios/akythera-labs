@@ -84,7 +84,7 @@ public interface ResourceProcessor<T> {
     }
 
     /// Whether the first segment of an entry's id path is its namespace, split back out at datapack
-    /// export ([AkytheraProject#exportAsPacks]). Such a type takes no entry directly in its registry
+    /// export ([AkytheraProject#exportDataPack]). Such a type takes no entry directly in its registry
     /// root — there is no segment there to read as the namespace.
     default boolean pathEncodesNamespace() {
         return false;
@@ -92,7 +92,7 @@ public interface ResourceProcessor<T> {
 
     /// The id `key` takes once exported, so a project entry reads and resolves the same as the loaded
     /// world's copy of it — `epicfight:minecraft/sword` becomes `minecraft:sword`. Splits at the first
-    /// slash, the way [AkytheraProject#exportAsPacks] does, and only for a [#pathEncodesNamespace]
+    /// slash, the way [AkytheraProject#exportDataPack] does, and only for a [#pathEncodesNamespace]
     /// type. Anything else, and an entry with no such segment, is its own id.
     ///
     /// This is the form a reference to the entry is **stored** in, the engine knowing nothing of the

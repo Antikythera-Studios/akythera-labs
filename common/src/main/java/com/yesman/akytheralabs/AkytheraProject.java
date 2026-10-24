@@ -75,6 +75,7 @@ import com.yesman.akytheralabs.dataholder.*;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.dataholder.sound.SoundEventHolder;
+import com.yesman.akytheralabs.dev.ProjectReloader;
 import com.yesman.akytheralabs.editor.ContentClipboard;
 import com.yesman.akytheralabs.editor.historytrack.FileCreation;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -484,7 +485,7 @@ public final class AkytheraProject {
         }
     }
 
-    /// Finish the project without saving, and close editor layout
+    /// Finish the project without saving, close editor layout, and unload the project from the world
     public static void endProject() {
         AkytheraEditorLayoutManager.getInstance().closeEditorLayout();
         // Entity preview bindings are project state living in a runtime map — drop them so they
@@ -493,6 +494,7 @@ public final class AkytheraProject {
         // The clipboard holds absolute paths of this project's files.
         ContentClipboard.getInstance().clear();
         currentProject = null;
+        ProjectReloader.close();
     }
 
     /// Re-registers [EntityPreviewModelMapping]'s bindings from the saved settings. Clears the
@@ -2503,46 +2505,11 @@ public final class AkytheraProject {
 
     private static final Gson GSON_PRETTY = new GsonBuilder().setPrettyPrinting().create();
 
-    /// Export this project as a Minecraft resource pack and data pack so the
-    /// running game can load it.
-    ///
-    /// The two trees are produced differently:
-    ///
-    /// - **Assets** are engine-native files on disk under `assets/<directory>/…`
-    ///   (the project name IS the namespace), so they are copied verbatim into
-    ///   `assets/<projectName>/`.
-    /// - **Data** entries are NOT copied from disk. The on-disk JSON is written
-    ///   by each holder's `EDITOR_CODEC` — a different schema (flattened
-    ///   sections, editor-only `preview_*` / `notify_tracks` fields) the engine
-    ///   runtime codec rejects. Instead each entry is re-encoded from
-    ///   [DataHolder#makeObject] through the engine [Codec] (see
-    ///   [#collectDataPackEntries]) and placed at
-    ///   `data/<entryNs>/<registryNs>/<registryPath>/…`. The registry-namespace
-    ///   folder is skipped only for `minecraft`; Akythera registries live under
-    ///   `akythera`, so their entries land under an `akythera/` folder.
-    ///
-    /// Writes `<projectName>_resources.zip` into `resourcePackDir` and, when
-    /// `dataPackDir` is non-null (i.e. a world is open), `<projectName>_data.zip`
-    /// into `dataPackDir`. Existing archives of the same name are overwritten,
-    /// so a subsequent pack reload picks up the fresh export. Both archives
-    /// carry a generated `pack.mcmeta` stamped with the running game's pack
-    /// format.
-    ///
-    /// Returns the resource pack's file name so the caller can select it in the
-    /// pack repository (its repository id is `file/<returned name>`).
-    public String exportAsPacks(Path resourcePackDir, @Nullable Path dataPackDir) {
-        String resourcePackName = exportResourcePack(resourcePackDir);
-        if (dataPackDir != null) exportDataPack(dataPackDir, false);
-
-        return resourcePackName;
-    }
-
-    /// Write `<projectName>_resources.zip` into `resourcePackDir` (assets tree + `pack.mcmeta` +
-    /// optional `pack.png`), overwriting any existing archive. Returns the archive's file name so
-    /// the caller can select it in the pack repository (repository id `file/<returned name>`).
-    public String exportResourcePack(Path resourcePackDir) {
-        String resourcePackName = projectName + "_resources.zip";
-
+    /// Write the resource pack archive `resourcePack` (assets tree + `pack.mcmeta` + optional
+    /// `pack.png`), overwriting any existing archive. Assets are engine-native files on disk under
+    /// `assets/<directory>/…` (the project name IS the namespace), so they are copied verbatim into
+    /// `assets/<projectName>/`. The `pack.mcmeta` is stamped with the running game's pack format.
+    public void exportResourcePack(Path resourcePack) {
         Map<String, byte[]> resourceEntries = new HashMap<>();
         resourceEntries.put("pack.mcmeta", packMeta(PackType.CLIENT_RESOURCES, projectName + " resources"));
         addPackIcon(resourceEntries);
@@ -2555,24 +2522,26 @@ public final class AkytheraProject {
         Set<Path> usedSoundFiles = usedSoundFiles();
 
         FileSystemHelper.zip(
-            resourcePackDir.resolve(resourcePackName),
+            resourcePack,
             resourceEntries,
             List.of(Pair.of("assets/" + projectName, projectRoot.resolve("assets"))),
             file -> exportedAssetContent(file, usedSoundFiles)
         );
-
-        return resourcePackName;
     }
 
-    /// Write the project's data pack into `dataPackDir`, overwriting any existing archive. Data
-    /// entries are re-encoded from each holder's [DataHolder#makeObject] through the engine codec
-    /// (see [#collectDataPackEntries]) — NOT copied from the editor-schema on-disk JSON.
+    /// Write the data pack archive `dataPack`, overwriting any existing archive. Data entries are NOT
+    /// copied from disk: the on-disk JSON is written by each holder's `EDITOR_CODEC` — a different
+    /// schema (flattened sections, editor-only `preview_*` / `notify_tracks` fields) the engine runtime
+    /// codec rejects. Instead each entry is re-encoded from [DataHolder#makeObject] through the engine
+    /// [Codec] (see [#collectDataPackEntries]) and placed at `data/<entryNs>/<registryNs>/<registryPath>/…`.
+    /// The registry-namespace folder is skipped only for `minecraft`; Akythera registries live under
+    /// `akythera`, so their entries land under an `akythera/` folder. The `pack.mcmeta` is stamped with
+    /// the running game's pack format.
     ///
     /// `includeAssets` additionally copies the project's `assets/` tree verbatim into
     /// `data/<projectName>/assets/`, where
-    /// `com.yesman.akythera.core.asset.DedicatedServerAssetResourceManager` reads it, and names the
-    /// archive `<projectName>_datapack_with_assets.zip` instead of `<projectName>_data.zip`.
-    public void exportDataPack(Path dataPackDir, boolean includeAssets) {
+    /// `com.yesman.akythera.core.asset.DedicatedServerAssetResourceManager` reads it.
+    public void exportDataPack(Path dataPack, boolean includeAssets) {
         Map<String, byte[]> dataEntries = new HashMap<>();
         dataEntries.put("pack.mcmeta", packMeta(PackType.SERVER_DATA, projectName + " data"));
         addPackIcon(dataEntries);
@@ -2600,14 +2569,10 @@ public final class AkytheraProject {
             collectDataBlockEntries(entry, ops, dataEntries);
         }
 
-        String dataPackName = includeAssets
-            ? projectName + "_datapack_with_assets.zip"
-            : projectName + "_data.zip";
-
         Set<Path> usedSoundFiles = usedSoundFiles();
 
         FileSystemHelper.zip(
-            dataPackDir.resolve(dataPackName),
+            dataPack,
             dataEntries,
             includeAssets
                 ? List.of(Pair.of("data/" + projectName + "/assets", projectRoot.resolve("assets")))

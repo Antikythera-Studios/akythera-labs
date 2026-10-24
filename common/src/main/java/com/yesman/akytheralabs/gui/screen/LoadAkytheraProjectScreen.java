@@ -13,6 +13,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
+import com.yesman.akytheralabs.dev.ProjectReloader;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.*;
 import net.minecraft.client.Minecraft;
@@ -193,9 +194,9 @@ public final class LoadAkytheraProjectScreen extends Screen {
 
     private void openSelectedProject() {
         if (projectGrid.getFocused() instanceof ProjectCell projectCell) {
-            AkytheraProject.loadProject(projectCell.projectPath);
+            AkytheraProject project = AkytheraProject.loadProject(projectCell.projectPath);
             minecraft.gui.setScreen(null);
-            AkytheraEditorLayoutManager.getInstance().openEditorLayout();
+            ProjectReloader.open(project, () -> AkytheraEditorLayoutManager.getInstance().openEditorLayout());
         }
     }
 

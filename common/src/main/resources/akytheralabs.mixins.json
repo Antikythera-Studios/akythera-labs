@@ -24,12 +24,14 @@
     "MixinMouseHandler",
     "MixinPauseScreen",
     "MixinPlayer",
+    "MixinServerPacksSource",
     "MixinSoundManager",
     "SoundBufferLibraryAccessor",
     "SoundEngineAccessor",
     "SoundManagerAccessor"
   ],
   "mixins": [
+    "HolderReferenceAccessor",
     "MappedRegistryAccessor"
   ],
   "injectors": {

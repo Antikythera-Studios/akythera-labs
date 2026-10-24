@@ -16,6 +16,7 @@ import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
+import com.yesman.akythera.core.animation.playable.PlayableAnimation;
 import com.yesman.akythera.core.math.algorithm.DelaunayTriangulation;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.PoseOperators;
@@ -593,6 +594,12 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         return pts;
     }
 
+    /// The animation `node` plays, looked up in the project first, or the empty animation when its key names no
+    /// entry.
+    private static PlayableAnimation previewAnimation(final BlendSpace2D.AnimationNode node) {
+        return AkytheraProject.withProjectLookups(node::resolveAnimation).orElse(PlayableAnimation.EMPTY_ANIM_HOLDER.value());
+    }
+
     /// Barycentric blend of the enclosing triangle corners' raw root locations at `t`. Mirrors
     /// `BlendSpaceAnimator.getPose` / `BlendSpace2DDriver.getBlendedRootMotion`, but on root loc.
     private static Vec3 blendedRoot(BlendSpace2D bs, float cx, float cy, float t) {
@@ -609,9 +616,9 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         var p3 = space.getPoint(t3.c());
         float[] w = space.barycentricWeightsOf(x, y, p1, p2, p3);
 
-        var a1 = p1.animation().value();
-        var a2 = p2.animation().value();
-        var a3 = p3.animation().value();
+        var a1 = previewAnimation(p1);
+        var a2 = previewAnimation(p2);
+        var a3 = previewAnimation(p3);
 
         // Same phase-sync as BlendSpaceAnimator#getPose: `t` runs on the blended clock, each
         // corner is sampled at its own length scaled by the shared phase, so the trajectory
@@ -647,9 +654,9 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         var p3 = space.getPoint(t3.c());
         float[] w = space.barycentricWeightsOf(x, y, p1, p2, p3);
 
-        float total = p1.animation().value().getTotalFrameTime() * w[0]
-            + p2.animation().value().getTotalFrameTime() * w[1]
-            + p3.animation().value().getTotalFrameTime() * w[2];
+        float total = previewAnimation(p1).getTotalFrameTime() * w[0]
+            + previewAnimation(p2).getTotalFrameTime() * w[1]
+            + previewAnimation(p3).getTotalFrameTime() * w[2];
 
         return Float.isFinite(total) ? total : 0.0F;
     }
@@ -737,9 +744,9 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
             var p3 = space.getPoint(t.c());
             float[] w = space.barycentricWeightsOf(x, y, p1, p2, p3);
 
-            var a1 = p1.animation().value();
-            var a2 = p2.animation().value();
-            var a3 = p3.animation().value();
+            var a1 = previewAnimation(p1);
+            var a2 = previewAnimation(p2);
+            var a3 = previewAnimation(p3);
 
             // Phase-sync: the playback clock wraps at the *weighted* total (see [#update]), so
             // sampling corners at raw elapsedTime freezes any shorter clip on its last keyframe
@@ -793,9 +800,9 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
             var p2 = space.getPoint(t.b());
             var p3 = space.getPoint(t.c());
             float[] w = space.barycentricWeightsOf(x, y, p1, p2, p3);
-            return p1.animation().value().getTotalFrameTime() * w[0]
-                 + p2.animation().value().getTotalFrameTime() * w[1]
-                 + p3.animation().value().getTotalFrameTime() * w[2];
+            return previewAnimation(p1).getTotalFrameTime() * w[0]
+                 + previewAnimation(p2).getTotalFrameTime() * w[1]
+                 + previewAnimation(p3).getTotalFrameTime() * w[2];
         }
 
         @Override public void tick() {}

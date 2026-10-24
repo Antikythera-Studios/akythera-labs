@@ -88,6 +88,12 @@ public final class AkytheraEditorLayoutManager {
     /// Toggle to snatch [Minecraft#mainRenderTarget] to draw [GuiGraphicsExtractor] content to [#editorRenderTarget]
     private boolean snapMainRenderTarget;
 
+    /// Whether the game is shown full screen in place of the editor layout, see [#suspendLayout].
+    private boolean suspended;
+
+    /// Whether the last frame presented [#editorRenderTarget] rather than the game's render target.
+    private boolean layoutPresented;
+
     public AkytheraEditorLayoutManager() {
         minecraft = Minecraft.getInstance();
         editorRenderTarget = new MainTarget(minecraft.getWindow().getWidth(), minecraft.getWindow().getHeight());
@@ -162,6 +168,7 @@ public final class AkytheraEditorLayoutManager {
             }
 
             mainScreen = null;
+            suspended = false;
             setFullScreenWorldViewport();
             ModalManager.getInstance().closeAllModals();
             ModalManager.getInstance().setHostScreen(null);
@@ -254,6 +261,39 @@ public final class AkytheraEditorLayoutManager {
     /// Whether the editor is currently up.
     public boolean isActive() {
         return !screenStacks.isEmpty();
+    }
+
+    /// Whether the editor layout is drawn and takes inputs: the editor is up and not suspended.
+    public boolean isLayoutShown() {
+        return isActive() && !suspended;
+    }
+
+    /// Shows the game full screen in place of the editor layout until [#resumeLayout]. The editor screens stay open
+    /// but are neither drawn nor given inputs.
+    public void suspendLayout() {
+        if (!isActive() || suspended) return;
+
+        suspended = true;
+        setFullScreenWorldViewport();
+    }
+
+    /// Shows the editor layout again after [#suspendLayout].
+    public void resumeLayout() {
+        if (!suspended) return;
+
+        suspended = false;
+
+        if (isActive()) resizeWorldViewportToHost();
+    }
+
+    /// Records whether this frame presented the editor layout.
+    public void markPresented(final boolean layout) {
+        layoutPresented = layout;
+    }
+
+    /// The render target the last frame presented: the editor layout's, or the game's.
+    public RenderTarget getPresentedRenderTarget() {
+        return layoutPresented ? editorRenderTarget : minecraft.gameRenderer.mainRenderTarget();
     }
 
     /// Whether a mouse button should drive a drag. Vanilla widgets drag on the left button (0)
@@ -354,7 +394,7 @@ public final class AkytheraEditorLayoutManager {
     ///
     /// If mouse pointer is in the current [#getWorldViewportHost]'s viewport, inputs won't be intercepted.
     public boolean snatchInputs() {
-        if (mainScreen == null) {
+        if (mainScreen == null || suspended) {
             return false;
         }
 

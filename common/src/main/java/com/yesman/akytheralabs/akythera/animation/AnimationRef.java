@@ -21,7 +21,7 @@ import org.jspecify.annotations.NonNull;
 /// `RegistryAccess` holder) — or `Empty`. It holds a live [Holder], so playback reads the entry's
 /// last-saved object.
 ///
-/// Serialization mirrors engine `PlayableAnimation.CODEC` shape:
+/// Serialization mirrors the engine `BlendSpace2D.AnimationNode` animation shape:
 /// `{ "type": "sequence", "sequence": "myproject:walk" }` etc.
 public sealed interface AnimationRef {
     Empty EMPTY = new Empty();
@@ -75,7 +75,7 @@ public sealed interface AnimationRef {
         return h.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
     }
 
-    /// Codec mirroring engine `PlayableAnimation.CODEC` shape. Encodes the holder's key id; decodes
+    /// Codec mirroring the engine `BlendSpace2D.AnimationNode` animation shape. Encodes the holder's key id; decodes
     /// it back to a [Holder] via project ∪ `RegistryAccess`. `Empty` is `{ "type": "empty" }`.
     Codec<AnimationRef> CODEC = Codec.STRING.dispatch("type", AnimationRef::tagOf, AnimationRef::codecForTag);
 

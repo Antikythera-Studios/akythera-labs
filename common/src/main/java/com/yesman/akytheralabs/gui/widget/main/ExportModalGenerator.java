@@ -92,13 +92,15 @@ public final class ExportModalGenerator {
 
             if (!dataDir.isBlank()) {
                 Path dataPath = Path.of(dataDir);
-                project.exportDataPack(dataPath, includeAssetsRow.isChecked());
+                boolean includeAssets = includeAssetsRow.isChecked();
+                String dataPackName = project.getProjectName() + (includeAssets ? "_datapack_with_assets.zip" : "_data.zip");
+                project.exportDataPack(dataPath.resolve(dataPackName), includeAssets);
                 opened = dataPath;
             }
 
             if (!resourceDir.isBlank()) {
                 Path resourcePath = Path.of(resourceDir);
-                project.exportResourcePack(resourcePath);
+                project.exportResourcePack(resourcePath.resolve(project.getProjectName() + "_resources.zip"));
                 opened = resourcePath;
             }
 
