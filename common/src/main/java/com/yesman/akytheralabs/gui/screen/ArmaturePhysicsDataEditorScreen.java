@@ -1,17 +1,24 @@
 package com.yesman.akytheralabs.gui.screen;
 
+import com.yesman.akythera.api.data.serializable.LocalizedMessage;
+import com.yesman.akythera.client.api.gui.AkytheraButton;
 import com.yesman.akythera.client.api.gui.WidgetTable;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.client.api.gui.viewer.BackgroundComponent;
 import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
+import com.yesman.akythera.client.api.gui.viewer.ColliderViewerComponent;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
+import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.armature.Bone;
+import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
 import com.yesman.akythera.core.math.Transform;
+import com.yesman.akythera.core.math.physics.ragdoll.RagdollSimulation;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -26,6 +33,7 @@ import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
+import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.EditorComboBox;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
@@ -35,9 +43,12 @@ import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.viewer.ArmatureViewComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.BoneConstraintLimitComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ColliderPreviewComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.RagdollDragComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
@@ -45,6 +56,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -57,9 +69,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
-/// Edits the bone bodies of one armature: the colliders each body carries, picked by bone in the
-/// Collider Properties panel or by clicking the armature in the viewer.
+/// Edits the rag doll of one armature: the body and the constraint of each bone, picked by bone in the
+/// Collider Properties panel or by clicking the armature in the viewer, and the simulation settings.
 ///
 /// The armature is the asset's own path (invariant 7), so this screen never picks one — it opens on
 /// whatever the file belongs to.
@@ -68,6 +81,26 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     private static final int ROW_H = 20;
     private static final int COMBO_H = 14;
     private static final int ROW_PAD = 6;
+    private static final int OVERLAY_PAD = 4; // gap between an overlay widget and the viewer's edge
+    private static final int SIMULATE_W = 100;
+    private static final int VIEW_BUTTON = 20; // side of the view-mode button
+    private static final int VIEW_BUTTON_X = 58; // right of the drag gizmo's Move button and orientation toggle
+
+    /// The two faces of the view-mode button, held so the split lines are cached between frames.
+    private static final Tooltip WIREFRAME_TOOLTIP = Tooltip.create(Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_VIEW_WIREFRAME));
+    private static final Tooltip TEXTURED_TOOLTIP = Tooltip.create(Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_VIEW_TEXTURED));
+    private static final int SIMULATE_H = 20;
+
+    /// The push [#toggleSimulation] gives the topmost bone, in mass times blocks per second.
+    private static final double SIMULATION_PUSH = 1.0D;
+
+    /// One game tick, in nanoseconds.
+    private static final long TICK_NANOS = 50_000_000L;
+
+    /// Most ticks one frame catches up on; a longer stall drops the time it missed.
+    private static final int MAX_TICKS_PER_FRAME = 5;
+
+    private static final int SIMULATED_COLLIDER_COLOR = 0xFF33FF66;
 
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
@@ -77,16 +110,58 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     /// The selected bone's body.
     private final WidgetTable bodyTable;
 
+    private final PanelHeader constraintHeader;
+
+    /// The selected bone's constraint.
+    private final WidgetTable constraintTable;
+
+    private final PanelHeader simulationHeader;
+    private final WidgetTable simulationTable;
+
     /// The asset view, taken off the accessor so a reopened screen continues the same edit.
     private final ArmaturePhysicsDataHolder holder;
 
     private @Nullable EditorComboBox<String> boneCombo;
     private @Nullable String selectedBone;
     private @Nullable ScreenRectangle panelRect;
+    private @Nullable ScreenRectangle constraintRect;
+    private @Nullable ScreenRectangle simulationRect;
 
     private @Nullable ArmatureViewComponent armatureView;
 
-    private final List<ColliderPreviewComponent> colliderPreviews = new ArrayList<>();
+    /// The collider wireframes: [ColliderPreviewComponent]s while editing, plain [ColliderViewerComponent]s while a
+    /// simulation runs, so a click reaches [#ragdollDrag].
+    private final List<Model3DViewerComponent> colliderPreviews = new ArrayList<>();
+
+    /// The selected bone's rotation limits, null while no bone is selected or a simulation runs.
+    private @Nullable BoneConstraintLimitComponent constraintLimit;
+
+    private final AkytheraButton simulateButton;
+
+    /// Switches a running simulation between the textured view and the wireframe view. Shown while one runs.
+    private final AkytheraButton viewModeButton;
+
+    /// Whether a running simulation is drawn as collider and bone wireframes rather than the textured mesh.
+    private boolean simulationWireframe;
+
+    /// The rag doll [#simulateButton] runs over a floor at the viewer's origin, null while none runs.
+    private @Nullable RagdollSimulation simulation;
+
+    /// The physics [#simulation] was built from, whose half bends the drawn pose takes.
+    private @Nullable ArmaturePhysicsData simulatedPhysics;
+
+    /// Holds the picked bone at the gizmo while [#simulation] runs; installed in place of [#armatureView].
+    private @Nullable RagdollDragComponent ragdollDrag;
+
+    /// When [#simulation] last ticked, in [System#nanoTime] nanoseconds.
+    private long simulationTickNanos;
+
+    /// The pose [#simulation] draws this frame, null while none runs.
+    private @Nullable Pose simulatedPose;
+
+    /// Each bone's transform in armature space for the collider previews: the bind pose, or [#simulatedPose] while a
+    /// simulation runs.
+    private final Map<String, Transform> scenePlacements = new HashMap<>();
 
     private @Nullable WorkHistory savePoint;
 
@@ -137,6 +212,48 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             ROW_H
         );
 
+        constraintHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_SECTION_BONE_CONSTRAINT));
+        constraintTable = new WidgetTable(
+            this,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT + 2), AnchoredWidget.pixel(0),
+            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+            AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
+            ROW_H
+        );
+
+        simulationHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_SECTION_SIMULATION));
+        simulateButton = AkytheraButton
+            .buttonBuilder(minecraft.font, LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_SIMULATE), this::toggleSimulation)
+            .xUnits(AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(SIMULATE_W))
+            .yUnits(AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(SIMULATE_H))
+            .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
+            .verticalAnchorType(AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT)
+            .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+            .build();
+        model3DViewer.addOverlayWidget(simulateButton);
+
+        viewModeButton = AkytheraButton
+            .buttonBuilder(minecraft.font, LocalizedMessage.EMPTY, () -> applySimulationView(!simulationWireframe))
+            .xUnits(AnchoredWidget.pixel(VIEW_BUTTON_X), AnchoredWidget.pixel(VIEW_BUTTON))
+            .yUnits(AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(VIEW_BUTTON))
+            .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH)
+            .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
+            .theme(AkytheraLabsButtonTheme.CLOTH_TEXTURED_BUTTON)
+            .tooltip(_ -> simulationWireframe ? WIREFRAME_TOOLTIP : TEXTURED_TOOLTIP)
+            .build();
+        viewModeButton.visible = false;
+        model3DViewer.addOverlayWidget(viewModeButton);
+
+        simulationTable = new WidgetTable(
+            this,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT + 2), AnchoredWidget.pixel(0),
+            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+            AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
+            ROW_H
+        );
+
         panelManager = new AdjustablePanelManager(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TOP_BAR_H), AnchoredWidget.pixel(0),
@@ -144,16 +261,29 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
 
-        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 28);
+        // Divider order (== serialize order): columns(0), left column body | constraint(1), constraint | simulation(2)
+        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 28, 45, 75);
         var leftAndRight = panelManager.getRoot()
-            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.getFirst());
+            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.get(0));
+        var leftSections = leftAndRight.get(0)
+            .subdivide(2, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, layoutRatios.get(1), layoutRatios.get(2));
 
-        leftAndRight.get(0).resizeCallback(rect -> {
+        leftSections.get(0).resizeCallback(rect -> {
             panelRect = rect;
             header.relocate(rect);
             bodyTable.relocate(rect);
 
             if (boneCombo != null) boneCombo.relocate(rect);
+        });
+        leftSections.get(1).resizeCallback(rect -> {
+            constraintRect = rect;
+            constraintHeader.relocate(rect);
+            constraintTable.relocate(rect);
+        });
+        leftSections.get(2).resizeCallback(rect -> {
+            simulationRect = rect;
+            simulationHeader.relocate(rect);
+            simulationTable.relocate(rect);
         });
         leftAndRight.get(1).resizeCallback(model3DViewer::relocate);
         leftAndRight.get(1).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
@@ -175,8 +305,13 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         addRenderableWidget(model3DViewer);
         addRenderableWidget(header);
         addRenderableWidget(bodyTable);
+        addRenderableWidget(constraintHeader);
+        addRenderableWidget(constraintTable);
+        addRenderableWidget(simulationHeader);
+        addRenderableWidget(simulationTable);
 
         rebuildAll();
+        fillSimulationTable();
         frameCamera();
     }
 
@@ -225,6 +360,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
         addRenderableWidget(boneCombo);
         fillBodyTable();
+        fillConstraintTable();
 
         if (armatureView == null) {
             ArmatureViewComponent view = new ArmatureViewComponent(holder.getArmature());
@@ -254,28 +390,73 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         if (panelRect != null) bodyTable.relocate(panelRect);
     }
 
-    /// One collider preview per collider, placed by its bone's bind transform.
+    /// The selected bone's constraint rows.
+    private void fillConstraintTable() {
+        if (selectedBone == null) {
+            constraintTable.clearWidgets();
+        } else {
+            new EditorWidgetFactory(font).fillWidgetTable(constraintTable, holder.constraintOf(selectedBone), this::fillConstraintTable, holder);
+        }
+
+        if (constraintRect != null) constraintTable.relocate(constraintRect);
+    }
+
+    private void fillSimulationTable() {
+        new EditorWidgetFactory(font).fillWidgetTable(simulationTable, holder.getSimulation(), this::fillSimulationTable);
+
+        if (simulationRect != null) simulationTable.relocate(simulationRect);
+    }
+
+    /// One collider preview per collider, placed by its bone's [#scenePlacements] transform, and the selected bone's
+    /// rotation limits while no simulation runs.
     private void rebuildScene() {
         colliderPreviews.forEach(model3DViewer::removeComponent);
         colliderPreviews.clear();
+
+        if (constraintLimit != null) {
+            model3DViewer.removeComponent(constraintLimit);
+            constraintLimit = null;
+        }
 
         Armature armature = holder.getArmature().getOrHandleException(AkytheraLabs.LOGGER::error);
 
         if (armature == null) return;
 
-        Map<String, Transform> bindTransforms = new HashMap<>();
-        collectBindTransforms(armature.getRootBone(), new Matrix4f(), bindTransforms);
+        if (simulation == null) {
+            scenePlacements.clear();
+            collectModelTransforms(armature.getRootBone(), new Matrix4f(), Pose.EMPTY_POSE, scenePlacements);
+        }
+
+        Bone selected = selectedBone == null ? null : armature.getBoneByName(selectedBone);
+
+        if (selected != null && simulation == null) {
+            constraintLimit = new BoneConstraintLimitComponent(
+                scenePlacements.get(selected.getName()), selected.getToTail().length(), holder.constraintOf(selected.getName())
+            );
+            model3DViewer.addComponent(constraintLimit);
+        }
+
+        if (simulation != null && !simulationWireframe) return;
 
         for (Map.Entry<String, BoneBodyHolder> body : holder.getBodies().entrySet()) {
             String bone = body.getKey();
-            Transform placement = bindTransforms.get(bone);
 
-            if (placement == null) continue;
+            if (!scenePlacements.containsKey(bone)) continue;
+
+            Supplier<Transform> placement = () -> scenePlacements.getOrDefault(bone, Transform.IDENTITY);
 
             for (ColliderComponentHolder collider : body.getValue().getColliders()) {
-                ColliderPreviewComponent colliderPreview = bone.equals(selectedBone)
-                    ? ColliderPreviewComponent.editable(collider, () -> placement, this::fillBodyTable, _ -> {})
-                    : ColliderPreviewComponent.inherited(collider, () -> placement, _ -> selectBone(bone));
+                Model3DViewerComponent colliderPreview;
+
+                if (simulation != null) {
+                    ColliderViewerComponent wireframe = new ColliderViewerComponent(collider::makeObject, placement);
+                    wireframe.setColor(SIMULATED_COLLIDER_COLOR);
+                    colliderPreview = wireframe;
+                } else if (bone.equals(selectedBone)) {
+                    colliderPreview = ColliderPreviewComponent.editable(collider, placement, this::fillBodyTable, _ -> {});
+                } else {
+                    colliderPreview = ColliderPreviewComponent.inherited(collider, placement, _ -> selectBone(bone));
+                }
 
                 colliderPreviews.add(colliderPreview);
                 model3DViewer.addComponent(colliderPreview);
@@ -283,15 +464,131 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         }
     }
 
-    /// Walks the bind pose the way [Bone#initOriginTransform] does, recording each bone's model
-    /// transform.
-    private static void collectBindTransforms(final Bone bone, final Matrix4f parentTransform, final Map<String, Transform> out) {
-        Matrix4f modelTransform = parentTransform.mul(bone.getLocalTransform(), new Matrix4f());
+    /// Walks `pose` the way [Pose#boundTransformRecursively] does, recording each bone's model transform.
+    private static void collectModelTransforms(final Bone bone, final Matrix4f parentTransform, final Pose pose, final Map<String, Transform> out) {
+        Matrix4f modelTransform = parentTransform.mul(bone.getLocalTransform(), new Matrix4f()).mul(pose.orElseIdentity(bone.getName()).toMatrix());
         out.put(bone.getName(), Transform.fromMatrix(modelTransform));
 
         for (Bone child : bone.getChildBones()) {
-            collectBindTransforms(child, modelTransform, out);
+            collectModelTransforms(child, modelTransform, pose, out);
         }
+    }
+
+    // ***************************************************************
+    // Simulation preview
+    // ***************************************************************
+
+    /// Drops the rag doll of the asset as it is edited now onto a floor at the viewer's origin, pushed at its topmost
+    /// bone, or stops the one running. While it runs, the preview mesh follows it and the picked bone can be dragged
+    /// by the gizmo. It starts in the textured view.
+    private void toggleSimulation() {
+        if (simulation != null) {
+            stopSimulation();
+            return;
+        }
+
+        Armature armature = holder.getArmature().getOrHandleException(AkytheraLabs.LOGGER::error);
+
+        if (armature == null) return;
+
+        simulatedPhysics = holder.makeObject();
+        simulation = RagdollSimulation.start(
+            armature, simulatedPhysics, RagdollSimulation.Terrain.floor(0.0D), null,
+            new RagdollSimulation.Snapshot(Pose.EMPTY_POSE, Transform.IDENTITY, 0.0D), 1.0F
+        );
+
+        if (simulation == null) return;
+
+        scenePlacements.entrySet().stream()
+            .max(Comparator.comparingDouble(entry -> entry.getValue().loc().y))
+            .ifPresent(top -> simulation.applyImpulse(top.getKey(), new Vec3(0.0D, 0.0D, SIMULATION_PUSH), null));
+
+        simulationTickNanos = System.nanoTime();
+        simulatedPose = armature.applyBoneConstraints(simulation.makePose(Transform.IDENTITY, 0.0F), simulatedPhysics);
+        simulateButton.setMessage(LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_STOP_SIMULATION));
+
+        EntityModelComponent shown = model3DViewer.getComponent(EntityModelComponent.class);
+
+        if (shown != null) shown.setPoseSource(() -> simulatedPose);
+
+        if (armatureView != null) {
+            armatureView.setPoseSource(() -> simulatedPose);
+            model3DViewer.removeComponent(armatureView);
+
+            ragdollDrag = new RagdollDragComponent(armatureView, () -> simulation, bone -> scenePlacements.getOrDefault(bone, Transform.IDENTITY));
+            model3DViewer.addComponent(ragdollDrag);
+        }
+
+        viewModeButton.visible = true;
+        applySimulationView(false);
+    }
+
+    /// Draws the running simulation as the textured mesh with the picked bone alone, or as collider and bone
+    /// wireframes. Bones are picked in either.
+    private void applySimulationView(final boolean wireframe) {
+        simulationWireframe = wireframe;
+        viewModeButton.setTheme(wireframe ? AkytheraLabsButtonTheme.CLOTH_WIREFRAME_BUTTON : AkytheraLabsButtonTheme.CLOTH_TEXTURED_BUTTON);
+
+        EntityModelComponent shown = model3DViewer.getComponent(EntityModelComponent.class);
+
+        if (shown != null) shown.setModelVisible(!wireframe);
+        if (armatureView != null) armatureView.setDrawSelectedOnly(!wireframe);
+
+        rebuildScene();
+    }
+
+    private void stopSimulation() {
+        simulation = null;
+        simulatedPhysics = null;
+        simulatedPose = null;
+        simulateButton.setMessage(LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_SIMULATE));
+
+        viewModeButton.visible = false;
+
+        EntityModelComponent shown = model3DViewer.getComponent(EntityModelComponent.class);
+
+        if (shown != null) {
+            shown.setPoseSource(null);
+            shown.setModelVisible(true);
+        }
+
+        if (ragdollDrag != null) {
+            model3DViewer.removeComponent(ragdollDrag);
+            ragdollDrag = null;
+        }
+
+        if (armatureView != null) {
+            armatureView.setPoseSource(null);
+            armatureView.setDrawSelectedOnly(false);
+            model3DViewer.addComponent(armatureView);
+        }
+
+        rebuildScene();
+    }
+
+    /// Steps [#simulation] by the real time since its last tick, one game tick at a time, and poses the scene between
+    /// the last two ticks. An editor screen is drawn but never ticked by the game, so the frame drives it.
+    @Override
+    public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        Armature armature = simulation == null ? null : holder.getArmature().getOrHandleException(AkytheraLabs.LOGGER::error);
+
+        if (simulation != null && simulatedPhysics != null && armature != null) {
+            long now = System.nanoTime();
+
+            for (int steps = 0; now - simulationTickNanos >= TICK_NANOS && steps < MAX_TICKS_PER_FRAME; steps++) {
+                simulation.tick();
+                simulationTickNanos += TICK_NANOS;
+            }
+
+            if (now - simulationTickNanos >= TICK_NANOS) simulationTickNanos = now;
+
+            float partial = Math.clamp((now - simulationTickNanos) / (float) TICK_NANOS, 0.0F, 1.0F);
+
+            simulatedPose = armature.applyBoneConstraints(simulation.makePose(Transform.IDENTITY, partial), simulatedPhysics);
+            collectModelTransforms(armature.getRootBone(), new Matrix4f(), simulatedPose, scenePlacements);
+        }
+
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }
 
     /// Settles the pick, wherever it came from: the combo, a click in the viewer, or a click on a dim
@@ -310,6 +607,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         }
 
         fillBodyTable();
+        fillConstraintTable();
         rebuildScene();
     }
 

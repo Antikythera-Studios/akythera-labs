@@ -97,6 +97,9 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
     @Nullable
     private Supplier<Transform> transformSource;
 
+    /// Whether only the selected bone is drawn. Every bone is still picked.
+    private boolean drawSelectedOnly;
+
     private double lastMouseX;
     private double lastMouseY;
 
@@ -110,6 +113,10 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
 
     public void setTransformSource(final @Nullable Supplier<Transform> transformSource) {
         this.transformSource = transformSource;
+    }
+
+    public void setDrawSelectedOnly(final boolean drawSelectedOnly) {
+        this.drawSelectedOnly = drawSelectedOnly;
     }
 
     public void setOnSelectionChanged(final Runnable onSelectionChanged) {
@@ -172,12 +179,16 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         PoseStack.Pose pose = poseStack.last();
 
         for (BoneSegment segment : segments) {
+            if (drawSelectedOnly && !segment.bone().equals(selected)) continue;
+
             int color = colorOf(segment.bone());
 
             emitOctahedron(builder, pose, segment.head(), segment.tail(), color, lineWidthOf(color));
         }
 
         for (Map.Entry<Bone, Vector3f> head : heads.entrySet()) {
+            if (drawSelectedOnly && !head.getKey().equals(selected)) continue;
+
             int color = colorOf(head.getKey());
 
             emitMarker(builder, pose, viewer, head.getValue(), color, lineWidthOf(color));

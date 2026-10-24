@@ -9,8 +9,6 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
-import com.yesman.akytheralabs.editor.EditorEditable;
-import com.yesman.akytheralabs.generated.LangKeys;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
@@ -36,36 +34,8 @@ public final class ArmatureMetadataHolder {
         }
     }
 
-    public static final class ConstraintEntry {
-        @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_JOINT, order = 0, candidates = "bones", searchable = true)
-        private @Nullable String joint;
-
-        @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_BEND, order = 1, candidates = "bones", searchable = true)
-        private @Nullable String bend;
-
-        @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_MAX_BEND, order = 2, min = 0.0F, max = 180.0F)
-        private float maxBend;
-
-        @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_MAX_STRETCH, order = 3, min = 1.0F)
-        private float maxStretch;
-
-        private ConstraintEntry(final @Nullable String joint, final @Nullable String bend, final float maxBend, final float maxStretch) {
-            this.joint = joint;
-            this.bend = bend;
-            this.maxBend = maxBend;
-            this.maxStretch = maxStretch;
-        }
-
-        private static List<String> bones(final ArmatureMetadataHolder holder) {
-            return holder.boneNames();
-        }
-    }
-
     /// The pair rows in the order they are shown, which is the order they are written in.
     private final List<PairEntry> entries = new ArrayList<>();
-
-    @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_JOINT_CONSTRAINTS, defaultElement = "newConstraint")
-    private List<ConstraintEntry> constraints = new ArrayList<>();
 
     /// The entity the armature is previewed on, or null for none.
     private @Nullable Identifier previewEntityType;
@@ -83,14 +53,6 @@ public final class ArmatureMetadataHolder {
         for (ArmatureLoader.MirrorBonePair pair : metadata.mirrorBonePairs()) {
             entries.add(new PairEntry(pair.first(), pair.second()));
         }
-
-        for (ArmatureLoader.JointConstraint constraint : metadata.jointConstraints()) {
-            constraints.add(new ConstraintEntry(constraint.joint(), constraint.bend(), constraint.maxBend(), constraint.maxStretch()));
-        }
-    }
-
-    private static ConstraintEntry newConstraint() {
-        return new ConstraintEntry(null, null, 180.0F, 1.0F);
     }
 
     /// The sidecar of `accessor` as it stands on disk, or the defaults when the file is absent.
@@ -131,15 +93,7 @@ public final class ArmatureMetadataHolder {
             }
         }
 
-        List<ArmatureLoader.JointConstraint> jointConstraints = new ArrayList<>(constraints.size());
-
-        for (ConstraintEntry entry : constraints) {
-            if (entry.joint != null && entry.bend != null) {
-                jointConstraints.add(new ArmatureLoader.JointConstraint(entry.joint, entry.bend, entry.maxBend, entry.maxStretch));
-            }
-        }
-
-        return new ArmatureLoader.Metadata(List.copyOf(pairs), List.copyOf(jointConstraints));
+        return new ArmatureLoader.Metadata(List.copyOf(pairs));
     }
 
     /// Writes the sidecar next to its asset, then drops the parsed armature: the metadata is read

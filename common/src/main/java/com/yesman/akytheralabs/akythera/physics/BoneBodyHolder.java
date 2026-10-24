@@ -15,16 +15,39 @@ import java.util.List;
 /// Editable twin of [ArmaturePhysicsData.BoneBody]. Every collider it holds is restricted to
 /// [ArmaturePhysicsData#BODY_SHAPES], so the shape combo of a body row offers those alone.
 public final class BoneBodyHolder {
-    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_COLLIDERS, order = 0, defaultElement = "createCollider")
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_MASS, order = 0, min = 0.001F)
+    private float mass;
+
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_LINEAR_DAMPING, order = 1, min = 0.0F, max = 10.0F)
+    private float linearDamping;
+
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_ANGULAR_DAMPING, order = 2, min = 0.0F, max = 10.0F)
+    private float angularDamping;
+
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_COLLIDERS, order = 3, defaultElement = "createCollider")
     private final List<ColliderComponentHolder> colliders = new ArrayList<>();
 
     public BoneBodyHolder(final ArmaturePhysicsData.BoneBody body) {
+        mass = body.mass();
+        linearDamping = body.linearDamping();
+        angularDamping = body.angularDamping();
+
         for (Collider collider : body.colliders()) {
             ColliderComponentHolder holder = createCollider();
             holder.readFrom(collider);
 
             colliders.add(holder);
         }
+    }
+
+    /// A body with no collider and the default mass and damping.
+    public static BoneBodyHolder empty() {
+        return new BoneBodyHolder(new ArmaturePhysicsData.BoneBody(
+            List.of(),
+            ArmaturePhysicsData.BoneBody.DEFAULT_MASS,
+            ArmaturePhysicsData.BoneBody.DEFAULT_LINEAR_DAMPING,
+            ArmaturePhysicsData.BoneBody.DEFAULT_ANGULAR_DAMPING
+        ));
     }
 
     /// A new body collider: a capsule on the bone, authorable as any shape a body may carry.
@@ -42,6 +65,11 @@ public final class BoneBodyHolder {
     }
 
     public ArmaturePhysicsData.BoneBody makeObject() {
-        return new ArmaturePhysicsData.BoneBody(colliders.stream().map(ColliderComponentHolder::makeObject).toList());
+        return new ArmaturePhysicsData.BoneBody(
+            colliders.stream().map(ColliderComponentHolder::makeObject).toList(),
+            mass,
+            linearDamping,
+            angularDamping
+        );
     }
 }

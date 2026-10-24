@@ -9,6 +9,8 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +21,7 @@ import net.minecraft.resources.Identifier;
 /// see [AkytheraProject.EditorArmaturePhysicsAccessor].
 ///
 /// The armature is the asset's own path, so it is read rather than edited: this holder's rows are the
-/// bodies alone.
+/// bodies, the bone constraints and the simulation settings.
 public final class ArmaturePhysicsDataHolder {
     /// The sidecar: the preview entity type alone. The bodies are the asset itself.
     private static final Codec<Optional<Identifier>> SIDECAR_CODEC =
@@ -27,6 +29,11 @@ public final class ArmaturePhysicsDataHolder {
 
     /// Bone name to body, including bodies left empty; [#makeObject] drops those.
     private final Map<String, BoneBodyHolder> bodies = new LinkedHashMap<>();
+
+    /// Bone name to constraint, including free ones; [#makeObject] drops those.
+    private final Map<String, BoneConstraintHolder> constraints = new LinkedHashMap<>();
+
+    private final RagdollParametersHolder simulation;
 
     /// The entity the bodies are previewed on, or null for none.
     private @Nullable Identifier previewEntityType;
@@ -41,9 +48,11 @@ public final class ArmaturePhysicsDataHolder {
     ) {
         this.accessor = accessor;
         this.previewEntityType = previewEntityType;
+        this.simulation = new RagdollParametersHolder(data == null ? ArmaturePhysicsData.RagdollParameters.DEFAULT : data.simulation());
 
         if (data != null) {
             data.bodies().forEach((bone, body) -> bodies.put(bone, new BoneBodyHolder(body)));
+            data.constraints().forEach((bone, constraint) -> constraints.put(bone, new BoneConstraintHolder(constraint)));
         }
     }
 
@@ -57,15 +66,24 @@ public final class ArmaturePhysicsDataHolder {
     }
 
     public ArmaturePhysicsData makeObject() {
-        Map<String, ArmaturePhysicsData.BoneBody> made = new LinkedHashMap<>();
+        Map<String, ArmaturePhysicsData.BoneBody> madeBodies = new LinkedHashMap<>();
+        Map<String, ArmaturePhysicsData.BoneConstraint> madeConstraints = new LinkedHashMap<>();
 
         bodies.forEach((bone, body) -> {
             if (!body.getColliders().isEmpty()) {
-                made.put(bone, body.makeObject());
+                madeBodies.put(bone, body.makeObject());
             }
         });
 
-        return new ArmaturePhysicsData(Map.copyOf(made));
+        constraints.forEach((bone, constraint) -> {
+            ArmaturePhysicsData.BoneConstraint made = constraint.makeObject();
+
+            if (!made.equals(ArmaturePhysicsData.BoneConstraint.FREE)) {
+                madeConstraints.put(bone, made);
+            }
+        });
+
+        return new ArmaturePhysicsData(Map.copyOf(madeBodies), Map.copyOf(madeConstraints), simulation.makeObject());
     }
 
     public boolean save() {
@@ -87,14 +105,41 @@ public final class ArmaturePhysicsDataHolder {
         return AkytheraProject.getCurrentProject().getArmatureOfPhysics(accessor);
     }
 
+    /// The armature's bone names, sorted. Empty while the armature cannot be read.
+    public List<String> boneNames() {
+        Armature armature = getArmature().getOrHandleException(AkytheraLabs.LOGGER::error);
+
+        if (armature == null) return List.of();
+
+        List<String> names = new ArrayList<>();
+        armature.visitBones(bone -> names.add(bone.getName()));
+        names.sort(Comparator.naturalOrder());
+
+        return List.copyOf(names);
+    }
+
     /// `bone`'s body, created empty on first access.
     public BoneBodyHolder bodyOf(final String bone) {
-        return bodies.computeIfAbsent(bone, _ -> new BoneBodyHolder(new ArmaturePhysicsData.BoneBody(List.of())));
+        return bodies.computeIfAbsent(bone, _ -> BoneBodyHolder.empty());
+    }
+
+    /// `bone`'s constraint, created free on first access.
+    public BoneConstraintHolder constraintOf(final String bone) {
+        return constraints.computeIfAbsent(bone, _ -> new BoneConstraintHolder(ArmaturePhysicsData.BoneConstraint.FREE));
+    }
+
+    /// `bone`'s constraint, or null while it has none.
+    public @Nullable BoneConstraintHolder findConstraint(final String bone) {
+        return constraints.get(bone);
     }
 
     /// Every body touched so far, empty ones included.
     public Map<String, BoneBodyHolder> getBodies() {
         return bodies;
+    }
+
+    public RagdollParametersHolder getSimulation() {
+        return simulation;
     }
 
     public AkytheraProject.EditorArmaturePhysicsAccessor getAccessor() {

@@ -24,8 +24,10 @@
     "MixinMouseHandler",
     "MixinPauseScreen",
     "MixinPlayer",
+    "MixinRagdollSimulation",
     "MixinServerPacksSource",
     "MixinSoundManager",
+    "RagdollBodyAccessor",
     "SoundBufferLibraryAccessor",
     "SoundEngineAccessor",
     "SoundManagerAccessor"
