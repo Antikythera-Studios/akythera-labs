@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.CheckBox;
 import com.yesman.akythera.client.api.gui.WidgetTable;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
@@ -90,6 +91,11 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     private static final Tooltip WIREFRAME_TOOLTIP = Tooltip.create(Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_VIEW_WIREFRAME));
     private static final Tooltip TEXTURED_TOOLTIP = Tooltip.create(Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_VIEW_TEXTURED));
     private static final int SIMULATE_H = 20;
+    private static final int BUOYANCY_CHECKBOX_W = 130;
+    private static final int BUOYANCY_CHECKBOX_H = 12;
+
+    /// How deep the water of a buoyancy simulation is, in blocks, over its floor.
+    private static final double BUOYANCY_POOL_DEPTH = 8.0D;
 
     /// The push [#toggleSimulation] gives the topmost bone, in mass times blocks per second.
     private static final double SIMULATION_PUSH = 1.0D;
@@ -138,6 +144,9 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
     private final AkytheraButton simulateButton;
 
+    /// Whether [#simulateButton] drops the rag doll into water whose surface is at y = 0, rather than onto a floor there.
+    private boolean buoyancySimulation;
+
     /// Switches a running simulation between the textured view and the wireframe view. Shown while one runs.
     private final AkytheraButton viewModeButton;
 
@@ -147,7 +156,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     /// The rag doll [#simulateButton] runs over a floor at the viewer's origin, null while none runs.
     private @Nullable RagdollSimulation simulation;
 
-    /// The physics [#simulation] was built from, whose half bends the drawn pose takes.
+    /// The physics [#simulation] was built from, whose bone constraints the drawn pose takes.
     private @Nullable ArmaturePhysicsData simulatedPhysics;
 
     /// Holds the picked bone at the gizmo while [#simulation] runs; installed in place of [#armatureView].
@@ -232,6 +241,20 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
             .build();
         model3DViewer.addOverlayWidget(simulateButton);
+
+        CheckBox buoyancyCheckBox = new CheckBox(
+            minecraft.font,
+            AnchoredWidget.pixel(OVERLAY_PAD * 2 + SIMULATE_W), AnchoredWidget.pixel(BUOYANCY_CHECKBOX_W),
+            AnchoredWidget.pixel(OVERLAY_PAD + (SIMULATE_H - BUOYANCY_CHECKBOX_H) / 2), AnchoredWidget.pixel(BUOYANCY_CHECKBOX_H),
+            AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH,
+            AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT,
+            () -> buoyancySimulation,
+            enabled -> buoyancySimulation = enabled,
+            Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_BUOYANCY_SIMULATION),
+            true
+        );
+        buoyancyCheckBox.valueSetter().accept(buoyancySimulation);
+        model3DViewer.addOverlayWidget(buoyancyCheckBox);
 
         viewModeButton = AkytheraButton
             .buttonBuilder(minecraft.font, LocalizedMessage.EMPTY, () -> applySimulationView(!simulationWireframe))
@@ -395,7 +418,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         if (selectedBone == null) {
             constraintTable.clearWidgets();
         } else {
-            new EditorWidgetFactory(font).fillWidgetTable(constraintTable, holder.constraintOf(selectedBone), this::fillConstraintTable, holder);
+            new EditorWidgetFactory(font).fillWidgetTable(constraintTable, holder.constraintsOf(selectedBone), this::fillConstraintTable, holder);
         }
 
         if (constraintRect != null) constraintTable.relocate(constraintRect);
@@ -431,7 +454,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
         if (selected != null && simulation == null) {
             constraintLimit = new BoneConstraintLimitComponent(
-                scenePlacements.get(selected.getName()), selected.getToTail().length(), holder.constraintOf(selected.getName())
+                scenePlacements.get(selected.getName()), selected.getToTail().length(), holder.constraintsOf(selected.getName())
             );
             model3DViewer.addComponent(constraintLimit);
         }
@@ -478,9 +501,10 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     // Simulation preview
     // ***************************************************************
 
-    /// Drops the rag doll of the asset as it is edited now onto a floor at the viewer's origin, pushed at its topmost
-    /// bone, or stops the one running. While it runs, the preview mesh follows it and the picked bone can be dragged
-    /// by the gizmo. It starts in the textured view.
+    /// Drops the rag doll of the asset as it is edited now onto a floor at the viewer's origin, or into water whose
+    /// surface is there while [#buoyancySimulation] is on, pushed at its topmost bone; or stops the one running. While
+    /// it runs, the preview mesh follows it and the picked bone can be dragged by the gizmo. It starts in the textured
+    /// view.
     private void toggleSimulation() {
         if (simulation != null) {
             stopSimulation();
@@ -493,7 +517,8 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
         simulatedPhysics = holder.makeObject();
         simulation = RagdollSimulation.start(
-            armature, simulatedPhysics, RagdollSimulation.Terrain.floor(0.0D), null,
+            armature, simulatedPhysics,
+            buoyancySimulation ? RagdollSimulation.Terrain.pool(0.0D, BUOYANCY_POOL_DEPTH) : RagdollSimulation.Terrain.floor(0.0D), null,
             new RagdollSimulation.Snapshot(Pose.EMPTY_POSE, Transform.IDENTITY, 0.0D), 1.0F
         );
 
@@ -504,7 +529,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             .ifPresent(top -> simulation.applyImpulse(top.getKey(), new Vec3(0.0D, 0.0D, SIMULATION_PUSH), null));
 
         simulationTickNanos = System.nanoTime();
-        simulatedPose = armature.applyBoneConstraints(simulation.makePose(Transform.IDENTITY, 0.0F), simulatedPhysics);
+        simulatedPose = armature.applyBoneConstraints(simulation.makePose(Transform.IDENTITY, 0.0F), simulatedPhysics, true);
         simulateButton.setMessage(LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_STOP_SIMULATION));
 
         EntityModelComponent shown = model3DViewer.getComponent(EntityModelComponent.class);
@@ -584,7 +609,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
             float partial = Math.clamp((now - simulationTickNanos) / (float) TICK_NANOS, 0.0F, 1.0F);
 
-            simulatedPose = armature.applyBoneConstraints(simulation.makePose(Transform.IDENTITY, partial), simulatedPhysics);
+            simulatedPose = armature.applyBoneConstraints(simulation.makePose(Transform.IDENTITY, partial), simulatedPhysics, true);
             collectModelTransforms(armature.getRootBone(), new Matrix4f(), simulatedPose, scenePlacements);
         }
 

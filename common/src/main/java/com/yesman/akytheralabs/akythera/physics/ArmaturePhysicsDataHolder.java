@@ -4,9 +4,11 @@ import com.mojang.serialization.Codec;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
+import com.yesman.akythera.core.asset.physics.constraint.BoneConstraint;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
+import com.yesman.akytheralabs.akythera.physics.constraint.BoneConstraintStackHolder;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -30,8 +32,8 @@ public final class ArmaturePhysicsDataHolder {
     /// Bone name to body, including bodies left empty; [#makeObject] drops those.
     private final Map<String, BoneBodyHolder> bodies = new LinkedHashMap<>();
 
-    /// Bone name to constraint, including free ones; [#makeObject] drops those.
-    private final Map<String, BoneConstraintHolder> constraints = new LinkedHashMap<>();
+    /// Bone name to constraints, including empty stacks; [#makeObject] drops those.
+    private final Map<String, BoneConstraintStackHolder> constraints = new LinkedHashMap<>();
 
     private final RagdollParametersHolder simulation;
 
@@ -52,7 +54,7 @@ public final class ArmaturePhysicsDataHolder {
 
         if (data != null) {
             data.bodies().forEach((bone, body) -> bodies.put(bone, new BoneBodyHolder(body)));
-            data.constraints().forEach((bone, constraint) -> constraints.put(bone, new BoneConstraintHolder(constraint)));
+            data.constraints().forEach((bone, stack) -> constraints.put(bone, new BoneConstraintStackHolder(stack)));
         }
     }
 
@@ -67,7 +69,7 @@ public final class ArmaturePhysicsDataHolder {
 
     public ArmaturePhysicsData makeObject() {
         Map<String, ArmaturePhysicsData.BoneBody> madeBodies = new LinkedHashMap<>();
-        Map<String, ArmaturePhysicsData.BoneConstraint> madeConstraints = new LinkedHashMap<>();
+        Map<String, List<BoneConstraint>> madeConstraints = new LinkedHashMap<>();
 
         bodies.forEach((bone, body) -> {
             if (!body.getColliders().isEmpty()) {
@@ -75,11 +77,9 @@ public final class ArmaturePhysicsDataHolder {
             }
         });
 
-        constraints.forEach((bone, constraint) -> {
-            ArmaturePhysicsData.BoneConstraint made = constraint.makeObject();
-
-            if (!made.equals(ArmaturePhysicsData.BoneConstraint.FREE)) {
-                madeConstraints.put(bone, made);
+        constraints.forEach((bone, stack) -> {
+            if (!stack.getConstraints().isEmpty()) {
+                madeConstraints.put(bone, stack.makeObject());
             }
         });
 
@@ -123,14 +123,9 @@ public final class ArmaturePhysicsDataHolder {
         return bodies.computeIfAbsent(bone, _ -> BoneBodyHolder.empty());
     }
 
-    /// `bone`'s constraint, created free on first access.
-    public BoneConstraintHolder constraintOf(final String bone) {
-        return constraints.computeIfAbsent(bone, _ -> new BoneConstraintHolder(ArmaturePhysicsData.BoneConstraint.FREE));
-    }
-
-    /// `bone`'s constraint, or null while it has none.
-    public @Nullable BoneConstraintHolder findConstraint(final String bone) {
-        return constraints.get(bone);
+    /// `bone`'s constraints, created empty on first access.
+    public BoneConstraintStackHolder constraintsOf(final String bone) {
+        return constraints.computeIfAbsent(bone, _ -> new BoneConstraintStackHolder(List.of()));
     }
 
     /// Every body touched so far, empty ones included.

@@ -7,9 +7,9 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.client.core.renderer.RenderUtils;
-import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
+import com.yesman.akythera.core.asset.physics.constraint.LimitRotationConstraint;
 import com.yesman.akythera.core.math.Transform;
-import com.yesman.akytheralabs.akythera.physics.BoneConstraintHolder;
+import com.yesman.akytheralabs.akythera.physics.constraint.BoneConstraintStackHolder;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
@@ -17,8 +17,9 @@ import net.minecraft.util.Mth;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-/// The rotation a [BoneConstraintHolder] leaves its bone, as a yellow wireframe at the bone's head: the patch of the
-/// sphere the bone's tail sweeps within the X and Z limits, and the arc of the Y twist around the bone.
+/// The rotation the first [LimitRotationConstraint] of a [BoneConstraintStackHolder] leaves its bone, as a yellow
+/// wireframe at the bone's head: the patch of the sphere the bone's tail sweeps within the X and Z limits, and the arc
+/// of the Y twist around the bone.
 ///
 /// Read from the holder every frame, so the wireframe follows the number boxes as they are typed.
 public final class BoneConstraintLimitComponent implements Model3DViewerComponent {
@@ -40,17 +41,20 @@ public final class BoneConstraintLimitComponent implements Model3DViewerComponen
     /// The bone's length, from head to tail.
     private final float length;
 
-    private final BoneConstraintHolder constraint;
+    private final BoneConstraintStackHolder constraints;
 
-    public BoneConstraintLimitComponent(final Transform placement, final float length, final BoneConstraintHolder constraint) {
+    public BoneConstraintLimitComponent(final Transform placement, final float length, final BoneConstraintStackHolder constraints) {
         this.placement = placement;
         this.length = length;
-        this.constraint = constraint;
+        this.constraints = constraints;
     }
 
     @Override
     public void extractComponent(GuiGraphicsExtractor graphics, Model3DViewer model3DViewer, PoseStack poseStack, ByteBufferBuilder byteBuffer, int mouseX, int mouseY, float a) {
-        ArmaturePhysicsData.BoneConstraint limits = constraint.makeObject();
+        LimitRotationConstraint limits = constraints.findLimitRotation();
+
+        if (limits == null) return;
+
         boolean swingLimited = !limits.x().isFree() || !limits.z().isFree();
         boolean twistLimited = !limits.y().isFree();
 

@@ -24,6 +24,12 @@ public final class RagdollParametersHolder {
     @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_SLEEP_SPEED, order = 5, min = 0.0F, max = 1.0F)
     private float sleepSpeed;
 
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_WATER, order = 6)
+    private final FluidParametersHolder water;
+
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_LAVA, order = 7)
+    private final FluidParametersHolder lava;
+
     public RagdollParametersHolder(final ArmaturePhysicsData.RagdollParameters parameters) {
         substeps = parameters.substeps();
         gravityScale = parameters.gravityScale();
@@ -31,9 +37,35 @@ public final class RagdollParametersHolder {
         restitution = parameters.restitution();
         selfCollision = parameters.selfCollision();
         sleepSpeed = parameters.sleepSpeed();
+        water = new FluidParametersHolder(parameters.water());
+        lava = new FluidParametersHolder(parameters.lava());
     }
 
     public ArmaturePhysicsData.RagdollParameters makeObject() {
-        return new ArmaturePhysicsData.RagdollParameters(substeps, gravityScale, friction, restitution, selfCollision, sleepSpeed);
+        return new ArmaturePhysicsData.RagdollParameters(
+            substeps, gravityScale, friction, restitution, selfCollision, sleepSpeed, water.makeObject(), lava.makeObject()
+        );
+    }
+
+    /// Editable twin of [ArmaturePhysicsData.FluidParameters].
+    public static final class FluidParametersHolder {
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_DENSITY, order = 0, min = 0.0F)
+        private float density;
+
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_DRAG, order = 1, min = 0.0F, max = 50.0F)
+        private float drag;
+
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_DRAG_COEFFICIENT, order = 2, min = 0.0F, max = 10.0F)
+        private float dragCoefficient;
+
+        public FluidParametersHolder(final ArmaturePhysicsData.FluidParameters parameters) {
+            density = parameters.density();
+            drag = parameters.drag();
+            dragCoefficient = parameters.dragCoefficient();
+        }
+
+        public ArmaturePhysicsData.FluidParameters makeObject() {
+            return new ArmaturePhysicsData.FluidParameters(density, drag, dragCoefficient);
+        }
     }
 }

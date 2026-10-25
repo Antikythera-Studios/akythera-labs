@@ -65,9 +65,9 @@ public abstract class MixinRagdollSimulation implements RagdollSimulationAccesso
     /// simulation from resting while it is held.
     @Inject(
         at = @At(value = "INVOKE", target = "Ljava/util/List;clear()V", shift = At.Shift.AFTER),
-        method = "substep(D)V"
+        method = "substep(DDD)V"
     )
-    private void akytheralabs$holdGrabbed(final double h, final CallbackInfo callbackInfo) {
+    private void akytheralabs$holdGrabbed(final double h, final double pull, final double progress, final CallbackInfo callbackInfo) {
         RagdollSimulation.Body grabbed = akytheralabs$grabbed;
 
         if (grabbed == null) return;
