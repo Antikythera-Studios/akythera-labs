@@ -672,7 +672,7 @@
   "gui.akytheralabs.blueprint.function.parameter.type": "Type",
   "gui.akytheralabs.ability_screen.parent_category": "Ability Classes",
   "gui.akytheralabs.blueprint.error.variable_name": "%s names a parameter a graph run binds; rename the variable",
-  "gui.akytheralabs.blueprint.error.variable_default": "%s has a default value with an element left unset",
+  "gui.akytheralabs.blueprint.error.variable_default": "%s has a default value with an element left unset, unreadable, or naming a missing entry",
   "gui.akytheralabs.ability_screen.variable.sync": "Sync Direction",
   "gui.akytheralabs.ability_screen.variable.syncable": "Syncable: this variable can cross the network. Pick its Sync Direction in Details.",
   "gui.akytheralabs.ability_screen.popup.variables_refused.title": "Cannot hold variables",

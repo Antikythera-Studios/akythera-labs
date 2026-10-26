@@ -847,8 +847,9 @@ public final class BlueprintEditorSession {
     /// Validates every declared function's signature, every member variable's name and default value, and every
     /// property value, and names the first that failed, or null when all passed. A function name must be a Java
     /// identifier no other member of the blueprint has, every input needs a type, no member variable may share
-    /// its name with a local a graph run binds, and every member variable's default value and every property
-    /// value must encode. The canvases are checked by [#compileCanvases].
+    /// its name with a local a graph run binds, every member variable's default value must pass
+    /// [VariableDraft#hasDefaultError], and every property value must encode. The canvases are checked by
+    /// [#compileCanvases].
     public @Nullable Component validateMembers() {
         Component failed = null;
         Set<String> names = new HashSet<>();
@@ -880,7 +881,7 @@ public final class BlueprintEditorSession {
                 failed = Component.translatable(LangKeys.GUI_BLUEPRINT_ERROR_VARIABLE_NAME, variable.getName());
             }
 
-            if (variable.isDefaultIncomplete() && failed == null) {
+            if (variable.hasDefaultError() && failed == null) {
                 failed = Component.translatable(LangKeys.GUI_BLUEPRINT_ERROR_VARIABLE_DEFAULT, variable.getName());
             }
         }

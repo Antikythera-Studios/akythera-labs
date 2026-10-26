@@ -56,6 +56,7 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
     /// Screen-pixel slop a press may move before it becomes a drag instead of a click.
     private static final int DRAG_THRESHOLD = 4;
     private static final int FIELD_TEXT_COLOR = 0xFF8A8A8A;
+    private static final int ERROR_TEXT_COLOR = 0xFFE05555; // variable whose default value has an error
     private static final int SYNC_MARK_COLOR = 0xFF4FA3E0;
     private static final int SELECTED_COLOR = 0xFF385470; // selected row, this panel focused
     private static final int SELECTED_UNFOCUSED_COLOR = 0xFF2C3440; // selected row, another panel focused
@@ -227,6 +228,7 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
         // the row content — the name text and type combo draw on top and stay readable.
         graphics.fill(getX(), getY(), getRight(), getBottom(), bgColor);
         drawRowHighlights(graphics, mouseX, mouseY);
+        nameBoxes.forEach((draft, box) -> box.setTextColor(draft.hasDefaultError() ? ERROR_TEXT_COLOR : null));
         header.extractRenderState(graphics, mouseX, mouseY, a);
         table.extractRenderState(graphics, mouseX, mouseY, a);
 

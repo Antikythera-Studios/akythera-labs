@@ -1057,7 +1057,7 @@ public final class EntityPatchEditorScreen extends Screen
         return ComponentAttachableHolder.hostOf(holder, component);
     }
 
-    /// Right-press on a focused socket in the preview.
+    /// Right click on a focused socket in the preview.
     private void openSocketOptions(TransformSocketHolder socket) {
         ContextMenuContainer menu = ContextMenuContainer.builder(minecraft)
             .entry()

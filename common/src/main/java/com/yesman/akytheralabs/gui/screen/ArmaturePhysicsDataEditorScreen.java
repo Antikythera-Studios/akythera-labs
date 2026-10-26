@@ -45,6 +45,7 @@ import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.viewer.ArmatureViewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.BoneConstraintLimitComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.BonePoseComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ColliderPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.RagdollDragComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -135,6 +136,15 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
     private @Nullable ArmatureViewComponent armatureView;
 
+    /// Picks a bone of [#armatureView] and poses it in [#manualPose] through a gizmo. Installed while no simulation runs.
+    private @Nullable BonePoseComponent bonePoser;
+
+    /// The pose [#bonePoser] edits, before the bone constraints.
+    private final Pose manualPose = new Pose();
+
+    /// [#manualPose] under the bone constraints, which the scene is drawn in while no simulation runs.
+    private Pose constrainedPose = Pose.EMPTY_POSE;
+
     /// The collider wireframes: [ColliderPreviewComponent]s while editing, plain [ColliderViewerComponent]s while a
     /// simulation runs, so a click reaches [#ragdollDrag].
     private final List<Model3DViewerComponent> colliderPreviews = new ArrayList<>();
@@ -159,7 +169,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     /// The physics [#simulation] was built from, whose bone constraints the drawn pose takes.
     private @Nullable ArmaturePhysicsData simulatedPhysics;
 
-    /// Holds the picked bone at the gizmo while [#simulation] runs; installed in place of [#armatureView].
+    /// Holds the picked bone at the gizmo while [#simulation] runs; installed in place of the bone picker.
     private @Nullable RagdollDragComponent ragdollDrag;
 
     /// When [#simulation] last ticked, in [System#nanoTime] nanoseconds.
@@ -168,8 +178,8 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     /// The pose [#simulation] draws this frame, null while none runs.
     private @Nullable Pose simulatedPose;
 
-    /// Each bone's transform in armature space for the collider previews: the bind pose, or [#simulatedPose] while a
-    /// simulation runs.
+    /// Each bone's transform in armature space for the collider previews: [#constrainedPose], or [#simulatedPose] while
+    /// a simulation runs.
     private final Map<String, Transform> scenePlacements = new HashMap<>();
 
     private @Nullable WorkHistory savePoint;
@@ -205,6 +215,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             AkytheraEditorLayoutManager.getInstance()::getLayoutGuiScale
         );
 
+        model3DViewer.setClickCycling(true);
         model3DViewer.addComponent(new CameraComponent(true));
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(1.0F, 16, 68, 68, 68, 255));
@@ -387,13 +398,18 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
         if (armatureView == null) {
             ArmatureViewComponent view = new ArmatureViewComponent(holder.getArmature());
+            view.setPoseSource(this::scenePose);
+            view.setPickedInFront(true);
+            view.setSelectionHighlighted(() -> !isColliderFocused());
             view.setOnSelectionChanged(() -> {
                 Bone picked = view.getSelectedBone();
                 if (picked != null) selectBone(picked.getName());
             });
 
             armatureView = view;
-            model3DViewer.addComponent(view);
+            bonePoser = new BonePoseComponent(view, holder.getArmature(), () -> manualPose, () -> constrainedPose);
+            bonePoser.setRecordsHistory(true);
+            model3DViewer.addComponent(bonePoser);
         }
 
         rebuildScene();
@@ -431,8 +447,10 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     }
 
     /// One collider preview per collider, placed by its bone's [#scenePlacements] transform, and the selected bone's
-    /// rotation limits while no simulation runs.
+    /// rotation limits while no simulation runs. A focused editable collider keeps the focus.
     private void rebuildScene() {
+        ColliderComponentHolder focusedCollider = model3DViewer.getFocused() instanceof ColliderPreviewComponent preview ? preview.getCollider() : null;
+
         colliderPreviews.forEach(model3DViewer::removeComponent);
         colliderPreviews.clear();
 
@@ -445,16 +463,14 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
         if (armature == null) return;
 
-        if (simulation == null) {
-            scenePlacements.clear();
-            collectModelTransforms(armature.getRootBone(), new Matrix4f(), Pose.EMPTY_POSE, scenePlacements);
-        }
+        if (simulation == null) applyManualPose(armature);
 
         Bone selected = selectedBone == null ? null : armature.getBoneByName(selectedBone);
+        BonePoseComponent poser = bonePoser;
 
-        if (selected != null && simulation == null) {
+        if (selected != null && simulation == null && poser != null) {
             constraintLimit = new BoneConstraintLimitComponent(
-                scenePlacements.get(selected.getName()), selected.getToTail().length(), holder.constraintsOf(selected.getName())
+                poser::parentTransform, selected.getToTail().length(), holder.constraintsOf(selected.getName()), () -> !isColliderFocused()
             );
             model3DViewer.addComponent(constraintLimit);
         }
@@ -476,15 +492,36 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
                     wireframe.setColor(SIMULATED_COLLIDER_COLOR);
                     colliderPreview = wireframe;
                 } else if (bone.equals(selectedBone)) {
-                    colliderPreview = ColliderPreviewComponent.editable(collider, placement, this::fillBodyTable, _ -> {});
+                    ColliderPreviewComponent editable = ColliderPreviewComponent.editable(collider, placement, this::fillBodyTable, _ -> {});
+                    editable.setRestingColor(ColliderPreviewComponent.COLOR_INHERITED);
+                    colliderPreview = editable;
                 } else {
                     colliderPreview = ColliderPreviewComponent.inherited(collider, placement, _ -> selectBone(bone));
                 }
 
                 colliderPreviews.add(colliderPreview);
                 model3DViewer.addComponent(colliderPreview);
+
+                if (collider == focusedCollider && bone.equals(selectedBone)) model3DViewer.focus(colliderPreview);
             }
         }
+    }
+
+    /// Poses the scene in [#manualPose] under the bone constraints as they are edited now.
+    private void applyManualPose(final Armature armature) {
+        constrainedPose = armature.applyBoneConstraints(manualPose, holder.makeObject(), false);
+        scenePlacements.clear();
+        collectModelTransforms(armature.getRootBone(), new Matrix4f(), constrainedPose, scenePlacements);
+    }
+
+    /// The pose the preview model and the bones are drawn in.
+    private Pose scenePose() {
+        return simulatedPose != null ? simulatedPose : constrainedPose;
+    }
+
+    /// Whether the gizmo is on a collider rather than on the selected bone's pose.
+    private boolean isColliderFocused() {
+        return model3DViewer.getFocused() instanceof ColliderPreviewComponent;
     }
 
     /// Walks `pose` the way [Pose#boundTransformRecursively] does, recording each bone's model transform.
@@ -519,7 +556,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         simulation = RagdollSimulation.start(
             armature, simulatedPhysics,
             buoyancySimulation ? RagdollSimulation.Terrain.pool(0.0D, BUOYANCY_POOL_DEPTH) : RagdollSimulation.Terrain.floor(0.0D), null,
-            new RagdollSimulation.Snapshot(Pose.EMPTY_POSE, Transform.IDENTITY, 0.0D), 1.0F
+            new RagdollSimulation.Snapshot(constrainedPose, Transform.IDENTITY, 0.0D), 1.0F
         );
 
         if (simulation == null) return;
@@ -532,12 +569,8 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         simulatedPose = armature.applyBoneConstraints(simulation.makePose(Transform.IDENTITY, 0.0F), simulatedPhysics, true);
         simulateButton.setMessage(LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_STOP_SIMULATION));
 
-        EntityModelComponent shown = model3DViewer.getComponent(EntityModelComponent.class);
-
-        if (shown != null) shown.setPoseSource(() -> simulatedPose);
-
-        if (armatureView != null) {
-            armatureView.setPoseSource(() -> simulatedPose);
+        if (armatureView != null && bonePoser != null) {
+            model3DViewer.removeComponent(bonePoser);
             model3DViewer.removeComponent(armatureView);
 
             ragdollDrag = new RagdollDragComponent(armatureView, () -> simulation, bone -> scenePlacements.getOrDefault(bone, Transform.IDENTITY));
@@ -572,30 +605,27 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
         EntityModelComponent shown = model3DViewer.getComponent(EntityModelComponent.class);
 
-        if (shown != null) {
-            shown.setPoseSource(null);
-            shown.setModelVisible(true);
-        }
+        if (shown != null) shown.setModelVisible(true);
 
         if (ragdollDrag != null) {
             model3DViewer.removeComponent(ragdollDrag);
             ragdollDrag = null;
         }
 
-        if (armatureView != null) {
-            armatureView.setPoseSource(null);
-            armatureView.setDrawSelectedOnly(false);
-            model3DViewer.addComponent(armatureView);
-        }
+        if (armatureView != null) armatureView.setDrawSelectedOnly(false);
+        if (bonePoser != null) model3DViewer.addComponent(bonePoser);
 
         rebuildScene();
     }
 
     /// Steps [#simulation] by the real time since its last tick, one game tick at a time, and poses the scene between
-    /// the last two ticks. An editor screen is drawn but never ticked by the game, so the frame drives it.
+    /// the last two ticks; with none running, poses the scene in [#manualPose]. An editor screen is drawn but never
+    /// ticked by the game, so the frame drives it.
     @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        Armature armature = simulation == null ? null : holder.getArmature().getOrHandleException(AkytheraLabs.LOGGER::error);
+        Armature armature = holder.getArmature().getOrHandleException(_ -> {}); // rebuildAll reports the failure
+
+        if (armature != null && simulation == null) applyManualPose(armature);
 
         if (simulation != null && simulatedPhysics != null && armature != null) {
             long now = System.nanoTime();
@@ -655,7 +685,10 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
         EntityModelComponent shown = model3DViewer.getComponent(EntityModelComponent.class);
 
-        if (shown != null) shown.setArmature(holder.getArmature());
+        if (shown != null) {
+            shown.setArmature(holder.getArmature());
+            shown.setPoseSource(this::scenePose);
+        }
     }
 
     // ***************************************************************

@@ -20,7 +20,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 /// Picks where a mesh part is sliced: an orange rectangle runs around the part under the cursor, across its
-/// longest axis, and a left press reports it. A right press reports that the pick was given up.
+/// longest axis, and a left press reports it. A right click reports that the pick was given up.
 public final class MeshSliceComponent implements Model3DViewerComponent {
     private static final int COLOR_SLICE = 0xFFFFA028;
 

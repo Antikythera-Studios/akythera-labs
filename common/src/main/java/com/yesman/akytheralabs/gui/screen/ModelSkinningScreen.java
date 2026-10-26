@@ -86,7 +86,7 @@ import java.util.stream.Stream;
 /// model of the first entity type mapped to the picked armature stands under it.
 ///
 /// Add Bending turns the next left press on the mesh into a slice of the part under it, see
-/// [ModelSkinHolder#addBending]; a right press gives it up.
+/// [ModelSkinHolder#addBending]; a right click gives it up.
 public final class ModelSkinningScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
@@ -410,6 +410,7 @@ public final class ModelSkinningScreen extends Screen implements ModalAccessible
 
             model3DViewer.removeAllComponents(BonePoseComponent.class);
             bonePoser = new BonePoseComponent(view, armature, () -> manualPose);
+            bonePoser.setRecordsHistory(true);
             model3DViewer.addComponent(bonePoser);
 
             if (model3DViewer.getFocused() == null) model3DViewer.focus(slicer == null ? painter : slicer);
@@ -614,8 +615,8 @@ public final class ModelSkinningScreen extends Screen implements ModalAccessible
         boolean wasPosing = model3DViewer.getFocused() == bonePoser;
 
         if (!painter.isPickingVertices()) {
-            // The viewer would focus a bone the brush lets go of
-            return overBone && painter.rayTrace(model3DViewer, ray) < 0.0F || super.mouseClicked(event, doubleClick);
+            // The viewer would focus a bone the brush lets go of. A posing press goes to the gizmo first.
+            return !wasPosing && overBone && painter.rayTrace(model3DViewer, ray) < 0.0F || super.mouseClicked(event, doubleClick);
         }
 
         // The mesh hides the bones from the viewer's own pick, so a bone no vertex lies on is picked here

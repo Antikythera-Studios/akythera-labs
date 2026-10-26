@@ -9,10 +9,14 @@ import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.armature.Bone;
 import com.yesman.akythera.core.math.Transform;
+import com.yesman.akytheralabs.editor.historytrack.DraggingDataChange;
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.historytrack.PendingDataChange;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.MouseButtonEvent;
 import org.joml.Matrix4f;
 
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /// Poses an armature by hand, for previewing how a mesh skins to it. Bones are drawn and picked by the
@@ -28,11 +32,30 @@ public final class BonePoseComponent implements LocatableComponent {
     /// The pose being edited. Read per call, since its owner may swap it for a fresh one.
     private final Supplier<Pose> pose;
 
+    /// The pose drawn from [#pose], such as [#pose] under bone constraints. The gizmo stands and starts its drags on it.
+    private final Supplier<Pose> posed;
+
+    /// Whether each drag is recorded in the [HistoryManager] as one undo step.
+    private boolean recordsHistory;
+
+    /// Whether a gizmo drag is in flight, so its pending undo baseline is pushed once.
+    private boolean dragging;
+
     /// `view` should draw the same `pose`, see [ArmatureViewComponent#setPoseSource].
     public BonePoseComponent(ArmatureViewComponent view, AssetAccessor<? extends Armature> armature, Supplier<Pose> pose) {
+        this(view, armature, pose, pose);
+    }
+
+    /// `view` should draw `posed`, see [ArmatureViewComponent#setPoseSource].
+    public BonePoseComponent(ArmatureViewComponent view, AssetAccessor<? extends Armature> armature, Supplier<Pose> pose, Supplier<Pose> posed) {
         this.view = view;
         this.armature = armature;
         this.pose = pose;
+        this.posed = posed;
+    }
+
+    public void setRecordsHistory(final boolean recordsHistory) {
+        this.recordsHistory = recordsHistory;
     }
 
     // ***************************************************************
@@ -48,7 +71,7 @@ public final class BonePoseComponent implements LocatableComponent {
 
         if (bone == null) return Transform.IDENTITY;
 
-        Pose current = pose.get();
+        Pose current = posed.get();
         Matrix4f model = current.getForwardBoundTransforms(armature)[bone.getId()];
 
         return Transform.fromMatrix(model.mul(current.orElseIdentity(bone.getName()).toMatrix().invert()));
@@ -58,14 +81,42 @@ public final class BonePoseComponent implements LocatableComponent {
     public Transform localTransform() {
         Bone bone = view.getSelectedBone();
 
-        return bone == null ? Transform.IDENTITY : pose.get().orElseIdentity(bone.getName());
+        return bone == null ? Transform.IDENTITY : posed.get().orElseIdentity(bone.getName());
     }
 
+    /// Writes the picked bone's entry. With [#recordsHistory], a drag is one undo step that puts back the entry it
+    /// started from.
     @Override
     public void applyLocalTransform(Transform transform, boolean live) {
         Bone bone = view.getSelectedBone();
 
-        if (bone != null) pose.get().putBoneTransform(bone.getName(), transform);
+        if (bone == null) return;
+
+        if (!recordsHistory) {
+            pose.get().putBoneTransform(bone.getName(), transform);
+            return;
+        }
+
+        Pose target = pose.get();
+        String name = bone.getName();
+        Consumer<Transform> write = value -> {
+            if (value != null) target.putBoneTransform(name, value);
+        };
+
+        if (live) {
+            // One pending baseline per drag — the committed entry's verifyLastHistory pops exactly one.
+            if (!dragging) {
+                dragging = true;
+                HistoryManager.getInstance().pushHistory(new PendingDataChange<>(this, target.orElseIdentity(name), write));
+            }
+
+            write.accept(transform);
+            return;
+        }
+
+        dragging = false;
+        HistoryManager.getInstance().pushHistory(new DraggingDataChange<>(this, transform, write));
+        write.accept(transform);
     }
 
     // ***************************************************************
@@ -97,10 +148,11 @@ public final class BonePoseComponent implements LocatableComponent {
     }
 
     /// The gizmo takes the press first. One it lets go of re-picks a bone, and the gizmo follows
-    /// because it reads the pick live.
+    /// because it reads the pick live. A press cycling past this component is left to the viewer.
     @Override
     public boolean onMouseDown(final Model3DViewer owner, final MouseButtonEvent event) {
-        return LocatableComponent.super.onMouseDown(owner, event) || view.onMouseDown(owner, event);
+        return LocatableComponent.super.onMouseDown(owner, event)
+            || !owner.cyclesPast(this, event.x(), event.y()) && view.onMouseDown(owner, event);
     }
 
     @Override
