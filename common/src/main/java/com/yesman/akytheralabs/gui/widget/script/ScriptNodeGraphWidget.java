@@ -1174,12 +1174,14 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// resolved via the target type's narrowing map) and [LinkKind#CONVERT] when only an explicit narrowing
     /// cast applies (the source type's [ScriptType#implicitlyCastableTypes()] names the target). A null type on
     /// either side is treated as a wildcard ([LinkKind#DIRECT]). Two lists, sets or maps whose elements do not
-    /// fit are [LinkKind#NONE], see [AbstractNodeWidget#argumentsCompatible].
+    /// fit are [LinkKind#NONE], see [AbstractNodeWidget#argumentsCompatible]. A registry entry into a key pin of
+    /// its registry is [LinkKind#DIRECT], see [AbstractNodeWidget#keyOfEntry].
     private LinkKind linkKind(AbstractNodeWidget.Pin output, AbstractNodeWidget.Pin input) {
         if (output.exec() || input.exec()) {
             return output.exec() && input.exec() ? LinkKind.DIRECT : LinkKind.NONE;
         }
 
+        if (AbstractNodeWidget.keyOfEntry(output, input)) return LinkKind.DIRECT;
         if (!AbstractNodeWidget.argumentsCompatible(output.genericType(), input.genericType())) return LinkKind.NONE;
 
         Class<?> provided = output.type();
@@ -2049,7 +2051,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
                 return execIn >= 0 ? new Connection(source, sourcePin, created, execIn) : null;
             }
 
-            int dataIn = created.firstDataInputPinIndex(sourcePinDef.type());
+            int dataIn = created.firstDataInputPinIndex(sourcePinDef);
             return dataIn >= 0 ? new Connection(source, sourcePin, created, dataIn) : null;
         }
 

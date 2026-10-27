@@ -146,7 +146,7 @@ public final class VariableEditController {
 
     public String typeName(ScriptType type) {
         Identifier id = AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(type);
-        return id == null ? "?" : id.getPath();
+        return id == null ? "?" : ParseUtils.toDisplayName(id.getPath());
     }
 
     /// Whether values of `type` are Java primitives, which the type combos list first.

@@ -1045,13 +1045,11 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         return -1;
     }
 
-    /// Index of the first data (non-execution) input pin that a value of `providedType`
-    /// can drive (boxing / numeric-coercion aware), or -1 — the parameter slot the value
-    /// dragged from an output pin is wired into when this node is spawned to consume it.
-    public int firstDataInputPinIndex(@Nullable Class<?> providedType) {
+    /// Index of the first data input pin the output pin `provided` can wire into, see [#pinsCompatible], or -1 —
+    /// the parameter slot the value dragged from an output pin is wired into when this node is spawned to consume it.
+    public int firstDataInputPinIndex(Pin provided) {
         for (int i = 0; i < inputs.size(); i++) {
-            Pin pin = inputs.get(i);
-            if (!pin.exec() && valueAssignable(providedType, pin.type())) return i;
+            if (pinsCompatible(provided, inputs.get(i))) return i;
         }
 
         return -1;
@@ -1088,11 +1086,20 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     /// Whether a wire from output pin `output` may connect into input pin `input`:
     /// execution pins only pair with execution pins; data pins pair when the provided
     /// type is assignable to (or numerically coercible into) the expected type, and two
-    /// declared lists, sets or maps also hold matching elements, see [#argumentsCompatible].
+    /// declared lists, sets or maps also hold matching elements, see [#argumentsCompatible]. A registry entry
+    /// also fills a key pin of its registry, see [ScriptType#isKeyOf].
     public static boolean pinsCompatible(Pin output, Pin input) {
         if (output.exec() || input.exec()) return output.exec() && input.exec();
+        if (keyOfEntry(output, input)) return true;
 
         return typeCompatible(output.type(), input.type()) && argumentsCompatible(output.genericType(), input.genericType());
+    }
+
+    /// Whether `output` carries an entry of the registry whose key `input` takes.
+    static boolean keyOfEntry(Pin output, Pin input) {
+        ScriptType expected = literalType(input);
+
+        return output.type() != null && expected != null && expected.isKeyOf(output.type());
     }
 
     /// Whether the elements of a declared `List`, `Set` or `Map` fit those of the same collection expected: each

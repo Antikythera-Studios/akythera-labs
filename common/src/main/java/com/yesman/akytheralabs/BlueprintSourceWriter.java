@@ -280,19 +280,21 @@ public final class BlueprintSourceWriter {
 
     /// The [ResourceKey] of `id` in `registry`.
     public static String registryKey(ResourceKey<? extends Registry<?>> registry, String id) {
-        String registryKey = "ResourceKey.createRegistryKey(Identifier.parse("
-            + ScriptNodeSourceCompiler.valueLiteral(registry.identifier().toString()) + "))";
+        return "ResourceKey.create(" + registry(registry) + ", Identifier.parse(" + ScriptNodeSourceCompiler.valueLiteral(id) + "))";
+    }
 
+    /// `registry` itself: its [AkytheraRegistries.DataPack] constant, or a key created from its id.
+    public static String registry(ResourceKey<? extends Registry<?>> registry) {
         for (Field field : AkytheraRegistries.DataPack.class.getFields()) {
             try {
                 if (Modifier.isStatic(field.getModifiers()) && registry.equals(field.get(null))) {
-                    registryKey = "AkytheraRegistries.DataPack." + field.getName();
+                    return "AkytheraRegistries.DataPack." + field.getName();
                 }
             } catch (IllegalAccessException e) {
                 AkytheraLabs.LOGGER.warn("Unreadable registry key field {}", field.getName(), e);
             }
         }
 
-        return "ResourceKey.create(" + registryKey + ", Identifier.parse(" + ScriptNodeSourceCompiler.valueLiteral(id) + "))";
+        return "ResourceKey.createRegistryKey(Identifier.parse(" + ScriptNodeSourceCompiler.valueLiteral(registry.identifier().toString()) + "))";
     }
 }
