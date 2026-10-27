@@ -25,7 +25,7 @@ import java.util.SequencedMap;
 ///
 /// No inputs: the path is part of the node, and the host is the canvas' owner. The path is picked from
 /// the patch's own components, in the combo the node carries and in the Details panel; a path naming
-/// none of them reddens the node on sight.
+/// none of them reddens the node on sight. The output carries the class the named component builds.
 public final class ComponentGetterNodeWidget extends AbstractNodeWidget {
     private static final String ARROW = "▼";
 
@@ -69,7 +69,26 @@ public final class ComponentGetterNodeWidget extends AbstractNodeWidget {
         this.path = path;
         combo.setValueQuiet(path);
         setMessage(title());
+        retypeOutput();
         relayout();
+    }
+
+    /// Types the output with the class the component at [#path] builds, or [PatchComponent] when the patch holds
+    /// none there. A wire the new type no longer fits fails validation.
+    private void retypeOutput() {
+        Class<? extends PatchComponent> type = paths().getOrDefault(path, PatchComponent.class);
+
+        if (outputPin(0).type() == type) return;
+
+        setTitleColor(NodeColors.titleTint(type));
+        setOutputPin(0, new Pin("", NodeColors.forType(type), false, type));
+        relayout();
+    }
+
+    /// The canvas, and so the component tree, is known from here on.
+    @Override
+    protected void onConnectionsChanged() {
+        retypeOutput();
     }
 
     /// Follows a renamed component: the one this node reads, or the host it hangs under, moves with it.

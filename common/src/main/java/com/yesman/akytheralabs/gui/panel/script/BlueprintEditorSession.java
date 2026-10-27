@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.ExecutionRecord;
+import com.yesman.akythera.api.data.modularize.node.ScriptCaller;
 import com.yesman.akythera.api.data.modularize.node.ScriptFailure;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.blueprint.script.BlueprintExecutor;
@@ -186,12 +187,14 @@ public final class BlueprintEditorSession {
         eventGraph = newCanvas(null, members);
         eventGraph.importGraph(data.getEventGraph(), NO_ENTRY);
 
-        // A new Event Graph starts with every event's entry. Past that, an entry the user deleted stays
-        // deleted, and the node suggestions place it again.
+        // A new Event Graph starts with the entry of every event but the hidden ones. Past that, an entry the
+        // user deleted stays deleted, and the node suggestions place it again.
         if (data.getEventGraph().isEmpty()) {
             int y = ENTRY_Y;
 
             for (BlueprintLayout.Signature event : layout.events()) {
+                if (event.isHidden()) continue;
+
                 eventGraph.addNode(new MethodEntryNodeWidget(font, event.name(), members.method(event.name()), ENTRY_X, y));
                 y += ENTRY_GAP;
             }
@@ -958,20 +961,25 @@ public final class BlueprintEditorSession {
     }
 
     /// Shows `records`, keyed by run site, on the canvases drawing them: every event's on the Event Graph,
-    /// and each function's on its open tab.
+    /// and each function's on its open tab. A callback's record shows with the run it was built in.
     public void showDebugRecords(final Map<String, ExecutionRecord> records) {
-        eventGraph.setDebugRecord(layout.events().stream()
-            .map(event -> records.get(event.name()))
-            .filter(Objects::nonNull)
+        Set<String> events = layout.events().stream().map(BlueprintLayout.Signature::name).collect(Collectors.toSet());
+        Map<String, List<ExecutionRecord>> byCanvas = new HashMap<>();
+
+        records.forEach((site, record) -> byCanvas.computeIfAbsent(enclosingSite(site), _ -> new ArrayList<>()).add(record));
+
+        eventGraph.setDebugRecord(byCanvas.entrySet().stream()
+            .filter(entry -> events.contains(entry.getKey()))
+            .flatMap(entry -> entry.getValue().stream())
             .toArray(ExecutionRecord[]::new));
 
         openCanvases.forEach((name, canvas) -> {
-            ExecutionRecord record = records.get(name);
+            List<ExecutionRecord> canvasRecords = byCanvas.get(name);
 
-            if (record == null) {
+            if (canvasRecords == null) {
                 canvas.clearDebugRecord();
             } else {
-                canvas.setDebugRecord(record);
+                canvas.setDebugRecord(canvasRecords.toArray(ExecutionRecord[]::new));
             }
         });
     }
@@ -979,13 +987,25 @@ public final class BlueprintEditorSession {
     /// Marks `failure` on the canvas drawing the run site `site`: the Event Graph for an event, the open tab
     /// for a function. False when no canvas on screen draws it.
     public boolean markRuntimeError(final String site, final ScriptFailure failure) {
-        if (layout.events().stream().anyMatch(event -> event.name().equals(site))) {
+        String canvas = enclosingSite(site);
+
+        if (layout.events().stream().anyMatch(event -> event.name().equals(canvas))) {
             return eventGraph.markRuntimeError(failure);
         }
 
-        ScriptNodeGraphWidget open = openCanvases.get(site);
+        ScriptNodeGraphWidget open = openCanvases.get(canvas);
 
         return open != null && open.markRuntimeError(failure);
+    }
+
+    /// The run site a callback site (`onPossessed/started`) was built in, or `site` itself when it is none.
+    ///
+    /// Only the last segment is cut, and a component slot site (`armature/cape#slot`) is kept whole: both use the
+    /// same separator for paths.
+    public static String enclosingSite(final String site) {
+        int split = site.lastIndexOf(ScriptCaller.CALLBACK_SEPARATOR);
+
+        return split < 0 || site.contains(ScriptCaller.SLOT_SEPARATOR) ? site : site.substring(0, split);
     }
 
     /// Canvases a host keeps outside the session's data, such as the graphs of a widget's events. Every rewrite of

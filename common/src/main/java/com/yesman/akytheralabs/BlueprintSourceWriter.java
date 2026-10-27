@@ -85,7 +85,7 @@ public final class BlueprintSourceWriter {
 
             List<String> lines = new ArrayList<>(prologues.getOrDefault(event.name(), List.of()));
 
-            if (!event.isAbstract()) lines.add(superCall(event) + ";");
+            if (!event.isAbstract()) lines.add(superCall(event, base) + ";");
 
             if (flow != null) {
                 lines.addAll(ScriptNodeSourceCompiler.compileMethod(
@@ -104,7 +104,7 @@ public final class BlueprintSourceWriter {
             List<String> lines = new ArrayList<>(prologues.getOrDefault(function.name(), List.of()));
 
             lines.addAll(ScriptNodeSourceCompiler.compileMethod(
-                flow, memberVariables, function.parameterNames(), selfExpr, selfType, superCall(function),
+                flow, memberVariables, function.parameterNames(), selfExpr, selfType, superCall(function, base),
                 function.returnsValue() ? defaultLiteral(function.returnType()) : null,
                 memberOwner(function, baseToken, holder)));
 
@@ -195,9 +195,10 @@ public final class BlueprintSourceWriter {
             + "(" + String.join(", ", parameters) + ")";
     }
 
-    /// The call of `signature`'s parent implementation with the arguments the override received.
-    private static String superCall(BlueprintLayout.Signature signature) {
-        return "super." + signature.name() + "(" + String.join(", ", signature.parameterNames()) + ")";
+    /// The call of `signature`'s parent implementation with the arguments the override received, through `base`
+    /// itself when it is an interface.
+    private static String superCall(BlueprintLayout.Signature signature, Class<?> base) {
+        return (base.isInterface() ? SourceNames.typeName(base) + ".super." : "super.") + signature.name() + "(" + String.join(", ", signature.parameterNames()) + ")";
     }
 
     private static Map<String, Object> row(List<String> annotations, String declaration, List<String> body) {

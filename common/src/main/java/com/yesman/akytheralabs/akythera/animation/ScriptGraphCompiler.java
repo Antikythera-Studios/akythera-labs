@@ -58,9 +58,9 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
 
     private ScriptGraphCompiler(
         ScriptGraphData data, Class<?> ownerType, EntrySelector entrySelector,
-        @Nullable Predicate<GraphNode> entryMatch, BlueprintMembers members, @Nullable String enclosingFunction
+        @Nullable Predicate<GraphNode> entryMatch, BlueprintMembers members, @Nullable String enclosingFunction, String canvasKey
     ) {
-        super(data, ownerType);
+        super(data, ownerType, canvasKey);
         this.data = data;
         this.entrySelector = entrySelector;
         this.entryMatch = entryMatch;
@@ -85,23 +85,25 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
     public static FlowNode compile(ScriptGraphData data, Class<?> ownerType, EntrySelector entrySelector) {
         if (data == null || data.isEmpty()) return new SequenceNode(List.of());
 
-        return new ScriptGraphCompiler(data, ownerType, entrySelector, null, BlueprintMembers.NONE, null).run();
+        return new ScriptGraphCompiler(data, ownerType, entrySelector, null, BlueprintMembers.NONE, null, ScriptNode.NO_CANVAS).run();
     }
 
     /// Compiles the flow rooted at the first row `entryMatch` accepts.
     public static FlowNode compile(ScriptGraphData data, Class<?> ownerType, Predicate<GraphNode> entryMatch) {
-        return compile(data, ownerType, entryMatch, BlueprintMembers.NONE, null);
+        return compile(data, ownerType, entryMatch, BlueprintMembers.NONE, null, ScriptNode.NO_CANVAS);
     }
 
     /// Compiles the flow rooted at the first row `entryMatch` accepts, on a canvas of a blueprint with
     /// `members` that implements the method or function `enclosingFunction`.
+    ///
+    /// @param canvasKey the run site of the flow, which its callbacks record under
     public static FlowNode compile(
         ScriptGraphData data, Class<?> ownerType, Predicate<GraphNode> entryMatch,
-        BlueprintMembers members, @Nullable String enclosingFunction
+        BlueprintMembers members, @Nullable String enclosingFunction, String canvasKey
     ) {
         if (data == null || data.isEmpty()) return new SequenceNode(List.of());
 
-        return new ScriptGraphCompiler(data, ownerType, EntrySelector.UPDATE, entryMatch, members, enclosingFunction).run();
+        return new ScriptGraphCompiler(data, ownerType, EntrySelector.UPDATE, entryMatch, members, enclosingFunction, canvasKey).run();
     }
 
     private FlowNode run() {
@@ -394,7 +396,7 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
 
     /// A stand-in for an unwired input: `self` when the owner fits the pin — through a
     /// [TypeConvertNode] when it only fits after a cast — else a default literal of the expected
-    /// script type when one exists, else [SelfNode].
+    /// script type when one exists, else [NullNode].
     @Override
     public PureNode defaultValue(@Nullable Class<?> expectedType) {
         if (expectedType == null || expectedType == Object.class) return SelfNode.INSTANCE;
@@ -413,7 +415,7 @@ public final class ScriptGraphCompiler extends PureGraphCompiler implements Flow
             }
         }
 
-        return SelfNode.INSTANCE;
+        return NullNode.INSTANCE;
     }
 
     // ***************************************************************

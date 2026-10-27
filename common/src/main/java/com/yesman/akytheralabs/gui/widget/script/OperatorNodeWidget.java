@@ -92,7 +92,8 @@ public final class OperatorNodeWidget extends AbstractNodeWidget {
         ADD("+", "Add (+)"),
         SUBTRACT("-", "Subtract (-)"),
         MULTIPLY("*", "Multiply (*)"),
-        DIVIDE("/", "Divide (/)");
+        DIVIDE("/", "Divide (/)"),
+        MODULO("%", "Modulo (%)");
 
         private final String symbol;
         private final String menuLabel;

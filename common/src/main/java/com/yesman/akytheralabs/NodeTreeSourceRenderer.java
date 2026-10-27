@@ -13,6 +13,7 @@ import com.yesman.akythera.api.data.modularize.node.FlowNode;
 import com.yesman.akythera.api.data.modularize.node.FunctionCallNode;
 import com.yesman.akythera.api.data.modularize.node.InvertBooleanNode;
 import com.yesman.akythera.api.data.modularize.node.LiteralNode;
+import com.yesman.akythera.api.data.modularize.node.NullNode;
 import com.yesman.akythera.api.data.modularize.node.LogicalOperationNode;
 import com.yesman.akythera.api.data.modularize.node.MeshAccessorNode;
 import com.yesman.akythera.api.data.modularize.node.NumericOperatorNode;
@@ -116,6 +117,7 @@ public final class NodeTreeSourceRenderer {
     public static String pure(PureNode node, int indent) {
         return switch (node) {
             case SelfNode _ -> "SelfNode.INSTANCE";
+            case NullNode _ -> "NullNode.INSTANCE";
             case LiteralNode<?> literal -> "new LiteralNode<>(" + scriptType(literal.type())
                 + ", " + ScriptNodeSourceCompiler.valueLiteral(literal.literal()) + ")";
             case ScriptVariableGetterNode getter ->

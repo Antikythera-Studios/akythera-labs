@@ -109,7 +109,7 @@ public final class BlueprintScriptData {
         Map<String, FlowNode> methods = new LinkedHashMap<>();
 
         for (BlueprintLayout.Signature event : layout.events()) {
-            FlowNode flow = ScriptGraphCompiler.compile(eventGraph, ownerType, entryOf(event.name()), members, null);
+            FlowNode flow = ScriptGraphCompiler.compile(eventGraph, ownerType, entryOf(event.name()), members, null, event.name());
 
             if (!(flow instanceof SequenceNode sequence && sequence.executionBlocks().isEmpty())) {
                 methods.put(event.key(), flow);
@@ -121,7 +121,7 @@ public final class BlueprintScriptData {
 
             if (graph != null) {
                 methods.put(function.key(), ScriptGraphCompiler.compile(
-                    graph, ownerType, entryOf(function.name()), members, function.name()));
+                    graph, ownerType, entryOf(function.name()), members, function.name(), function.name()));
             }
         }
 
@@ -135,7 +135,7 @@ public final class BlueprintScriptData {
             declared.put(function.name(), new FunctionGraph(
                 function.parameters(),
                 function.returnType(),
-                ScriptGraphCompiler.compile(function.graph(), ownerType, entryOf(function.name()), members, function.name())
+                ScriptGraphCompiler.compile(function.graph(), ownerType, entryOf(function.name()), members, function.name(), function.name())
             ));
         }
 

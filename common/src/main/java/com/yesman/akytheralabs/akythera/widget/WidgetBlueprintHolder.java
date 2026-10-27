@@ -211,7 +211,8 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
                 // A graph whose entry leads nowhere is left out
                 for (WidgetGraphSite site : widgetGraphSites()) {
                     FlowNode flow = ScriptGraphCompiler.compile(
-                        site.graph(), ownerType(), BlueprintScriptData.entryOf(site.signature().name()), members.with(site.widgetSignatures()), site.signature().name());
+                        site.graph(), ownerType(), BlueprintScriptData.entryOf(site.signature().name()), members.with(site.widgetSignatures()),
+                        site.signature().name(), site.key());
 
                     if (flow instanceof SequenceNode sequence && sequence.executionBlocks().isEmpty()) continue;
 

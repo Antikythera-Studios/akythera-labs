@@ -714,7 +714,8 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
                     return;
                 }
 
-                ScriptNodeGraphWidget canvas = session.externalCanvas(new WidgetGraphKey(widget, site.substring(split + 1)));
+                ScriptNodeGraphWidget canvas = session.externalCanvas(
+                    new WidgetGraphKey(widget, BlueprintEditorSession.enclosingSite(site.substring(split + 1))));
 
                 widgetErrors.putIfAbsent(widget, failure.cause());
 

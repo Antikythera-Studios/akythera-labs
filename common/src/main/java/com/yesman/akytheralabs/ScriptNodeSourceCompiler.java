@@ -317,6 +317,7 @@ public final class ScriptNodeSourceCompiler {
     private String expr(PureNode node) {
         return switch (node) {
             case SelfNode _ -> selfExpr;
+            case NullNode _ -> "null";
             case LiteralNode<?> literal -> literal(literal);
             case RegistryEntryNode entry -> BlueprintSourceWriter.propertyLiteral(entry.type(), new JsonPrimitive(entry.id().toString()));
             case RegistryKeyNode key -> BlueprintSourceWriter.registryKey(Objects.requireNonNull(key.type().registry()), key.id().toString());
@@ -380,7 +381,8 @@ public final class ScriptNodeSourceCompiler {
                 continue;
             }
 
-            args.add(provided == Object.class && !expected.isPrimitive() && expected != Object.class
+            // A value typed wider than the parameter, e.g. `Get Component` feeding an `AbilitySystemComponent`
+            args.add(provided != null && provided != expected && provided.isAssignableFrom(expected) && !expected.isPrimitive()
                 ? "((" + typeName(expected) + ") " + arg + ")"
                 : arg);
         }
@@ -614,6 +616,7 @@ public final class ScriptNodeSourceCompiler {
             case SUBTRACT -> "-";
             case MULTIPLY -> "*";
             case DIVIDE -> "/";
+            case MODULO -> "%";
         };
     }
 
