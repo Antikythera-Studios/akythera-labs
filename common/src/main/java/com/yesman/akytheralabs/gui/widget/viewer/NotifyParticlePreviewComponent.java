@@ -3,10 +3,12 @@ package com.yesman.akytheralabs.gui.widget.viewer;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.yesman.akythera.api.animation.notify.impl.TrailParticleNotifyState;
+import com.yesman.akythera.api.component.impl.ArmatureComponent;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.client.api.particle.AkytheraParticleSystem;
+import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.blueprint.particle.ParticleSystemBlueprint;
 import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.core.math.Transform;
@@ -24,6 +26,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,46 +41,37 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
     private final Supplier<NotifyTrackHolder> notifyTracks;
     private final PreviewParticles particles = new PreviewParticles(ParticleSystemPreviewComponent::piece);
 
-    /// The socket path each playing system follows.
-    private final Map<AkytheraParticleSystem, String> sockets = new IdentityHashMap<>();
+    /// The plays [#play] asked for, started by the next frame that moves the playhead.
+    private final List<Play> pending = new ArrayList<>();
+
+    /// The play of each playing system.
+    private final Map<AkytheraParticleSystem, Play> plays = new IdentityHashMap<>();
 
     /// Ticks not played yet, below one. Also the partial tick frames are drawn at.
     private float pendingTicks;
+
+    /// The playhead at the last frame, NaN before the first.
+    private float lastElapsed = Float.NaN;
 
     public NotifyParticlePreviewComponent(final Supplier<NotifyTrackHolder> notifyTracks) {
         this.notifyTracks = notifyTracks;
     }
 
-    /// Plays `particleSystem` on `socket` with every emitter's time span reshaped to `window`, as
-    /// [TrailParticleNotifyState#onBegin] does. Nothing plays when the system or the socket can't be found.
-    ///
-    /// The system takes its first tick here, as in game, and the next tick comes one tick from now.
+    /// Plays `particleSystem` on `socket` as [TrailParticleNotifyState] does, from the next frame that moves the
+    /// playhead. Nothing plays when the system or the socket can't be found.
     public void play(final Model3DViewer viewer, final ResourceKey<ParticleSystemBlueprint> particleSystem, final String socket, final TimeWindow window) {
         ParticleSystemBlueprint blueprint = blueprint(particleSystem);
-        Transform transform = socketTransform(viewer, socket);
 
-        if (blueprint == null || transform == null) return;
-
-        float span = window.to() - window.from();
-        AkytheraParticleSystem system = new AkytheraParticleSystem(
-            null,
-            new ParticleSystemBlueprint(blueprint.emitters().stream().map(emitter -> emitter.withTimeSpan(span)).toList(), blueprint.variables()),
-            transform,
-            null,
-            particles
-        );
-
-        particles.addSystem(system);
-        sockets.put(system, socket);
-        system.tick();
-        pendingTicks = 0.0F;
+        if (blueprint != null && socketTransform(viewer, socket) != null) pending.add(new Play(blueprint, socket, window));
     }
 
     @Override
     public void extractComponent(
         GuiGraphicsExtractor graphics, Model3DViewer model3DViewer, PoseStack poseStack, ByteBufferBuilder byteBuffer, int mouseX, int mouseY, float a
     ) {
-        model3DViewer.setDebugMessages(this, model3DViewer.getComponent(EntityModelComponent.class) == null
+        EntityModelComponent model = model3DViewer.getComponent(EntityModelComponent.class);
+
+        model3DViewer.setDebugMessages(this, model == null
             ? List.of()
             : notifyTracks.get().getTracks().stream()
                 .flatMap(track -> track.notifyStates.stream())
@@ -88,7 +82,17 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
                 })
                 .toList());
 
-        if (particles.isEmpty()) {
+        ArmatureComponent armature = model == null ? null : model.getArmatureComponent();
+        EntityModelComponent.EditorScrubAnimator animator = model != null && model.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator scrub ? scrub : null;
+        AnimationClip clip = animator == null || animator.getPreviewAnimation() == null
+            ? null
+            : animator.getPreviewAnimation().getOrHandleException(AkytheraLabs.LOGGER::error);
+        float prev = lastElapsed;
+        float cur = animator == null ? Float.NaN : animator.getElapsedTime();
+
+        lastElapsed = cur;
+
+        if (particles.isEmpty() && pending.isEmpty()) {
             pendingTicks = 0.0F;
             return;
         }
@@ -98,8 +102,8 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
         // A half-configured piece may throw while playing
         try {
             // The sockets as this frame draws them
-            sockets.forEach((system, socket) -> {
-                Transform transform = socketTransform(model3DViewer, socket);
+            plays.forEach((system, play) -> {
+                Transform transform = socketTransform(model3DViewer, play.socket);
 
                 if (transform != null) system.moveTo(transform);
             });
@@ -108,15 +112,53 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
                 particles.tick();
             }
 
+            // NaN compares false, so a frame with no playhead or one that moved back moves nothing
+            if (cur > prev && a > 0.0F) {
+                float ticksPerSecond = a / (cur - prev);
+
+                for (Play play : pending) {
+                    Transform transform = socketTransform(model3DViewer, play.socket);
+
+                    if (transform == null) continue;
+
+                    float span = (play.window.to() - play.window.from()) * ticksPerSecond / 20.0F;
+                    AkytheraParticleSystem system = new AkytheraParticleSystem(
+                        null,
+                        new ParticleSystemBlueprint(play.blueprint.emitters().stream().map(emitter -> emitter.withTimeSpan(span)).toList(), play.blueprint.variables()),
+                        transform,
+                        null,
+                        particles
+                    );
+
+                    particles.addSystem(system);
+                    plays.put(system, play);
+                    system.start(pendingTicks - (cur - play.window.from()) * ticksPerSecond);
+                }
+
+                pending.clear();
+
+                if (armature != null && clip != null) {
+                    plays.forEach((system, play) -> system.setFrameSampler(TrailParticleNotifyState.frameSampler(
+                        armature,
+                        clip::getPose,
+                        play.window,
+                        prev,
+                        cur,
+                        system.getAge() + pendingTicks,
+                        ticksPerSecond,
+                        () -> socketTransform(model3DViewer, play.socket)
+                    )));
+                }
+            }
+
             particles.frameUpdate(a * 0.05F, pendingTicks);
         } catch (RuntimeException e) {
             AkytheraLabs.LOGGER.warn("The notify particle preview stops its particles", e);
-            particles.clear();
-            sockets.clear();
+            clear();
             return;
         }
 
-        sockets.keySet().removeIf(system -> !system.isAlive());
+        plays.keySet().removeIf(system -> !system.isAlive());
         particles.draw(model3DViewer, poseStack, byteBuffer, pendingTicks);
     }
 
@@ -149,10 +191,11 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
         return 30; // translucent, after grid (1) and models (10)
     }
 
-    /// Removes every particle, the systems included.
+    /// Removes every particle, the systems included, and the plays not started yet.
     public void clear() {
         particles.clear();
-        sockets.clear();
+        plays.clear();
+        pending.clear();
         pendingTicks = 0.0F;
     }
 
@@ -160,5 +203,9 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
     public void destroy() {
         clear();
         particles.releaseTextures();
+    }
+
+    /// A system to play from `blueprint`, following `socket` over `window`.
+    private record Play(ParticleSystemBlueprint blueprint, String socket, TimeWindow window) {
     }
 }
