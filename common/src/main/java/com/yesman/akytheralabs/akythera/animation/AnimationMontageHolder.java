@@ -51,16 +51,18 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             Codec.FLOAT.fieldOf("fade_out_time").forGetter(AnimationMontageHolder::getFadeOutTime),
             Codec.BOOL.fieldOf("loops").forGetter(AnimationMontageHolder::loops),
             Codec.BOOL.fieldOf("root_motion").forGetter(h -> h.rootMotion),
+            Codec.BOOL.optionalFieldOf("move_vertical", true).forGetter(AnimationMontageHolder::moveVertical),
             AnimationLayerSignature.ENUM_MANAGER.getNameCodec()
                 .optionalFieldOf("layer_signature", AkytheraAnimationLayerSignature.BASE)
                 .forGetter(AnimationMontageHolder::layerSignature),
+            Codec.FLOAT.optionalFieldOf("play_rate", 1.0F).forGetter(AnimationMontageHolder::playRate),
             Identifier.CODEC.optionalFieldOf("preview_entity_type")
                 .forGetter(ParseUtils.provideOptional(AnimationMontageHolder::getPreviewEntityType)),
             PreviewItem.CODEC.listOf().optionalFieldOf("preview_items", List.of())
                 .forGetter(AnimationMontageHolder::getPreviewItems),
             NotifyTrackHolder.EDITOR_CODEC.optionalFieldOf("notify_tracks", new NotifyTrackHolder())
                 .forGetter(AnimationMontageHolder::getNotifyTrackHolder)
-        ).apply(instance, (segs, secs, orders, fin, fout, lps, rm, sig, pm, items, nth) -> {
+        ).apply(instance, (segs, secs, orders, fin, fout, lps, rm, mv, sig, rate, pm, items, nth) -> {
             AnimationMontageHolder h = new AnimationMontageHolder();
             segs.forEach(h::addSegment);
             h.sections.putAll(secs);
@@ -69,7 +71,9 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             h.fadeOutTime = fout;
             h.loops = lps;
             h.rootMotion = rm;
+            h.moveVertical = mv;
             h.layerSignature = sig;
+            h.playRate = rate;
             pm.ifPresent(h::setPreviewEntityType);
             h.setPreviewItems(items);
             if (!nth.getTracks().isEmpty()) h.notifyTrackHolder = nth;
@@ -103,11 +107,17 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
     @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_LOOPS, order = 2)
     private boolean loops;
 
-    @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_ROOT_MOTION, order = 3)
+    @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_ROOT_MOTION, order = 3, rebuildOnWrite = true)
     private boolean rootMotion;
 
-    @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_LAYER_SIGNATURE, order = 4)
+    @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_MOVE_VERTICAL, order = 4, indent = 1, visibleWhen = "isRootMotion")
+    private boolean moveVertical = true;
+
+    @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_LAYER_SIGNATURE, order = 5)
     private AnimationLayerSignature layerSignature = AkytheraAnimationLayerSignature.BASE;
+
+    @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_PLAY_RATE, min = 0.01F, order = 6)
+    private float playRate = 1.0F;
 
     @Nullable
     private Identifier previewEntityType;
@@ -135,7 +145,9 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
         fadeOutTime = object.fadeOutTime();
         loops = object.loops();
         rootMotion = object.rootMotion();
+        moveVertical = object.moveVertical();
         layerSignature = object.layerSignature();
+        playRate = object.playRate();
         // TODO: SectionInfo exposes no public enumeration, so sections and playingOrders cannot be
         // recovered from a runtime montage.
     }
@@ -162,8 +174,9 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
         segments.forEach(b::addAnimSegment);
 
         return b.fadeInTime(fadeInTime).fadeOutTime(fadeOutTime)
-            .loops(loops).rootMotionEnabled(rootMotion)
+            .loops(loops).rootMotionEnabled(rootMotion).moveVertical(moveVertical)
             .layerSignature(layerSignature)
+            .playRate(playRate)
             .create();
     }
 
@@ -235,6 +248,8 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
         dto.put("fade_out_time", SourceTemplateEngine.floatLiteral(fadeOutTime));
         dto.put("loops", Boolean.toString(loops));
         dto.put("root_motion", Boolean.toString(rootMotion));
+        dto.put("move_vertical", Boolean.toString(moveVertical));
+        dto.put("play_rate", SourceTemplateEngine.floatLiteral(playRate));
 
         // The builder defaults to BASE. Every registered signature is an enum constant, so a
         // differing one renders as `<SimpleName>.<CONSTANT>`.
@@ -511,6 +526,14 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
         if (rootMotionChangeListener != null) rootMotionChangeListener.accept(v);
     }
 
+    public boolean moveVertical() {
+        return moveVertical;
+    }
+
+    public void setMoveVertical(boolean v) {
+        moveVertical = v;
+    }
+
     public void setRootMotionChangeListener(@Nullable Consumer<Boolean> listener) {
         rootMotionChangeListener = listener;
     }
@@ -521,6 +544,14 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
 
     public void setLayerSignature(AnimationLayerSignature layerSignature) {
         this.layerSignature = layerSignature;
+    }
+
+    public float playRate() {
+        return playRate;
+    }
+
+    public void setPlayRate(float v) {
+        playRate = v;
     }
 
     public @Nullable Identifier getPreviewEntityType() {

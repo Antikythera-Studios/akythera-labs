@@ -1014,7 +1014,7 @@ public final class EditorWidgetFactory {
         for (CategoryEntry entry : entries) {
             switch (entry) {
                 case FieldEntry(EditorField editorField) -> {
-                    RowBuilder rows = builderFor(editorField, depth);
+                    RowBuilder rows = builderFor(editorField, depth + editorField.annotation().indent());
                     String visibleWhen = editorField.annotation().visibleWhen();
 
                     if (visibleWhen.isBlank()) {

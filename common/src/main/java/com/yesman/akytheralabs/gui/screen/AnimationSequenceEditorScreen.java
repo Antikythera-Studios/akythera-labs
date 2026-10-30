@@ -46,6 +46,7 @@ import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -73,6 +74,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
     private final Model3DViewer model3DViewer;
     private final WidgetTable propertiesTable;
     private final PanelHeader propertiesHeader;
+    private @Nullable ScreenRectangle propertiesRect;
     private final AnimationTrackEditorPanel animationTrackEditorPanel;
     private final NotifyDetailsPanel notifyDetailsPanel;
     private final AnimationSequenceHolder holder;
@@ -138,7 +140,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
             ROW_H
         );
 
-        new EditorWidgetFactory(minecraft.font).fillWidgetTable(propertiesTable, holder);
+        fillProperties();
 
         notifyDetailsPanel = new NotifyDetailsPanel(this);
         animationTrackEditorPanel = new AnimationTrackEditorPanel(
@@ -194,6 +196,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         leftAndRight.get(0).resizeCallback(model3DViewer::relocate);
         leftAndRight.get(0).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
         leftAndRight.get(1).resizeCallback(rect -> {
+            propertiesRect = rect;
             propertiesHeader.relocate(rect);
             propertiesTable.relocate(rect);
         });
@@ -204,6 +207,13 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         // last save point. Snapshot the point after all seeding above so a freshly opened editor is clean.
         topMenuBar.setDirtyChecker(this::hasUnsavedChanges);
         savePoint = HistoryManager.getInstance().currentSavePoint();
+    }
+
+    /// The sequence's detail rows. A refill adds fresh widgets, so the table is relocated to place them.
+    private void fillProperties() {
+        new EditorWidgetFactory(minecraft.font).fillWidgetTable(propertiesTable, holder, this::fillProperties);
+
+        if (propertiesRect != null) propertiesTable.relocate(propertiesRect);
     }
 
     @Override
@@ -265,6 +275,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
 
         if (entityModelComponent.getAnimator() instanceof EntityModelComponent.SimpleHeadlessAnimator simpleHeadlessAnimator) {
             simpleHeadlessAnimator.setOnPlaybackEnds(animationTrackEditorPanel::onPlaybackEnds);
+            simpleHeadlessAnimator.setPlayRate(holder::playRate);
         }
     }
 
@@ -282,7 +293,14 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         if (!holder.isRootMotion()) return;
 
         model3DViewer.addComponent(new RootMotionTrajectoryComponent(
-            () -> RootMotionTrajectoryComponent.sampleRootPath(holder.getAnimClip().get()),
+            () -> {
+                AnimationClip clip = holder.getAnimClip().get();
+                List<Vec3> path = RootMotionTrajectoryComponent.sampleRootPath(clip);
+                if (clip == null || holder.moveVertical()) return path;
+
+                double restY = RootMotionTrajectoryComponent.rootLocation(clip, 0.0F).y;
+                return path.stream().map(p -> new Vec3(p.x, restY, p.z)).toList();
+            },
             () -> {
                 AnimationClip clip = holder.getAnimClip().get();
                 if (clip == null) return Vec3.ZERO;
@@ -290,7 +308,8 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
                 EntityModelComponent c = model3DViewer.getComponent(EntityModelComponent.class);
                 float elapsed = (c != null && c.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator s)
                     ? s.getElapsedTime() : 0.0F;
-                return RootMotionTrajectoryComponent.rootLocation(clip, elapsed);
+                Vec3 location = RootMotionTrajectoryComponent.rootLocation(clip, elapsed);
+                return holder.moveVertical() ? location : new Vec3(location.x, RootMotionTrajectoryComponent.rootLocation(clip, 0.0F).y, location.z);
             }
         ));
     }

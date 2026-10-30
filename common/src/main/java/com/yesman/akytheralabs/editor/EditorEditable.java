@@ -122,6 +122,15 @@ public @interface EditorEditable {
     /// Blank always shows the row.
     String visibleWhen() default "";
 
+    /// Extra indent levels of this row, on top of its [#category] depth. Use it to show a row as a
+    /// sub-option of the row above it, often paired with [#visibleWhen].
+    ///
+    /// ```
+    /// Root Motion
+    ///   Move Vertical
+    /// ```
+    int indent() default 0;
+
     /// Lang key naming the reason there is nothing to pick: shown in place of an empty [#candidates]
     /// dropdown, and by a list row's `+` when [#defaultElement] answers null. Blank falls back to a
     /// generic message.
