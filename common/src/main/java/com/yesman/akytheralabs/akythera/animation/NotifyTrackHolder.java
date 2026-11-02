@@ -168,6 +168,7 @@ public final class NotifyTrackHolder implements DTOProvider {
         }
         AnimationNotifyStateHolder h = factory.get();
         h.readFrom(n);
+        h.markSaved();
         return h;
     }
 

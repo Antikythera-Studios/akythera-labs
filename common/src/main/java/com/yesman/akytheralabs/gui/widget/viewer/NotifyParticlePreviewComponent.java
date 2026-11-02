@@ -17,7 +17,7 @@ import com.yesman.akythera.core.util.StaticRegistryAccess;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
-import com.yesman.akytheralabs.akythera.animation.notify.impl.TrailParticleNotifyStateHolder;
+import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -35,8 +35,9 @@ import java.util.function.Supplier;
 /// Plays the particle systems of an animation's [TrailParticleNotifyState]s in an animation editor's [Model3DViewer],
 /// with no level, each following its socket on the previewed model. The particles play in a [PreviewParticles].
 ///
-/// A socket is resolved by the viewer's [PreviewPatchComponent]. Each trail particle notify state naming a socket it
-/// can't resolve raises a debug message.
+/// A socket is resolved by the viewer's [PreviewPatchComponent]. Each notify state with a
+/// [AnimationNotifyStateHolder#socketPath] naming a socket it can't resolve raises a debug message, as does an empty
+/// one once the notify state is saved.
 public final class NotifyParticlePreviewComponent implements Model3DViewerComponent {
     private final Supplier<NotifyTrackHolder> notifyTracks;
     private final PreviewParticles particles = new PreviewParticles(ParticleSystemPreviewComponent::piece);
@@ -76,8 +77,14 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
             : notifyTracks.get().getTracks().stream()
                 .flatMap(track -> track.notifyStates.stream())
                 .<Component>mapMulti((state, messages) -> {
-                    if (state.holder instanceof TrailParticleNotifyStateHolder trail && socketTransform(model3DViewer, trail.getSocket()) == null) {
-                        messages.accept(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_SOCKET_NOT_FOUND, trail.getSocket(), trail.notifyName()));
+                    String socket = state.holder.socketPath();
+
+                    if (socket == null) return;
+
+                    if (socket.isEmpty()) {
+                        if (state.holder.isSaved()) messages.accept(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_SOCKET_EMPTY, state.holder.notifyName()));
+                    } else if (socketTransform(model3DViewer, socket) == null) {
+                        messages.accept(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_SOCKET_NOT_FOUND, socket, state.holder.notifyName()));
                     }
                 })
                 .toList());

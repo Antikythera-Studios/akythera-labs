@@ -18,6 +18,22 @@ import org.jspecify.annotations.Nullable;
 public abstract class AnimationNotifyStateHolder<T extends AnimationNotifyState<?>> implements DataHolder<T>, DTOProvider {
     private @Nullable Exception loadingException;
 
+    /// Whether this notify state was loaded or saved since it was added.
+    private boolean saved;
+
+    public boolean isSaved() {
+        return saved;
+    }
+
+    public void markSaved() {
+        saved = true;
+    }
+
+    /// The socket path this notify state follows, null for one that follows none.
+    public @Nullable String socketPath() {
+        return null;
+    }
+
     @Override
     public @Nullable Exception getDeserializationFailureException() {
         return loadingException;

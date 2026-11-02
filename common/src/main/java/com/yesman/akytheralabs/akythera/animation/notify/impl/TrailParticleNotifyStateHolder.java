@@ -13,6 +13,7 @@ import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.viewer.NotifyParticlePreviewComponent;
 import net.minecraft.resources.ResourceKey;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Map;
 
@@ -25,8 +26,10 @@ public final class TrailParticleNotifyStateHolder extends AnimationNotifyStateHo
     @EditorEditable(label = LangKeys.GUI_NOTIFY_TRACKS_FIELD_SOCKET, order = 1, setOnCommit = true)
     private String socket = "";
 
-    public String getSocket() {
-        return socket;
+    /// Null for a blank [#socket], which follows the entity's root.
+    @Override
+    public @Nullable String socketPath() {
+        return socket.isEmpty() ? null : socket;
     }
 
     @Override

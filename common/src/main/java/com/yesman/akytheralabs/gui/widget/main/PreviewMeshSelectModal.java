@@ -10,10 +10,12 @@ import com.yesman.akythera.client.api.gui.viewer.BackgroundComponent;
 import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -282,6 +284,7 @@ public final class PreviewMeshSelectModal extends OverlayingWindowModal
         List<SkeletalMeshRow> skeletal = AkytheraProject.getCurrentProject()
             .listAllMeshAccessors()
             .filter(acc -> acc.checkType(AssetAccessor.Type.SKELETAL_MESH))
+            .filter(acc -> !acc.identifier().equals(DataHolder.EMPTY_REFERENCE.withPrefix(MeshManager.DIRECTORY)))
             .map(acc -> new SkeletalMeshRow((AssetAccessor<SkeletalMesh>) acc))
             .filter(row -> lower.isEmpty() || ParseUtils.toLowerCase(row.accessor().identifier()).contains(lower))
             .sorted(Comparator.comparing(row -> row.accessor().identifier().toString()))

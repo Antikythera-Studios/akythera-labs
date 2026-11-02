@@ -550,6 +550,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
             return;
         }
 
+        holder.getNotifyTrackHolder().getTracks().forEach(track -> track.notifyStates.forEach(state -> state.holder.markSaved()));
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
