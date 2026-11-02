@@ -1,0 +1,2 @@
+<#-- minecraft:sheep_head_eat_position_scale (entityPatch, partialTick) -> float --><#t>
+(${params[0]} != null && ${params[0]}.getOriginal() instanceof Sheep ? ((Sheep) ${params[0]}.getOriginal()).getHeadEatPositionScale(${params[1]}) : 0.0F)<#t>

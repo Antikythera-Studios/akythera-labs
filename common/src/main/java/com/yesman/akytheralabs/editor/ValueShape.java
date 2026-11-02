@@ -18,6 +18,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Quaterniond;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.reflect.Constructor;
@@ -96,6 +97,7 @@ public sealed interface ValueShape {
             if (type == Double.class || type == double.class) return 0.0D;
             if (type == String.class) return "";
             if (type == Vec3.class) return Vec3.ZERO;
+            if (type == Quaterniond.class) return new Quaterniond();
             if (type == AbilityTagSet.class) return AbilityTagSet.EMPTY;
 
             if (EnumerableDataBlock.class.isAssignableFrom(type)) {

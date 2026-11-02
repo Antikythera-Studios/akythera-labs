@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.WidgetTable;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
@@ -16,6 +17,7 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.asset.ArmatureMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.ArmatureMetadataHolder.PairEntry;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -78,6 +80,9 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
     private final ArmatureViewComponent armatureView;
     private final MirrorPairPanel pairPanel;
     private final PanelHeader pairHeader;
+    private final PanelHeader legHeader;
+    private final WidgetTable legTable;
+    private @Nullable ScreenRectangle legRect;
 
     /// The sidecar view, taken off the accessor so the pairs edited here survive a close and reopen.
     private final ArmatureMetadataHolder holder;
@@ -137,6 +142,17 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
         pairPanel.setY1(AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT + 2));
         pairPanel.rebuild();
 
+        legHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ARMATURE_ASSET_SCREEN_SECTION_LEGS));
+        legTable = new WidgetTable(
+            this,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT + 2), AnchoredWidget.pixel(0),
+            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+            AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
+            ROW_H
+        );
+        fillLegs();
+
         panelManager = new AdjustablePanelManager(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TOP_BAR_H), AnchoredWidget.pixel(0),
@@ -144,16 +160,23 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
 
-        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 60);
+        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 60, 50);
 
         var leftAndRight = panelManager.getRoot()
             .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.get(0));
+        var pairsAndLegs = leftAndRight.get(1)
+            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, layoutRatios.get(1));
 
         leftAndRight.get(0).resizeCallback(model3DViewer::relocate);
         leftAndRight.get(0).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
-        leftAndRight.get(1).resizeCallback(rect -> {
+        pairsAndLegs.get(0).resizeCallback(rect -> {
             pairHeader.relocate(rect);
             pairPanel.relocate(rect);
+        });
+        pairsAndLegs.get(1).resizeCallback(rect -> {
+            legRect = rect;
+            legHeader.relocate(rect);
+            legTable.relocate(rect);
         });
 
         topMenuBar.setDirtyChecker(this::hasUnsavedChanges);
@@ -173,8 +196,16 @@ public final class ArmatureAssetEditorScreen extends Screen implements ModalAcce
         addRenderableWidget(model3DViewer);
         addRenderableWidget(pairHeader);
         addRenderableWidget(pairPanel);
+        addRenderableWidget(legHeader);
+        addRenderableWidget(legTable);
 
         frameCamera();
+    }
+
+    private void fillLegs() {
+        new EditorWidgetFactory(font).fillWidgetTable(legTable, holder, this::fillLegs, holder);
+
+        if (legRect != null) legTable.relocate(legRect);
     }
 
     private void frameCamera() {

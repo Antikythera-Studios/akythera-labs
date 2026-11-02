@@ -40,10 +40,10 @@ import java.util.stream.Stream;
 /// Not a [RootAttachableComponent]. Its [#localTransform] is in its host's space, or in its armature's for a
 /// skeletal mesh.
 ///
-/// [#renderTypeGetter] is a raw [ScriptGraphData] canvas edited in a center tab, stored the way
-/// [AnimatorScriptHolder] stores its canvases. Its result root takes a [RenderType], and the owning
-/// patch is what the canvas answers for `self` — a read of the [MeshComponent#OWNER_PARAM] local, which
-/// fills every unwired owner slot.
+/// [#renderTypeGetter] and [#colorGetter] are raw [ScriptGraphData] canvases edited in center tabs, stored the
+/// way [AnimatorScriptHolder] stores its canvases. Their result roots take a [RenderType] and an ARGB color, and
+/// the owning patch is what each canvas answers for `self` — a read of the [MeshComponent#OWNER_PARAM] local,
+/// which fills every unwired owner slot.
 public final class MeshComponentHolder extends ComponentDataHolder<MeshComponentBlueprint> implements TransformComponentHolder {
     public static final MapCodec<MeshComponentHolder> EDITOR_CODEC = RecordCodecBuilder.mapCodec(
         instance -> instance.group(
@@ -51,13 +51,16 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
                 .forGetter(h -> Optional.of(h.mesh)),
             ScriptGraphData.CODEC.optionalFieldOf("render_type_getter", ScriptGraphData.EMPTY)
                 .forGetter(h -> h.renderTypeGetter),
+            ScriptGraphData.CODEC.optionalFieldOf("color_getter", ScriptGraphData.EMPTY)
+                .forGetter(h -> h.colorGetter),
             TransformHolder.CODEC.optionalFieldOf("transform")
                 .forGetter(h -> Optional.of(h.localTransform)),
             TransformInheritPolicy.CODEC.optionalFieldOf("transform_inherit_policy", TransformInheritPolicy.LOC_ROT_SCA)
                 .forGetter(TransformComponentHolder::getTransformInheritPolicy)
-        ).apply(instance, (mesh, renderTypeGetter, transform, transformInheritPolicy) -> new MeshComponentHolder(
+        ).apply(instance, (mesh, renderTypeGetter, colorGetter, transform, transformInheritPolicy) -> new MeshComponentHolder(
             mesh.orElseGet(() -> EditorAssetAccessors.mesh(DataHolder.EMPTY_REFERENCE)),
             renderTypeGetter,
+            colorGetter,
             transform.orElseGet(TransformHolder::identity),
             transformInheritPolicy))
     );
@@ -71,23 +74,29 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
     @EditorNodeGraph(resultType = RenderType.class)
     private ScriptGraphData renderTypeGetter;
 
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_COLOR_GETTER, order = 2)
+    @EditorNodeGraph(resultType = int.class)
+    private ScriptGraphData colorGetter;
+
     /// The elements of its host's space, or of its armature's for a skeletal mesh, the mesh takes on.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_TRANSFORM_INHERIT_POLICY, order = 2)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_TRANSFORM_INHERIT_POLICY, order = 3)
     private TransformInheritPolicy transformInheritPolicy;
 
     /// Where the mesh sits. A nested editor object, rendered as location / rotation / scale rows under one
     /// "Local Transform" heading.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_SECTION_LOCAL_TRANSFORM, order = 3)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_SECTION_LOCAL_TRANSFORM, order = 4)
     private TransformHolder localTransform;
 
     public MeshComponentHolder(
         AssetAccessor<? extends Mesh<?>> mesh,
         ScriptGraphData renderTypeGetter,
+        ScriptGraphData colorGetter,
         TransformHolder localTransform,
         TransformInheritPolicy transformInheritPolicy
     ) {
         this.mesh = mesh;
         this.renderTypeGetter = renderTypeGetter;
+        this.colorGetter = colorGetter;
         this.localTransform = localTransform;
         this.transformInheritPolicy = transformInheritPolicy;
     }
@@ -96,6 +105,7 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
     public static MeshComponentHolder createDefault() {
         return new MeshComponentHolder(
             EditorAssetAccessors.mesh(DataHolder.EMPTY_REFERENCE),
+            ScriptGraphData.EMPTY,
             ScriptGraphData.EMPTY,
             TransformHolder.identity(),
             TransformInheritPolicy.LOC_ROT_SCA
@@ -124,6 +134,14 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
         this.renderTypeGetter = renderTypeGetter;
     }
 
+    public ScriptGraphData getColorGetter() {
+        return colorGetter;
+    }
+
+    public void setColorGetter(ScriptGraphData colorGetter) {
+        this.colorGetter = colorGetter;
+    }
+
     @Override
     public TransformHolder getLocalTransform() {
         return localTransform;
@@ -149,21 +167,24 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
             : object.mesh();
 
         // Runtime PureNode trees cannot be decompiled back into editor canvases, so an imported
-        // component opens with an empty canvas.
+        // component opens with empty canvases.
         renderTypeGetter = ScriptGraphData.EMPTY;
+        colorGetter = ScriptGraphData.EMPTY;
         localTransform.readFrom(object.transform());
         transformInheritPolicy = object.transformInheritPolicy();
     }
 
     @Override
     public MeshComponentBlueprint makeObject() {
-        return new MeshComponentBlueprint(getMesh(), compileRenderType(), localTransform.makeObject(), transformInheritPolicy, isEnabled());
+        return new MeshComponentBlueprint(
+            getMesh(), compile(renderTypeGetter), compile(colorGetter), localTransform.makeObject(), transformInheritPolicy, isEnabled()
+        );
     }
 
     /// The canvas lowered to its headless tree, or null while nothing is wired into the result. The
     /// owner type fills unwired owner slots; the canvas' own owner pin is a context read.
-    private @Nullable PureNode compileRenderType() {
-        return ConditionGraphCompiler.compileOptional(renderTypeGetter, EntityPatch.class, MeshComponent.OWNER_PARAM);
+    private static @Nullable PureNode compile(final ScriptGraphData canvas) {
+        return ConditionGraphCompiler.compileOptional(canvas, EntityPatch.class, MeshComponent.OWNER_PARAM);
     }
 
     @Override
@@ -171,28 +192,31 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
         return MeshComponent.class;
     }
 
-    /// The mesh when it is a project asset, plus the assets the canvas' nodes bind.
+    /// The mesh when it is a project asset, plus the assets the canvases' nodes bind.
     @Override
     public Stream<EditorReference> referencedReferences() {
         return Stream.concat(
             mesh instanceof EditorReference ref ? Stream.of(ref) : Stream.empty(),
-            renderTypeGetter.referencedReferences());
+            canvases().flatMap(ScriptGraphData::referencedReferences));
     }
 
     @Override
     public Stream<ScriptGraphData> canvases() {
-        return Stream.of(renderTypeGetter);
+        return Stream.of(renderTypeGetter, colorGetter);
     }
 
     @Override
     public void mapCanvases(final UnaryOperator<ScriptGraphData> mapper) {
         renderTypeGetter = mapper.apply(renderTypeGetter);
+        colorGetter = mapper.apply(colorGetter);
     }
 
     /// The first canvas node the decode guard could not resolve, if any.
     @Override
     public @Nullable Exception getNestedFailureException() {
-        return renderTypeGetter.firstFailure();
+        Exception renderTypeFailure = renderTypeGetter.firstFailure();
+
+        return renderTypeFailure != null ? renderTypeFailure : colorGetter.firstFailure();
     }
 
     // ***************************************************************
@@ -205,12 +229,13 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
     }
 
     /// Tokens for `components/mesh.ftl`: the mesh behind a `has_mesh` flag the fragment turns into a
-    /// null argument, and the compiled render type behind a flag of its own, both as a node tree from
-    /// [NodeTreeSourceRenderer#pure] and as a lambda from [ScriptNodeSourceCompiler#compilePureLambda].
+    /// null argument, and the compiled render type and color behind flags of their own, each as a node tree
+    /// from [NodeTreeSourceRenderer#pure] and as a lambda from [ScriptNodeSourceCompiler#compilePureLambda].
     @Override
     public Map<String, Object> getDTO() {
         AssetAccessor<? extends Mesh<?>> picked = getMesh();
-        PureNode renderType = compileRenderType();
+        PureNode renderType = compile(renderTypeGetter);
+        PureNode color = compile(colorGetter);
 
         Map<String, Object> dto = new HashMap<>();
         dto.put("has_mesh", picked != null);
@@ -219,6 +244,10 @@ public final class MeshComponentHolder extends ComponentDataHolder<MeshComponent
         dto.put("render_type_getter", renderType == null ? "null" : NodeTreeSourceRenderer.pure(renderType, 5));
         dto.put("render_type_lambda", renderType == null ? "null"
             : ScriptNodeSourceCompiler.compilePureLambda(renderType, MeshComponent.OWNER_PARAM, EntityPatch.class));
+        dto.put("has_color_getter", color != null);
+        dto.put("color_getter", color == null ? "null" : NodeTreeSourceRenderer.pure(color, 5));
+        dto.put("color_lambda", color == null ? "null"
+            : ScriptNodeSourceCompiler.compilePureLambda(color, MeshComponent.OWNER_PARAM, EntityPatch.class));
         dto.put("transform", localTransform.sourceTokens());
         dto.put("transform_inherit_policy", transformInheritPolicy.name());
 
