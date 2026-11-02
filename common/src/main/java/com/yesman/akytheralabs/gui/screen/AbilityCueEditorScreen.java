@@ -2,6 +2,8 @@ package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
+import com.yesman.akythera.api.data.modularize.node.ScriptFailure;
+import com.yesman.akythera.api.data.modularize.node.ScriptRecorder;
 import com.yesman.akythera.api.world.ability.AbilityCue;
 import com.yesman.akythera.api.world.ability.AbilityCueScript;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
@@ -54,6 +56,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -80,6 +83,9 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
 
     /// History stack top at the last save; the title shows a `*` while the live top differs from it.
     private @Nullable WorkHistory savePoint;
+
+    /// Whether runtime failures were marked on the last frame, so the frame after they are cleared unmarks them.
+    private boolean failuresMarked;
 
     public AbilityCueEditorScreen(final ResourceKey<AbilityCueBlueprint> resourceKey, final AbilityCueBlueprintHolder holder) {
         super(Component.literal(resourceKey.identifier().toString()));
@@ -122,6 +128,7 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
                 .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.COMPILE, () -> {
+                    ScriptRecorder.removeFailures(resourceKey);
                     session.flush();
                     session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
                     Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
@@ -322,9 +329,21 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
         // Draw nothing
     }
 
-    /// Re-shows the marks of a failed compile every frame, so they reach tabs opened after it.
+    /// Marks the blueprint's runtime failures on the Event Graph or a function tab, and re-shows the marks of a
+    /// failed compile.
     @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        Map<String, ScriptFailure> failures = ScriptRecorder.failures(resourceKey);
+
+        // Re-marked every frame while failures stand, so the marks follow edits that renumber the rows and reach
+        // tabs opened after the failure
+        if (!failures.isEmpty() || failuresMarked) {
+            failuresMarked = !failures.isEmpty();
+
+            session.canvases().forEach(ScriptNodeGraphWidget::clearRuntimeErrors);
+            failures.forEach(session::markRuntimeError);
+        }
+
         CompileFailure failure = holder.getCompileFailure();
 
         if (failure != null) session.showCompileFailure(failure);

@@ -4,12 +4,15 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.node.CallbackAdapterNode;
+import com.yesman.akythera.api.data.modularize.node.ContextVariableAccessNode;
 import com.yesman.akythera.api.data.modularize.node.FlowFunctionNode;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
 import com.yesman.akythera.api.data.modularize.node.NullNode;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.api.data.modularize.node.ScriptCaller;
 import com.yesman.akythera.api.data.modularize.node.ScriptNode;
+import com.yesman.akythera.api.data.modularize.node.ScriptVariableSetterNode;
+import com.yesman.akythera.api.data.modularize.node.SequenceNode;
 import com.yesman.akythera.core.reflection.FunctionSignature;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
@@ -21,7 +24,8 @@ import java.util.List;
 
 /// Calls one non-pure [ScriptFunction]. Input pin 0 is execution and the pins after it are its data parameters;
 /// output pin 0 is execution, whose chain becomes the call's `next`, and the pins after it are its callback
-/// parameters, each a sub-flow passed as a [CallbackAdapterNode], or [NullNode] when unwired.
+/// parameters, each a sub-flow passed as a [CallbackAdapterNode], or [NullNode] when unwired. The last output,
+/// present when the function returns a value, is its answer, held in the local [FunctionCallNodeData#localName].
 public record FlowFunctionNodeData(ScriptFunction function) implements FlowNodeData {
     public static final MapCodec<FlowFunctionNodeData> CODEC = RecordCodecBuilder.mapCodec(
         instance ->
@@ -104,6 +108,26 @@ public record FlowFunctionNodeData(ScriptFunction function) implements FlowNodeD
             params.add(new CallbackAdapterNode(emitter.emit(body), site));
         }
 
-        return new FlowFunctionNode(function, params, next, self.nodeId());
+        if (!emitter.consumed(self.nodeId(), returnPin())) return new FlowFunctionNode(function, params, next, self.nodeId());
+
+        FlowNode call = new ScriptVariableSetterNode(
+            FunctionCallNodeData.localName(self.nodeId()), new FlowFunctionNode(function, params, null, self.nodeId()));
+
+        return next == null ? call : new SequenceNode(List.of(call, next));
+    }
+
+    @Override
+    public @Nullable PureNode compilePure(NodeInputs in, int fromPin, @Nullable Class<?> expectedType) {
+        return fromPin == returnPin() ? new ContextVariableAccessNode(FunctionCallNodeData.localName(in.id())) : null;
+    }
+
+    /// The output pin of the function's answer, after the execution output and the callbacks. -1 when the
+    /// function returns nothing.
+    private int returnPin() {
+        FunctionSignature signature = function.functionSignature();
+
+        if (signature.returnType() == void.class || signature.returnType() == Void.class) return -1;
+
+        return CALLBACK_OFFSET + (int) signature.parameters().stream().filter(FlowFunctionNodeData::isCallback).count();
     }
 }
