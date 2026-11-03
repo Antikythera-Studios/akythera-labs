@@ -29,7 +29,7 @@ import java.util.List;
 /// `enum` (ComboBox), [Vec3] (three
 /// per-axis number boxes), [AssetAccessor] (a search PopupBox routed by the
 /// accessor's runtime type), plus `EnumerableDataBlock` / `Holder` / `ResourceKey` /
-/// `AnimatorScriptRef` / `ClientAsset.Texture` / `SoundEvent` pickers. Custom types register through
+/// `AnimatorScriptRef` / `ClientAsset.Texture` / `AkytheraProject.EditorSoundEventAccessor` pickers. Custom types register through
 /// [EditorWidgetFactory#registerWidgetProducer]. Other types fall back to a
 /// read-only display.
 @Retention(RetentionPolicy.RUNTIME)
@@ -167,10 +167,6 @@ public @interface EditorEditable {
     /// ([EditorWidgetFactory#viewer]) focusing one of its boxes raises a [DirectionArrowComponent]
     /// there that turns it.
     boolean direction() default false;
-
-    /// For [WidgetImage] rows only; ignored otherwise. Whether the texture is a GUI sprite id, picked among
-    /// `textures/gui/sprites/**`, rather than a whole texture's path.
-    boolean sprite() default false;
 
     /// In a fill given a viewer ([EditorWidgetFactory#viewer]), the type of the viewer component the row focuses when
     /// one of its widgets takes focus. [Model3DViewerComponent], the default, focuses nothing, and releases a component

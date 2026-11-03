@@ -9,18 +9,21 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.LogicalSide;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
 import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.viewer.NotifyParticlePreviewComponent;
-import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.Holder;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Map;
+import java.util.stream.Stream;
 
 /// Editor holder for a [TrailParticleNotifyState]. The previewer plays it through its [NotifyParticlePreviewComponent].
 public final class TrailParticleNotifyStateHolder extends AnimationNotifyStateHolder<TrailParticleNotifyState> {
     @EditorEditable(label = LangKeys.GUI_NOTIFY_TRACKS_FIELD_PARTICLE_SYSTEM, order = 0)
-    private ResourceKey<ParticleSystemBlueprint> particleSystem = ResourceKey.create(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, DataHolder.EMPTY_REFERENCE);
+    private Holder<ParticleSystemBlueprint> particleSystem = EditorHolderCodecs.resolve(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, DataHolder.EMPTY_REFERENCE);
 
     /// A [ParticleAttachment#socketPath], blank for the entity's root.
     @EditorEditable(label = LangKeys.GUI_NOTIFY_TRACKS_FIELD_SOCKET, order = 1, setOnCommit = true)
@@ -34,13 +37,18 @@ public final class TrailParticleNotifyStateHolder extends AnimationNotifyStateHo
 
     @Override
     public void readFrom(final TrailParticleNotifyState object) {
-        particleSystem = object.particleSystem();
+        particleSystem = EditorHolderCodecs.resolve(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, object.particleSystem().identifier());
         socket = object.socket();
     }
 
     @Override
     public TrailParticleNotifyState makeObject() {
-        return new TrailParticleNotifyState(particleSystem, socket);
+        return new TrailParticleNotifyState(particleSystem.unwrapKey().orElseThrow(), socket);
+    }
+
+    @Override
+    public Stream<EditorReference> referencedReferences() {
+        return EditorHolderCodecs.referenceOf(particleSystem);
     }
 
     @Override
@@ -57,7 +65,7 @@ public final class TrailParticleNotifyStateHolder extends AnimationNotifyStateHo
     public void simulateBegin(final Model3DViewer previewer, final TimeWindow window) {
         NotifyParticlePreviewComponent particles = previewer.getComponent(NotifyParticlePreviewComponent.class);
 
-        if (particles != null) particles.play(previewer, particleSystem, socket, window);
+        if (particles != null) particles.play(previewer, particleSystem.unwrapKey().orElseThrow(), socket, window);
     }
 
     @Override
@@ -75,6 +83,6 @@ public final class TrailParticleNotifyStateHolder extends AnimationNotifyStateHo
 
     @Override
     public Map<String, Object> getDTO() {
-        return Map.of("particleSystem", particleSystem.identifier().toString(), "socket", socket);
+        return Map.of("particleSystem", EditorHolderCodecs.entryId(particleSystem).toString(), "socket", socket);
     }
 }

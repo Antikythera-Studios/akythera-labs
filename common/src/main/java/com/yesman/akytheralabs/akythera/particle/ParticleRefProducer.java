@@ -62,12 +62,12 @@ public final class ParticleRefProducer implements EditorWidgetFactory.WidgetProd
                     .collect(Collectors.toSet());
 
                 List<CategorizedSelectModal.Choice<ParticleRef>> project = projectPieces.stream()
-                    .map(key -> new CategorizedSelectModal.Choice<ParticleRef>(key.identifier().toString(), new ParticleRef.Piece(key), PROJECT_COLOR, null))
+                    .map(key -> new CategorizedSelectModal.Choice<ParticleRef>(key.identifier().toString(), ParticleRef.Piece.of(key), PROJECT_COLOR, null))
                     .toList();
                 List<CategorizedSelectModal.Choice<ParticleRef>> dataPack = StaticRegistryAccess.getRegistryAccess()
                     .lookupOrThrow(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY).registryKeySet().stream()
                     .filter(key -> !projectPieces.contains(key))
-                    .map(key -> new CategorizedSelectModal.Choice<ParticleRef>(key.identifier().toString(), new ParticleRef.Piece(key)))
+                    .map(key -> new CategorizedSelectModal.Choice<ParticleRef>(key.identifier().toString(), ParticleRef.Piece.of(key)))
                     .toList();
                 List<CategorizedSelectModal.Choice<ParticleRef>> vanilla = AkytheraSpriteSet.vanillaIds().stream()
                     .map(id -> new CategorizedSelectModal.Choice<ParticleRef>(id.toString(), new ParticleRef.Vanilla(id)))

@@ -4,7 +4,6 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.api.data.serializable.RGBA;
-import com.yesman.akythera.api.data.serializable.WidgetImage;
 import com.yesman.akythera.api.world.ability.AbilityTag;
 import com.yesman.akythera.api.world.ability.AbilityTagSet;
 import com.yesman.akythera.client.api.gui.*;
@@ -41,6 +40,7 @@ import com.yesman.akytheralabs.akythera.particle.ParticleSpriteProducer;
 import com.yesman.akytheralabs.akythera.widget.WidgetGraphs;
 import com.yesman.akytheralabs.akythera.widget.WidgetGraphsProducer;
 import com.yesman.akytheralabs.akythera.widget.WidgetImageProducer;
+import com.yesman.akytheralabs.akythera.widget.WidgetImageRef;
 import com.yesman.akytheralabs.akythera.widget.WidgetLayoutHolder;
 import com.yesman.akytheralabs.akythera.widget.WidgetLayoutProducer;
 import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
@@ -84,7 +84,6 @@ import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
@@ -644,7 +643,7 @@ public final class EditorWidgetFactory {
         registerWidgetProducer(ReferencePose.class, new ReferencePoseProducer());
         registerWidgetProducer(Item.class, EditorWidgetFactory::itemPopup);
         registerWidgetProducer(ClientAsset.Texture.class, EditorWidgetFactory::texturePopup);
-        registerWidgetProducer(SoundEvent.class, EditorWidgetFactory::soundEventPopup);
+        registerWidgetProducer(AkytheraProject.EditorSoundEventAccessor.class, EditorWidgetFactory::soundEventPopup);
         registerWidgetProducer(Holder.class, new HolderProducer());
         registerWidgetProducer(ResourceKey.class, EditorWidgetFactory::resourceKeyPopup);
         registerWidgetProducer(Enum.class, EditorWidgetFactory::enumCombo);
@@ -652,7 +651,7 @@ public final class EditorWidgetFactory {
         registerWidgetProducer(Quaterniond.class, EditorWidgetFactory::quaternionBoxes);
         registerWidgetProducer(ScriptType.class, EditorWidgetFactory::scriptTypeCombo);
         registerWidgetProducer(RGBA.class, EditorWidgetFactory::colorPicker);
-        registerWidgetProducer(WidgetImage.class, new WidgetImageProducer());
+        registerWidgetProducer(WidgetImageRef.class, new WidgetImageProducer());
         registerWidgetProducer(ParticleSprite.class, new ParticleSpriteProducer());
         registerWidgetProducer(WidgetLayoutHolder.class, new WidgetLayoutProducer());
         registerWidgetProducer(WidgetGraphs.class, new WidgetGraphsProducer());
@@ -2068,7 +2067,7 @@ public final class EditorWidgetFactory {
             case AnimationRef.Montage m -> m.holder().isBound();
             case AnimationRef.Blend b -> b.holder().isBound();
             case ReferencePose referencePose -> referencePose.clip() == null || AccessorSelectionModal.resolves(referencePose.clip());
-            case SoundEvent soundEvent -> Minecraft.getInstance().getSoundManager().getSoundEvent(soundEvent.location()) != null;
+            case AkytheraProject.EditorSoundEventAccessor sound -> Minecraft.getInstance().getSoundManager().getSoundEvent(sound.location()) != null;
             case Holder<?> holder -> holder.isBound() || holder.unwrapKey().map(EditorWidgetFactory::isEmptyReference).orElse(false);
             case ResourceKey<?> key -> isEmptyReference(key) || AkytheraProject.getCurrentProject().getEntryFromProjectAndRegistry(key) != null;
             case null, default -> true;
@@ -2316,7 +2315,7 @@ public final class EditorWidgetFactory {
         return List.of(swatch);
     }
 
-    /// A search [PopupBox] over a [SoundEvent] slot, named by its id. Flagged when neither the open
+    /// A search [PopupBox] over an [AkytheraProject.EditorSoundEventAccessor] slot, named by its id. Flagged when neither the open
     /// project nor the loaded resource packs define the event.
     private static List<? extends AbstractWidget> soundEventPopup(EditorWidgetFactory factory, ValueSlot slot) {
         PopupBox<Object> box = new PopupBox<>(
@@ -2327,7 +2326,7 @@ public final class EditorWidgetFactory {
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             slot::get,
             _ -> {},
-            v -> v instanceof SoundEvent soundEvent ? soundEvent.location().toString() : Objects.toString(v),
+            v -> v instanceof AkytheraProject.EditorSoundEventAccessor sound ? sound.location().toString() : Objects.toString(v),
             Component.empty(),
             b -> factory.openSoundSelect(slot, b)
         ).withValidator(EditorWidgetFactory::resolves);
@@ -2836,7 +2835,7 @@ public final class EditorWidgetFactory {
         ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
-    /// Opens the sound picker for a [SoundEvent] slot, as a centered [SoundSelectModal] that closes
+    /// Opens the sound picker for an [AkytheraProject.EditorSoundEventAccessor] slot, as a centered [SoundSelectModal] that closes
     /// itself on a pick.
     private void openSoundSelect(ValueSlot slot, PopupBox<Object> box) {
         SoundSelectModal modal = new SoundSelectModal(font, soundEvent -> {
@@ -2852,7 +2851,7 @@ public final class EditorWidgetFactory {
     /// that closes itself on a pick.
     private void openTextureSelect(ValueSlot slot, PopupBox<Object> box) {
         TextureSelectModal modal = new TextureSelectModal(font, TextureSelectModal.Mode.TEXTURE, texturePath -> {
-            ClientAsset.ResourceTexture texture = AkytheraProject.resourceTextureOf(texturePath);
+            ClientAsset.Texture texture = AkytheraProject.textureOf(texturePath);
 
             ModalManager.getInstance().closeModal();
             pushSlotChange(slot, texture, box);
@@ -2864,7 +2863,7 @@ public final class EditorWidgetFactory {
 
     private static String displayHolder(Holder<?> holder) {
         return holder.unwrapKey()
-            .map(k -> k.identifier().equals(DataHolder.EMPTY_REFERENCE) ? "<none>" : k.identifier().toString())
+            .map(k -> isEmptyReference(k) ? "<none>" : ResourceProcessor.displayId(k))
             .orElse("<none>");
     }
 
@@ -2872,7 +2871,8 @@ public final class EditorWidgetFactory {
     /// every entry of the registries [EditorEditable#registries] names, or of the registry the current
     /// value's key addresses when it names none — the slot's generic being erased, so a [Holder] slot
     /// is never null, holders defaulting it to a dangling placeholder. The picked key resolves back to
-    /// the shared live holder, see [AkytheraProject#getEntryHolderOrDangling].
+    /// the shared live holder, see [AkytheraProject#getEntryHolderOrDangling]. The [#cyclicPicks] are
+    /// left out.
     @SuppressWarnings("unchecked")
     private <T> void openHolderLookup(ValueSlot slot, PopupBox<Object> box) {
         Holder<T> current = (Holder<T>) slot.get();
@@ -2896,7 +2896,13 @@ public final class EditorWidgetFactory {
         }
 
         List<ResourceKey<T>> keys = registries.stream()
-            .flatMap(registryKey -> project.getMergedEntries(registryKey).stream().map(Map.Entry::getKey))
+            .flatMap(registryKey -> {
+                Set<String> excluded = cyclicPicks(slot, registryKey);
+
+                return project.getMergedEntries(registryKey).stream()
+                    .map(Map.Entry::getKey)
+                    .filter(key -> !excluded.contains(ResourceProcessor.displayId(key)));
+            })
             .toList();
 
         Component title = registries.size() == 1
@@ -3022,7 +3028,7 @@ public final class EditorWidgetFactory {
     }
 
     /// The entries picking would make `slot`'s owner its own ancestor: the owner itself, plus every
-    /// entry whose chain of this same field already leads back to it. Ids come out as
+    /// entry whose chain of this same field, a [ResourceKey] or a [Holder], already leads back to it. Ids come out as
     /// [ResourceProcessor#displayId], the form the lookup matches on.
     ///
     /// The chain is walked through the slot's own [Field] on each candidate's holder, so this stays
@@ -3060,9 +3066,11 @@ public final class EditorWidgetFactory {
 
                 DataHolder<T> holder = registry.getDataHolder(current);
 
-                current = holder != null && tryGet(field, holder) instanceof ResourceKey<?> parent
-                    ? (ResourceKey<T>) parent
-                    : null;
+                current = holder == null ? null : switch (tryGet(field, holder)) {
+                    case ResourceKey<?> parent -> (ResourceKey<T>) parent;
+                    case Holder<?> parent -> (ResourceKey<T>) parent.unwrapKey().orElse(null);
+                    case null, default -> null;
+                };
             }
         }
 

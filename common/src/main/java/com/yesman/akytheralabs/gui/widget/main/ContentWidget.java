@@ -256,9 +256,15 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
         if (editable && editBox.visible) {
             editBox.extractRenderState(guiGraphics, mouseX, mouseY, a);
         } else if (showLabel) {
-            String label = font.plainSubstrByWidth(getContentName(), w - 2);
+            String name = getContentName();
+            String label = font.plainSubstrByWidth(name, w - 2);
             int labelX = x + (w - font.width(label)) / 2;
             guiGraphics.text(font, label, labelX, y + h - LABEL_HEIGHT, 0xFF888888, false);
+
+            // A name cut by the tile width shows whole on hover
+            if (hovered && loadingFailure == null && label.length() < name.length()) {
+                guiGraphics.setTooltipForNextFrame(font, Component.literal(name), mouseX, mouseY);
+            }
         }
 
         // Dimmed while it waits for its cut's paste.

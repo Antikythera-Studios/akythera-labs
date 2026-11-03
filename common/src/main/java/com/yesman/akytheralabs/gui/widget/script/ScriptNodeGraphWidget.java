@@ -1389,6 +1389,10 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             for (Component message : node.intrinsicErrors()) {
                 issues.add(new ValidationIssue(node, message));
             }
+
+            for (Component message : node.literalErrors()) {
+                issues.add(new ValidationIssue(node, message));
+            }
         }
 
         return issues;

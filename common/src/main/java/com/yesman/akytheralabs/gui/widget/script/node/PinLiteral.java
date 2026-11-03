@@ -6,6 +6,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.editor.StoredJson;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.ExtraCodecs;
 
@@ -13,7 +14,7 @@ import net.minecraft.util.ExtraCodecs;
 /// same pin outranks it.
 ///
 /// A [ScriptType#keyOf] type is written as its entry type, flagged `registry_key`.
-public record PinLiteral(int pin, ScriptType type, JsonElement value) {
+public record PinLiteral(int pin, ScriptType type, StoredJson stored) {
     public static final Codec<PinLiteral> CODEC = RecordCodecBuilder.create(
         instance ->
             instance.group(
@@ -25,6 +26,14 @@ public record PinLiteral(int pin, ScriptType type, JsonElement value) {
             ).apply(instance, (pin, type, key, value) ->
                 new PinLiteral(pin, key ? ParseUtils.nvl(ScriptType.keyOf(type), type) : type, value))
     );
+
+    public PinLiteral(int pin, ScriptType type, JsonElement value) {
+        this(pin, type, StoredJson.of(type, value));
+    }
+
+    public JsonElement value() {
+        return stored.json();
+    }
 
     /// Whether this is the [ResourceKey] of a registry entry.
     public boolean isKey() {

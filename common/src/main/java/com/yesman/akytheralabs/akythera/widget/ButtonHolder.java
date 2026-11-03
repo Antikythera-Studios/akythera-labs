@@ -9,16 +9,17 @@ import com.yesman.akythera.client.api.gui.AkytheraButton;
 import com.yesman.akythera.client.api.gui.ButtonTheme;
 import com.yesman.akythera.core.blueprint.widget.ButtonBlueprint;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
-import net.minecraft.core.Holder;
 import net.minecraft.resources.Identifier;
-import net.minecraft.sounds.SoundEvent;
 import org.jspecify.annotations.Nullable;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /// Editor holder for an `akythera:button` ([ButtonBlueprint]).
 public final class ButtonHolder extends WidgetComponentHolder<ButtonBlueprint> {
@@ -27,21 +28,21 @@ public final class ButtonHolder extends WidgetComponentHolder<ButtonBlueprint> {
             LAYOUT_FIELD.forGetter(h -> Optional.of(h.layout)),
             LocalizedMessage.CODEC.optionalFieldOf("message", LocalizedMessage.EMPTY).forGetter(h -> h.message),
             Identifier.CODEC.optionalFieldOf("theme").forGetter(ParseUtils.provideOptional(ButtonHolder::getTheme)),
-            WidgetImage.CODEC.optionalFieldOf("normal_image", ButtonBlueprint.DEFAULT_NORMAL_IMAGE).forGetter(h -> h.normalImage),
-            WidgetImage.CODEC.optionalFieldOf("focused_image", ButtonBlueprint.DEFAULT_FOCUSED_IMAGE).forGetter(h -> h.focusedImage),
-            WidgetImage.CODEC.optionalFieldOf("disabled_image", ButtonBlueprint.DEFAULT_DISABLED_IMAGE).forGetter(h -> h.disabledImage),
-            SoundEvent.CODEC.optionalFieldOf("hover_sound").forGetter(h -> Optional.ofNullable(h.hoverSound).map(ParseUtils::holderOf)),
-            SoundEvent.CODEC.optionalFieldOf("press_sound").forGetter(h -> Optional.ofNullable(h.pressSound).map(ParseUtils::holderOf))
+            WidgetImage.CODEC.optionalFieldOf("normal_image", ButtonBlueprint.DEFAULT_NORMAL_IMAGE).forGetter(h -> h.normalImage.makeObject()),
+            WidgetImage.CODEC.optionalFieldOf("focused_image", ButtonBlueprint.DEFAULT_FOCUSED_IMAGE).forGetter(h -> h.focusedImage.makeObject()),
+            WidgetImage.CODEC.optionalFieldOf("disabled_image", ButtonBlueprint.DEFAULT_DISABLED_IMAGE).forGetter(h -> h.disabledImage.makeObject()),
+            AkytheraProject.EditorSoundEventAccessor.CODEC.optionalFieldOf("hover_sound").forGetter(ParseUtils.provideOptional(h -> h.hoverSound)),
+            AkytheraProject.EditorSoundEventAccessor.CODEC.optionalFieldOf("press_sound").forGetter(ParseUtils.provideOptional(h -> h.pressSound))
         ).apply(instance, (layout, message, theme, normal, focused, disabled, hoverSound, pressSound) -> {
             ButtonHolder holder = createDefault();
             layout.ifPresent(stored -> holder.layout = stored);
             holder.message = message;
             holder.theme = theme.orElse(null);
-            holder.normalImage = normal;
-            holder.focusedImage = focused;
-            holder.disabledImage = disabled;
-            holder.hoverSound = hoverSound.map(Holder::value).orElse(null);
-            holder.pressSound = pressSound.map(Holder::value).orElse(null);
+            holder.normalImage = WidgetImageRef.of(normal, true);
+            holder.focusedImage = WidgetImageRef.of(focused, true);
+            holder.disabledImage = WidgetImageRef.of(disabled, true);
+            holder.hoverSound = hoverSound.orElse(null);
+            holder.pressSound = pressSound.orElse(null);
             return holder;
         })
     );
@@ -53,20 +54,20 @@ public final class ButtonHolder extends WidgetComponentHolder<ButtonBlueprint> {
     @EditorEditable(order = 1, candidates = "themeCandidates")
     private @Nullable Identifier theme;
 
-    @EditorEditable(order = 2, sprite = true)
-    private WidgetImage normalImage = ButtonBlueprint.DEFAULT_NORMAL_IMAGE;
+    @EditorEditable(order = 2)
+    private WidgetImageRef normalImage = WidgetImageRef.of(ButtonBlueprint.DEFAULT_NORMAL_IMAGE, true);
 
-    @EditorEditable(order = 3, sprite = true)
-    private WidgetImage focusedImage = ButtonBlueprint.DEFAULT_FOCUSED_IMAGE;
+    @EditorEditable(order = 3)
+    private WidgetImageRef focusedImage = WidgetImageRef.of(ButtonBlueprint.DEFAULT_FOCUSED_IMAGE, true);
 
-    @EditorEditable(order = 4, sprite = true)
-    private WidgetImage disabledImage = ButtonBlueprint.DEFAULT_DISABLED_IMAGE;
+    @EditorEditable(order = 4)
+    private WidgetImageRef disabledImage = WidgetImageRef.of(ButtonBlueprint.DEFAULT_DISABLED_IMAGE, true);
 
     @EditorEditable(order = 5)
-    private @Nullable SoundEvent hoverSound;
+    private AkytheraProject.@Nullable EditorSoundEventAccessor hoverSound;
 
     @EditorEditable(order = 6)
-    private @Nullable SoundEvent pressSound;
+    private AkytheraProject.@Nullable EditorSoundEventAccessor pressSound;
 
     private ButtonHolder() {
         super(WidgetLayoutHolder.sized(100, 20));
@@ -89,11 +90,11 @@ public final class ButtonHolder extends WidgetComponentHolder<ButtonBlueprint> {
         layout = WidgetLayoutHolder.of(object.layout());
         message = object.message();
         theme = object.theme();
-        normalImage = object.normalImage();
-        focusedImage = object.focusedImage();
-        disabledImage = object.disabledImage();
-        hoverSound = object.hoverSound() == null ? null : object.hoverSound().value();
-        pressSound = object.pressSound() == null ? null : object.pressSound().value();
+        normalImage = WidgetImageRef.of(object.normalImage(), true);
+        focusedImage = WidgetImageRef.of(object.focusedImage(), true);
+        disabledImage = WidgetImageRef.of(object.disabledImage(), true);
+        hoverSound = object.hoverSound() == null ? null : AkytheraProject.soundEventOf(object.hoverSound().value().location());
+        pressSound = object.pressSound() == null ? null : AkytheraProject.soundEventOf(object.pressSound().value().location());
     }
 
     @Override
@@ -101,9 +102,9 @@ public final class ButtonHolder extends WidgetComponentHolder<ButtonBlueprint> {
         Map<String, Object> dto = new HashMap<>(super.getDTO());
         dto.put("message", sourceOf(message));
         dto.put("theme", sourceOf(theme));
-        dto.put("normal_image", sourceOf(normalImage));
-        dto.put("focused_image", sourceOf(focusedImage));
-        dto.put("disabled_image", sourceOf(disabledImage));
+        dto.put("normal_image", sourceOf(normalImage.makeObject()));
+        dto.put("focused_image", sourceOf(focusedImage.makeObject()));
+        dto.put("disabled_image", sourceOf(disabledImage.makeObject()));
         dto.put("hover_sound", sourceOf(hoverSound));
         dto.put("press_sound", sourceOf(pressSound));
 
@@ -113,11 +114,21 @@ public final class ButtonHolder extends WidgetComponentHolder<ButtonBlueprint> {
     @Override
     public ButtonBlueprint makeObject() {
         return new ButtonBlueprint(
-            layout.makeObject(), order, message, theme, normalImage, focusedImage, disabledImage,
-            hoverSound == null ? null : ParseUtils.holderOf(hoverSound),
-            pressSound == null ? null : ParseUtils.holderOf(pressSound),
+            layout.makeObject(), order, message, theme, normalImage.makeObject(), focusedImage.makeObject(), disabledImage.makeObject(),
+            hoverSound == null ? null : hoverSound.holder(),
+            pressSound == null ? null : pressSound.holder(),
             isEnabled()
         );
+    }
+
+    @Override
+    public Stream<EditorReference> referencedReferences() {
+        return Stream.of(
+            super.referencedReferences(),
+            Stream.of(normalImage, focusedImage, disabledImage).flatMap(WidgetImageRef::referencedReferences),
+            Stream.ofNullable(hoverSound),
+            Stream.ofNullable(pressSound)
+        ).flatMap(references -> references);
     }
 
     @Override

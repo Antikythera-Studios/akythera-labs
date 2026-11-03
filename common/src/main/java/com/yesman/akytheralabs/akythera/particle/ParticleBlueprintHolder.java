@@ -26,6 +26,7 @@ import com.yesman.akytheralabs.ParticleSourceWriter;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -42,6 +43,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /// Modifiable data holder for a [ParticleBlueprint] piece of any [Type]. The fields are the editor's Details panel,
 /// each type showing its own; the blueprint is rebuilt from them on [#makeObject].
@@ -113,7 +115,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             MeshAndTrail rest = pair.getSecond();
 
             rest.mesh().ifPresent(mesh -> holder.mesh = mesh);
-            holder.texture = rest.texture().map(AkytheraProject::resourceTextureOf).orElse(null);
+            holder.texture = rest.texture().map(AkytheraProject::textureOf).orElse(null);
             rest.transform().ifPresent(transform -> holder.transform = transform);
             rest.armature().ifPresent(armature -> holder.armature = armature);
             rest.animatorScript().ifPresent(animatorScript -> holder.animatorScript = animatorScript);
@@ -247,7 +249,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
 
     /// The sprite a new particle and a new list element start with, see [EditorEditable#defaultElement].
     static ParticleSprite defaultSprite() {
-        return new ParticleSprite(Identifier.withDefaultNamespace("generic_0"));
+        return ParticleSprite.of(Identifier.withDefaultNamespace("generic_0"));
     }
 
     // Whether a row shows, see [EditorEditable#visibleWhen]
@@ -301,20 +303,20 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 this.size = sprite.size();
                 this.roll = sprite.roll();
                 this.sprites.clear();
-                ids.stream().map(ParticleSprite::new).forEach(this.sprites::add);
+                ids.stream().map(ParticleSprite::of).forEach(this.sprites::add);
             }
             case StaticMeshParticleBlueprint staticMesh -> {
                 this.type = Type.STATIC_MESH;
                 this.color = staticMesh.color();
                 this.mesh = staticMesh.mesh();
-                this.texture = staticMesh.texture().map(AkytheraProject::resourceTextureOf).orElse(null);
+                this.texture = staticMesh.texture().map(AkytheraProject::textureOf).orElse(null);
                 this.transform = TransformHolder.of(staticMesh.transform());
             }
             case SkeletalMeshParticleBlueprint skeletal -> {
                 this.type = Type.SKELETAL_MESH;
                 this.color = skeletal.color();
                 this.mesh = skeletal.mesh();
-                this.texture = skeletal.texture().map(AkytheraProject::resourceTextureOf).orElse(null);
+                this.texture = skeletal.texture().map(AkytheraProject::textureOf).orElse(null);
                 this.transform = TransformHolder.of(skeletal.transform());
                 this.armature = skeletal.armature().<AssetAccessor<? extends Armature>>map(ArmatureComponentBlueprint::armature)
                     .orElseGet(() -> EditorAssetAccessors.armature(DataHolder.EMPTY_REFERENCE));
@@ -325,7 +327,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             case TrailParticleBlueprint trail -> {
                 this.type = Type.TRAIL;
                 this.color = trail.color();
-                this.texture = AkytheraProject.resourceTextureOf(trail.texture());
+                this.texture = AkytheraProject.textureOf(trail.texture());
                 this.length = trail.length();
                 this.fadeOut = trail.fadeOut();
                 this.maxEdgesPerFrame = trail.maxEdgesPerFrame();
@@ -372,6 +374,17 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 texturePath.orElseThrow(() -> new IllegalStateException("A trail particle needs a texture"))
             );
         };
+    }
+
+    /// The project assets and the data pack animator script this piece holds, and its textures.
+    @Override
+    public Stream<EditorReference> referencedReferences() {
+        return Stream.concat(
+            Stream.of(mesh, armature, texture, animatorScript instanceof AnimatorScriptRef.DataPackScript script ? script.holder() : null)
+                .filter(reference -> reference instanceof EditorReference)
+                .map(reference -> (EditorReference) reference),
+            sprites.stream().map(ParticleSprite::texture)
+        );
     }
 
     /// [#mesh], once one is picked.

@@ -5,49 +5,50 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.animation.notify.impl.PlaySoundNotify;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.util.LogicalSide;
-import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
-import net.minecraft.core.Holder;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import org.joml.Vector3f;
-import org.jspecify.annotations.NonNull;
 
 import java.util.Map;
+import java.util.stream.Stream;
 
 public final class PlaySoundNotifyHolder extends AnimationNotifyHolder<PlaySoundNotify> {
     public static final Codec<PlaySoundNotifyHolder> EDITOR_CODEC = RecordCodecBuilder.create(inst ->
         inst.group(
-            SoundEvent.CODEC.fieldOf("sound").forGetter(h -> ParseUtils.holderOf(h.sound))
+            AkytheraProject.EditorSoundEventAccessor.CODEC.fieldOf("sound").forGetter(h -> h.sound)
         ).apply(inst, sound -> {
             PlaySoundNotifyHolder h = new PlaySoundNotifyHolder();
-            h.sound = sound.value();
+            h.sound = sound;
             return h;
         })
     );
 
     /// The sound to play: a registered one, or an event only resource packs define.
     @EditorEditable(label = LangKeys.GUI_NOTIFY_TRACKS_FIELD_SOUND, order = 0)
-    public SoundEvent sound = SoundEvents.UI_BUTTON_CLICK.value();
+    public AkytheraProject.EditorSoundEventAccessor sound = AkytheraProject.soundEventOf(SoundEvents.UI_BUTTON_CLICK.value().location());
 
 
     @Override
     public void readFrom(PlaySoundNotify object) {
-        this.sound = object.soundEvent().value();
+        this.sound = AkytheraProject.soundEventOf(object.soundEvent().value().location());
     }
 
     @Override
     public PlaySoundNotify makeObject() {
-        return new PlaySoundNotify(ParseUtils.holderOf(sound));
+        return new PlaySoundNotify(sound.holder());
+    }
+
+    @Override
+    public Stream<EditorReference> referencedReferences() {
+        return Stream.of(sound);
     }
 
     @Override

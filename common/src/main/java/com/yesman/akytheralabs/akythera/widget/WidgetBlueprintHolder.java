@@ -77,6 +77,7 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
             holder.script = script;
             holder.canvasWidth = canvasWidth;
             holder.canvasHeight = canvasHeight;
+            script.typeProperties(holder.layout());
             return holder;
         })
     );
@@ -126,6 +127,7 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
 
     public void setParent(final BlueprintParentRef parent) {
         this.parent = parent;
+        script.typeProperties(layout());
     }
 
     public WidgetUsage usage() {
@@ -195,6 +197,7 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
                 script = new BlueprintScriptData(
                     ScriptGraphData.EMPTY, Map.of(), List.of(), dataDriven.body().properties(),
                     dataDriven.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
+                script.typeProperties(layout());
             }
             case SourceCodeWidgetBlueprint sourceCode -> parent = new BlueprintParentRef.SourceCodeScript(sourceCode.ctor(), sourceCode.script());
         }

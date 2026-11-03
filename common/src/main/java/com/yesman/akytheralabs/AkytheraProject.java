@@ -100,6 +100,7 @@ import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.metadata.pack.PackFormat;
 import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.EntityType;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.NullMarked;
@@ -119,6 +120,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -603,6 +605,9 @@ public final class AkytheraProject {
 
     /// Texture files, laid out the way a resource pack lays out `assets/<namespace>/textures`.
     public static final String TEXTURES_DIRECTORY = "textures/";
+
+    /// The extension of a texture file under [#TEXTURES_DIRECTORY].
+    public static final String TEXTURE_EXTENSION = ".png";
 
     /// GUI sprites, which the game stitches into its GUI atlas instead of loading them as plain
     /// textures. One of [#RESERVED_DIRECTORIES].
@@ -1634,6 +1639,10 @@ public final class AkytheraProject {
         rekeyAssetAccessors(issuedEditorMeshAccessors, oldName, newName);
         rekeyAssetAccessors(issuedEditorArmatureAccessors, oldName, newName);
         rekeyAssetAccessors(issuedEditorAnimationAccessors, oldName, newName);
+        rekeyAssetAccessors(issuedEditorTextureAccessors, oldName, newName);
+        rekeyAssetAccessors(issuedEditorSoundEventAccessors, oldName, newName);
+        rekeyAssetAccessors(issuedEditorArmaturePhysicsAccessors, oldName, newName);
+        rewriteSidecarNamespaces(oldName, newName);
 
         // Data registries: re-key around stable holder instances (the shared ProjectObjectHolders
         // follow too). The trailing saveAllEntries() flushes every referrer's JSON.
@@ -1665,7 +1674,7 @@ public final class AkytheraProject {
 
     /// Rebuild every asset-accessor map under `newNs`. Each accessor's
     /// id mutates in place and its inbound references fire.
-    private static <A extends AssetAccessor<?>> void rekeyAssetAccessors(
+    private static <A> void rekeyAssetAccessors(
         Map<Identifier, A> issued, String oldNs, String newNs
     ) {
         if (issued.isEmpty()) return;
@@ -1679,9 +1688,61 @@ public final class AkytheraProject {
                 ? Identifier.fromNamespaceAndPath(newNs, oldId.getPath())
                 : oldId;
 
-            ((EditorReferenceable<?>) e.getValue()).rename(newId);
+            ((EditorReferenceable) e.getValue()).rename(newId);
             issued.put(newId, e.getValue());
         }
+    }
+
+    /// Re-points every asset an asset sidecar names under `oldNs` at `newNs`: a mesh's texture, a cloth's armature
+    /// physics, and the sounds of a sound event. Sidecars are assets rather than registry entries, so the entry
+    /// re-write a project rename drives does not reach them.
+    private void rewriteSidecarNamespaces(String oldNs, String newNs) {
+        Path assetsRoot = projectRoot.resolve("assets");
+        UnaryOperator<Identifier> renamed = id -> id.getNamespace().equals(oldNs) ? Identifier.fromNamespaceAndPath(newNs, id.getPath()) : id;
+
+        FileSystemHelper.forEachFile(
+            assetsRoot.resolve(FileSystemHelper.toOsString(MeshManager.DIRECTORY)),
+            file -> file.toString().endsWith(AssetLoader.METADATA_EXTENSION),
+            file -> {
+                MeshLoader.Metadata metadata = FileSystemHelper.readJson(file, MeshLoader.Metadata.CODEC, null);
+
+                if (metadata == null || metadata.texture() == null || !metadata.texture().getNamespace().equals(oldNs)) return;
+
+                FileSystemHelper.writeJson(
+                    file, MeshLoader.Metadata.CODEC, new MeshLoader.Metadata(metadata.width(), metadata.height(), renamed.apply(metadata.texture()))
+                );
+            }
+        );
+
+        FileSystemHelper.forEachFile(
+            assetsRoot.resolve(FileSystemHelper.toOsString(ClothPhysicsLoader.DIRECTORY)),
+            file -> file.toString().endsWith(AssetLoader.METADATA_EXTENSION),
+            file -> {
+                ClothPhysicsData.Metadata metadata = FileSystemHelper.readJson(file, ClothPhysicsData.Metadata.CODEC, null);
+
+                if (metadata == null || metadata.armaturePhysics() == null || !metadata.armaturePhysics().identifier().getNamespace().equals(oldNs)) return;
+
+                FileSystemHelper.writeJson(file, ClothPhysicsData.Metadata.CODEC, new ClothPhysicsData.Metadata(
+                    getOrIssueEditorArmaturePhysicsAccessor(renamed.apply(metadata.armaturePhysics().identifier())), metadata.parameters()
+                ));
+            }
+        );
+
+        FileSystemHelper.forEachFile(assetsRoot.resolve(SOUNDS_DIRECTORY), this::isSoundEvent, eventFile -> {
+            SoundEventHolder event = SoundEventHolder.readFrom(eventFile);
+            boolean changed = false;
+
+            for (SoundEventHolder.SoundHolder sound : event.getSounds()) {
+                Identifier id = Identifier.tryParse(sound.getName());
+
+                if (id != null && id.getNamespace().equals(oldNs)) {
+                    sound.setName(renamed.apply(id).toString());
+                    changed = true;
+                }
+            }
+
+            if (changed) FileSystemHelper.writeJson(eventFile, SoundEventHolder.CODEC, event);
+        });
     }
 
     /// Path under `akythera_projects/<oldNs>/…` → same path under
@@ -2257,7 +2318,8 @@ public final class AkytheraProject {
     /// shared instance reports the new id — see [#renameAssetIn].
     ///
     /// `oldPath` and `newPath` are absolute paths under `assets/<directory>/`. A file outside the
-    /// three asset directories — project_settings.akproject, icon.png and the like — is a no-op.
+    /// asset, texture and sound directories — project_settings.akproject, icon.png and the like — is a
+    /// no-op.
     public void renameAsset(Path oldPath, Path newPath) {
         Path assetsRoot = projectRoot.resolve("assets");
         if (!oldPath.startsWith(assetsRoot) || !newPath.startsWith(assetsRoot)) return;
@@ -2288,13 +2350,45 @@ public final class AkytheraProject {
             renameAssetIn(editorArmatures, issuedEditorArmatureAccessors, oldRel, newRel);
         } else if (oldRel.startsWith(AnimationManager.DIRECTORY)) {
             renameAssetIn(editorAnimations, issuedEditorAnimationAccessors, oldRel, newRel);
+        } else if (oldRel.startsWith(TEXTURES_DIRECTORY)) {
+            Identifier oldId = getTextureIdentifier(oldPath);
+            Identifier newId = getTextureIdentifier(newPath);
+
+            if (oldId != null && newId != null && !oldId.equals(newId)) {
+                renameIssuedAccessor(issuedEditorTextureAccessors, oldId, newId);
+                rewriteMeshTextureReferences(oldId, newId);
+            }
         } else if (isSoundAsset(oldPath)) {
             Identifier oldId = getSoundId(oldPath);
             Identifier newId = getSoundId(newPath);
             Sound.Type type = oldRel.endsWith(SOUND_EXTENSION) ? Sound.Type.FILE : Sound.Type.SOUND_EVENT;
 
-            if (oldId != null && newId != null && !oldId.equals(newId)) rewriteSoundReferences(type, oldId, newId);
+            if (oldId != null && newId != null && !oldId.equals(newId)) {
+                rewriteSoundReferences(type, oldId, newId);
+
+                if (type == Sound.Type.SOUND_EVENT) renameIssuedAccessor(issuedEditorSoundEventAccessors, oldId, newId);
+            }
         }
+    }
+
+    /// Re-points every mesh sidecar naming the texture `oldTexturePath` at `newTexturePath`. A sidecar is
+    /// an asset rather than a registry entry, so the referrer re-save a rename drives does not reach it.
+    ///
+    /// A mesh already open follows on its own: its [MeshMetadataHolder] holds the shared texture.
+    private void rewriteMeshTextureReferences(Identifier oldTexturePath, Identifier newTexturePath) {
+        FileSystemHelper.forEachFile(
+            projectRoot.resolve("assets").resolve(FileSystemHelper.toOsString(MeshManager.DIRECTORY)),
+            file -> file.toString().endsWith(AssetLoader.METADATA_EXTENSION),
+            file -> {
+                MeshLoader.Metadata metadata = FileSystemHelper.readJson(file, MeshLoader.Metadata.CODEC, null);
+
+                if (metadata == null || !oldTexturePath.equals(metadata.texture())) return;
+
+                FileSystemHelper.writeJson(
+                    file, MeshLoader.Metadata.CODEC, new MeshLoader.Metadata(metadata.width(), metadata.height(), newTexturePath)
+                );
+            }
+        );
     }
 
     /// Re-points every project sound entry of `type` naming `oldId` at `newId`. A sound event is an
@@ -2327,7 +2421,7 @@ public final class AkytheraProject {
         Map<Identifier, A> issued,
         String oldRel, String newRel
     ) {
-        renameIssuedAccessor(issued, oldRel, newRel);
+        renameIssuedAccessor(issued, idOfRelativePath(oldRel), idOfRelativePath(newRel));
 
         V loaded = cache.remove(idOfRelativePath(oldRel));
         if (loaded != null) cache.put(idOfRelativePath(newRel), loaded);
@@ -2336,17 +2430,14 @@ public final class AkytheraProject {
     /// Re-keys the issued accessor, then `rename`s it — that mutates the id in place, so every referrer
     /// holding this shared accessor instance now reports the new id. A re-save scan then flushes those
     /// referrers' JSON to match.
-    private <A extends AssetAccessor<?>> void renameIssuedAccessor(Map<Identifier, A> issued, String oldRel, String newRel) {
-        Identifier oldId = idOfRelativePath(oldRel);
-        Identifier newId = idOfRelativePath(newRel);
-
+    private <A> void renameIssuedAccessor(Map<Identifier, A> issued, Identifier oldId, Identifier newId) {
         if (oldId.equals(newId)) return;
 
         A accessor = issued.remove(oldId);
 
         if (accessor == null) return;
 
-        EditorReferenceable<?> renamed = (EditorReferenceable<?>) accessor;
+        EditorReferenceable renamed = (EditorReferenceable) accessor;
         renamed.rename(newId);
         issued.put(newId, accessor);
         resaveReferrers(renamed);
@@ -2385,7 +2476,7 @@ public final class AkytheraProject {
         String newRel = FileSystemHelper.relativeIdPath(assetsRoot, newCompanion);
 
         if (oldRel.startsWith(ArmaturePhysicsManager.DIRECTORY)) {
-            renameIssuedAccessor(issuedEditorArmaturePhysicsAccessors, oldRel, newRel);
+            renameIssuedAccessor(issuedEditorArmaturePhysicsAccessors, idOfRelativePath(oldRel), idOfRelativePath(newRel));
             rewriteClothPhysicsReferences(idOfRelativePath(oldRel), idOfRelativePath(newRel));
         } else {
             // A cloth holder is keyed by its mesh, which is what just moved
@@ -2975,21 +3066,127 @@ public final class AkytheraProject {
         });
     }
 
-    /// `ns:textures/block/stone.png` as the texture asset `ns:block/stone`. A path off that layout keeps
-    /// itself as the asset id.
-    public static ClientAsset.ResourceTexture resourceTextureOf(Identifier texturePath) {
-        String path = texturePath.getPath();
-        String prefix = TEXTURES_DIRECTORY;
-        String suffix = ".png";
+    // ******************************** Editor textures and sound events ********************************
 
-        if (!path.startsWith(prefix) || !path.endsWith(suffix)) {
-            return new ClientAsset.ResourceTexture(texturePath, texturePath);
+    private final Map<Identifier, EditorTextureAccessor> issuedEditorTextureAccessors = new HashMap<>();
+    private final Map<Identifier, EditorSoundEventAccessor> issuedEditorSoundEventAccessors = new HashMap<>();
+
+    /// The texture at `texturePath`, `<namespace>:textures/….png`, issued once per path.
+    public static EditorTextureAccessor textureOf(Identifier texturePath) {
+        return getCurrentProject().issuedEditorTextureAccessors.computeIfAbsent(texturePath, EditorTextureAccessor::new);
+    }
+
+    /// The texture of the sprite `spriteId` under `directory`: `<namespace>:<path>` is
+    /// `<namespace>:<directory><path>.png`. The inverse of [EditorTextureAccessor#spriteId].
+    public static EditorTextureAccessor spriteOf(String directory, Identifier spriteId) {
+        return textureOf(spriteId.withPath(directory + spriteId.getPath() + TEXTURE_EXTENSION));
+    }
+
+    /// The sound event `location`, issued once per id.
+    public static EditorSoundEventAccessor soundEventOf(Identifier location) {
+        return getCurrentProject().issuedEditorSoundEventAccessors.computeIfAbsent(location, EditorSoundEventAccessor::new);
+    }
+
+    /// A texture file of the project or of a loaded pack, by its full path. [#id] is the asset id
+    /// [ClientAsset.ResourceTexture] gives the path: `ns:textures/block/stone.png` is `ns:block/stone`,
+    /// and a path off that layout is its own id.
+    public static final class EditorTextureAccessor extends EditorReferenceable implements ClientAsset.Texture {
+        private Identifier texturePath;
+
+        private EditorTextureAccessor(Identifier texturePath) {
+            this.texturePath = texturePath;
         }
 
-        return new ClientAsset.ResourceTexture(
-            texturePath.withPath(path.substring(prefix.length(), path.length() - suffix.length())),
-            texturePath
+        @Override
+        public Identifier id() {
+            String path = texturePath.getPath();
+
+            if (!path.startsWith(TEXTURES_DIRECTORY) || !path.endsWith(TEXTURE_EXTENSION)) return texturePath;
+
+            return texturePath.withPath(path.substring(TEXTURES_DIRECTORY.length(), path.length() - TEXTURE_EXTENSION.length()));
+        }
+
+        @Override
+        public Identifier texturePath() {
+            return texturePath;
+        }
+
+        /// This texture's sprite id under `directory`, see [#spriteOf]. A texture outside `directory`
+        /// answers its full path.
+        public Identifier spriteId(String directory) {
+            String path = texturePath.getPath();
+
+            if (!path.startsWith(directory) || !path.endsWith(TEXTURE_EXTENSION)) return texturePath;
+
+            return texturePath.withPath(path.substring(directory.length(), path.length() - TEXTURE_EXTENSION.length()));
+        }
+
+        @Override
+        void setIdentifier(Identifier identifier) {
+            this.texturePath = identifier;
+        }
+
+        @Override
+        public String toString() {
+            return texturePath.toString();
+        }
+
+        @Override
+        public int hashCode() {
+            return texturePath.hashCode();
+        }
+
+        @Override
+        public boolean equals(final Object obj) {
+            return this == obj || obj instanceof ClientAsset.Texture other && texturePath.equals(other.texturePath());
+        }
+    }
+
+    /// A sound event of the project or of a loaded pack, by its id.
+    public static final class EditorSoundEventAccessor extends EditorReferenceable {
+        /// In the form [SoundEvent#CODEC] writes.
+        public static final Codec<EditorSoundEventAccessor> CODEC = SoundEvent.CODEC.xmap(
+            holder -> soundEventOf(holder.value().location()),
+            EditorSoundEventAccessor::holder
         );
+
+        private Identifier location;
+
+        private EditorSoundEventAccessor(Identifier location) {
+            this.location = location;
+        }
+
+        public Identifier location() {
+            return location;
+        }
+
+        /// The registered event of [#location], or a variable-range one for an event only resource packs
+        /// define.
+        public Holder<SoundEvent> holder() {
+            return BuiltInRegistries.SOUND_EVENT.get(location)
+                .<Holder<SoundEvent>>map(registered -> registered)
+                .orElseGet(() -> Holder.direct(SoundEvent.createVariableRangeEvent(location)));
+        }
+
+        @Override
+        void setIdentifier(Identifier identifier) {
+            this.location = identifier;
+        }
+
+        @Override
+        public String toString() {
+            return location.toString();
+        }
+
+        @Override
+        public int hashCode() {
+            return location.hashCode();
+        }
+
+        @Override
+        public boolean equals(final Object obj) {
+            return this == obj || obj instanceof EditorSoundEventAccessor other && location.equals(other.location);
+        }
     }
 
     // ******************************** Editor mesh manager ********************************
@@ -3116,7 +3313,7 @@ public final class AkytheraProject {
     /// What the two mesh accessors share: the identifier a rename writes through in place, and the
     /// sidecar view. [AkytheraProject] issues one accessor per identifier, so there is one
     /// [MeshMetadataHolder] per identifier — every screen editing this mesh edits the same values.
-    public abstract static class EditorMeshAccessor<T extends Mesh<?>> extends EditorReferenceable<MeshMetadataHolder> implements AssetAccessor<T> {
+    public abstract static class EditorMeshAccessor<T extends Mesh<?>> extends SidecarReferenceable<MeshMetadataHolder> implements AssetAccessor<T> {
         private Identifier identifier;
 
         private EditorMeshAccessor(Identifier identifier) {
@@ -3271,7 +3468,7 @@ public final class AkytheraProject {
         );
     }
 
-    public static final class EditorArmatureAccessor<T extends Armature> extends EditorReferenceable<ArmatureMetadataHolder> implements AssetAccessor<T> {
+    public static final class EditorArmatureAccessor<T extends Armature> extends SidecarReferenceable<ArmatureMetadataHolder> implements AssetAccessor<T> {
         private Identifier identifier;
         private final ArmatureLoader.ArmatureConstructor<T> armatureConstructor;
 
@@ -3451,7 +3648,7 @@ public final class AkytheraProject {
     }
 
     /// An armature physics asset of this project. [#get] answers the holder's current, unsaved state.
-    public static final class EditorArmaturePhysicsAccessor extends EditorReferenceable<ArmaturePhysicsDataHolder> implements AssetAccessor<ArmaturePhysicsData> {
+    public static final class EditorArmaturePhysicsAccessor extends SidecarReferenceable<ArmaturePhysicsDataHolder> implements AssetAccessor<ArmaturePhysicsData> {
         private Identifier identifier;
 
         private EditorArmaturePhysicsAccessor(Identifier identifier) {
@@ -3547,7 +3744,7 @@ public final class AkytheraProject {
     }
 
     /// Accessor for animation data stored in [AnimationClip]
-    public static final class EditorAnimationAccessor extends EditorReferenceable<AnimationMetadataHolder> implements AssetAccessor<AnimationClip> {
+    public static final class EditorAnimationAccessor extends SidecarReferenceable<AnimationMetadataHolder> implements AssetAccessor<AnimationClip> {
         private Identifier identifier;
 
         private EditorAnimationAccessor(Identifier identifier) {
@@ -3633,17 +3830,24 @@ public final class AkytheraProject {
         }
     }
 
-    /// Shared base for the four editor asset accessors. Subclasses own the actual `identifier`
-    /// field (each has its own constructor shape). A [#rename] mutates that id in place; because
-    /// each accessor is issued one-per-id and shared by every referrer, the rename propagates to
-    /// referrers for free (disk is re-saved by the asset rename scan).
-    private static abstract class EditorReferenceable<H> implements EditorReference {
+    /// Shared base for the editor-issued references: the asset accessors, textures and sound events.
+    /// Subclasses own the actual identifier field (each has its own constructor shape). A [#rename]
+    /// mutates that id in place; because each one is issued one-per-id and shared by every referrer,
+    /// the rename propagates to referrers for free (disk is re-saved by the asset rename scan).
+    private static abstract class EditorReferenceable implements EditorReference {
+        /// Subclasses mutate their own identifier field.
+        abstract void setIdentifier(Identifier id);
+
+        void rename(Identifier newId) {
+            setIdentifier(newId);
+        }
+    }
+
+    /// An [EditorReferenceable] asset accessor with a sidecar view.
+    private static abstract class SidecarReferenceable<H> extends EditorReferenceable {
         /// The sidecar view, read on first call and kept from then on. One accessor is issued per
         /// identifier, so there is one holder per identifier.
         private @Nullable H metadata;
-
-        /// Subclasses mutate their own identifier field.
-        abstract void setIdentifier(Identifier id);
 
         /// Reads this accessor's sidecar off disk.
         abstract H readMetadata();
@@ -3654,10 +3858,6 @@ public final class AkytheraProject {
             }
 
             return metadata;
-        }
-
-        void rename(Identifier newId) {
-            setIdentifier(newId);
         }
     }
 }

@@ -11,6 +11,8 @@ import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.ParticleSourceWriter;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
+import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import net.minecraft.resources.ResourceKey;
 
 import java.util.ArrayList;
@@ -19,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /// Modifiable data holder for a [ParticleSystemBlueprint]: its emitters and its parameters. It also keeps
 /// when the editor's preview ends, which is no part of the system.
@@ -83,6 +86,14 @@ public final class ParticleSystemHolder extends AbstractDataHolder<ParticleSyste
         );
 
         return system.validate().getOrThrow(IllegalStateException::new);
+    }
+
+    @Override
+    public Stream<EditorReference> referencedReferences() {
+        return Stream.concat(
+            emitters.stream().flatMap(DataHolder::referencedReferences),
+            variables.stream().flatMap(BlueprintScriptData.Variable::referencedReferences)
+        );
     }
 
     /// The `emitters` and `variables` lists of the system's constructor, as source. A module node graph the open

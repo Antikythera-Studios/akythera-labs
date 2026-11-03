@@ -15,6 +15,8 @@ import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -65,13 +67,13 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
                 TransformHolder.CODEC.optionalFieldOf("transform").forGetter(holder -> Optional.of(holder.transform)),
                 KeyframeTrack.codec(Transform.CODEC).optionalFieldOf("pivot_keys", KeyframeTrack.empty()).forGetter(holder -> holder.pivotKeys),
                 KeyframeTrack.codec(Transform.CODEC).optionalFieldOf("transform_keys", KeyframeTrack.empty()).forGetter(holder -> holder.transformKeys),
-                ParticleModuleHolder.Stored.CODEC.listOf().optionalFieldOf("initializers", List.of())
+                ParticleModuleHolder.Stored.codec(false).listOf().optionalFieldOf("initializers", List.of())
                     .forGetter(holder -> holder.initializers.modules().stream().map(ParticleModuleHolder::toStored).toList()),
-                ParticleModuleHolder.Stored.CODEC.listOf().optionalFieldOf("updaters", List.of())
+                ParticleModuleHolder.Stored.codec(true).listOf().optionalFieldOf("updaters", List.of())
                     .forGetter(holder -> holder.updaters.modules().stream().map(ParticleModuleHolder::toStored).toList())
             ).apply(instance, (name, particle, vanillaParticle, start, spawnType, count, rate, duration, loop, hide, pivot, transform, pivotKeys, transformKeys, initializers, updaters) -> {
                 ParticleEmitterHolder holder = new ParticleEmitterHolder(name);
-                holder.particle = particle.filter(key -> !key.identifier().equals(DataHolder.EMPTY_REFERENCE)).<ParticleRef>map(ParticleRef.Piece::new)
+                holder.particle = particle.filter(key -> !key.identifier().equals(DataHolder.EMPTY_REFERENCE)).<ParticleRef>map(ParticleRef.Piece::of)
                     .or(() -> vanillaParticle.map(ParticleRef.Vanilla::new))
                     .orElse(ParticleRef.NONE);
                 holder.start = start;
@@ -162,7 +164,7 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
     @Override
     public void readFrom(final ParticleEmitterBlueprint object) {
         name = object.name();
-        particle = object.particle().map(ParticleRef.Piece::new, ParticleRef.Vanilla::new);
+        particle = object.particle().map(ParticleRef.Piece::of, ParticleRef.Vanilla::new);
         start = object.start();
 
         switch (object.spawn()) {
@@ -218,6 +220,18 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
             playedTransformKeys,
             initializers.modules().stream().flatMap(module -> module.makeInitializer().stream()).toList(),
             updaters.modules().stream().flatMap(module -> module.makeUpdater().stream()).toList()
+        );
+    }
+
+    /// The project piece this emitter spawns, its project modules, and what their parameters reference.
+    @Override
+    public Stream<EditorReference> referencedReferences() {
+        return Stream.concat(
+            particle instanceof ParticleRef.Piece piece ? EditorHolderCodecs.referenceOf(piece.holder()) : Stream.empty(),
+            Stream.concat(initializers.modules().stream(), updaters.modules().stream()).flatMap(module -> Stream.concat(
+                module.getRef() instanceof ModuleRef.ByData byData ? EditorHolderCodecs.referenceOf(byData.holder()) : Stream.empty(),
+                module.getParams().stream().flatMap(ModuleParamHolder::referencedReferences)
+            ))
         );
     }
 

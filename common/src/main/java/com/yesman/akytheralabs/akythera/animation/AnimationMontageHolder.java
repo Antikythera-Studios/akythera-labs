@@ -317,13 +317,16 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
         return segments.size();
     }
 
-    /// The editor-owned clips this montage references. Engine and foreign accessors are not
-    /// [EditorReference]s and are filtered out.
+    /// The editor-owned clips this montage references, and what its notifies reference. Engine and
+    /// foreign accessors are not [EditorReference]s and are filtered out.
     @Override
     public Stream<EditorReference> referencedReferences() {
-        return segments.stream()
-            .filter(c -> c instanceof EditorReference)
-            .map(c -> (EditorReference) c);
+        return Stream.concat(
+            segments.stream()
+                .filter(c -> c instanceof EditorReference)
+                .map(c -> (EditorReference) c),
+            notifyTrackHolder.referencedReferences()
+        );
     }
 
     // ***************************************************************

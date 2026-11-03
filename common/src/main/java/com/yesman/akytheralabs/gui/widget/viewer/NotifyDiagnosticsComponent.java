@@ -5,16 +5,18 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
+import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
+import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.editor.EditorFieldScanner;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.sounds.SoundEvent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -78,7 +80,8 @@ public final class NotifyDiagnosticsComponent implements Model3DViewerComponent 
             if (EditorWidgetFactory.resolves(value)) continue;
 
             Object name = switch (value) {
-                case SoundEvent sound -> sound.location();
+                case AkytheraProject.EditorSoundEventAccessor sound -> sound.location();
+                case Holder<?> reference -> EditorHolderCodecs.entryId(reference);
                 case ResourceKey<?> key -> key.identifier();
                 case null, default -> value;
             };

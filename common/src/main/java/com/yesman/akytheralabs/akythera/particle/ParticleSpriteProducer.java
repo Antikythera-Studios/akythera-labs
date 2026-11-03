@@ -31,7 +31,7 @@ public final class ParticleSpriteProducer implements EditorWidgetFactory.WidgetP
                 ModalManager.getInstance().closeModal();
 
                 ParticleSprite before = (ParticleSprite) slot.get();
-                ParticleSprite after = new ParticleSprite(id);
+                ParticleSprite after = ParticleSprite.of(id);
 
                 HistoryManager.getInstance().pushHistory(EditorWidgetFactory.historyScope(slot), new DataChange<>(before, after, sprite -> {
                     slot.set(sprite);

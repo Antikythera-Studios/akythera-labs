@@ -15,6 +15,7 @@ import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintSignature;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
+import com.yesman.akytheralabs.editor.StoredJson;
 import com.yesman.akytheralabs.editor.ValueShape;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -772,7 +773,7 @@ public final class BlueprintEditorSession {
     /// data and fails [#validate]. A stored value that does not decode shows as its JSON, read-only.
     public List<EditorWidgetFactory.ValueSlot> propertySlots() {
         List<EditorWidgetFactory.ValueSlot> slots = new ArrayList<>();
-        Map<String, JsonElement> values = data.getProperties();
+        Map<String, StoredJson> values = data.getProperties();
 
         for (BlueprintLayout.Property property : layout.properties()) {
             ValueShape shape = ValueShape.of(property.type());
@@ -783,10 +784,10 @@ public final class BlueprintEditorSession {
 
             if (!propertyValues.containsKey(key)) {
                 try {
-                    propertyValues.put(key, values.containsKey(key) ? shape.fromJson(values.get(key)) : shape.unset());
+                    propertyValues.put(key, values.containsKey(key) ? shape.fromJson(values.get(key).json()) : shape.unset());
                 } catch (RuntimeException e) {
                     slots.add(new EditorWidgetFactory.PropertySlot(
-                        label, new ValueShape.Leaf(JsonElement.class, null), data, () -> values.get(key), _ -> {}));
+                        label, new ValueShape.Leaf(JsonElement.class, null), data, () -> values.get(key).json(), _ -> {}));
                     continue;
                 }
             }
@@ -804,7 +805,7 @@ public final class BlueprintEditorSession {
                     }
 
                     try {
-                        values.put(key, shape.toJson(value));
+                        values.put(key, StoredJson.of(shape, shape.toJson(value)));
                     } catch (RuntimeException e) {
                         incompleteProperties.add(key);
                     }

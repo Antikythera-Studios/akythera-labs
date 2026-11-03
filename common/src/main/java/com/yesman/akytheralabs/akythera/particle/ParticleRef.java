@@ -9,6 +9,7 @@ import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.SpriteParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.TrailParticleBlueprint;
 import com.yesman.akytheralabs.AkytheraProject;
+import net.minecraft.core.Holder;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
@@ -36,16 +37,24 @@ public sealed interface ParticleRef {
         }
     }
 
-    /// A particle piece of the open project or the loaded registry.
-    record Piece(ResourceKey<ParticleBlueprint> key) implements ParticleRef {
+    /// A particle piece of the open project or the loaded registry, held as the shared live holder.
+    record Piece(Holder<ParticleBlueprint> holder) implements ParticleRef {
+        public static Piece of(final ResourceKey<ParticleBlueprint> key) {
+            return new Piece(AkytheraProject.getCurrentProject().getEntryHolderOrDangling(key));
+        }
+
+        public ResourceKey<ParticleBlueprint> key() {
+            return holder.unwrapKey().orElseThrow();
+        }
+
         @Override
         public String displayLabel() {
-            return key.identifier().toString();
+            return key().identifier().toString();
         }
 
         @Override
         public @Nullable Class<? extends AkytheraParticle> particleClass() {
-            ParticleBlueprintHolder projectPiece = AkytheraProject.getCurrentProject().<ParticleBlueprint, ParticleBlueprintHolder>getDataHolder(key).orElse(null);
+            ParticleBlueprintHolder projectPiece = AkytheraProject.getCurrentProject().<ParticleBlueprint, ParticleBlueprintHolder>getDataHolder(key()).orElse(null);
 
             if (projectPiece != null) {
                 return switch (projectPiece.getType()) {
@@ -55,7 +64,7 @@ public sealed interface ParticleRef {
                 };
             }
 
-            return switch (ParticleHost.LEVEL.piece(key)) {
+            return switch (ParticleHost.LEVEL.piece(key())) {
                 case null -> null;
                 case SpriteParticleBlueprint _ -> AkytheraSpriteParticle.class;
                 case TrailParticleBlueprint _ -> AkytheraTrailParticle.class;

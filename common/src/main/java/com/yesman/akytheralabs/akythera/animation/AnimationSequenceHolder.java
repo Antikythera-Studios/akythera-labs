@@ -155,11 +155,14 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         animClipChangeListener = listener;
     }
 
-    /// The editor-owned clip this sequence references. The engine empty and foreign-namespace
-    /// accessors are not [EditorReference]s and yield an empty stream.
+    /// The editor-owned clip this sequence references, and what its notifies reference. The engine
+    /// empty and foreign-namespace accessors are not [EditorReference]s.
     @Override
     public Stream<EditorReference> referencedReferences() {
-        return animClip instanceof EditorReference ref ? Stream.of(ref) : Stream.empty();
+        return Stream.concat(
+            animClip instanceof EditorReference ref ? Stream.of(ref) : Stream.empty(),
+            notifyTrackHolder.referencedReferences()
+        );
     }
 
     @Override

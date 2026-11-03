@@ -16,6 +16,7 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import com.yesman.akytheralabs.dataholder.EditorReference;
+import com.yesman.akytheralabs.editor.StoredJson;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
 import com.yesman.akytheralabs.gui.widget.script.node.MethodEntryNodeData;
@@ -47,7 +48,7 @@ public final class BlueprintScriptData {
                 UserFunction.CODEC.listOf().optionalFieldOf("functions", List.of())
                     .forGetter(BlueprintScriptData::getFunctions),
                 Codec.unboundedMap(Codec.STRING, ExtraCodecs.JSON).optionalFieldOf("properties", Map.of())
-                    .forGetter(BlueprintScriptData::getProperties),
+                    .forGetter(BlueprintScriptData::propertyJson),
                 Variable.CODEC.listOf().optionalFieldOf("variables", List.of())
                     .forGetter(BlueprintScriptData::getVariables)
             ).apply(instance, BlueprintScriptData::new)
@@ -60,8 +61,9 @@ public final class BlueprintScriptData {
 
     private final List<UserFunction> functions;
 
-    /// The property values in their type's codec form, by [BlueprintLayout.Property#key].
-    private final Map<String, JsonElement> properties;
+    /// The property values in their type's codec form, by [BlueprintLayout.Property#key]. Plain until
+    /// [#typeProperties] reads them as their types.
+    private final Map<String, StoredJson> properties;
 
     private final List<Variable> variables;
 
@@ -79,8 +81,10 @@ public final class BlueprintScriptData {
         this.eventGraph = eventGraph;
         this.overrides = new LinkedHashMap<>(overrides);
         this.functions = new ArrayList<>(functions);
-        this.properties = new LinkedHashMap<>(properties);
+        this.properties = new LinkedHashMap<>();
         this.variables = new ArrayList<>(variables);
+
+        properties.forEach((key, json) -> this.properties.put(key, new StoredJson.Plain(json)));
     }
 
     /// Matches the entry node of the method or function `name`.
@@ -139,7 +143,7 @@ public final class BlueprintScriptData {
             ));
         }
 
-        return new BlueprintBody(methods, declared, properties, variables.stream().map(Variable::toInfo).toList());
+        return new BlueprintBody(methods, declared, propertyJson(), variables.stream().map(Variable::toInfo).toList());
     }
 
     /// Every canvas this data holds, the Event Graph first.
@@ -158,9 +162,22 @@ public final class BlueprintScriptData {
         functions.replaceAll(function -> function.withGraph(mapper.apply(function.graph())));
     }
 
-    /// The shared rename-tracking instances every canvas binds.
+    /// The shared rename-tracking instances every canvas binds, and every property value and variable default
+    /// value names.
     public Stream<EditorReference> referencedReferences() {
-        return canvases().flatMap(ScriptGraphData::referencedReferences);
+        return Stream.of(
+            canvases().flatMap(ScriptGraphData::referencedReferences),
+            properties.values().stream().flatMap(StoredJson::referencedReferences),
+            variables.stream().flatMap(Variable::referencedReferences)
+        ).flatMap(references -> references);
+    }
+
+    /// Reads the property values as the types `layout` gives them, so each holds the project entries and textures
+    /// it names. A key `layout` does not know stays as it is.
+    public void typeProperties(final BlueprintLayout layout) {
+        for (BlueprintLayout.Property property : layout.properties()) {
+            properties.computeIfPresent(property.key(), (_, value) -> StoredJson.of(property.type(), value.json()));
+        }
     }
 
     /// The first unresolved node a canvas kept, or null when every canvas is clean.
@@ -192,8 +209,16 @@ public final class BlueprintScriptData {
     }
 
     /// The live property map, by [BlueprintLayout.Property#key].
-    public Map<String, JsonElement> getProperties() {
+    public Map<String, StoredJson> getProperties() {
         return properties;
+    }
+
+    /// The property values as they are written now, by [BlueprintLayout.Property#key].
+    public Map<String, JsonElement> propertyJson() {
+        Map<String, JsonElement> json = new LinkedHashMap<>();
+        properties.forEach((key, value) -> json.put(key, value.json()));
+
+        return json;
     }
 
     public List<Variable> getVariables() {
@@ -207,9 +232,10 @@ public final class BlueprintScriptData {
 
     /// A member variable, its default value held in its type's codec form.
     ///
-    /// @param sync forced to [ScriptVariables.SyncDirection#NONE] when the type carries no stream codec
+    /// @param storedDefault null for none
+    /// @param sync          forced to [ScriptVariables.SyncDirection#NONE] when the type carries no stream codec
     public record Variable(
-        String name, ScriptType type, Optional<JsonElement> defaultValue, ScriptVariables.SyncDirection sync
+        String name, ScriptType type, @Nullable StoredJson storedDefault, ScriptVariables.SyncDirection sync
     ) {
         public static final Codec<Variable> CODEC = RecordCodecBuilder.create(
             instance ->
@@ -224,6 +250,21 @@ public final class BlueprintScriptData {
 
         public Variable {
             if (!type.isSyncable()) sync = ScriptVariables.SyncDirection.NONE;
+        }
+
+        public Variable(
+            final String name, final ScriptType type, final Optional<JsonElement> defaultValue, final ScriptVariables.SyncDirection sync
+        ) {
+            this(name, type, defaultValue.map(json -> StoredJson.of(type, json)).orElse(null), sync);
+        }
+
+        /// The default value as it is written now.
+        public Optional<JsonElement> defaultValue() {
+            return Optional.ofNullable(storedDefault).map(StoredJson::json);
+        }
+
+        public Stream<EditorReference> referencedReferences() {
+            return storedDefault == null ? Stream.empty() : storedDefault.referencedReferences();
         }
 
         /// `info` with its default value encoded through the type's codec.
@@ -247,7 +288,7 @@ public final class BlueprintScriptData {
         public ScriptVariables.VariableInfo toInfo() {
             Object value = type.codec() == null
                 ? null
-                : defaultValue.map(json -> AkytheraProject.withProjectLookups(() -> type.parse(json))).orElse(null);
+                : defaultValue().map(json -> AkytheraProject.withProjectLookups(() -> type.parse(json))).orElse(null);
 
             return new ScriptVariables.VariableInfo(name, type, value, sync);
         }

@@ -136,16 +136,25 @@ public record ScriptGraphData(List<GraphNode> nodes, List<WireData> wires, List<
         return new IllegalStateException("Unresolved node (id " + f.id() + "): " + f.message());
     }
 
-    /// The shared rename-tracking instances this canvas' nodes bind, for the owning holder's
-    /// [DataHolder#referencedReferences]. A failed row's references stay inside its raw JSON, which is
-    /// re-emitted verbatim, so it contributes none.
+    /// The shared rename-tracking instances this canvas' nodes bind and their typed values name, for the
+    /// owning holder's [DataHolder#referencedReferences]. A failed row's references stay inside its raw
+    /// JSON, which is re-emitted verbatim, so it contributes none.
     public Stream<EditorReference> referencedReferences() {
-        return nodes.stream().flatMap(n -> n.data().referencedReferences());
+        return nodes.stream().flatMap(n -> Stream.concat(
+            n.data().referencedReferences(),
+            n.literals().stream().flatMap(literal -> literal.stored().referencedReferences())
+        ));
     }
 
-    /// The ids this canvas names that resolve to nothing (see [NodeData#missingReferences]).
+    /// The ids this canvas names that resolve to nothing (see [NodeData#missingReferences]), its unwired typed
+    /// values' included.
     public Stream<Identifier> missingReferences() {
-        return nodes.stream().flatMap(n -> n.data().missingReferences());
+        return nodes.stream().flatMap(n -> Stream.concat(
+            n.data().missingReferences(),
+            n.literals().stream()
+                .filter(literal -> wires.stream().noneMatch(wire -> wire.to() == n.id() && wire.toPin() == literal.pin()))
+                .flatMap(literal -> literal.stored().missingReferences())
+        ));
     }
 
     /// Every row whose payload is of `type`, in row order.

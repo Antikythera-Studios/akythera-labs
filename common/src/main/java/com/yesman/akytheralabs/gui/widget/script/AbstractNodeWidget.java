@@ -12,6 +12,7 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.ValueShape;
 import com.yesman.akytheralabs.editor.historytrack.HistoryScoped;
+import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsCheckBoxTheme;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsComboBoxTheme;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsEditBoxTheme;
@@ -452,7 +453,7 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     }
 
     public boolean hasErrors() {
-        return !errors.isEmpty() || !intrinsicErrors().isEmpty() || runtimeError != null;
+        return !errors.isEmpty() || !intrinsicErrors().isEmpty() || !literalErrors().isEmpty() || runtimeError != null;
     }
 
     /// Errors the node determines about itself — an asset binding that resolves nowhere, a required
@@ -463,6 +464,23 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     /// Runs per node, per frame: keep the check to cheap lookups. Default: none.
     public List<Component> intrinsicErrors() {
         return List.of();
+    }
+
+    /// A message per id a typed value names that resolves to nothing, on the pins no wire feeds. Read like
+    /// [#intrinsicErrors].
+    public List<Component> literalErrors() {
+        List<Component> found = new ArrayList<>();
+
+        for (PinLiteral literal : literals.values()) {
+            if (literal.pin() >= inputs.size() || isInputConnected(literal.pin())) continue;
+
+            String label = inputs.get(literal.pin()).label();
+
+            literal.stored().missingReferences().forEach(id -> found.add(
+                Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_VALIDATION_UNRESOLVED_LITERAL, id.toString(), label)));
+        }
+
+        return found;
     }
 
     /// Whether validation may flag this node. Cosmetic / transparent nodes (a reroute knot) opt
@@ -477,6 +495,7 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     public List<Component> errorLines() {
         List<Component> all = new ArrayList<>(errors);
         all.addAll(intrinsicErrors());
+        all.addAll(literalErrors());
 
         Throwable cause = runtimeError;
 
@@ -550,7 +569,8 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
     /// or a widget producer, or a list or record, which spans more than one row.
     ///
     /// A new editor starts from the pin's stored [PinLiteral] when it is of the pin's type, else from the
-    /// type's blank value, and stores what it starts from. A registry entry with nothing picked stores
+    /// type's blank value, and stores what it starts from. A stored value that no longer decodes is kept
+    /// and starts the editor unset, see [#literalErrors]. A registry entry with nothing picked stores
     /// nothing. A registry entry is picked from a combo over every entry of its registry.
     @SuppressWarnings("unchecked")
     private LiteralEditor literalEditor(int index) {
@@ -566,12 +586,14 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
         if (shape instanceof ValueShape.Leaf || shape instanceof ValueShape.RegistryLeaf) {
             PinLiteral stored = literals.get(index);
             Object initial = shape.blank();
+            boolean kept = false;
 
             if (stored != null && stored.type().equals(type)) {
                 try {
                     initial = shape.fromJson(stored.value());
                 } catch (RuntimeException ignored) {
-                    // A value that no longer decodes starts over from blank.
+                    initial = null;
+                    kept = true;
                 }
             }
 
@@ -587,7 +609,7 @@ public abstract class AbstractNodeWidget extends AbstractWidget implements Ancho
                 }
             };
 
-            write.accept(initial);
+            if (!kept) write.accept(initial);
 
             if (widgetFactory == null) widgetFactory = new EditorWidgetFactory(font);
 
