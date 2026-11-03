@@ -352,9 +352,7 @@ public final class NotifyRow extends TimelineTrackEntry {
 
     private <T> void openTypePicker(Component title, Registry<T> registry, Consumer<T> onPick) {
         RegistryLookupModal<T> modal = new RegistryLookupModal<>(Minecraft.getInstance().font, title, registry, onPick);
-        modal.setX1(AnchoredWidget.pixel(sheetMenuX));
-        modal.setY1(AnchoredWidget.pixel(sheetMenuY));
 
-        ModalManager.getInstance().openModalWidget(modal, sheetMenuX, sheetMenuY);
+        ModalManager.getInstance().openModalWidgetAt(modal, sheetMenuX, sheetMenuY);
     }
 }

@@ -16,13 +16,9 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.StaticRegistryAccess;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
-import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
-import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
 
@@ -30,16 +26,12 @@ import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 
 /// Plays the particle systems of an animation's [TrailParticleNotifyState]s in an animation editor's [Model3DViewer],
 /// with no level, each following its socket on the previewed model. The particles play in a [PreviewParticles].
 ///
-/// A socket is resolved by the viewer's [PreviewPatchComponent]. Each notify state with a
-/// [AnimationNotifyStateHolder#socketPath] naming a socket it can't resolve raises a debug message, as does an empty
-/// one once the notify state is saved.
+/// A socket is resolved by the viewer's [PreviewPatchComponent].
 public final class NotifyParticlePreviewComponent implements Model3DViewerComponent {
-    private final Supplier<NotifyTrackHolder> notifyTracks;
     private final PreviewParticles particles = new PreviewParticles(ParticleSystemPreviewComponent::piece);
 
     /// The plays [#play] asked for, started by the next frame that moves the playhead.
@@ -54,10 +46,6 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
     /// The playhead at the last frame, NaN before the first.
     private float lastElapsed = Float.NaN;
 
-    public NotifyParticlePreviewComponent(final Supplier<NotifyTrackHolder> notifyTracks) {
-        this.notifyTracks = notifyTracks;
-    }
-
     /// Plays `particleSystem` on `socket` as [TrailParticleNotifyState] does, from the next frame that moves the
     /// playhead. Nothing plays when the system or the socket can't be found.
     public void play(final Model3DViewer viewer, final ResourceKey<ParticleSystemBlueprint> particleSystem, final String socket, final TimeWindow window) {
@@ -71,23 +59,6 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
         GuiGraphicsExtractor graphics, Model3DViewer model3DViewer, PoseStack poseStack, ByteBufferBuilder byteBuffer, int mouseX, int mouseY, float a
     ) {
         EntityModelComponent model = model3DViewer.getComponent(EntityModelComponent.class);
-
-        model3DViewer.setDebugMessages(this, model == null
-            ? List.of()
-            : notifyTracks.get().getTracks().stream()
-                .flatMap(track -> track.notifyStates.stream())
-                .<Component>mapMulti((state, messages) -> {
-                    String socket = state.holder.socketPath();
-
-                    if (socket == null) return;
-
-                    if (socket.isEmpty()) {
-                        if (state.holder.isSaved()) messages.accept(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_SOCKET_EMPTY, state.holder.notifyName()));
-                    } else if (socketTransform(model3DViewer, socket) == null) {
-                        messages.accept(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_SOCKET_NOT_FOUND, socket, state.holder.notifyName()));
-                    }
-                })
-                .toList());
 
         ArmatureComponent armature = model == null ? null : model.getArmatureComponent();
         EntityModelComponent.EditorScrubAnimator animator = model != null && model.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator scrub ? scrub : null;

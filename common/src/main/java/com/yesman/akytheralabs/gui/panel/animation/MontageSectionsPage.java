@@ -4,6 +4,9 @@ import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.client.api.gui.AkytheraButton;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.historytrack.ListInsert;
+import com.yesman.akytheralabs.editor.historytrack.ListRemove;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.EditorComboBox;
 import net.minecraft.client.gui.Font;
@@ -30,10 +33,11 @@ import java.util.function.Consumer;
 /// of [EditorComboBox]. Each row is one play sequence:
 ///
 /// > `[▶] combo→combo→combo [✕]` (a looping / complete sequence)
-/// > `[▶] combo→combo→[▼ pick…]` (an open sequence — trailing append combo, no ✕ yet)
+/// > `[▶] combo→combo→[▼ pick…] [✕]` (an open sequence — trailing append combo)
 /// > `[+]` (add-sequence button, always last, on its own line)
 ///
-/// The ▶ play button only renders at a sequence's first line. A sequence that overflows the
+/// The ▶ play button is disabled while its sequence is empty, and the [+] button while every section is in a sequence.
+/// The ▶ only renders at a sequence's first line. A sequence that overflows the
 /// panel width wraps to indented continuation lines that start with a combo (no ▶) — so the
 /// ▶ is the cue distinguishing a *new sequence* from an *overflow wrap*.
 public final class MontageSectionsPage extends AbstractContainerWidget implements AnchoredWidget {
@@ -98,32 +102,31 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
             List<String> seq = orders.get(si);
             boolean looping = isLooping(seq);
             List<String> candidates = candidatesFor(si);
-            Row row = new Row();
+            Row row = new Row(
+                makeIconButton(AkytheraLabsButtonTheme.MONTAGE_SEQ_PLAY_BUTTON, () -> onPlaySequence.accept(seq.getFirst())),
+                new ArrayList<>(),
+                makeIconButton(AkytheraLabsButtonTheme.MONTAGE_SEQ_REMOVE_BUTTON, () -> {
+                    orders.remove(idx);
+                    rebuildChain();
+                    HistoryManager.getInstance().pushHistory(new ListRemove<>(orders, idx, seq, this::rebuildChain));
+                })
+            );
 
-            // ▶ play — first section of this sequence; only meaningful when it has one.
-            if (!seq.isEmpty()) {
-                String first = seq.get(0);
-                row.play = makeIconButton(AkytheraLabsButtonTheme.MONTAGE_SEQ_PLAY_BUTTON, () -> onPlaySequence.accept(first));
-            }
+            row.play().active = !seq.isEmpty();
 
             // One combo per existing slot.
             for (int i = 0; i < seq.size(); i++) {
                 int slot = i;
-                row.combos.add(makeCombo(candidates, seq.get(i), picked -> {
+                row.combos().add(makeCombo(candidates, seq.get(i), picked -> {
                     if (picked == null) seq.remove(slot);
                     else seq.set(slot, picked);
                     rebuildChain();
                 }));
             }
 
-            // Looping sequence → ✕ remove; open sequence → trailing append combo.
-            if (looping) {
-                row.remove = makeIconButton(AkytheraLabsButtonTheme.MONTAGE_SEQ_REMOVE_BUTTON, () -> {
-                    orders.remove(idx);
-                    rebuildChain();
-                });
-            } else if (!candidates.isEmpty()) {
-                row.combos.add(makeCombo(candidates, null, picked -> {
+            // Open sequence → trailing append combo
+            if (!looping && !candidates.isEmpty()) {
+                row.combos().add(makeCombo(candidates, null, picked -> {
                     if (picked != null) {
                         seq.add(picked);
                         rebuildChain();
@@ -132,14 +135,20 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
             }
 
             rows.add(row);
-            collectWidgets(row);
+            widgets.add(row.play());
+            widgets.addAll(row.combos());
+            widgets.add(row.remove());
         }
 
         // Gray-cross add-sequence button — always present, on its own line.
         addSeqButton = makeIconButton(AkytheraLabsButtonTheme.MONTAGE_SEQ_ADD_BUTTON, () -> {
-            orders.add(new ArrayList<>());
+            List<String> added = new ArrayList<>();
+
+            orders.add(added);
             rebuildChain();
+            HistoryManager.getInstance().pushHistory(new ListInsert<>(orders, orders.size() - 1, added, this::rebuildChain));
         });
+        addSeqButton.active = !candidatesFor(orders.size()).isEmpty();
 
         widgets.add(addSeqButton);
 
@@ -171,14 +180,6 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
         return new ArrayList<>(avail);
     }
 
-    private void collectWidgets(Row row) {
-        if (row.play != null) widgets.add(row.play);
-
-        widgets.addAll(row.combos);
-
-        if (row.remove != null) widgets.add(row.remove);
-    }
-
     private EditorComboBox<String> makeCombo(Collection<String> names, @Nullable String value, Consumer<String> onChange) {
         EditorComboBox<String> box = new EditorComboBox<>(
             font,
@@ -205,7 +206,7 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
             .build();
     }
 
-    /// Lay out each sequence: pen starts at the left, ▶ first (sequence start only), then the
+    /// Lay out each sequence: pen starts at the left, ▶ first, then the
     /// combos wrapping onto indented continuation lines when they overflow, then ✕. A fresh
     /// line per sequence; the [+] add button lands on the last line.
     private void positionRows() {
@@ -217,12 +218,10 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
             int x = left;
             boolean lineHasCombo = false;
 
-            if (row.play != null) {
-                place(row.play, x, y, ICON_W);
-                x += ICON_W + ARROW_GAP;
-            }
+            place(row.play(), x, y, ICON_W);
+            x += ICON_W + ARROW_GAP;
 
-            for (AbstractWidget combo : row.combos) {
+            for (AbstractWidget combo : row.combos()) {
                 if (lineHasCombo && x + COMBO_W > right) {
                     y += ROW_GAP;
                     x = left + CONT_INDENT;
@@ -233,14 +232,12 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
                 lineHasCombo = true;
             }
 
-            if (row.remove != null) {
-                if (lineHasCombo && x + ICON_W > right) {
-                    y += ROW_GAP;
-                    x = left + CONT_INDENT;
-                }
-
-                place(row.remove, x, y, ICON_W);
+            if (lineHasCombo && x + ICON_W > right) {
+                y += ROW_GAP;
+                x = left + CONT_INDENT;
             }
+
+            place(row.remove(), x, y, ICON_W);
 
             y += ROW_GAP;
         }
@@ -283,9 +280,9 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
         // Arrows between consecutive combos within the same sequence. Same line → arrow sits
         // after the current combo; wrapped line → arrow leads the continuation combo.
         for (Row row : rows) {
-            for (int i = 0; i + 1 < row.combos.size(); i++) {
-                AbstractWidget cur = row.combos.get(i);
-                AbstractWidget next = row.combos.get(i + 1);
+            for (int i = 0; i + 1 < row.combos().size(); i++) {
+                AbstractWidget cur = row.combos().get(i);
+                AbstractWidget next = row.combos().get(i + 1);
 
                 if (next.getY() == cur.getY()) {
                     int gy = cur.getY() + (COMBO_H - font.lineHeight) / 2;
@@ -324,11 +321,8 @@ public final class MontageSectionsPage extends AbstractContainerWidget implement
     protected void updateWidgetNarration(@NonNull NarrationElementOutput narrationElementOutput) {
     }
 
-    /// One sequence's widgets: optional ▶ play, its combos, optional ✕ remove.
-    private static final class Row {
-        @Nullable AbstractWidget play;
-        final List<AbstractWidget> combos = new ArrayList<>();
-        @Nullable AbstractWidget remove;
+    /// One sequence's widgets: ▶ play, its combos, ✕ remove.
+    private record Row(AbstractWidget play, List<AbstractWidget> combos, AbstractWidget remove) {
     }
 
     // ***************************************************************

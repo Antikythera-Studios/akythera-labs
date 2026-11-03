@@ -40,6 +40,7 @@ import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
+import com.yesman.akytheralabs.gui.widget.viewer.NotifyDiagnosticsComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.NotifyParticlePreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.PreviewPatchComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
@@ -123,7 +124,8 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
         model3DViewer.addComponent(new PreviewPatchComponent(holder::getPreviewEntityType, holder::getPreviewItems));
-        model3DViewer.addComponent(new NotifyParticlePreviewComponent(holder::getNotifyTrackHolder));
+        model3DViewer.addComponent(new NotifyParticlePreviewComponent());
+        model3DViewer.addComponent(new NotifyDiagnosticsComponent(holder::getNotifyTrackHolder));
         EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, holder.getPreviewEntityType(), true, true);
 
         propertiesHeader = new PanelHeader(

@@ -660,7 +660,7 @@ public final class BlueprintEditorSession {
             () -> graph.spawnNodeAt(
                 (nodeFont, x, y) -> new BlueprintFieldSetterNodeWidget(nodeFont, field.name(), type, x, y), screenX, screenY));
 
-        ModalManager.getInstance().openModalWidget(modal, (int) screenX, (int) screenY);
+        ModalManager.getInstance().openModalWidgetAt(modal, (int) screenX, (int) screenY);
 
         return true;
     }
