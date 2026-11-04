@@ -515,7 +515,7 @@ public final class ScriptNodeSourceCompiler {
     /// a block the project does not own, or a `TODO` marker for a block that carries no id.
     ///
     /// `type` is the enum interface the block belongs to, e.g. `FSMAnimationState`.
-    static String dataBlockLookup(String type, EnumerableDataBlock block) {
+    public static String dataBlockLookup(String type, EnumerableDataBlock block) {
         String projectConstant = SourceNames.dataBlockReference(block);
         if (projectConstant != null) return projectConstant;
 

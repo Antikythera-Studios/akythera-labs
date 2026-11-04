@@ -14,11 +14,14 @@ import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
+import com.yesman.akythera.core.animation.ik.IKChannels;
+import com.yesman.akythera.core.animation.ik.InverseKinematicsSimulation;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.armature.Bone;
 import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
 import com.yesman.akythera.core.math.Transform;
+import com.yesman.akythera.core.math.physics.Terrain;
 import com.yesman.akythera.core.math.physics.ragdoll.RagdollSimulation;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
@@ -26,6 +29,7 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
 import com.yesman.akytheralabs.akythera.physics.ArmaturePhysicsDataHolder;
 import com.yesman.akytheralabs.akythera.physics.BoneBodyHolder;
+import com.yesman.akytheralabs.akythera.physics.ik.IKChainHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
@@ -47,6 +51,7 @@ import com.yesman.akytheralabs.gui.widget.viewer.ArmatureViewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.BoneConstraintLimitComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.BonePoseComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ColliderPreviewComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.IKTargetComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.RagdollDragComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -73,8 +78,9 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-/// Edits the rag doll of one armature: the body and the constraint of each bone, picked by bone in the
-/// Collider Properties panel or by clicking the armature in the viewer, and the simulation settings.
+/// Edits the rag doll and the IK chains of one armature: the body and the constraint of each bone, picked by bone in
+/// the Collider Properties panel or by clicking the armature in the viewer, the IK chains, and the simulation settings.
+/// Each panel folds at its header.
 ///
 /// The armature is the asset's own path (invariant 7), so this screen never picks one — it opens on
 /// whatever the file belongs to.
@@ -94,6 +100,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     private static final int SIMULATE_H = 20;
     private static final int BUOYANCY_CHECKBOX_W = 130;
     private static final int BUOYANCY_CHECKBOX_H = 12;
+    private static final int VIEW_CHECKBOX_W = 110; // the collider and IK preview checkboxes at the bottom left
 
     /// How deep the water of a buoyancy simulation is, in blocks, over its floor.
     private static final double BUOYANCY_POOL_DEPTH = 8.0D;
@@ -125,6 +132,11 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     private final PanelHeader simulationHeader;
     private final WidgetTable simulationTable;
 
+    private final PanelHeader ikHeader;
+
+    /// The IK chains and the root fitting.
+    private final WidgetTable ikTable;
+
     /// The asset view, taken off the accessor so a reopened screen continues the same edit.
     private final ArmaturePhysicsDataHolder holder;
 
@@ -133,6 +145,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     private @Nullable ScreenRectangle panelRect;
     private @Nullable ScreenRectangle constraintRect;
     private @Nullable ScreenRectangle simulationRect;
+    private @Nullable ScreenRectangle ikRect;
 
     private @Nullable ArmatureViewComponent armatureView;
 
@@ -178,9 +191,20 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     /// The pose [#simulation] draws this frame, null while none runs.
     private @Nullable Pose simulatedPose;
 
-    /// Each bone's transform in armature space for the collider previews: [#constrainedPose], or [#simulatedPose] while
-    /// a simulation runs.
+    /// Each bone's transform in armature space for the collider previews: [#scenePose].
     private final Map<String, Transform> scenePlacements = new HashMap<>();
+
+    /// Whether the collider wireframes are drawn.
+    private boolean showColliders = true;
+
+    /// Places the IK chains over a floor at the viewer's origin while the IK preview is on, null while it is off.
+    private @Nullable InverseKinematicsSimulation ikPreview;
+
+    /// [#constrainedPose] with the IK chains placed, which the scene is drawn in while [#ikPreview] runs.
+    private @Nullable Pose ikPose;
+
+    /// The chain targets the gizmo moves while [#ikPreview] runs.
+    private final List<IKTargetComponent> ikTargets = new ArrayList<>();
 
     private @Nullable WorkHistory savePoint;
 
@@ -267,6 +291,41 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         buoyancyCheckBox.valueSetter().accept(buoyancySimulation);
         model3DViewer.addOverlayWidget(buoyancyCheckBox);
 
+        CheckBox colliderCheckBox = new CheckBox(
+            minecraft.font,
+            AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(VIEW_CHECKBOX_W),
+            AnchoredWidget.pixel(OVERLAY_PAD * 2 + BUOYANCY_CHECKBOX_H), AnchoredWidget.pixel(BUOYANCY_CHECKBOX_H),
+            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
+            AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT,
+            () -> showColliders,
+            shown -> {
+                showColliders = shown;
+                rebuildScene();
+            },
+            Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_SHOW_COLLIDERS),
+            true
+        );
+        colliderCheckBox.valueSetter().accept(showColliders);
+        model3DViewer.addOverlayWidget(colliderCheckBox);
+
+        CheckBox ikPreviewCheckBox = new CheckBox(
+            minecraft.font,
+            AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(VIEW_CHECKBOX_W),
+            AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(BUOYANCY_CHECKBOX_H),
+            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
+            AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT,
+            () -> ikPreview != null,
+            previewing -> {
+                ikPreview = previewing ? new InverseKinematicsSimulation() : null;
+                ikPose = null;
+                rebuildIKTargets();
+            },
+            Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_PREVIEW_IK),
+            true
+        );
+        ikPreviewCheckBox.valueSetter().accept(false);
+        model3DViewer.addOverlayWidget(ikPreviewCheckBox);
+
         viewModeButton = AkytheraButton
             .buttonBuilder(minecraft.font, LocalizedMessage.EMPTY, () -> applySimulationView(!simulationWireframe))
             .xUnits(AnchoredWidget.pixel(VIEW_BUTTON_X), AnchoredWidget.pixel(VIEW_BUTTON))
@@ -288,6 +347,16 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             ROW_H
         );
 
+        ikHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_SECTION_INVERSE_KINEMATICS));
+        ikTable = new WidgetTable(
+            this,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT + 2), AnchoredWidget.pixel(0),
+            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+            AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
+            ROW_H
+        );
+
         panelManager = new AdjustablePanelManager(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TOP_BAR_H), AnchoredWidget.pixel(0),
@@ -295,12 +364,13 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
 
-        // Divider order (== serialize order): columns(0), left column body | constraint(1), constraint | simulation(2)
-        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 28, 45, 75);
+        // Divider order (== serialize order): columns(0), left column body | constraint(1), constraint | inverse
+        // kinematics(2), inverse kinematics | simulation(3)
+        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 28, 35, 55, 78);
         var leftAndRight = panelManager.getRoot()
             .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.get(0));
         var leftSections = leftAndRight.get(0)
-            .subdivide(2, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, layoutRatios.get(1), layoutRatios.get(2));
+            .subdivide(3, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, layoutRatios.get(1), layoutRatios.get(2), layoutRatios.get(3));
 
         leftSections.get(0).resizeCallback(rect -> {
             panelRect = rect;
@@ -308,17 +378,23 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             bodyTable.relocate(rect);
 
             if (boneCombo != null) boneCombo.relocate(rect);
-        });
+        }).foldable(header, bodyTable);
         leftSections.get(1).resizeCallback(rect -> {
             constraintRect = rect;
             constraintHeader.relocate(rect);
             constraintTable.relocate(rect);
-        });
+        }).foldable(constraintHeader, constraintTable);
         leftSections.get(2).resizeCallback(rect -> {
+            ikRect = rect;
+            ikHeader.relocate(rect);
+            ikTable.relocate(rect);
+        }).foldable(ikHeader, ikTable);
+        leftSections.get(3).resizeCallback(rect -> {
             simulationRect = rect;
             simulationHeader.relocate(rect);
             simulationTable.relocate(rect);
-        });
+        }).foldable(simulationHeader, simulationTable);
+        panelManager.applyFoldedSections(AkytheraProject.getCurrentProject().getPanelFolds(getClass()));
         leftAndRight.get(1).resizeCallback(model3DViewer::relocate);
         leftAndRight.get(1).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
 
@@ -341,10 +417,13 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         addRenderableWidget(bodyTable);
         addRenderableWidget(constraintHeader);
         addRenderableWidget(constraintTable);
+        addRenderableWidget(ikHeader);
+        addRenderableWidget(ikTable);
         addRenderableWidget(simulationHeader);
         addRenderableWidget(simulationTable);
 
         rebuildAll();
+        fillIKTable();
         fillSimulationTable();
         frameCamera();
     }
@@ -446,6 +525,31 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         if (simulationRect != null) simulationTable.relocate(simulationRect);
     }
 
+    /// The IK chain and root fitting rows. A rebuild may add or drop chains, so the IK targets follow.
+    private void fillIKTable() {
+        new EditorWidgetFactory(font).fillWidgetTable(ikTable, holder, this::fillIKTable, holder);
+
+        if (ikRect != null) ikTable.relocate(ikRect);
+
+        rebuildIKTargets();
+    }
+
+    /// One [IKTargetComponent] per chain with a tip bone while [#ikPreview] runs, none otherwise.
+    private void rebuildIKTargets() {
+        ikTargets.forEach(model3DViewer::removeComponent);
+        ikTargets.clear();
+
+        if (ikPreview == null) return;
+
+        for (IKChainHolder chain : holder.getIKChains()) {
+            if (chain.getTipBone() == null) continue;
+
+            IKTargetComponent target = new IKTargetComponent(ikPreview, chain.getTipBone());
+            ikTargets.add(target);
+            model3DViewer.addComponent(target);
+        }
+    }
+
     /// One collider preview per collider, placed by its bone's [#scenePlacements] transform, and the selected bone's
     /// rotation limits while no simulation runs. A focused editable collider keeps the focus.
     private void rebuildScene() {
@@ -475,7 +579,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             model3DViewer.addComponent(constraintLimit);
         }
 
-        if (simulation != null && !simulationWireframe) return;
+        if (!showColliders || simulation != null && !simulationWireframe) return;
 
         for (Map.Entry<String, BoneBodyHolder> body : holder.getBodies().entrySet()) {
             String bone = body.getKey();
@@ -514,9 +618,12 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         collectModelTransforms(armature.getRootBone(), new Matrix4f(), constrainedPose, scenePlacements);
     }
 
-    /// The pose the preview model and the bones are drawn in.
+    /// The pose the preview model and the bones are drawn in: the rag doll's while one runs, else the IK preview's while
+    /// it is on, else [#constrainedPose].
     private Pose scenePose() {
-        return simulatedPose != null ? simulatedPose : constrainedPose;
+        if (simulatedPose != null) return simulatedPose;
+
+        return ikPose != null ? ikPose : constrainedPose;
     }
 
     /// Whether the gizmo is on a collider rather than on the selected bone's pose.
@@ -555,7 +662,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         simulatedPhysics = holder.makeObject();
         simulation = RagdollSimulation.start(
             armature, simulatedPhysics,
-            buoyancySimulation ? RagdollSimulation.Terrain.pool(0.0D, BUOYANCY_POOL_DEPTH) : RagdollSimulation.Terrain.floor(0.0D), null,
+            buoyancySimulation ? Terrain.pool(0.0D, BUOYANCY_POOL_DEPTH) : Terrain.floor(0.0D), null,
             new RagdollSimulation.Snapshot(constrainedPose, Transform.IDENTITY, 0.0D), 1.0F
         );
 
@@ -626,6 +733,22 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         Armature armature = holder.getArmature().getOrHandleException(_ -> {}); // rebuildAll reports the failure
 
         if (armature != null && simulation == null) applyManualPose(armature);
+
+        if (armature != null && simulation == null && ikPreview != null) {
+            Pose procedural = new Pose(constrainedPose);
+            procedural.setIKChannels(IKChannels.PROCEDURAL);
+
+            ArmaturePhysicsData physics = holder.makeObject();
+            Pose placed = ikPreview.apply(procedural, holder.getArmature(), physics, Transform.IDENTITY, Terrain.floor(0.0D), System.nanoTime() / 1.0E9D);
+            ikPose = armature.applyBoneConstraints(placed, physics, false);
+            collectModelTransforms(armature.getRootBone(), new Matrix4f(), ikPose, scenePlacements);
+        }
+
+        // The bone combo is made anew on each rebuild, so it reads its panel's fold every frame
+        if (boneCombo != null) {
+            boneCombo.visible = !header.isFolded();
+            boneCombo.active = !header.isFolded();
+        }
 
         if (simulation != null && simulatedPhysics != null && armature != null) {
             long now = System.nanoTime();
@@ -724,6 +847,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     public void onClose() {
         model3DViewer.destroy();
         AkytheraProject.getCurrentProject().saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());
+        AkytheraProject.getCurrentProject().saveFoldsOfScreen(this, panelManager.serializeFoldedSections());
         AkytheraEditorLayoutManager.getInstance().removeLastScreen();
     }
 

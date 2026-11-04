@@ -304,6 +304,7 @@ public final class AkytheraProject {
         String sourceDataPath = "";
         String sourceResourcePath = "";
         Map<Class<? extends Screen>, List<Integer>> layouts = new HashMap<>();
+        Map<Class<? extends Screen>, List<Boolean>> panelFolds = new HashMap<>();
         Map<String, Boolean> folderStates = new LinkedHashMap<>();
         Map<String, JsonObject> previewBindings = new LinkedHashMap<>();
 
@@ -328,6 +329,18 @@ public final class AkytheraProject {
                         List<Integer> ratios = new ArrayList<>();
                         e.getValue().getAsJsonArray().forEach(el -> ratios.add(el.getAsInt()));
                         layouts.put(cls, ratios);
+                    } catch (ClassNotFoundException ignored) {}
+                }
+            }
+
+            if (obj.has("panel_folds")) {
+                for (Map.Entry<String, JsonElement> e : obj.getAsJsonObject("panel_folds").entrySet()) {
+                    try {
+                        @SuppressWarnings("unchecked")
+                        Class<? extends Screen> cls = (Class<? extends Screen>) Class.forName(e.getKey());
+                        List<Boolean> folds = new ArrayList<>();
+                        e.getValue().getAsJsonArray().forEach(el -> folds.add(el.getAsBoolean()));
+                        panelFolds.put(cls, folds);
                     } catch (ClassNotFoundException ignored) {}
                 }
             }
@@ -362,6 +375,7 @@ public final class AkytheraProject {
         }
 
         currentProject = new AkytheraProject(name, version, projectRoot, layouts, folderStates, focusedNode);
+        currentProject.panelFolds.putAll(panelFolds);
         currentProject.lastExportDataPath = FileSystemHelper.toRootResolvedIdString(projectRoot, exportDataPath);
         currentProject.lastExportResourcePath = FileSystemHelper.toRootResolvedIdString(projectRoot, exportResourcePath);
         currentProject.lastSourceDataPath = FileSystemHelper.toRootResolvedIdString(projectRoot, sourceDataPath);
@@ -1510,6 +1524,9 @@ public final class AkytheraProject {
     /// ratio of [AdjustablePanelManager]'s panel divider of each screen
     private final Map<Class<? extends Screen>, List<Integer>> layoutDividerSetup;
 
+    /// Whether each foldable panel section of each screen is folded, see [AdjustablePanelManager#serializeFoldedSections]
+    private final Map<Class<? extends Screen>, List<Boolean>> panelFolds = new HashMap<>();
+
     /// folder fold/unfold states stored in project_settings.akproject
     private final Map<String, Boolean> savedFolderStates;
 
@@ -2583,6 +2600,17 @@ public final class AkytheraProject {
             firstLayout = false;
         }
 
+        sb.append("\n    },\n");
+        sb.append("    \"panel_folds\": {");
+
+        boolean firstFold = true;
+
+        for (Map.Entry<Class<? extends Screen>, List<Boolean>> entry : panelFolds.entrySet()) {
+            if (!firstFold) sb.append(",");
+            sb.append("\n        \"").append(entry.getKey().getName()).append("\": ").append(entry.getValue());
+            firstFold = false;
+        }
+
         sb.append("\n    }\n}\n");
 
         if (!FileSystemHelper.writeString(projectRoot.resolve(PROJECT_SETTINGS_FILE), sb.toString())) {
@@ -2901,6 +2929,15 @@ public final class AkytheraProject {
 
     public void saveLayoutOfScreen(Screen screen, List<Integer> serializedPanelDividerPositions) {
         layoutDividerSetup.put(screen.getClass(), serializedPanelDividerPositions);
+    }
+
+    public void saveFoldsOfScreen(final Screen screen, final List<Boolean> serializedFoldedSections) {
+        panelFolds.put(screen.getClass(), serializedFoldedSections);
+    }
+
+    /// The fold states saved for `screenClass`, empty when none are saved.
+    public List<Boolean> getPanelFolds(final Class<? extends Screen> screenClass) {
+        return panelFolds.getOrDefault(screenClass, List.of());
     }
 
     /// The divider positions saved for `screenClass`, or `defaultRatios` when none are saved or the saved

@@ -73,7 +73,8 @@ public final class ${className} extends AnimationSequenceProvider {
                 ${dto.root_motion},
                 ${dto.move_vertical},
                 ${dto.play_rate},
-                ${dto.phase_offset}
+                ${dto.phase_offset},
+                ${dto.ik_type}
             )
         );
 </#list>

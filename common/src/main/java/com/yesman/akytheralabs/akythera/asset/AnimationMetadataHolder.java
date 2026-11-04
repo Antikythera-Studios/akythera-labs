@@ -5,6 +5,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.armature.ArmatureManager;
 import com.yesman.akythera.api.lifecycle.ComponentsFactory;
+import com.yesman.akythera.core.animation.ik.IKCurves;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.AnimationMirror;
 import com.yesman.akythera.core.asset.armature.Armature;
@@ -21,7 +22,10 @@ import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 /// Editable view of an animation asset's `.akmeta` sidecar: the engine's [AnimationLoader.Metadata]
@@ -50,6 +54,9 @@ public final class AnimationMetadataHolder {
     )
     private boolean enableMirroring;
 
+    /// The [IKCurves] of the IK chains the clip drives, by each chain's tip bone. Edited in the IK curve panel.
+    private final Map<String, IKCurves> ikCurves = new LinkedHashMap<>();
+
     /// The animation this sidecar describes. A rename mutates the id in place on this instance, so
     /// the holder keeps pointing at the file.
     private final AkytheraProject.EditorAnimationAccessor accessor;
@@ -67,6 +74,7 @@ public final class AnimationMetadataHolder {
         referencePose = new ReferencePose(metadata.refPoseProvider(), metadata.refPoseTimeStamp());
         vendor = mirror.vendor() == null ? ArmatureManager.EMPTY_ARMATURE_ACCESSOR : mirror.vendor();
         enableMirroring = mirror.enabled();
+        ikCurves.putAll(metadata.ik());
     }
 
     /// The sidecar of `accessor` as it stands on disk, or the defaults when the file is absent.
@@ -146,7 +154,7 @@ public final class AnimationMetadataHolder {
     }
 
     public AnimationLoader.Metadata makeMetadata() {
-        return new AnimationLoader.Metadata(importType, referencePose.clip(), referencePose.timeStamp());
+        return new AnimationLoader.Metadata(importType, referencePose.clip(), referencePose.timeStamp(), Map.copyOf(ikCurves));
     }
 
     public AnimationMirror.Setup makeMirrorSetup() {
@@ -198,6 +206,24 @@ public final class AnimationMetadataHolder {
 
     public void setEnableMirroring(final boolean enableMirroring) {
         this.enableMirroring = enableMirroring;
+    }
+
+    public Map<String, IKCurves> getIKCurves() {
+        return Collections.unmodifiableMap(ikCurves);
+    }
+
+    /// The curves of the chain ending at `tipBone`, null when the clip drives it by none.
+    public @Nullable IKCurves getIKCurves(final String tipBone) {
+        return ikCurves.get(tipBone);
+    }
+
+    /// Sets the curves of the chain ending at `tipBone`. Null or [IKCurves#isEmpty] curves remove the entry.
+    public void setIKCurves(final String tipBone, final @Nullable IKCurves curves) {
+        if (curves == null || curves.isEmpty()) {
+            ikCurves.remove(tipBone);
+        } else {
+            ikCurves.put(tipBone, curves);
+        }
     }
 
     public AkytheraProject.EditorAnimationAccessor getAccessor() {

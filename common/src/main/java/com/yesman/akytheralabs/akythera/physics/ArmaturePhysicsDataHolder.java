@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.akythera.physics;
 
 import com.mojang.serialization.Codec;
 import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.core.animation.ik.IKChain;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
 import com.yesman.akythera.core.asset.physics.constraint.BoneConstraint;
@@ -9,6 +10,10 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.akythera.physics.constraint.BoneConstraintStackHolder;
+import com.yesman.akytheralabs.akythera.physics.ik.IKChainHolder;
+import com.yesman.akytheralabs.akythera.physics.ik.RootFittingHolder;
+import com.yesman.akytheralabs.editor.EditorEditable;
+import com.yesman.akytheralabs.generated.LangKeys;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -23,7 +28,7 @@ import net.minecraft.resources.Identifier;
 /// see [AkytheraProject.EditorArmaturePhysicsAccessor].
 ///
 /// The armature is the asset's own path, so it is read rather than edited: this holder's rows are the
-/// bodies, the bone constraints and the simulation settings.
+/// bodies, the bone constraints, the simulation settings and the IK chains. Filled into a table, it shows the IK rows.
 public final class ArmaturePhysicsDataHolder {
     /// The sidecar: the preview entity type alone. The bodies are the asset itself.
     private static final Codec<Optional<Identifier>> SIDECAR_CODEC =
@@ -36,6 +41,12 @@ public final class ArmaturePhysicsDataHolder {
     private final Map<String, BoneConstraintStackHolder> constraints = new LinkedHashMap<>();
 
     private final RagdollParametersHolder simulation;
+
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_IK_CHAINS, order = 0, defaultElement = "newChain")
+    private final List<IKChainHolder> ikChains = new ArrayList<>();
+
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_ROOT_FITTING, order = 1)
+    private final RootFittingHolder rootFitting;
 
     /// The entity the bodies are previewed on, or null for none.
     private @Nullable Identifier previewEntityType;
@@ -51,10 +62,12 @@ public final class ArmaturePhysicsDataHolder {
         this.accessor = accessor;
         this.previewEntityType = previewEntityType;
         this.simulation = new RagdollParametersHolder(data == null ? ArmaturePhysicsData.RagdollParameters.DEFAULT : data.simulation());
+        this.rootFitting = new RootFittingHolder(data == null ? ArmaturePhysicsData.RootFitting.DEFAULT : data.rootFitting());
 
         if (data != null) {
             data.bodies().forEach((bone, body) -> bodies.put(bone, new BoneBodyHolder(body)));
             data.constraints().forEach((bone, stack) -> constraints.put(bone, new BoneConstraintStackHolder(stack)));
+            data.ikChains().forEach(chain -> ikChains.add(IKChainHolder.of(chain)));
         }
     }
 
@@ -83,7 +96,17 @@ public final class ArmaturePhysicsDataHolder {
             }
         });
 
-        return new ArmaturePhysicsData(Map.copyOf(madeBodies), Map.copyOf(madeConstraints), simulation.makeObject());
+        List<IKChain> madeChains = new ArrayList<>();
+
+        for (IKChainHolder chain : ikChains) {
+            IKChain made = chain.makeObject();
+
+            if (made != null) madeChains.add(made);
+        }
+
+        return new ArmaturePhysicsData(
+            Map.copyOf(madeBodies), Map.copyOf(madeConstraints), simulation.makeObject(), List.copyOf(madeChains), rootFitting.makeObject()
+        );
     }
 
     public boolean save() {
@@ -131,6 +154,14 @@ public final class ArmaturePhysicsDataHolder {
     /// Every body touched so far, empty ones included.
     public Map<String, BoneBodyHolder> getBodies() {
         return bodies;
+    }
+
+    private static IKChainHolder newChain() {
+        return IKChainHolder.create();
+    }
+
+    public List<IKChainHolder> getIKChains() {
+        return ikChains;
     }
 
     public RagdollParametersHolder getSimulation() {

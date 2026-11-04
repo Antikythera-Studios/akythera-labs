@@ -5,6 +5,7 @@ import com.yesman.akythera.api.asset.SingletonAccessor;
 import com.yesman.akythera.api.asset.armature.ArmatureManager;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.client.api.gui.AkytheraButton;
+import com.yesman.akythera.client.api.gui.CheckBox;
 import com.yesman.akythera.client.api.gui.WidgetTable;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
@@ -14,14 +15,24 @@ import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.core.animation.ik.AkytheraIKType;
+import com.yesman.akythera.core.animation.ik.IKCurves;
+import com.yesman.akythera.core.animation.ik.InverseKinematicsSimulation;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.AnimationMirror;
+import com.yesman.akythera.core.animation.keyframe.FloatCurve;
+import com.yesman.akythera.core.animation.keyframe.Pose;
+import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
+import com.yesman.akythera.core.math.Transform;
+import com.yesman.akythera.core.math.physics.Terrain;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
+import com.yesman.akytheralabs.akythera.physics.ArmaturePhysicsDataHolder;
+import com.yesman.akytheralabs.akythera.physics.ik.IKChainHolder;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
@@ -32,6 +43,7 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
+import com.yesman.akytheralabs.gui.widget.curve.FloatCurveEditorWidget;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
@@ -42,6 +54,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -50,15 +63,22 @@ import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
 
-/// Edits an animation asset's sidecar metadata: its [AnimationLoader.ImportType] and, for an
-/// additive import, the reference pose the keyframes are read relative to.
+/// Edits an animation asset's sidecar metadata: its [AnimationLoader.ImportType], for an additive import the reference
+/// pose the keyframes are read relative to, and the [IKCurves] of the vendor armature's IK chains. The IK Curves panel
+/// lists one row per chain and curve; the picked one is edited in the Curve Editor under the preview.
 public final class AnimationAssetEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
+    private static final int OVERLAY_PAD = 4; // gap between an overlay widget and the viewer's edge
+    private static final int CHECKBOX_W = 90;
+    private static final int CHECKBOX_H = 12;
 
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
@@ -81,6 +101,31 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
     /// Set when the View menu picks a preview model. That write lands on the holder rather than on
     /// [HistoryManager], so it carries its own unsaved-changes bit.
     private boolean previewModelDirty;
+
+    private final PanelHeader curveListHeader;
+
+    /// One row per curve of each IK chain of the vendor armature, and of each chain the sidecar holds curves for.
+    private final WidgetTable curveListTable;
+
+    private final PanelHeader curveEditorHeader;
+    private final FloatCurveEditorWidget curveEditor;
+    private @Nullable ScreenRectangle curveListRect;
+
+    /// The curve [#curveEditor] edits, null while none is picked.
+    private @Nullable CurvePick pickedCurve;
+
+    /// The vendor armature [#curveListTable] was filled for.
+    private @Nullable AssetAccessor<? extends Armature> listedVendor;
+
+    /// Places the IK chains of the vendor armature over a floor at the viewer's origin while the IK preview is on, null
+    /// while it is off.
+    private @Nullable InverseKinematicsSimulation ikPreview;
+
+    /// The previewed animation with the IK chains placed, which the model is drawn in while [#ikPreview] runs.
+    private @Nullable Pose ikPose;
+
+    /// When the IK preview last advanced the animation, in [System#nanoTime] nanoseconds; 0 before the first frame.
+    private long ikPreviewNanos;
 
     public AnimationAssetEditorScreen(AkytheraProject.EditorAnimationAccessor accessor) {
         super(Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_TITLE));
@@ -146,6 +191,74 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
         propertiesTable.newRow().addWidget(mirrorPreviewButton);
 
+        curveListHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_SECTION_IK_CURVES));
+        curveListTable = new WidgetTable(
+            this,
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT + 2), AnchoredWidget.pixel(0),
+            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+            AnchoredWidget.VerticalAnchorType.TOP_BOTTOM,
+            ROW_H
+        );
+
+        curveEditorHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_SECTION_CURVE_EDITOR));
+        curveEditor = new FloatCurveEditorWidget(
+            minecraft,
+            () -> {
+                IKCurves curves = pickedCurve == null ? null : holder.getIKCurves(pickedCurve.tipBone());
+
+                return curves == null ? null : pickedCurve.plant() ? curves.plant() : curves.alpha();
+            },
+            curve -> {
+                if (pickedCurve == null) return;
+
+                IKCurves before = holder.getIKCurves(pickedCurve.tipBone());
+                FloatCurve alpha = pickedCurve.plant() ? (before == null ? null : before.alpha()) : curve;
+                FloatCurve plant = pickedCurve.plant() ? curve : (before == null ? null : before.plant());
+                boolean hadCurve = (pickedCurve.plant() ? (before == null ? null : before.plant()) : (before == null ? null : before.alpha())) != null;
+                holder.setIKCurves(pickedCurve.tipBone(), new IKCurves(alpha, plant));
+
+                // A row marks whether its curve exists, so the list follows when one appears or goes
+                if (hadCurve != (curve != null)) fillCurveList();
+            },
+            () -> pickedCurve != null,
+            () -> {
+                AnimationClip clip = holder.getAccessor().getOrHandleException(_ -> {});
+
+                return clip == null ? 0.0F : clip.getTotalTime();
+            },
+            () -> previewAnimator() == null ? 0.0F : previewAnimator().getElapsedTime(),
+            time -> {
+                EntityModelComponent.EditorScrubAnimator animator = previewAnimator();
+
+                if (animator != null) animator.setElapsedTime(time);
+            },
+            Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_MESSAGE_PICK_CURVE),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
+            AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT), AnchoredWidget.pixel(0),
+            AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+            AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
+        );
+
+        CheckBox ikPreviewCheckBox = new CheckBox(
+            minecraft.font,
+            AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(CHECKBOX_W),
+            AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(CHECKBOX_H),
+            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
+            AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT,
+            () -> ikPreview != null,
+            previewing -> {
+                ikPreview = previewing ? new InverseKinematicsSimulation() : null;
+                ikPose = null;
+                ikPreviewNanos = 0L;
+                refreshPreviewAnimation();
+            },
+            Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_PREVIEW_IK),
+            true
+        );
+        ikPreviewCheckBox.valueSetter().accept(false);
+        model3DViewer.addOverlayWidget(ikPreviewCheckBox);
+
         panelManager = new AdjustablePanelManager(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(TOP_BAR_H), AnchoredWidget.pixel(0),
@@ -153,16 +266,30 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
 
-        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 70);
+        // Divider order (== serialize order): columns(0), preview | curve editor(1), details | IK curves(2)
+        List<Integer> layoutRatios = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 70, 65, 55);
 
         var leftAndRight = panelManager.getRoot()
-            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.getFirst());
+            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, layoutRatios.get(0));
+        var previewAndCurve = leftAndRight.get(0)
+            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, layoutRatios.get(1));
+        var detailsAndCurves = leftAndRight.get(1)
+            .subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, layoutRatios.get(2));
 
-        leftAndRight.get(0).resizeCallback(model3DViewer::relocate);
-        leftAndRight.get(0).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
-        leftAndRight.get(1).resizeCallback(rect -> {
+        previewAndCurve.get(0).resizeCallback(model3DViewer::relocate);
+        previewAndCurve.get(0).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
+        previewAndCurve.get(1).resizeCallback(rect -> {
+            curveEditorHeader.relocate(rect);
+            curveEditor.relocate(rect);
+        });
+        detailsAndCurves.get(0).resizeCallback(rect -> {
             propertiesHeader.relocate(rect);
             propertiesTable.relocate(rect);
+        });
+        detailsAndCurves.get(1).resizeCallback(rect -> {
+            curveListRect = rect;
+            curveListHeader.relocate(rect);
+            curveListTable.relocate(rect);
         });
 
         topMenuBar.setDirtyChecker(this::hasUnsavedChanges);
@@ -182,6 +309,118 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
         addRenderableWidget(model3DViewer);
         addRenderableWidget(propertiesHeader);
         addRenderableWidget(propertiesTable);
+        addRenderableWidget(curveListHeader);
+        addRenderableWidget(curveListTable);
+        addRenderableWidget(curveEditorHeader);
+        addRenderableWidget(curveEditor);
+
+        fillCurveList();
+    }
+
+    /// The physics asset of the vendor armature, null while no vendor is picked.
+    private @Nullable ArmaturePhysicsDataHolder vendorPhysics() {
+        AssetAccessor<? extends Armature> vendor = holder.getVendor();
+        Identifier physicsId = vendor == ArmatureManager.EMPTY_ARMATURE_ACCESSOR ? null : AkytheraProject.armaturePhysicsIdOf(vendor.identifier());
+
+        return physicsId == null ? null : AkytheraProject.getCurrentProject().getOrIssueEditorArmaturePhysicsAccessor(physicsId).metadata();
+    }
+
+    /// The previewer's animator, null while the previewer shows no model that plays the clip.
+    private EntityModelComponent.@Nullable EditorScrubAnimator previewAnimator() {
+        EntityModelComponent component = model3DViewer.getComponent(EntityModelComponent.class);
+
+        return component != null && component.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator animator ? animator : null;
+    }
+
+    /// Two rows per IK chain of the vendor armature, and per chain the sidecar holds curves for: its IK Alpha and its
+    /// Plant curve. A row picks its curve for the Curve Editor, marked with ● while the curve exists, and its ✕
+    /// removes the curve.
+    private void fillCurveList() {
+        listedVendor = holder.getVendor();
+        curveListTable.clearWidgets();
+
+        Set<String> tipBones = new LinkedHashSet<>();
+        ArmaturePhysicsDataHolder physics = vendorPhysics();
+
+        if (physics != null) {
+            physics.getIKChains().stream().map(IKChainHolder::getTipBone).filter(Objects::nonNull).forEach(tipBones::add);
+        }
+
+        tipBones.addAll(holder.getIKCurves().keySet());
+
+        for (String tipBone : tipBones) {
+            for (boolean plant : new boolean[] { false, true }) {
+                CurvePick pick = new CurvePick(tipBone, plant);
+                IKCurves curves = holder.getIKCurves(tipBone);
+                boolean exists = curves != null && (plant ? curves.plant() : curves.alpha()) != null;
+                Component label = Component.literal((exists ? "● " : "") + tipBone + " · ")
+                    .append(Component.translatable(plant ? LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_PLANT : LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_IK_ALPHA));
+
+                AkytheraButton pickButton = AkytheraButton
+                    .buttonBuilder(font, LocalizedMessage.handwritten(label.getString()), () -> pickedCurve = pick)
+                    .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H + 2))
+                    .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H))
+                    .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT)
+                    .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
+                    .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+                    .isHighlighted(_ -> pick.equals(pickedCurve))
+                    .build();
+
+                AkytheraButton removeButton = AkytheraButton
+                    .buttonBuilder(font, LocalizedMessage.handwritten("✕"), () -> {
+                        IKCurves before = holder.getIKCurves(tipBone);
+
+                        if (before == null) return;
+
+                        IKCurves after = plant ? new IKCurves(before.alpha(), null) : new IKCurves(null, before.plant());
+                        Consumer<IKCurves> setter = written -> {
+                            holder.setIKCurves(tipBone, written);
+                            fillCurveList();
+                        };
+
+                        setter.accept(after);
+                        HistoryManager.getInstance().pushHistory(new DataChange<>(before, after, setter));
+                    })
+                    .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H))
+                    .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H))
+                    .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
+                    .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
+                    .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+                    .tooltip(_ -> Tooltip.create(Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_MESSAGE_REMOVE_CURVE)))
+                    .build();
+                removeButton.active = exists;
+
+                curveListTable.newRow().addWidget(pickButton).addWidget(removeButton);
+            }
+        }
+
+        if (curveListRect != null) curveListTable.relocate(curveListRect);
+    }
+
+    /// Advances the preview by the real time since the last frame and places the IK chains of the vendor armature over a
+    /// floor at the viewer's origin by the sidecar's curves, while the IK preview is on. Refills the IK Curves panel when
+    /// the vendor changes. An editor screen is drawn but never ticked by the game, so the frame drives it.
+    @Override
+    public void extractRenderState(final @NonNull GuiGraphicsExtractor graphics, final int mouseX, final int mouseY, final float partialTick) {
+        if (listedVendor != holder.getVendor()) fillCurveList();
+
+        EntityModelComponent component = model3DViewer.getComponent(EntityModelComponent.class);
+        EntityModelComponent.EditorScrubAnimator animator = previewAnimator();
+        ArmaturePhysicsDataHolder physics = vendorPhysics();
+
+        if (ikPreview != null && component != null && animator != null && component.getArmature() != null) {
+            long now = System.nanoTime();
+            animator.update(ikPreviewNanos == 0L ? 0.0F : (now - ikPreviewNanos) / 1.0E9F, 1.0F);
+            ikPreviewNanos = now;
+
+            Pose animated = new Pose(animator.getPose());
+            animated.setIKChannels(AkytheraIKType.curveChannels(holder.getIKCurves(), animator.getElapsedTime()));
+            ikPose = physics == null
+                ? animated
+                : ikPreview.apply(animated, component.getArmature(), physics.makeObject(), Transform.IDENTITY, Terrain.floor(0.0D), now / 1.0E9D);
+        }
+
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }
 
     private void openPreviewModelSelectModal() {
@@ -245,6 +484,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
         if (component != null) {
             component.setSimplePlayingAnimation(previewingMirror ? mirror : holder.getAccessor());
+            component.setPoseSource(ikPreview == null ? null : () -> ikPose);
         }
 
         mirrorPreviewButton.setMessage(Component.translatable(previewingMirror
@@ -349,4 +589,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
         return super.getFocused();
     }
+    /// One curve of one IK chain: the chain's tip bone, and whether the curve is its Plant curve rather than its IK
+    /// Alpha.
+    private record CurvePick(String tipBone, boolean plant) {}
 }

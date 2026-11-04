@@ -85,6 +85,9 @@ public final class ${className} extends AnimationMontageProvider {
 <#if dto.layer_signature??>
                 .layerSignature(${dto.layer_signature})
 </#if>
+<#if dto.ik_type??>
+                .ikType(${dto.ik_type})
+</#if>
             .create()
         );
 </#list>

@@ -4,6 +4,8 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.asset.animation.AnimationManager;
+import com.yesman.akythera.core.animation.ik.AkytheraIKType;
+import com.yesman.akythera.core.animation.ik.IKType;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.PlayableAnimation;
@@ -17,6 +19,7 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
+import com.yesman.akytheralabs.ScriptNodeSourceCompiler;
 import com.yesman.akytheralabs.SourceTemplateEngine;
 
 import java.util.LinkedHashMap;
@@ -39,13 +42,14 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
             Codec.BOOL.optionalFieldOf("move_vertical", true).forGetter(AnimationSequenceHolder::moveVertical),
             Codec.FLOAT.optionalFieldOf("play_rate", 1.0F).forGetter(AnimationSequenceHolder::playRate),
             Codec.FLOAT.optionalFieldOf("phase_offset", 0.0F).forGetter(AnimationSequenceHolder::phaseOffset),
+            IKType.ENUM_MANAGER.getNameCodec().optionalFieldOf("ik_type", AkytheraIKType.NONE).forGetter(AnimationSequenceHolder::getIKType),
             Identifier.CODEC.optionalFieldOf("preview_entity_type")
                 .forGetter(ParseUtils.provideOptional(AnimationSequenceHolder::getPreviewEntityType)),
             PreviewItem.CODEC.listOf().optionalFieldOf("preview_items", List.of())
                 .forGetter(AnimationSequenceHolder::getPreviewItems),
             NotifyTrackHolder.EDITOR_CODEC.optionalFieldOf("notify_tracks", new NotifyTrackHolder())
                 .forGetter(AnimationSequenceHolder::getNotifyTrackHolder)
-        ).apply(instance, (animClip, fadeInTime, fadeOutTime, loops, rootMotion, moveVertical, playRate, phaseOffset, previewEntityType, previewItems, notifyTrackHolder) -> {
+        ).apply(instance, (animClip, fadeInTime, fadeOutTime, loops, rootMotion, moveVertical, playRate, phaseOffset, ikType, previewEntityType, previewItems, notifyTrackHolder) -> {
             AnimationSequenceHolder h = new AnimationSequenceHolder();
             h.setAnimClip(animClip);
 
@@ -56,6 +60,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
             h.setMoveVertical(moveVertical);
             h.setPlayRate(playRate);
             h.setPhaseOffset(phaseOffset);
+            h.setIKType(ikType);
             previewEntityType.ifPresent(h::setPreviewEntityType);
             h.setPreviewItems(previewItems);
 
@@ -91,6 +96,9 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
     @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_PHASE_OFFSET, min = 0F, max = 1F, order = 7)
     private float phaseOffset;
 
+    @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_IK_TYPE, order = 8)
+    private IKType ikType = AkytheraIKType.NONE;
+
     @Nullable
     private Identifier previewEntityType;
 
@@ -124,12 +132,15 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         moveVertical = object.moveVertical();
         playRate = object.playRate();
         phaseOffset = object.phaseOffset();
+        ikType = object.ikType();
         notifyTrackHolder.readFromEngineTrack(object.notifyTrack());
     }
 
     @Override
     public AnimationSequence makeObject() {
-        return new AnimationSequence(notifyTrackHolder.toEngineTrack(), animClip, fadeInTime, fadeOutTime, loops, rootMotion, moveVertical, playRate, phaseOffset);
+        return new AnimationSequence(
+            notifyTrackHolder.toEngineTrack(), animClip, fadeInTime, fadeOutTime, loops, rootMotion, moveVertical, playRate, phaseOffset, ikType
+        );
     }
 
     public NotifyTrackHolder getNotifyTrackHolder() {
@@ -230,6 +241,14 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         phaseOffset = v;
     }
 
+    public IKType getIKType() {
+        return ikType;
+    }
+
+    public void setIKType(final IKType ikType) {
+        this.ikType = ikType;
+    }
+
     public void setRootMotionChangeListener(@Nullable Consumer<Boolean> listener) {
         rootMotionChangeListener = listener;
     }
@@ -252,7 +271,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
 
     /// The tokens `animation_sequence_template.ftl` renders: the trimmed `animation_path` that the
     /// template re-expands through `AnimationManager.accessor`, the fade times and flags as Java
-    /// literals, and the `notify_track` source from [NotifyTrackHolder#getDTO].
+    /// literals, the `ik_type` expression, and the `notify_track` source from [NotifyTrackHolder#getDTO].
     @Override
     public Map<String, Object> getDTO() {
         Identifier animId = animClip.identifier();
@@ -267,6 +286,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         dto.put("move_vertical", Boolean.toString(moveVertical));
         dto.put("play_rate", SourceTemplateEngine.floatLiteral(playRate));
         dto.put("phase_offset", SourceTemplateEngine.floatLiteral(phaseOffset));
+        dto.put("ik_type", ScriptNodeSourceCompiler.dataBlockLookup("IKType", ikType));
         dto.put("notify_track", notifyTrackHolder.getDTO().get("notify_track"));
 
         return dto;

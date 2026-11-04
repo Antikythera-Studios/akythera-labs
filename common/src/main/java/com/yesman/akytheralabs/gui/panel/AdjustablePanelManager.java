@@ -6,6 +6,7 @@ import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.yesman.akythera.client.api.gui.ResizeCompleteCallbackListener;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
+import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractContainerWidget;
 import net.minecraft.client.gui.components.AbstractScrollArea;
@@ -29,9 +30,12 @@ import java.util.function.Consumer;
 public final class AdjustablePanelManager extends AbstractContainerWidget implements AnchoredWidget {
     public static final int DIVIDER_LENGTH = 2;
 
-    private final PanelSection root = new PanelSection(this);
+    private final PanelSection root = new PanelSection(this, null);
     private final List<PanelDivider> panelDividers = new ArrayList<>();
     private final List<PanelSection> leafSections = new ArrayList<>();
+
+    /// The sections made foldable, in the order [PanelSection.SetupProxy#foldable] was called on them.
+    private final List<PanelSection> foldableSections = new ArrayList<>();
 
     @Nullable
     private PanelDivider draggingPanelDivider;
@@ -239,8 +243,33 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
         return panelDividers.stream().map(PanelDivider::getRatio).toList();
     }
 
+    /// Whether each foldable section is folded, in the order the sections were made foldable.
+    public List<Boolean> serializeFoldedSections() {
+        return foldableSections.stream().map(section -> section.folded).toList();
+    }
+
+    /// Folds the foldable sections as `folded` lists them, in the order they were made foldable, before the first
+    /// [#relocate] lays them out. A list of another length is ignored.
+    public void applyFoldedSections(final List<Boolean> folded) {
+        if (folded.size() != foldableSections.size()) return;
+
+        for (int i = 0; i < folded.size(); i++) foldableSections.get(i).applyFolded(folded.get(i));
+    }
+
     public static class PanelSection {
         private final AdjustablePanelManager owner;
+
+        /// The section this one subdivides, null for the root.
+        private final @Nullable PanelSection parent;
+
+        /// The header that folds this section, null for a section that does not fold.
+        private @Nullable PanelHeader foldHeader;
+
+        /// The widgets hidden while this section is folded.
+        private List<AbstractWidget> foldContent = List.of();
+
+        /// Whether this section is folded down to [#foldHeader].
+        private boolean folded;
         @Nullable
         private Consumer<ScreenRectangle> widgetResizeCallback;
         @Nullable
@@ -264,8 +293,9 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
         /// Used for initializing section information at outer class (typically screen)
         private final SetupProxy setupProxy = new SetupProxy();
 
-        protected PanelSection(AdjustablePanelManager owner) {
+        protected PanelSection(AdjustablePanelManager owner, @Nullable PanelSection parent) {
             this.owner = owner;
+            this.parent = parent;
         }
 
         private List<SetupProxy> subdivide(int subdivisions, PanelDivider.Orientation orientation, int... ratio) {
@@ -283,10 +313,10 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
             ImmutableList.Builder<@NonNull PanelSection> sections = ImmutableList.builder();
 
             // Add first section
-            sections.add(new PanelSection(owner));
+            sections.add(new PanelSection(owner, this));
 
             for (int i = 0; i < subdivisions; i++) {
-                sections.add(new PanelSection(owner));
+                sections.add(new PanelSection(owner, this));
 
                 PanelDivider divider = switch (orientation) {
                     case HORIZONTAL ->
@@ -385,6 +415,76 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
                         }
                     }
                 }
+
+                // A horizontal split lays its subsections out around their folds: a folded one takes its header's
+                // height, and the others share what is left in the proportion the dividers gave them
+                if (dividers.getFirst().orientation == PanelDivider.Orientation.HORIZONTAL) {
+                    for (PanelDivider divider : dividers) {
+                        divider.active = !subsections.get(divider.subdivisionOrder).folded && !subsections.get(divider.subdivisionOrder + 1).folded;
+                    }
+
+                    if (subsections.stream().anyMatch(section -> section.folded)) {
+                        int naturalSpace = 0;
+                        int freeSpace = screenRectangle.height() - DIVIDER_LENGTH * dividers.size();
+
+                        for (PanelSection section : subsections) {
+                            if (section.folded) {
+                                freeSpace -= section.foldHeader.getHeight();
+                            } else {
+                                naturalSpace += section.panelArea.getHeight();
+                            }
+                        }
+
+                        int y = screenRectangle.top();
+
+                        for (int i = 0; i < subsections.size(); i++) {
+                            PanelSection section = subsections.get(i);
+                            int height;
+
+                            if (section.folded) {
+                                height = section.foldHeader.getHeight();
+                            } else {
+                                int natural = section.panelArea.getHeight();
+                                height = naturalSpace <= 0 ? freeSpace : Math.round(natural * (float) freeSpace / naturalSpace);
+                                naturalSpace -= natural;
+                                freeSpace -= height;
+                            }
+
+                            section.panelArea.setY(y);
+                            section.panelArea.setHeight(Math.max(height, 0));
+                            y += Math.max(height, 0);
+
+                            if (i < dividers.size()) {
+                                dividers.get(i).setY(y);
+                                y += DIVIDER_LENGTH;
+                            }
+                        }
+
+                        for (PanelSection section : subsections) section.resize(section.panelArea.getRectangle());
+                    }
+                }
+            }
+        }
+
+        /// Folds or unfolds this section, hiding [#foldContent] while folded, and lays its split out again.
+        private void setFolded(final boolean folded) {
+            applyFolded(folded);
+
+            if (parent != null) {
+                parent.resize(parent.panelArea.getRectangle());
+                parent.completeResize();
+            }
+        }
+
+        /// Takes the fold state without laying anything out.
+        private void applyFolded(final boolean folded) {
+            this.folded = folded;
+
+            if (foldHeader != null) foldHeader.setFolded(folded);
+
+            for (AbstractWidget widget : foldContent) {
+                widget.visible = !folded;
+                widget.active = !folded;
             }
         }
 
@@ -441,6 +541,17 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
 
             public SetupProxy backgroundColor(int color) {
                 PanelSection.this.panelArea.bgColor = color;
+                return this;
+            }
+
+            /// Lets a click on `header` fold this section down to the header's height, hiding `content` while it is
+            /// folded. The other sections of the split share the height it frees. Only for a section of a horizontal
+            /// split.
+            public SetupProxy foldable(final PanelHeader header, final AbstractWidget... content) {
+                PanelSection.this.foldHeader = header;
+                PanelSection.this.foldContent = List.of(content);
+                owner.foldableSections.add(PanelSection.this);
+                header.setFoldable(PanelSection.this::setFolded);
                 return this;
             }
 

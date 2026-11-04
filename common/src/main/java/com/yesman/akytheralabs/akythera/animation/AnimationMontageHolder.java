@@ -8,17 +8,15 @@ import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
 import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.api.animation.impl.AkytheraAnimationLayerSignature;
+import com.yesman.akythera.core.animation.ik.AkytheraIKType;
+import com.yesman.akythera.core.animation.ik.IKType;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
-import com.yesman.akythera.core.animation.keyframe.BoneAnimationTrack;
-import com.yesman.akythera.core.animation.keyframe.Keyframe;
-import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.notify.AnimationNotifyTrack;
 import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.animation.playable.PlayableAnimation;
-import com.yesman.akythera.core.asset.loader.ArmatureLoader;
 import com.yesman.akythera.core.math.TimeWindow;
-import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.ScriptNodeSourceCompiler;
 import com.yesman.akytheralabs.SourceTemplateEngine;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
@@ -26,7 +24,6 @@ import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 import java.util.*;
@@ -56,13 +53,14 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
                 .optionalFieldOf("layer_signature", AkytheraAnimationLayerSignature.BASE)
                 .forGetter(AnimationMontageHolder::layerSignature),
             Codec.FLOAT.optionalFieldOf("play_rate", 1.0F).forGetter(AnimationMontageHolder::playRate),
+            IKType.ENUM_MANAGER.getNameCodec().optionalFieldOf("ik_type", AkytheraIKType.NONE).forGetter(AnimationMontageHolder::getIKType),
             Identifier.CODEC.optionalFieldOf("preview_entity_type")
                 .forGetter(ParseUtils.provideOptional(AnimationMontageHolder::getPreviewEntityType)),
             PreviewItem.CODEC.listOf().optionalFieldOf("preview_items", List.of())
                 .forGetter(AnimationMontageHolder::getPreviewItems),
             NotifyTrackHolder.EDITOR_CODEC.optionalFieldOf("notify_tracks", new NotifyTrackHolder())
                 .forGetter(AnimationMontageHolder::getNotifyTrackHolder)
-        ).apply(instance, (segs, secs, orders, fin, fout, lps, rm, mv, sig, rate, pm, items, nth) -> {
+        ).apply(instance, (segs, secs, orders, fin, fout, lps, rm, mv, sig, rate, ik, pm, items, nth) -> {
             AnimationMontageHolder h = new AnimationMontageHolder();
             segs.forEach(h::addSegment);
             h.sections.putAll(secs);
@@ -74,6 +72,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             h.moveVertical = mv;
             h.layerSignature = sig;
             h.playRate = rate;
+            h.ikType = ik;
             pm.ifPresent(h::setPreviewEntityType);
             h.setPreviewItems(items);
             if (!nth.getTracks().isEmpty()) h.notifyTrackHolder = nth;
@@ -119,6 +118,9 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
     @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_PLAY_RATE, min = 0.01F, order = 6)
     private float playRate = 1.0F;
 
+    @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_IK_TYPE, order = 7)
+    private IKType ikType = AkytheraIKType.NONE;
+
     @Nullable
     private Identifier previewEntityType;
 
@@ -148,6 +150,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
         moveVertical = object.moveVertical();
         layerSignature = object.layerSignature();
         playRate = object.playRate();
+        ikType = object.ikType();
         // TODO: SectionInfo exposes no public enumeration, so sections and playingOrders cannot be
         // recovered from a runtime montage.
     }
@@ -177,14 +180,15 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             .loops(loops).rootMotionEnabled(rootMotion).moveVertical(moveVertical)
             .layerSignature(layerSignature)
             .playRate(playRate)
+            .ikType(ikType)
             .create();
     }
 
     /// The tokens `animation_montage_template.ftl` renders into an [AnimationMontage.Builder] chain:
     /// the segment ids, the notify and notify-state rows (each `expr` from
     /// [AnimationNotifyHolder#toSourceCode]), the sections and playing orders, the fade times and
-    /// flags as Java literals, and `layer_signature` when it differs from
-    /// [AkytheraAnimationLayerSignature#BASE].
+    /// flags as Java literals, `layer_signature` when it differs from [AkytheraAnimationLayerSignature#BASE], and
+    /// `ik_type` when it differs from [AkytheraIKType#NONE].
     @Override
     public Map<String, Object> getDTO() {
         Map<String, Object> dto = new LinkedHashMap<>();
@@ -257,6 +261,8 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             dto.put("layer_signature", layerSignature.getClass().getSimpleName() + "." + e.name());
         }
 
+        if (ikType != AkytheraIKType.NONE) dto.put("ik_type", ScriptNodeSourceCompiler.dataBlockLookup("IKType", ikType));
+
         return dto;
     }
 
@@ -295,7 +301,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
     }
 
     /// Per-segment `[from, to]` window in seconds along the merged timeline, with an
-    /// [AnimationMontage#SEGMENT_GAP] between clips as in [#bakeMergedClip].
+    /// [AnimationMontage#SEGMENT_GAP] between clips as in [AnimationMontage#mergeSegments].
     public List<TimeWindow> getSegmentBounds() {
         List<TimeWindow> out = new ArrayList<>(segments.size());
         float time = 0.0F;
@@ -336,88 +342,11 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
     /// The merged clip, rebaked when a segment edit marked it dirty.
     public AnimationClip getMergedClip() {
         if (mergedClipDirty || cachedMergedClip == null) {
-            cachedMergedClip = bakeMergedClip();
+            cachedMergedClip = AnimationMontage.mergeSegments(segments.stream().<AnimationClip>map(AssetAccessor::get).toList(), rootMotion);
             mergedClipDirty = false;
         }
 
         return cachedMergedClip;
-    }
-
-    /// A duplicate of `AnimationMontage#buildMergedClip`, which is private there, over [#segments].
-    /// Keep in sync with the engine merge logic.
-    private AnimationClip bakeMergedClip() {
-        AnimationClip.Builder animClipBuilder = AnimationClip.builder();
-        float time = 0.0F;
-        // Running root offset so each segment's root track continues where the previous ended.
-        Vec3 rootAccum = Vec3.ZERO;
-        Map<String, List<Keyframe>> bones = new HashMap<>();
-
-        // Union of every bone across all segments. A bone missing from a segment is pinned to identity
-        // across that segment's window so a neighbour's keyframes can't bleed into it.
-        Set<String> allBones = new HashSet<>();
-
-        for (AssetAccessor<AnimationClip> animation : segments) {
-            animation.get().visitBoneTracks((name, track) -> allBones.add(name));
-        }
-
-        for (AssetAccessor<AnimationClip> animation : segments) {
-            final AnimationClip clip = animation.get();
-            final float segmentOffset = time;
-            final float segEnd = clip.getTotalTime();
-
-            final Vec3 segRootStart = rootMotion ? rootLocOf(clip, 0.0F) : Vec3.ZERO;
-            final Vec3 rootShift = rootMotion ? rootAccum.subtract(segRootStart) : Vec3.ZERO;
-
-            final Pose firstPose = clip.getPose(0.0F);
-            final Pose lastPose = clip.getPose(segEnd);
-
-            for (String name : allBones) {
-                List<Keyframe> merged = bones.computeIfAbsent(name, k -> new ArrayList<>());
-
-                if (!clip.hasBoneTransform(name)) {
-                    // Not animated in this segment → hold identity across its window.
-                    merged.add(new Keyframe(segmentOffset, Transform.IDENTITY));
-                    merged.add(new Keyframe(segEnd + segmentOffset, Transform.IDENTITY));
-                    continue;
-                }
-
-                // First pose
-                merged.add(new Keyframe(segmentOffset, shiftRoot(name, firstPose.orElseIdentity(name), rootShift)));
-
-                // Own track keyframes
-                for (Keyframe kf : clip.getBoneTransform(name).keyframes()) {
-                    merged.add(new Keyframe(kf.timeStamp() + segmentOffset, shiftRoot(name, kf.transform(), rootShift)));
-                }
-
-                // Last pose, unless the final keyframe already sits at the segment end
-                if (Math.abs(merged.getLast().timeStamp() - (segEnd + segmentOffset)) > AnimationMontage.LAST_FRAME_EPSILON) {
-                    merged.add(new Keyframe(segEnd + segmentOffset, shiftRoot(name, lastPose.orElseIdentity(name), rootShift)));
-                }
-            }
-
-            if (rootMotion) {
-                rootAccum = rootAccum.add(rootLocOf(clip, segEnd).subtract(segRootStart));
-            }
-
-            time += segEnd + AnimationMontage.SEGMENT_GAP;
-        }
-
-        bones.forEach((name, keyframes) -> animClipBuilder.addBoneAnimation(name, new BoneAnimationTrack(keyframes)));
-
-        return animClipBuilder.build();
-    }
-
-    /// Raw root-bone location at `t` (clip pose keeps the root, unlike `AnimationMontage.getPose`).
-    private static Vec3 rootLocOf(AnimationClip clip, float t) {
-        return clip.getPose(Math.clamp(t, 0.0F, clip.getTotalTime()))
-            .orElseZero(ArmatureLoader.ROOT_BONE).loc();
-    }
-
-    /// Returns `transform` with `rootShift` added to its location — but only for the root bone.
-    /// Other bones pass through unchanged.
-    private static Transform shiftRoot(String boneName, Transform transform, Vec3 rootShift) {
-        if (!ArmatureLoader.ROOT_BONE.equals(boneName)) return transform;
-        return new Transform(transform.loc().add(rootShift), transform.rot(), transform.sca());
     }
 
     // ***************************************************************
@@ -555,6 +484,14 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
 
     public void setPlayRate(float v) {
         playRate = v;
+    }
+
+    public IKType getIKType() {
+        return ikType;
+    }
+
+    public void setIKType(final IKType ikType) {
+        this.ikType = ikType;
     }
 
     public @Nullable Identifier getPreviewEntityType() {

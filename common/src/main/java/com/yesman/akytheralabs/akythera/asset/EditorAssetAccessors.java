@@ -9,6 +9,7 @@ import com.yesman.akythera.api.asset.armature.ArmatureManager;
 import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.Mesh;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
+import com.yesman.akythera.core.animation.ik.IKCurves;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.AnimationMirror;
 import com.yesman.akythera.core.asset.armature.Armature;
@@ -18,6 +19,8 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
+
+import java.util.Map;
 
 /// Asset accessors as the editor reads them: an id in the open project's namespace resolves to that
 /// project's editor accessor, which reads the project directory and follows a rename of the file;
@@ -59,7 +62,9 @@ public final class EditorAssetAccessors {
                     ANIMATION_CODEC.optionalFieldOf("ref_pose_provider")
                         .forGetter(ParseUtils.provideOptional(AnimationLoader.Metadata::refPoseProvider)),
                     Codec.FLOAT.fieldOf("ref_pose_timestamp")
-                        .forGetter(AnimationLoader.Metadata::refPoseTimeStamp)
+                        .forGetter(AnimationLoader.Metadata::refPoseTimeStamp),
+                    Codec.unboundedMap(Codec.STRING, IKCurves.CODEC).optionalFieldOf("ik", Map.of())
+                        .forGetter(AnimationLoader.Metadata::ik)
                 ).apply(instance, AnimationLoader.Metadata::new)
         );
 
