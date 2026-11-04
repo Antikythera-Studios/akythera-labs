@@ -502,11 +502,6 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 (font, x, y) -> new OrientationWarpNodeWidget(font, x, y),
                 BONE_CONTROL_CATEGORY
             ));
-            suggestions.add(new NodeSuggestModal.Suggestion<>(
-                Component.literal("Turn In Place"),
-                (font, x, y) -> new TurnInPlaceNodeWidget(font, x, y),
-                BONE_CONTROL_CATEGORY
-            ));
 
             // Anim Layer nodes register one engine AnimationLayer per AnimationLayerSignature. Every
             // signature is offered whether or not one is already placed — a duplicate is reported by

@@ -9,8 +9,6 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
-import com.yesman.akytheralabs.editor.EditorEditable;
-import com.yesman.akytheralabs.generated.LangKeys;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
@@ -36,36 +34,8 @@ public final class ArmatureMetadataHolder {
         }
     }
 
-    public static final class LegEntry {
-        @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_THIGH, order = 0, candidates = "bones", searchable = true)
-        private @Nullable String thigh;
-
-        @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_SHIN, order = 1, candidates = "bones", searchable = true)
-        private @Nullable String shin;
-
-        @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_LEADS, order = 2)
-        private ArmatureLoader.TurnDirection leads;
-
-        @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_STEP_HEIGHT, order = 3, min = 0.0F)
-        private float stepHeight;
-
-        private LegEntry(final @Nullable String thigh, final @Nullable String shin, final ArmatureLoader.TurnDirection leads, final float stepHeight) {
-            this.thigh = thigh;
-            this.shin = shin;
-            this.leads = leads;
-            this.stepHeight = stepHeight;
-        }
-
-        private static List<String> bones(final ArmatureMetadataHolder holder) {
-            return holder.boneNames();
-        }
-    }
-
     /// The pair rows in the order they are shown, which is the order they are written in.
     private final List<PairEntry> entries = new ArrayList<>();
-
-    @EditorEditable(label = LangKeys.GUI_ARMATURE_ASSET_SCREEN_WIDGET_LEGS, defaultElement = "newLeg")
-    private List<LegEntry> legs = new ArrayList<>();
 
     /// The entity the armature is previewed on, or null for none.
     private @Nullable Identifier previewEntityType;
@@ -83,14 +53,6 @@ public final class ArmatureMetadataHolder {
         for (ArmatureLoader.MirrorBonePair pair : metadata.mirrorBonePairs()) {
             entries.add(new PairEntry(pair.first(), pair.second()));
         }
-
-        for (ArmatureLoader.Leg leg : metadata.legs()) {
-            legs.add(new LegEntry(leg.thigh(), leg.shin(), leg.leads(), leg.stepHeight()));
-        }
-    }
-
-    private static LegEntry newLeg() {
-        return new LegEntry(null, null, ArmatureLoader.TurnDirection.LEFT, 0.0F);
     }
 
     /// The sidecar of `accessor` as it stands on disk, or the defaults when the file is absent.
@@ -131,15 +93,7 @@ public final class ArmatureMetadataHolder {
             }
         }
 
-        List<ArmatureLoader.Leg> legEntries = new ArrayList<>(legs.size());
-
-        for (LegEntry entry : legs) {
-            if (entry.thigh != null && entry.shin != null) {
-                legEntries.add(new ArmatureLoader.Leg(entry.thigh, entry.shin, entry.leads, entry.stepHeight));
-            }
-        }
-
-        return new ArmatureLoader.Metadata(List.copyOf(pairs), List.copyOf(legEntries));
+        return new ArmatureLoader.Metadata(List.copyOf(pairs));
     }
 
     /// Writes the sidecar next to its asset, then drops the parsed armature: the metadata is read

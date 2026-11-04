@@ -1,2 +1,0 @@
-<#-- minecraft:sheep_wool_color (entityPatch) -> int; client implementation --><#t>
-(${params[0]} == null || !(${params[0]}.getOriginal() instanceof Sheep) ? -1 : ((Sheep) ${params[0]}.getOriginal()).getCustomName() != null && "jeb_".equals(((Sheep) ${params[0]}.getOriginal()).getCustomName().getString()) ? ColorLerper.getLerpedColor(ColorLerper.Type.SHEEP, ${params[0]}.getOriginal().tickCount + Minecraft.getInstance().getDeltaTracker().getGameTimeDeltaPartialTick(false)) : ColorLerper.Type.SHEEP.getColor(((Sheep) ${params[0]}.getOriginal()).getColor()))<#t>
