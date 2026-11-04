@@ -14,12 +14,14 @@ import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHo
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.dataholder.FailedComponentHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
+import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -54,15 +56,14 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
     /// the one this editor keys it by — `minecraft:sword` on disk, `<project>:minecraft/sword` in
     /// memory. [ItemPatchBlueprint#assembleComponents] walks the chain through the registry, so the
     /// stored form is the only one that resolves outside the editor.
-    private static final Codec<ResourceKey<ItemPatchBlueprint>> PARENT_CODEC =
+    private static final Codec<Holder<ItemPatchBlueprint>> PARENT_CODEC =
         ResourceKey.codec(AkytheraRegistries.DataPack.ITEM_PATCH_KEY)
-            .xmap(ItemPatchBlueprintHolder::projectKey, ItemPatchBlueprintHolder::exportedKey);
+            .xmap(ItemPatchBlueprintHolder::parentOf, holder -> exportedKey(holder.unwrapKey().orElseThrow()));
 
     public static final Codec<ItemPatchBlueprintHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
             PARENT_CODEC.optionalFieldOf("parent")
-                .forGetter(h -> h.parent.identifier().equals(DataHolder.EMPTY_REFERENCE)
-                    ? Optional.<ResourceKey<ItemPatchBlueprint>>empty() : Optional.of(h.parent)),
+                .forGetter(h -> h.parent.is(DataHolder.EMPTY_REFERENCE) ? Optional.empty() : Optional.of(h.parent)),
             ComponentAttachableHolder.componentsField(() -> ItemPatchComponentHolders.REGISTRY)
                 .forGetter(ComponentAttachableHolder::componentsOf),
             BuiltInRegistries.ITEM.byNameCodec().optionalFieldOf("preview_item")
@@ -76,10 +77,10 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
         })
     );
 
-    /// The parent blueprint reference. [DataHolder#EMPTY_REFERENCE] means no parent and displays as
-    /// `<none>`.
+    /// The parent blueprint reference, the shared live holder. [DataHolder#EMPTY_REFERENCE] means no
+    /// parent and displays as `<none>`.
     @EditorEditable(label = "gui.akytheralabs.item_patch_screen.row.parent")
-    private ResourceKey<ItemPatchBlueprint> parent = emptyParent();
+    private Holder<ItemPatchBlueprint> parent = emptyParent();
 
     /// The attached components' editor holders, keyed by the name the engine attaches them under and
     /// insertion-ordered so the file is stable.
@@ -94,13 +95,18 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
     private @Nullable SequencedMap<String, ComponentDataHolder<?>> inheritedComponents;
 
     /// The [#parent] [#inheritedComponents] was folded from.
-    private ResourceKey<ItemPatchBlueprint> inheritedFrom = emptyParent();
+    private Holder<ItemPatchBlueprint> inheritedFrom = emptyParent();
 
     public ItemPatchBlueprintHolder() {
     }
 
-    private static ResourceKey<ItemPatchBlueprint> emptyParent() {
-        return ResourceKey.create(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, DataHolder.EMPTY_REFERENCE);
+    private static Holder<ItemPatchBlueprint> emptyParent() {
+        return EditorHolderCodecs.resolve(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, DataHolder.EMPTY_REFERENCE);
+    }
+
+    /// The shared live holder of the stored parent reference `key`.
+    private static Holder<ItemPatchBlueprint> parentOf(ResourceKey<ItemPatchBlueprint> key) {
+        return AkytheraProject.getCurrentProject().getEntryHolderOrDangling(projectKey(key));
     }
 
     /// `key` as this project keys the entry, see [ResourceProcessor#projectId].
@@ -123,14 +129,14 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
 
     @Override
     public void readFrom(ItemPatchBlueprint object) {
-        parent = object.parent().map(ItemPatchBlueprintHolder::projectKey).orElse(emptyParent());
+        parent = object.parent().map(ItemPatchBlueprintHolder::parentOf).orElseGet(ItemPatchBlueprintHolder::emptyParent);
         ComponentAttachableHolder.readComponents(this, ItemPatchComponentHolders.REGISTRY, object.components());
     }
 
     @Override
     public ItemPatchBlueprint makeObject() {
         Optional<ResourceKey<ItemPatchBlueprint>> parentOpt =
-            parent.identifier().equals(DataHolder.EMPTY_REFERENCE) ? Optional.empty() : Optional.of(exportedKey(parent));
+            parent.is(DataHolder.EMPTY_REFERENCE) ? Optional.empty() : Optional.of(exportedKey(parent.unwrapKey().orElseThrow()));
 
         return new ItemPatchBlueprint(parentOpt, ComponentAttachableHolder.lowerComponents(components));
     }
@@ -144,7 +150,10 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
 
     @Override
     public Stream<EditorReference> referencedReferences() {
-        return ComponentAttachableHolder.flatten(this).flatMap(DataHolder::referencedReferences);
+        return Stream.concat(
+            EditorHolderCodecs.referenceOf(parent),
+            ComponentAttachableHolder.flatten(this).flatMap(DataHolder::referencedReferences)
+        );
     }
 
     /// The first component the decode guard salvaged — a defaults-fallback or unknown-type
@@ -161,8 +170,8 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
     public Map<String, Object> getDTO() {
         Map<String, Object> dto = new HashMap<>();
 
-        if (!parent.identifier().equals(DataHolder.EMPTY_REFERENCE)) {
-            dto.put("parent_id", ResourceProcessor.exportedId(parent).toString());
+        if (!parent.is(DataHolder.EMPTY_REFERENCE)) {
+            dto.put("parent_id", ResourceProcessor.exportedId(parent.unwrapKey().orElseThrow()).toString());
         }
 
         dto.put("components", ComponentDataHolder.sourcesOf(healthyComponents(), false));
@@ -170,11 +179,11 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
         return dto;
     }
 
-    public ResourceKey<ItemPatchBlueprint> getParent() {
+    public Holder<ItemPatchBlueprint> getParent() {
         return parent;
     }
 
-    public void setParent(ResourceKey<ItemPatchBlueprint> parent) {
+    public void setParent(Holder<ItemPatchBlueprint> parent) {
         this.parent = parent;
     }
 
@@ -212,9 +221,9 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
         Set<Identifier> visited = new HashSet<>();
         ItemPatchBlueprintHolder current = this;
 
-        while (!current.parent.identifier().equals(DataHolder.EMPTY_REFERENCE) && visited.add(current.parent.identifier())) {
+        while (!current.parent.is(DataHolder.EMPTY_REFERENCE) && visited.add(EditorHolderCodecs.entryId(current.parent))) {
             ItemPatchBlueprintHolder resolved = AkytheraProject.getCurrentProject()
-                .<ItemPatchBlueprint, ItemPatchBlueprintHolder>getDataHolder(current.parent)
+                .<ItemPatchBlueprint, ItemPatchBlueprintHolder>getDataHolder(current.parent.unwrapKey().orElseThrow())
                 .orElse(null);
 
             if (resolved == null) break;

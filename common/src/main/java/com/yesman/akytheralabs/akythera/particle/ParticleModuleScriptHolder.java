@@ -46,6 +46,7 @@ public abstract class ParticleModuleScriptHolder<T> extends AbstractDataHolder<T
             ScriptGraphData.EMPTY, Map.of(), List.of(), body.properties(),
             body.variables().stream().map(BlueprintScriptData.Variable::of).toList()
         );
+        script.typeProperties(layout());
     }
 
     /// The node graph lowered to what the engine runs.

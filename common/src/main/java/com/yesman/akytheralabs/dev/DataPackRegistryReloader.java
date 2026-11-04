@@ -5,6 +5,8 @@ import com.google.gson.JsonParser;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.Lifecycle;
+import com.yesman.akythera.api.event.BuiltInEventHooks;
+import com.yesman.akythera.api.event.registry.RegistryAccessEvent;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.mixin.HolderReferenceAccessor;
@@ -55,6 +57,8 @@ public final class DataPackRegistryReloader {
         for (AkytheraRegistries.DataPack.Registration<?> registration : AkytheraRegistries.DataPack.REGISTRATIONS) {
             reloadFromDisk(access, resourceManager, ops, registration);
         }
+
+        BuiltInEventHooks.Registry.REGISTRY_ACCESS_RELOAD.post(new RegistryAccessEvent.Reload(access));
     }
 
     /// Same-JVM, single-player only: mirror the server's (already refilled) registries into the
@@ -63,6 +67,8 @@ public final class DataPackRegistryReloader {
         for (AkytheraRegistries.DataPack.Registration<?> registration : AkytheraRegistries.DataPack.REGISTRATIONS) {
             copyInProcess(serverAccess, clientAccess, registration);
         }
+
+        BuiltInEventHooks.Registry.REGISTRY_ACCESS_RELOAD.post(new RegistryAccessEvent.Reload(clientAccess));
     }
 
     private static <T> void reloadFromDisk(RegistryAccess access, ResourceManager resourceManager, RegistryOps<JsonElement> ops, AkytheraRegistries.DataPack.Registration<T> registration) {

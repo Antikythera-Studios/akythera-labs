@@ -9,6 +9,7 @@ import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.client.api.gui.viewer.*;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent.SimpleHeadlessAnimator;
+import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.asset.armature.Armature;
@@ -21,6 +22,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.InMemoryAssetAccessor;
 import com.yesman.akytheralabs.SingleFileResourceManager;
+import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.*;
 import com.yesman.akytheralabs.gui.widget.main.AssetExportManager.ExportResult;
@@ -238,7 +240,9 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         preview.addComponent(new BackgroundComponent(18, 18, 18, 255));
         preview.addComponent(new GridFloorComponent(1.0F, 50, 68, 68, 68, 255));
         preview.addComponent(new RootMotionTrajectoryComponent(
-            () -> generateRootBone && previewAnimation != null ? RootMotionTrajectoryComponent.sampleRootPath(previewAnimation.get()) : List.of(),
+            () -> previewAnimation != null && previewAnimation.get().hasBoneTransform(ArmatureLoader.ROOT_BONE)
+                ? RootMotionTrajectoryComponent.sampleRootPath(previewAnimation.get())
+                : List.of(),
             () -> previewAnimation == null || !(preview.getComponent(EntityModelComponent.class) instanceof EntityModelComponent model
                 && model.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator scrub)
                 ? null
@@ -1035,6 +1039,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         List<SkeletalMeshRow> skeletal = AkytheraProject.getCurrentProject()
             .listAllMeshAccessors()
             .filter(acc -> acc.checkType(AssetAccessor.Type.SKELETAL_MESH))
+            .filter(acc -> !acc.identifier().equals(DataHolder.EMPTY_REFERENCE.withPrefix(MeshManager.DIRECTORY)))
             .map(acc -> new SkeletalMeshRow((AssetAccessor<SkeletalMesh>) acc))
             .filter(row -> lower.isEmpty() || ParseUtils.toLowerCase(row.accessor().identifier()).contains(lower))
             .sorted(Comparator.comparing(row -> row.accessor().identifier().toString()))

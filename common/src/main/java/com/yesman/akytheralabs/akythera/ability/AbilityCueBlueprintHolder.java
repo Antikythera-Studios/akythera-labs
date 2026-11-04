@@ -34,6 +34,7 @@ public final class AbilityCueBlueprintHolder extends AbstractDataHolder<AbilityC
             AbilityCueBlueprintHolder holder = new AbilityCueBlueprintHolder();
 
             holder.script = script;
+            script.typeProperties(holder.layout());
 
             return holder;
         })
@@ -52,6 +53,7 @@ public final class AbilityCueBlueprintHolder extends AbstractDataHolder<AbilityC
         this.script = new BlueprintScriptData(
             ScriptGraphData.EMPTY, Map.of(), List.of(), object.body().properties(),
             object.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
+        this.script.typeProperties(layout());
     }
 
     @Override

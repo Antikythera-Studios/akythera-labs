@@ -33,7 +33,7 @@ public final class MeshMetadataHolder {
         this.accessor = accessor;
         width = metadata.width();
         height = metadata.height();
-        texture = metadata.texture() == null ? null : AkytheraProject.resourceTextureOf(metadata.texture());
+        texture = metadata.texture() == null ? null : AkytheraProject.textureOf(metadata.texture());
     }
 
     /// The sidecar of `accessor` as it stands on disk, or the defaults when the file is absent.

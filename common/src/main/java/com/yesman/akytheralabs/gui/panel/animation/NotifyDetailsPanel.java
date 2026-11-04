@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.gui.panel.animation;
 import com.yesman.akythera.client.api.gui.Static;
 import com.yesman.akythera.client.api.gui.WidgetTable;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
+import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -65,32 +66,21 @@ public final class NotifyDetailsPanel extends AdjustablePanelManager.PanelArea {
 
         switch (ref) {
             case NotifyTrackHolder.NotifyRef.Point point -> {
-                header.setMessage(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_DETAILS_TITLE));
-                fillNotifyProperties(point.mutableNotify(), point.mutableNotify().holder, point.mutableNotify().holder.notifyName());
+                header.setMessage(Component.literal(ParseUtils.camelToSpacedPascal(point.mutableNotify().holder.notifyName())));
+                fillNotifyProperties(point.mutableNotify(), point.mutableNotify().holder);
                 table.initialize(false);
             }
             case NotifyTrackHolder.NotifyRef.State state -> {
-                header.setMessage(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_DETAILS_STATE_TITLE));
-                fillNotifyProperties(state.mutableNotifyState(), state.mutableNotifyState().holder, state.mutableNotifyState().holder.notifyName());
+                header.setMessage(Component.literal(ParseUtils.camelToSpacedPascal(state.mutableNotifyState().holder.notifyName())));
+                fillNotifyProperties(state.mutableNotifyState(), state.mutableNotifyState().holder);
                 table.initialize(false);
             }
         }
     }
 
-    /// Populates the table with annotated fields from `instance`, then appends
-    /// a read-only "Type" row showing the engine mutableNotify's class name.
-    private void fillNotifyProperties(Object notifyInstance, Object notifyTypeHolder, String typeName) {
+    /// Populates the table with the annotated fields of the notify's timing and of its type holder.
+    private void fillNotifyProperties(Object notifyInstance, Object notifyTypeHolder) {
         table.clearWidgets();
-
-        table.newRow(EditorWidgetFactory.makeTranslatableLabel(font, LangKeys.GUI_NOTIFY_TRACKS_FIELD_TYPE))
-            .addWidget(new Static(
-                font,
-                AnchoredWidget.pixel(0), AnchoredWidget.pixel(INDENT),
-                AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
-                AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
-                AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-                Component.literal(typeName)
-            ));
 
         factory.appendRowsFrom(table, notifyInstance);
         factory.appendRowsFrom(table, notifyTypeHolder);
@@ -99,6 +89,7 @@ public final class NotifyDetailsPanel extends AdjustablePanelManager.PanelArea {
     }
 
     private void showEmpty() {
+        header.setMessage(Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_DETAILS_TITLE));
         table.clearWidgets();
         table.newRow()
             .addWidget(new Static(

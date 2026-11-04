@@ -36,7 +36,8 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
             Codec.FLOAT.fieldOf("fade_out_time").forGetter(AnimationSequenceHolder::getFadeOutTime),
             Codec.BOOL.fieldOf("loops").forGetter(AnimationSequenceHolder::loops),
             Codec.BOOL.fieldOf("root_motion").forGetter(AnimationSequenceHolder::isRootMotion),
-            Codec.FLOAT.optionalFieldOf("rate_scale", 1.0F).forGetter(AnimationSequenceHolder::rateScale),
+            Codec.BOOL.optionalFieldOf("move_vertical", true).forGetter(AnimationSequenceHolder::moveVertical),
+            Codec.FLOAT.optionalFieldOf("play_rate", 1.0F).forGetter(AnimationSequenceHolder::playRate),
             Codec.FLOAT.optionalFieldOf("phase_offset", 0.0F).forGetter(AnimationSequenceHolder::phaseOffset),
             Identifier.CODEC.optionalFieldOf("preview_entity_type")
                 .forGetter(ParseUtils.provideOptional(AnimationSequenceHolder::getPreviewEntityType)),
@@ -44,7 +45,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
                 .forGetter(AnimationSequenceHolder::getPreviewItems),
             NotifyTrackHolder.EDITOR_CODEC.optionalFieldOf("notify_tracks", new NotifyTrackHolder())
                 .forGetter(AnimationSequenceHolder::getNotifyTrackHolder)
-        ).apply(instance, (animClip, fadeInTime, fadeOutTime, loops, rootMotion, rateScale, phaseOffset, previewEntityType, previewItems, notifyTrackHolder) -> {
+        ).apply(instance, (animClip, fadeInTime, fadeOutTime, loops, rootMotion, moveVertical, playRate, phaseOffset, previewEntityType, previewItems, notifyTrackHolder) -> {
             AnimationSequenceHolder h = new AnimationSequenceHolder();
             h.setAnimClip(animClip);
 
@@ -52,7 +53,8 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
             h.setFadeOutTime(fadeOutTime);
             h.setLoops(loops);
             h.setRootMotion(rootMotion);
-            h.setRateScale(rateScale);
+            h.setMoveVertical(moveVertical);
+            h.setPlayRate(playRate);
             h.setPhaseOffset(phaseOffset);
             previewEntityType.ifPresent(h::setPreviewEntityType);
             h.setPreviewItems(previewItems);
@@ -77,13 +79,16 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
     @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_LOOPS, order = 3)
     private boolean loops;
 
-    @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_ROOT_MOTION, order = 4)
+    @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_ROOT_MOTION, order = 4, rebuildOnWrite = true)
     private boolean rootMotion;
 
-    @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_RATE_SCALE, min = 0.01F, order = 5)
-    private float rateScale;
+    @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_MOVE_VERTICAL, order = 5, indent = 1, visibleWhen = "isRootMotion")
+    private boolean moveVertical = true;
 
-    @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_PHASE_OFFSET, min = 0F, max = 1F, order = 6)
+    @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_PLAY_RATE, min = 0.01F, order = 6)
+    private float playRate;
+
+    @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_PHASE_OFFSET, min = 0F, max = 1F, order = 7)
     private float phaseOffset;
 
     @Nullable
@@ -106,7 +111,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         animClip = AnimationManager.EMPTY_ANIMATION_ACCESSOR;
         fadeInTime = PlayableAnimation.DEFAULT_FADE_TIME;
         fadeOutTime = PlayableAnimation.DEFAULT_FADE_TIME;
-        rateScale = 1.0F;
+        playRate = 1.0F;
     }
 
     @Override
@@ -116,14 +121,15 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         fadeOutTime = object.fadeOutTime();
         loops = object.loops();
         rootMotion = object.rootMotion();
-        rateScale = object.rateScale();
+        moveVertical = object.moveVertical();
+        playRate = object.playRate();
         phaseOffset = object.phaseOffset();
         notifyTrackHolder.readFromEngineTrack(object.notifyTrack());
     }
 
     @Override
     public AnimationSequence makeObject() {
-        return new AnimationSequence(notifyTrackHolder.toEngineTrack(), animClip, fadeInTime, fadeOutTime, loops, rootMotion, rateScale, phaseOffset);
+        return new AnimationSequence(notifyTrackHolder.toEngineTrack(), animClip, fadeInTime, fadeOutTime, loops, rootMotion, moveVertical, playRate, phaseOffset);
     }
 
     public NotifyTrackHolder getNotifyTrackHolder() {
@@ -149,11 +155,14 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         animClipChangeListener = listener;
     }
 
-    /// The editor-owned clip this sequence references. The engine empty and foreign-namespace
-    /// accessors are not [EditorReference]s and yield an empty stream.
+    /// The editor-owned clip this sequence references, and what its notifies reference. The engine
+    /// empty and foreign-namespace accessors are not [EditorReference]s.
     @Override
     public Stream<EditorReference> referencedReferences() {
-        return animClip instanceof EditorReference ref ? Stream.of(ref) : Stream.empty();
+        return Stream.concat(
+            animClip instanceof EditorReference ref ? Stream.of(ref) : Stream.empty(),
+            notifyTrackHolder.referencedReferences()
+        );
     }
 
     @Override
@@ -197,12 +206,20 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         if (rootMotionChangeListener != null) rootMotionChangeListener.accept(v);
     }
 
-    public float rateScale() {
-        return rateScale;
+    public boolean moveVertical() {
+        return moveVertical;
     }
 
-    public void setRateScale(float v) {
-        rateScale = v;
+    public void setMoveVertical(boolean v) {
+        moveVertical = v;
+    }
+
+    public float playRate() {
+        return playRate;
+    }
+
+    public void setPlayRate(float v) {
+        playRate = v;
     }
 
     public float phaseOffset() {
@@ -247,7 +264,8 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
         dto.put("fade_out_time", SourceTemplateEngine.floatLiteral(fadeOutTime));
         dto.put("loops", Boolean.toString(loops));
         dto.put("root_motion", Boolean.toString(rootMotion));
-        dto.put("rate_scale", SourceTemplateEngine.floatLiteral(rateScale));
+        dto.put("move_vertical", Boolean.toString(moveVertical));
+        dto.put("play_rate", SourceTemplateEngine.floatLiteral(playRate));
         dto.put("phase_offset", SourceTemplateEngine.floatLiteral(phaseOffset));
         dto.put("notify_track", notifyTrackHolder.getDTO().get("notify_track"));
 

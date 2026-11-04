@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.gui.widget.main;
 import com.yesman.akythera.client.api.gui.CloseableWidget;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.ProjectSounds;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.EditorEditBox;
@@ -18,10 +19,8 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
-import net.minecraft.sounds.SoundEvent;
 import net.minecraft.util.Mth;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -49,14 +48,14 @@ public final class SoundSelectModal extends OverlayingWindowModal implements Clo
     private static final int PACK_COLOR = 0xFFCCCCCC;
 
     private final Font font;
-    private final Consumer<SoundEvent> onSoundSelected;
+    private final Consumer<AkytheraProject.EditorSoundEventAccessor> onSoundSelected;
     private final EditorEditBox<String> searchBox;
     private SoundList soundList;
 
     /// The sound a row's `▶` started, stopped when another starts or the modal closes.
     private @Nullable SoundInstance preview;
 
-    public SoundSelectModal(Font font, Consumer<SoundEvent> onSoundSelected) {
+    public SoundSelectModal(Font font, Consumer<AkytheraProject.EditorSoundEventAccessor> onSoundSelected) {
         super(AnchoredWidget.pixel(WIDTH), AnchoredWidget.pixel(HEIGHT), Component.translatable(LangKeys.GUI_SOUND_SELECT_MODAL_TITLE));
 
         this.font = font;
@@ -84,14 +83,6 @@ public final class SoundSelectModal extends OverlayingWindowModal implements Clo
         this.soundList = new SoundList(projectEvents, packEvents);
     }
 
-    /// The registered event of `eventId`, or a variable-range one for an event a resource pack alone
-    /// defines.
-    private static SoundEvent soundEventOf(Identifier eventId) {
-        SoundEvent registered = BuiltInRegistries.SOUND_EVENT.getValue(eventId);
-
-        return registered != null ? registered : SoundEvent.createVariableRangeEvent(eventId);
-    }
-
     private void stopPreview() {
         if (preview != null) Minecraft.getInstance().getSoundManager().stop(preview);
 
@@ -112,7 +103,7 @@ public final class SoundSelectModal extends OverlayingWindowModal implements Clo
     public boolean confirmSoleResult() {
         if (soundList.children().size() != 1) return false;
 
-        onSoundSelected.accept(soundEventOf(soundList.children().getFirst().eventId));
+        onSoundSelected.accept(AkytheraProject.soundEventOf(soundList.children().getFirst().eventId));
 
         return true;
     }
@@ -335,10 +326,10 @@ public final class SoundSelectModal extends OverlayingWindowModal implements Clo
                 if (isOverPlay(event.x())) {
                     stopPreview();
 
-                    preview = SimpleSoundInstance.forUI(soundEventOf(eventId), 1.0F, 1.0F);
+                    preview = SimpleSoundInstance.forUI(AkytheraProject.soundEventOf(eventId).holder().value(), 1.0F, 1.0F);
                     Minecraft.getInstance().getSoundManager().play(preview);
                 } else {
-                    onSoundSelected.accept(soundEventOf(eventId));
+                    onSoundSelected.accept(AkytheraProject.soundEventOf(eventId));
                 }
 
                 return true;

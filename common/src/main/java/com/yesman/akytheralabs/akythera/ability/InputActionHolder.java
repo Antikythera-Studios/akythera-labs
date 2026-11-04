@@ -47,9 +47,17 @@ public final class InputActionHolder extends AbstractDataHolder<InputAction> {
     @EditorEditable(label = LangKeys.GUI_INPUT_ACTION_SCREEN_WIDGET_THRESHOLD, order = 2, min = 0, visibleWhen = "readsThreshold")
     private int threshold;
 
+    /// Ticks a held type waits down before it triggers.
+    @EditorEditable(label = LangKeys.GUI_INPUT_ACTION_SCREEN_WIDGET_HOLD_START_TICKS, order = 3, min = 0, visibleWhen = "readsThreshold")
+    private int holdStartTicks = InputAction.DEFAULT_HOLD_START_TICKS;
+
     /// Order among the actions bound to one key and triggering type. Higher runs first.
-    @EditorEditable(label = LangKeys.GUI_INPUT_ACTION_SCREEN_WIDGET_PRIORITY, order = 3)
+    @EditorEditable(label = LangKeys.GUI_INPUT_ACTION_SCREEN_WIDGET_PRIORITY, order = 4)
     private int priority;
+
+    /// While bound, the actions of a lower priority on the same key never trigger, and vanilla never reads the key.
+    @EditorEditable(label = LangKeys.GUI_INPUT_ACTION_SCREEN_WIDGET_SUPPRESS_LOWER_ACTIONS, order = 5)
+    private boolean suppressLowerActions;
 
     /// Every key mapping the client registered, by name and grouped by category, see
     /// [EditorEditable#candidates].
@@ -70,7 +78,7 @@ public final class InputActionHolder extends AbstractDataHolder<InputAction> {
         return KeyMapping.get(name).getCategory().label();
     }
 
-    /// Whether [#triggeringType] reads [#threshold], see [EditorEditable#visibleWhen].
+    /// Whether [#triggeringType] reads [#threshold] and [#holdStartTicks], see [EditorEditable#visibleWhen].
     boolean readsThreshold() {
         return triggeringType.isHeld();
     }
@@ -80,17 +88,21 @@ public final class InputActionHolder extends AbstractDataHolder<InputAction> {
         this.keyMapping = object.keyMapping();
         this.triggeringType = object.triggeringType();
         this.threshold = object.thresholdTicks();
+        this.holdStartTicks = object.holdStartTicks();
         this.priority = object.priority();
+        this.suppressLowerActions = object.suppressLowerActions();
     }
 
     @Override
     public InputAction makeObject() {
-        // A threshold only belongs on a held type, and the record refuses one anywhere else.
+        // A threshold and hold start ticks only belong on a held type, and the record refuses them anywhere else.
         return new InputAction(
             keyMapping,
             triggeringType,
             triggeringType.isHeld() && threshold > 0 ? Optional.of(threshold) : Optional.empty(),
-            priority
+            triggeringType.isHeld() && holdStartTicks != InputAction.DEFAULT_HOLD_START_TICKS ? Optional.of(holdStartTicks) : Optional.empty(),
+            priority,
+            suppressLowerActions
         );
     }
 
@@ -106,7 +118,15 @@ public final class InputActionHolder extends AbstractDataHolder<InputAction> {
         return threshold;
     }
 
+    public int getHoldStartTicks() {
+        return holdStartTicks;
+    }
+
     public int getPriority() {
         return priority;
+    }
+
+    public boolean isSuppressLowerActions() {
+        return suppressLowerActions;
     }
 }

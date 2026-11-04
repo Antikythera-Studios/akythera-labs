@@ -120,16 +120,19 @@ public final class AssetExportManager {
         return FileSystemHelper.writeJson(file, MappingTemplate.CODEC, cleaned);
     }
 
-    /// `entry`'s clip remapped by its template, with a generated [ArmatureLoader#ROOT_BONE] track while
-    /// `generateRootBone` is on, see [#generateRootBone]. What [#exportAll] writes and the retarget preview plays.
+    /// `entry`'s clip remapped by its template. What [#exportAll] writes and the retarget preview plays.
+    ///
+    /// A clip bone mapped to [ArmatureLoader#ROOT_BONE] becomes the root motion ([#rebaseRootBone]) and overrides
+    /// `generateRootBone`. Otherwise `generateRootBone` splits one off the top bone, see [#generateRootBone].
     public AnimationClip retarget(RetargetEntry entry, Armature sourceArmature, boolean generateRootBone) {
         AnimationClip remapped = remap(entry.clip, entry.template);
 
+        if (remapped.hasBoneTransform(ArmatureLoader.ROOT_BONE)) return rebaseRootBone(remapped);
         if (!generateRootBone) return remapped;
 
         String topBone = entry.template.getTarget(sourceArmature.getRootBone().getName());
 
-        return topBone == null || topBone.isEmpty() || topBone.equals(ArmatureLoader.ROOT_BONE) ? remapped : generateRootBone(remapped, topBone);
+        return topBone == null || topBone.isEmpty() ? remapped : generateRootBone(remapped, topBone);
     }
 
     /// Retarget each of `entries` ([#retarget]), encode as `.akasset` and write into `destDir`. One bad file doesn't
@@ -203,6 +206,28 @@ public final class AssetExportManager {
             }
         });
         b.addBoneAnimation(ArmatureLoader.ROOT_BONE, new BoneAnimationTrack(rootKfs));
+
+        return b.build();
+    }
+
+    /// Shifts the mapped [ArmatureLoader#ROOT_BONE] track so its XZ starts at the origin, as [#generateRootBone] lays
+    /// out the root. Height, rotation and scale stay as mapped.
+    public AnimationClip rebaseRootBone(AnimationClip remapped) {
+        BoneAnimationTrack root = remapped.getBoneTransform(ArmatureLoader.ROOT_BONE);
+        if (root == null || root.keyframes().isEmpty()) return remapped;
+
+        Vec3 start = root.keyframes().getFirst().transform().loc();
+        List<Keyframe> rootKfs = new ArrayList<>(root.length());
+
+        for (Keyframe kf : root.keyframes()) {
+            Transform t = kf.transform();
+            rootKfs.add(new Keyframe(kf.timeStamp(), new Transform(t.loc().subtract(start.x, 0.0, start.z), t.rot(), t.sca())));
+        }
+
+        AnimationClip.Builder b = AnimationClip.builder();
+        remapped.visitBoneTracks((bone, track) ->
+            b.addBoneAnimation(bone, bone.equals(ArmatureLoader.ROOT_BONE) ? new BoneAnimationTrack(rootKfs) : track)
+        );
 
         return b.build();
     }

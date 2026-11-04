@@ -17,6 +17,9 @@ import net.minecraft.util.Mth;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
+
 /// The rotation the first [LimitRotationConstraint] of a [BoneConstraintStackHolder] leaves its bone, as a yellow
 /// wireframe at the bone's head: the patch of the sphere the bone's tail sweeps within the X and Z limits, and the arc
 /// of the Y twist around the bone.
@@ -35,22 +38,30 @@ public final class BoneConstraintLimitComponent implements Model3DViewerComponen
     /// Radius of the twist arc, as a share of the bone's length.
     private static final float TWIST_RADIUS = 0.35F;
 
-    /// The bone at its rest pose, in armature space.
-    private final Transform placement;
+    /// The bone at its rest pose under its posed parent, in armature space. Read per frame.
+    private final Supplier<Transform> placement;
 
     /// The bone's length, from head to tail.
     private final float length;
 
     private final BoneConstraintStackHolder constraints;
 
-    public BoneConstraintLimitComponent(final Transform placement, final float length, final BoneConstraintStackHolder constraints) {
+    /// Whether the wireframe is drawn, read per frame.
+    private final BooleanSupplier shown;
+
+    public BoneConstraintLimitComponent(
+        final Supplier<Transform> placement, final float length, final BoneConstraintStackHolder constraints, final BooleanSupplier shown
+    ) {
         this.placement = placement;
         this.length = length;
         this.constraints = constraints;
+        this.shown = shown;
     }
 
     @Override
     public void extractComponent(GuiGraphicsExtractor graphics, Model3DViewer model3DViewer, PoseStack poseStack, ByteBufferBuilder byteBuffer, int mouseX, int mouseY, float a) {
+        if (!shown.getAsBoolean()) return;
+
         LimitRotationConstraint limits = constraints.findLimitRotation();
 
         if (limits == null) return;
@@ -64,7 +75,7 @@ public final class BoneConstraintLimitComponent implements Model3DViewerComponen
         BufferBuilder builder = new BufferBuilder(byteBuffer, renderType.primitiveTopology(), renderType.format());
 
         poseStack.pushPose();
-        poseStack.mulPose(placement.toMatrix());
+        poseStack.mulPose(placement.get().toMatrix());
 
         PoseStack.Pose pose = poseStack.last();
 

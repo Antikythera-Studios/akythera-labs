@@ -81,13 +81,13 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
         widget -> widget.isHighlighted() ? 0xFFFFFFFF : widget.active ? 0xFFB6B6B6 : 0xFF1A1A1A
     ),
 
-    /// ▶ Montage Sections: play a sequence from its first section. Drawn right-pointing triangle.
+    /// ▶ Montage Sections: play a sequence from its first section. Drawn right-pointing triangle, grayed while disabled.
     MONTAGE_SEQ_PLAY_BUTTON(
         (widget, graphics, _, _, _) -> {
-            int color = widget.isHighlighted() || widget.isHovered() ? 0xFF575757 : 0xFF383838;
+            int color = !widget.active ? 0xFF1A1A1A : widget.isHighlighted() || widget.isHovered() ? 0xFF575757 : 0xFF383838;
             graphics.fill(widget.getX(), widget.getY(), widget.getX() + widget.getWidth(), widget.getY() + widget.getHeight(), color);
 
-            int tri = 0xFF8BC24A;
+            int tri = widget.active ? 0xFF8BC24A : 0xFF4A4A4A;
             int h = 4;
             int left = widget.getX() + widget.getWidth() / 2 - 2;
             int cy = widget.getY() + widget.getHeight() / 2;
@@ -101,7 +101,7 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
         _ -> 0xFFFFFFFF
     ),
 
-    /// ✕ Montage Sections: remove a completed (looping) sequence. Drawn cross of two diagonals.
+    /// ✕ Montage Sections: remove a sequence. Drawn cross of two diagonals.
     MONTAGE_SEQ_REMOVE_BUTTON(
         (widget, graphics, _, _, _) -> {
             int color = widget.isHighlighted() || widget.isHovered() ? 0xFF6A2A2A : 0xFF383838;
@@ -120,13 +120,13 @@ public enum AkytheraLabsButtonTheme implements ButtonTheme {
         _ -> 0xFFFFFFFF
     ),
 
-    /// + Montage Sections: append a new empty sequence. Gray cross, always present at the bottom.
+    /// + Montage Sections: append a new empty sequence. Gray cross, always present at the bottom, dimmed while disabled.
     MONTAGE_SEQ_ADD_BUTTON(
         (widget, graphics, _, _, _) -> {
-            int color = widget.isHighlighted() || widget.isHovered() ? 0xFF575757 : 0xFF383838;
+            int color = !widget.active ? 0xFF1A1A1A : widget.isHighlighted() || widget.isHovered() ? 0xFF575757 : 0xFF383838;
             graphics.fill(widget.getX(), widget.getY(), widget.getX() + widget.getWidth(), widget.getY() + widget.getHeight(), color);
 
-            int plusColor = 0xFFAAAAAA;
+            int plusColor = widget.active ? 0xFFAAAAAA : 0xFF4A4A4A;
             int barThick = 2;
             int barLen = 10;
             int cx = widget.getX() + widget.getWidth() / 2;

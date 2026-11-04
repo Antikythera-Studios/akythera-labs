@@ -31,12 +31,14 @@ import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import freemarker.template.TemplateNotFoundException;
 import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.StringWriter;
+import java.lang.reflect.Type;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -315,6 +317,7 @@ public final class ScriptNodeSourceCompiler {
     private String expr(PureNode node) {
         return switch (node) {
             case SelfNode _ -> selfExpr;
+            case NullNode _ -> "null";
             case LiteralNode<?> literal -> literal(literal);
             case RegistryEntryNode entry -> BlueprintSourceWriter.propertyLiteral(entry.type(), new JsonPrimitive(entry.id().toString()));
             case RegistryKeyNode key -> BlueprintSourceWriter.registryKey(Objects.requireNonNull(key.type().registry()), key.id().toString());
@@ -357,16 +360,29 @@ public final class ScriptNodeSourceCompiler {
         return args;
     }
 
+    /// The argument expressions of `function`. One a key parameter takes passes through [ScriptType#asKey]
+    /// unless it is a key already, as the registered function converts an entry at run time.
     private List<String> argsOf(ScriptFunction function, List<PureNode> params) {
         List<Class<?>> parameterTypes = function.functionSignature().parameters();
+        List<Type> genericTypes = function.functionSignature().genericParameters();
         List<String> args = new ArrayList<>(params.size());
 
         for (int i = 0; i < params.size(); i++) {
             PureNode param = params.get(i);
             Class<?> expected = i < parameterTypes.size() ? parameterTypes.get(i) : Object.class;
+            ScriptType keyType = expected == ResourceKey.class ? ScriptType.of(genericTypes.get(i)) : null;
+            Class<?> provided = staticType(param);
             String arg = expr(param);
 
-            args.add(staticType(param) == Object.class && !expected.isPrimitive() && expected != Object.class
+            if (keyType != null && keyType.element() != null && keyType.element().registry() != null
+                && !(param instanceof RegistryKeyNode) && (provided == null || !ResourceKey.class.isAssignableFrom(provided))
+            ) {
+                args.add("ScriptType.asKey(" + BlueprintSourceWriter.registry(keyType.element().registry()) + ", " + arg + ")");
+                continue;
+            }
+
+            // A value typed wider than the parameter, e.g. `Get Component` feeding an `AbilitySystemComponent`
+            args.add(provided != null && provided != expected && provided.isAssignableFrom(expected) && !expected.isPrimitive()
                 ? "((" + typeName(expected) + ") " + arg + ")"
                 : arg);
         }
@@ -600,6 +616,7 @@ public final class ScriptNodeSourceCompiler {
             case SUBTRACT -> "-";
             case MULTIPLY -> "*";
             case DIVIDE -> "/";
+            case MODULO -> "%";
         };
     }
 

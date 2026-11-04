@@ -12,6 +12,8 @@ import com.yesman.akythera.client.api.particle.module.ModuleParameter;
 import com.yesman.akythera.client.api.particle.module.ParticleModuleContext;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.akythera.animation.ConditionGraphCompiler;
+import com.yesman.akytheralabs.dataholder.EditorReference;
+import com.yesman.akytheralabs.editor.StoredJson;
 import com.yesman.akytheralabs.editor.ValueShape;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.node.ParticleParameterGetterNodeData;
@@ -20,6 +22,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /// One parameter of a built-in particle module, as the editor holds it: a literal, and a node graph that answers the
 /// value per particle from the particle and the system's parameters. A graph with a wired result wins over the
@@ -32,6 +35,13 @@ public final class ModuleParamHolder {
 
     /// The literal as the editor holds it, see [ValueShape]. Starts at zero, or white for a color.
     private Object literal;
+
+    /// [#literal] in its type's JSON form, holding the project entries and textures it names. Null while the
+    /// literal does not encode.
+    private @Nullable StoredJson storedLiteral;
+
+    /// The JSON [#literal] was last read from or written to.
+    private @Nullable JsonElement literalJson;
 
     /// The canvas answering the value from the particle and the system's parameters.
     private ScriptGraphData graph = ScriptGraphData.EMPTY;
@@ -51,7 +61,7 @@ public final class ModuleParamHolder {
         this.type = type;
         // One row per parameter: a record value is edited whole, by its type's own widget
         this.shape = ValueShape.of(type) instanceof ValueShape.RecordShape ? new ValueShape.Leaf(type.type(), type.codec()) : ValueShape.of(type);
-        this.literal = declared.value() == RGBA.class ? new RGBA(1.0F, 1.0F, 1.0F) : Objects.requireNonNull(shape.blank());
+        setLiteral(declared.value() == RGBA.class ? new RGBA(1.0F, 1.0F, 1.0F) : Objects.requireNonNull(shape.blank()));
     }
 
     /// The record component's name, which is also the parameter's json field in camel case.
@@ -83,12 +93,37 @@ public final class ModuleParamHolder {
         this.graph = graph;
     }
 
+    /// Re-read from [#storedLiteral] when a rename moved an id it names.
     public Object getLiteral() {
+        JsonElement json = storedLiteral == null ? null : storedLiteral.json();
+
+        if (json != null && !json.equals(literalJson)) {
+            try {
+                literal = shape.fromJson(json);
+            } catch (RuntimeException e) {
+                // The literal stays as it is
+            }
+
+            literalJson = json;
+        }
+
         return literal;
     }
 
     public void setLiteral(final Object literal) {
         this.literal = literal;
+
+        try {
+            literalJson = shape.toJson(literal);
+            storedLiteral = StoredJson.of(shape, literalJson);
+        } catch (RuntimeException e) {
+            literalJson = null;
+            storedLiteral = null;
+        }
+    }
+
+    public Stream<EditorReference> referencedReferences() {
+        return Stream.concat(storedLiteral == null ? Stream.empty() : storedLiteral.referencedReferences(), graph.referencedReferences());
     }
 
     /// Whether the canvas has a node that reads the system's parameter `parameter`.
@@ -101,7 +136,7 @@ public final class ModuleParamHolder {
     public void readFrom(final PureNode node) {
         graph = ScriptGraphData.EMPTY;
 
-        if (node instanceof LiteralNode<?> literalNode) literal = Objects.requireNonNull(shape.toEditor(literalNode.literal()));
+        if (node instanceof LiteralNode<?> literalNode) setLiteral(Objects.requireNonNull(shape.toEditor(literalNode.literal())));
     }
 
     /// The node the module takes: the graph's result when one is wired, else the literal.
@@ -113,11 +148,11 @@ public final class ModuleParamHolder {
             compiledGraph = graph;
         }
 
-        return compiled == null ? new LiteralNode<>(type, shape.fromEditor(literal)) : compiled;
+        return compiled == null ? new LiteralNode<>(type, shape.fromEditor(getLiteral())) : compiled;
     }
 
     public Stored toStored() {
-        return new Stored(Optional.of(shape.toJson(literal)), graph);
+        return new Stored(Optional.of(storedLiteral != null ? storedLiteral.json() : shape.toJson(literal)), graph);
     }
 
     /// Takes `stored`. A literal that is missing or no longer decodes leaves the literal as it is.
@@ -125,7 +160,7 @@ public final class ModuleParamHolder {
         graph = stored.graph();
 
         try {
-            stored.literal().map(shape::fromJson).ifPresent(decoded -> literal = decoded);
+            stored.literal().map(shape::fromJson).ifPresent(this::setLiteral);
         } catch (RuntimeException e) {
             // The literal stays as it is
         }

@@ -9,6 +9,8 @@ import com.yesman.akythera.api.event.entity.EntitySpawnEvent;
 import com.yesman.akythera.api.lifecycle.ComponentsFactory;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.core.util.StaticRegistryAccess;
+import com.yesman.akythera.api.world.ability.AbilitySystemComponent;
+import com.yesman.akythera.api.world.patch.AkytheraPatches;
 import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
@@ -20,6 +22,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.packs.repository.PackRepository;
 import net.minecraft.server.packs.resources.ReloadInstance;
 import net.minecraft.world.entity.Entity;
@@ -215,6 +218,17 @@ public final class ProjectReloader {
                         mc.level.entitiesForRendering().forEach(ProjectReloader::renewEntityPatch);
                     }
                 }, mc)
+                .thenRunAsync(() -> {
+                    // The server patches sent their abilities while the client still held the old registries and
+                    // patches, which the client steps above replaced. Sent again to the renewed client patches.
+                    for (ServerLevel level : server.getAllLevels()) {
+                        for (ServerPlayer player : level.players()) {
+                            level.getAllEntities().forEach(entity -> AkytheraPatches.getEntityPatchOptional(entity)
+                                .map(patch -> patch.getComponent(AbilitySystemComponent.class))
+                                .ifPresent(component -> component.sendSnapshotTo(player)));
+                        }
+                    }
+                }, server)
                 .whenComplete((_, error) -> {
                     if (error == null) {
                         serverSteps.complete(null);

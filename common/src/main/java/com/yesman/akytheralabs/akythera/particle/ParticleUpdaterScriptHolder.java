@@ -12,6 +12,7 @@ public final class ParticleUpdaterScriptHolder extends ParticleModuleScriptHolde
             ParticleUpdaterScriptHolder holder = new ParticleUpdaterScriptHolder();
 
             holder.script = script;
+            script.typeProperties(holder.layout());
 
             return holder;
         },

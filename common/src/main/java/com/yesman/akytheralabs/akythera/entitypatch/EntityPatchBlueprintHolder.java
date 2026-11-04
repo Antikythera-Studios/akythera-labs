@@ -87,6 +87,7 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
                 .orElseGet(() -> new BlueprintParentRef.ParentClass(parentCtor));
             ComponentAttachableHolder.applyComponents(h, components);
             h.script = scriptData;
+            scriptData.typeProperties(h.layout());
             pm.ifPresent(h::setPreviewEntityType);
             return h;
         })
@@ -120,6 +121,7 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
 
     public void setParent(BlueprintParentRef parent) {
         this.parent = parent;
+        script.typeProperties(layout());
     }
 
     /// The patch's own class — what `self` is, and what a member [ScriptFunction]'s receiver slot has
@@ -149,6 +151,7 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
                 script = new BlueprintScriptData(
                     ScriptGraphData.EMPTY, Map.of(), List.of(), dataDriven.body().properties(),
                     dataDriven.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
+                script.typeProperties(layout());
             }
             case SourceCodeEntityPatchBlueprint sourceCode ->
                 parent = new BlueprintParentRef.SourceCodeScript(sourceCode.ctor(), sourceCode.script());

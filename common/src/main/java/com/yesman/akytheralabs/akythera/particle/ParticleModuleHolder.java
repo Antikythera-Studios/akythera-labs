@@ -15,7 +15,6 @@ import com.yesman.akythera.core.blueprint.particle.ParticleUpdaterBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.Identifier;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
@@ -134,7 +133,7 @@ public final class ParticleModuleHolder {
             case ModuleRef.None _ -> Optional.empty();
             case ModuleRef.BuiltIn builtIn -> Optional.of((ParticleInitializerBlueprint)build(builtIn));
             case ModuleRef.ByClass byClass -> Optional.of(new ParticleInitializerBlueprint.ByClass(byClass.type()));
-            case ModuleRef.ByData byData -> Optional.of(new ParticleInitializerBlueprint.ByData(ResourceKey.create(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY, byData.id())));
+            case ModuleRef.ByData byData -> Optional.of(new ParticleInitializerBlueprint.ByData(byData.key()));
         };
     }
 
@@ -148,7 +147,7 @@ public final class ParticleModuleHolder {
             case ModuleRef.None _ -> Optional.empty();
             case ModuleRef.BuiltIn builtIn -> Optional.of((ParticleUpdaterBlueprint)build(builtIn));
             case ModuleRef.ByClass byClass -> Optional.of(new ParticleUpdaterBlueprint.ByClass(byClass.type()));
-            case ModuleRef.ByData byData -> Optional.of(new ParticleUpdaterBlueprint.ByData(ResourceKey.create(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY, byData.id())));
+            case ModuleRef.ByData byData -> Optional.of(new ParticleUpdaterBlueprint.ByData(byData.key()));
         };
     }
 
@@ -182,8 +181,8 @@ public final class ParticleModuleHolder {
         switch (blueprint) {
             case ParticleInitializerBlueprint.ByClass byClass -> holder.ref = new ModuleRef.ByClass(byClass.type());
             case ParticleUpdaterBlueprint.ByClass byClass -> holder.ref = new ModuleRef.ByClass(byClass.type());
-            case ParticleInitializerBlueprint.ByData byData -> holder.ref = new ModuleRef.ByData(byData.module().identifier());
-            case ParticleUpdaterBlueprint.ByData byData -> holder.ref = new ModuleRef.ByData(byData.module().identifier());
+            case ParticleInitializerBlueprint.ByData byData -> holder.ref = ModuleRef.ByData.of(false, byData.module().identifier());
+            case ParticleUpdaterBlueprint.ByData byData -> holder.ref = ModuleRef.ByData.of(true, byData.module().identifier());
             default -> {
                 MapCodec<?> mapCodec = blueprint instanceof ParticleInitializerBlueprint initializer
                     ? initializer.mapCodec()
@@ -262,12 +261,15 @@ public final class ParticleModuleHolder {
     ///
     /// @param params a built-in module's parameters, by name
     public record Stored(ModuleRef ref, Map<String, ModuleParamHolder.Stored> params) {
-        public static final Codec<Stored> CODEC = RecordCodecBuilder.create(
-            instance ->
-                instance.group(
-                    ModuleRef.CODEC.fieldOf("module").forGetter(Stored::ref),
-                    Codec.unboundedMap(Codec.STRING, ModuleParamHolder.Stored.CODEC).optionalFieldOf("params", Map.of()).forGetter(Stored::params)
-                ).apply(instance, Stored::new)
-        );
+        /// A row of an initializer list, or of an updater list when `updater`.
+        public static Codec<Stored> codec(final boolean updater) {
+            return RecordCodecBuilder.create(
+                instance ->
+                    instance.group(
+                        ModuleRef.codec(updater).fieldOf("module").forGetter(Stored::ref),
+                        Codec.unboundedMap(Codec.STRING, ModuleParamHolder.Stored.CODEC).optionalFieldOf("params", Map.of()).forGetter(Stored::params)
+                    ).apply(instance, Stored::new)
+            );
+        }
     }
 }

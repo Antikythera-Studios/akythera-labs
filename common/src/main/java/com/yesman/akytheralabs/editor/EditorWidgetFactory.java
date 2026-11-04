@@ -4,7 +4,6 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.api.data.serializable.RGBA;
-import com.yesman.akythera.api.data.serializable.WidgetImage;
 import com.yesman.akythera.api.world.ability.AbilityTag;
 import com.yesman.akythera.api.world.ability.AbilityTagSet;
 import com.yesman.akythera.client.api.gui.*;
@@ -41,6 +40,7 @@ import com.yesman.akytheralabs.akythera.particle.ParticleSpriteProducer;
 import com.yesman.akytheralabs.akythera.widget.WidgetGraphs;
 import com.yesman.akytheralabs.akythera.widget.WidgetGraphsProducer;
 import com.yesman.akytheralabs.akythera.widget.WidgetImageProducer;
+import com.yesman.akytheralabs.akythera.widget.WidgetImageRef;
 import com.yesman.akytheralabs.akythera.widget.WidgetLayoutHolder;
 import com.yesman.akytheralabs.akythera.widget.WidgetLayoutProducer;
 import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
@@ -84,7 +84,6 @@ import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
@@ -644,7 +643,7 @@ public final class EditorWidgetFactory {
         registerWidgetProducer(ReferencePose.class, new ReferencePoseProducer());
         registerWidgetProducer(Item.class, EditorWidgetFactory::itemPopup);
         registerWidgetProducer(ClientAsset.Texture.class, EditorWidgetFactory::texturePopup);
-        registerWidgetProducer(SoundEvent.class, EditorWidgetFactory::soundEventPopup);
+        registerWidgetProducer(AkytheraProject.EditorSoundEventAccessor.class, EditorWidgetFactory::soundEventPopup);
         registerWidgetProducer(Holder.class, new HolderProducer());
         registerWidgetProducer(ResourceKey.class, EditorWidgetFactory::resourceKeyPopup);
         registerWidgetProducer(Enum.class, EditorWidgetFactory::enumCombo);
@@ -652,7 +651,7 @@ public final class EditorWidgetFactory {
         registerWidgetProducer(Quaterniond.class, EditorWidgetFactory::quaternionBoxes);
         registerWidgetProducer(ScriptType.class, EditorWidgetFactory::scriptTypeCombo);
         registerWidgetProducer(RGBA.class, EditorWidgetFactory::colorPicker);
-        registerWidgetProducer(WidgetImage.class, new WidgetImageProducer());
+        registerWidgetProducer(WidgetImageRef.class, new WidgetImageProducer());
         registerWidgetProducer(ParticleSprite.class, new ParticleSpriteProducer());
         registerWidgetProducer(WidgetLayoutHolder.class, new WidgetLayoutProducer());
         registerWidgetProducer(WidgetGraphs.class, new WidgetGraphsProducer());
@@ -1014,7 +1013,7 @@ public final class EditorWidgetFactory {
         for (CategoryEntry entry : entries) {
             switch (entry) {
                 case FieldEntry(EditorField editorField) -> {
-                    RowBuilder rows = builderFor(editorField, depth);
+                    RowBuilder rows = builderFor(editorField, depth + editorField.annotation().indent());
                     String visibleWhen = editorField.annotation().visibleWhen();
 
                     if (visibleWhen.isBlank()) {
@@ -2013,7 +2012,7 @@ public final class EditorWidgetFactory {
             v -> v instanceof AbilityTag tag ? tagName(tag) : Objects.toString(v),
             Component.empty(),
             b -> factory.openAbilityTagSelect(slot, b, false)
-        ).withValidator(v -> !(v instanceof AbilityTag tag) || resolvesTag(tag))
+        ).withValidator(EditorWidgetFactory::resolves)
         .setOnCleared(b -> clearSlot(slot, null, b));
 
         factory.bindPlaceholder(slot, box);
@@ -2037,7 +2036,7 @@ public final class EditorWidgetFactory {
                 : set.tags().stream().map(EditorWidgetFactory::tagName).sorted().collect(Collectors.joining(", ")),
             Component.empty(),
             b -> factory.openAbilityTagSelect(slot, b, true)
-        ).withValidator(v -> !(v instanceof AbilityTagSet set) || set.tags().stream().allMatch(EditorWidgetFactory::resolvesTag));
+        ).withValidator(EditorWidgetFactory::resolves);
 
         factory.bindPlaceholder(slot, box);
 
@@ -2048,6 +2047,31 @@ public final class EditorWidgetFactory {
     private static String tagName(AbilityTag tag) {
         Identifier id = tag.identifier();
         return id == null ? "" : id.getPath();
+    }
+
+    /// Whether every reference `value`, an editor value, holds names an entry the open project or the loaded
+    /// game has. The nothing-picked reference and a value holding no reference pass; a list and a
+    /// [ValueShape.RecordValue] pass when all they hold does.
+    public static boolean resolves(@Nullable Object value) {
+        return switch (value) {
+            case List<?> items -> items.stream().allMatch(EditorWidgetFactory::resolves);
+            case ValueShape.RecordValue record -> record.components().stream().allMatch(EditorWidgetFactory::resolves);
+            case AbilityTag tag -> resolvesTag(tag);
+            case AbilityTagSet set -> set.tags().stream().allMatch(EditorWidgetFactory::resolvesTag);
+            case AssetAccessor<?> accessor ->
+                accessor.identifier().equals(DataHolder.EMPTY_REFERENCE) || AccessorSelectionModal.resolves(accessor);
+            case AnimatorScriptRef.ClassScript c -> AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(c.scriptType()) != null;
+            case AnimatorScriptRef.DataPackScript d -> resolves(d.holder());
+            case AnimationRef.Empty ignored -> true;
+            case AnimationRef.Sequence s -> s.holder().isBound();
+            case AnimationRef.Montage m -> m.holder().isBound();
+            case AnimationRef.Blend b -> b.holder().isBound();
+            case ReferencePose referencePose -> referencePose.clip() == null || AccessorSelectionModal.resolves(referencePose.clip());
+            case AkytheraProject.EditorSoundEventAccessor sound -> Minecraft.getInstance().getSoundManager().getSoundEvent(sound.location()) != null;
+            case Holder<?> holder -> holder.isBound() || holder.unwrapKey().map(EditorWidgetFactory::isEmptyReference).orElse(false);
+            case ResourceKey<?> key -> isEmptyReference(key) || AkytheraProject.getCurrentProject().getEntryFromProjectAndRegistry(key) != null;
+            case null, default -> true;
+        };
     }
 
     /// Whether `tag` names a tag the current project or the loaded game registers.
@@ -2081,9 +2105,7 @@ public final class EditorWidgetFactory {
             v -> v instanceof AssetAccessor<?> accessor ? AccessorSelectionModal.displayName(accessor) : Objects.toString(v),
             Component.empty(),
             b -> factory.openAccessorSearchModal(slot, b)
-        ).withValidator(v -> !(v instanceof AssetAccessor<?> accessor)
-            || accessor.identifier().equals(DataHolder.EMPTY_REFERENCE)
-            || AccessorSelectionModal.resolves(accessor))
+        ).withValidator(EditorWidgetFactory::resolves)
         .setOnCleared(b -> clearSlot(slot, EditorAssetAccessors.empty(((AssetAccessor<?>) slot.get()).type()), b));
 
         factory.bindPlaceholder(slot, box);
@@ -2103,12 +2125,7 @@ public final class EditorWidgetFactory {
             v -> v instanceof AnimatorScriptRef scriptRef ? scriptRef.displayLabel() : Objects.toString(v),
             Component.empty(),
             b -> factory.openAnimatorScriptSelect(slot, b)
-        ).withValidator(v -> !(v instanceof AnimatorScriptRef scriptRef) || switch (scriptRef) {
-            case AnimatorScriptRef.ClassScript c ->
-                AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(c.scriptType()) != null;
-            case AnimatorScriptRef.DataPackScript d -> d.holder().isBound()
-                || d.holder().unwrapKey().map(EditorWidgetFactory::isEmptyReference).orElse(false);
-        }).setOnCleared(b -> clearSlot(
+        ).withValidator(EditorWidgetFactory::resolves).setOnCleared(b -> clearSlot(
             slot,
             AnimatorScriptRef.dataPack(ResourceKey.create(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, DataHolder.EMPTY_REFERENCE)),
             b
@@ -2131,12 +2148,7 @@ public final class EditorWidgetFactory {
             v -> v instanceof AnimationRef ref ? ref.displayName() : Objects.toString(v),
             Component.empty(),
             b -> factory.openAnimationRefSelect(slot, b)
-        ).withValidator(v -> !(v instanceof AnimationRef ref) || switch (ref) {
-            case AnimationRef.Empty ignored -> true;
-            case AnimationRef.Sequence s -> s.holder().isBound();
-            case AnimationRef.Montage m -> m.holder().isBound();
-            case AnimationRef.Blend b -> b.holder().isBound();
-        }).setOnCleared(b -> clearSlot(slot, AnimationRef.EMPTY, b));
+        ).withValidator(EditorWidgetFactory::resolves).setOnCleared(b -> clearSlot(slot, AnimationRef.EMPTY, b));
 
         factory.bindPlaceholder(slot, box);
 
@@ -2195,9 +2207,7 @@ public final class EditorWidgetFactory {
                 v -> v instanceof ReferencePose referencePose ? referencePose.displayName() : Objects.toString(v),
                 Component.empty(),
                 box -> openReferencePoseSelect(factory.font, slot, box, timeBox)
-            ).withValidator(v -> !(v instanceof ReferencePose referencePose)
-                || referencePose.clip() == null
-                || AccessorSelectionModal.resolves(referencePose.clip()))
+            ).withValidator(EditorWidgetFactory::resolves)
             .setOnCleared(box -> writeReferencePose(slot, ReferencePose.EMPTY, box, timeBox));
 
             factory.bindPlaceholder(slot, clipBox);
@@ -2305,7 +2315,7 @@ public final class EditorWidgetFactory {
         return List.of(swatch);
     }
 
-    /// A search [PopupBox] over a [SoundEvent] slot, named by its id. Flagged when neither the open
+    /// A search [PopupBox] over an [AkytheraProject.EditorSoundEventAccessor] slot, named by its id. Flagged when neither the open
     /// project nor the loaded resource packs define the event.
     private static List<? extends AbstractWidget> soundEventPopup(EditorWidgetFactory factory, ValueSlot slot) {
         PopupBox<Object> box = new PopupBox<>(
@@ -2316,11 +2326,10 @@ public final class EditorWidgetFactory {
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
             slot::get,
             _ -> {},
-            v -> v instanceof SoundEvent soundEvent ? soundEvent.location().toString() : Objects.toString(v),
+            v -> v instanceof AkytheraProject.EditorSoundEventAccessor sound ? sound.location().toString() : Objects.toString(v),
             Component.empty(),
             b -> factory.openSoundSelect(slot, b)
-        ).withValidator(v -> !(v instanceof SoundEvent soundEvent)
-            || Minecraft.getInstance().getSoundManager().getSoundEvent(soundEvent.location()) != null);
+        ).withValidator(EditorWidgetFactory::resolves);
 
         factory.bindPlaceholder(slot, box);
 
@@ -2343,9 +2352,7 @@ public final class EditorWidgetFactory {
                 v -> v instanceof Holder<?> holder ? displayHolder(holder) : Objects.toString(v),
                 Component.empty(),
                 b -> factory.openHolderLookup(slot, b)
-            ).withValidator(v -> !(v instanceof Holder<?> holder)
-                || holder.isBound()
-                || holder.unwrapKey().map(EditorWidgetFactory::isEmptyReference).orElse(false))
+            ).withValidator(EditorWidgetFactory::resolves)
             .setOnCleared(b -> {
                 ResourceKey<?> key = ((Holder<?>) slot.get()).unwrapKey().orElseThrow();
                 Object empty = AkytheraProject.getCurrentProject()
@@ -2401,9 +2408,7 @@ public final class EditorWidgetFactory {
                 : Objects.toString(v),
             Component.empty(),
             b -> factory.openRegistryLookup(slot, (ResourceKey<?>) slot.get(), b)
-        ).withValidator(v -> !(v instanceof ResourceKey<?> key)
-            || isEmptyReference(key)
-            || AkytheraProject.getCurrentProject().getEntryFromProjectAndRegistry(key) != null)
+        ).withValidator(EditorWidgetFactory::resolves)
         .setOnCleared(b -> clearSlot(
             slot, ResourceKey.create(((ResourceKey<?>) slot.get()).registryKey(), DataHolder.EMPTY_REFERENCE), b));
 
@@ -2830,7 +2835,7 @@ public final class EditorWidgetFactory {
         ModalManager.getInstance().openModalWidgetAtCenter(modal);
     }
 
-    /// Opens the sound picker for a [SoundEvent] slot, as a centered [SoundSelectModal] that closes
+    /// Opens the sound picker for an [AkytheraProject.EditorSoundEventAccessor] slot, as a centered [SoundSelectModal] that closes
     /// itself on a pick.
     private void openSoundSelect(ValueSlot slot, PopupBox<Object> box) {
         SoundSelectModal modal = new SoundSelectModal(font, soundEvent -> {
@@ -2846,7 +2851,7 @@ public final class EditorWidgetFactory {
     /// that closes itself on a pick.
     private void openTextureSelect(ValueSlot slot, PopupBox<Object> box) {
         TextureSelectModal modal = new TextureSelectModal(font, TextureSelectModal.Mode.TEXTURE, texturePath -> {
-            ClientAsset.ResourceTexture texture = AkytheraProject.resourceTextureOf(texturePath);
+            ClientAsset.Texture texture = AkytheraProject.textureOf(texturePath);
 
             ModalManager.getInstance().closeModal();
             pushSlotChange(slot, texture, box);
@@ -2858,7 +2863,7 @@ public final class EditorWidgetFactory {
 
     private static String displayHolder(Holder<?> holder) {
         return holder.unwrapKey()
-            .map(k -> k.identifier().equals(DataHolder.EMPTY_REFERENCE) ? "<none>" : k.identifier().toString())
+            .map(k -> isEmptyReference(k) ? "<none>" : ResourceProcessor.displayId(k))
             .orElse("<none>");
     }
 
@@ -2866,7 +2871,8 @@ public final class EditorWidgetFactory {
     /// every entry of the registries [EditorEditable#registries] names, or of the registry the current
     /// value's key addresses when it names none — the slot's generic being erased, so a [Holder] slot
     /// is never null, holders defaulting it to a dangling placeholder. The picked key resolves back to
-    /// the shared live holder, see [AkytheraProject#getEntryHolderOrDangling].
+    /// the shared live holder, see [AkytheraProject#getEntryHolderOrDangling]. The [#cyclicPicks] are
+    /// left out.
     @SuppressWarnings("unchecked")
     private <T> void openHolderLookup(ValueSlot slot, PopupBox<Object> box) {
         Holder<T> current = (Holder<T>) slot.get();
@@ -2890,7 +2896,13 @@ public final class EditorWidgetFactory {
         }
 
         List<ResourceKey<T>> keys = registries.stream()
-            .flatMap(registryKey -> project.getMergedEntries(registryKey).stream().map(Map.Entry::getKey))
+            .flatMap(registryKey -> {
+                Set<String> excluded = cyclicPicks(slot, registryKey);
+
+                return project.getMergedEntries(registryKey).stream()
+                    .map(Map.Entry::getKey)
+                    .filter(key -> !excluded.contains(ResourceProcessor.displayId(key)));
+            })
             .toList();
 
         Component title = registries.size() == 1
@@ -3016,7 +3028,7 @@ public final class EditorWidgetFactory {
     }
 
     /// The entries picking would make `slot`'s owner its own ancestor: the owner itself, plus every
-    /// entry whose chain of this same field already leads back to it. Ids come out as
+    /// entry whose chain of this same field, a [ResourceKey] or a [Holder], already leads back to it. Ids come out as
     /// [ResourceProcessor#displayId], the form the lookup matches on.
     ///
     /// The chain is walked through the slot's own [Field] on each candidate's holder, so this stays
@@ -3054,9 +3066,11 @@ public final class EditorWidgetFactory {
 
                 DataHolder<T> holder = registry.getDataHolder(current);
 
-                current = holder != null && tryGet(field, holder) instanceof ResourceKey<?> parent
-                    ? (ResourceKey<T>) parent
-                    : null;
+                current = holder == null ? null : switch (tryGet(field, holder)) {
+                    case ResourceKey<?> parent -> (ResourceKey<T>) parent;
+                    case Holder<?> parent -> (ResourceKey<T>) parent.unwrapKey().orElse(null);
+                    case null, default -> null;
+                };
             }
         }
 

@@ -9,7 +9,9 @@ import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akytheralabs.SourceTemplateEngine;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
+import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.DataHolderMapper;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.FailedAnimationNotifyHolder;
@@ -21,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /// Mutable, editor-only model for the Notify Track section of an animation.
 ///
@@ -104,6 +107,14 @@ public final class NotifyTrackHolder implements DTOProvider {
         return tracks;
     }
 
+    /// The shared rename-tracking instances every notify and notify state holds.
+    public Stream<EditorReference> referencedReferences() {
+        return tracks.stream().flatMap(track -> Stream.<DataHolder<?>>concat(
+            track.notifies.stream().map(notify -> notify.holder),
+            track.notifyStates.stream().map(notifyState -> notifyState.holder)
+        )).flatMap(DataHolder::referencedReferences);
+    }
+
     /// The first broken notify / notify-state row across every track — one the guard salvaged into an
     /// inert raw-preserving placeholder — or null when all rows are healthy.
     public @Nullable Exception firstFailure() {
@@ -168,6 +179,7 @@ public final class NotifyTrackHolder implements DTOProvider {
         }
         AnimationNotifyStateHolder h = factory.get();
         h.readFrom(n);
+        h.markSaved();
         return h;
     }
 

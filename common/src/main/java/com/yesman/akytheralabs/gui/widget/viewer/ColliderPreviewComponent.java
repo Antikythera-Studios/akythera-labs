@@ -14,8 +14,6 @@ import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.PendingDataChange;
 import com.yesman.akytheralabs.gui.panel.components.ComponentEditorPanel;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 
@@ -36,10 +34,10 @@ import java.util.function.Supplier;
 public final class ColliderPreviewComponent implements LocatableComponent {
     private static final int COLOR = 0xFF33FF66;
     private static final int COLOR_FOCUSED = 0xFF99FFBB;
-    private static final int COLOR_INHERITED = 0xFF1F7A3D;
+    public static final int COLOR_INHERITED = 0xFF1F7A3D;
 
-    /// How far a picking ray is walked, in viewer world units.
-    private static final float PICK_REACH = 64.0F;
+    /// How far from a wireframe edge a press still picks it, in widget pixels.
+    private static final float PICK_TOLERANCE_PIXELS = 6.0F;
 
     private final ColliderComponentHolder collider;
     private final Supplier<Transform> parentTransform;
@@ -48,7 +46,7 @@ public final class ColliderPreviewComponent implements LocatableComponent {
     private final ColliderViewerComponent wireframe;
 
     /// The colour this wireframe carries while unfocused.
-    private final int restingColor;
+    private int restingColor;
 
     /// Runs once a drag is released, or null on an inherited collider, whose drags write nothing.
     private final @Nullable Runnable onCommitted;
@@ -98,6 +96,12 @@ public final class ColliderPreviewComponent implements LocatableComponent {
 
     public ColliderComponentHolder getCollider() {
         return collider;
+    }
+
+    /// Sets the colour this wireframe carries while unfocused. Call it before the preview is focused.
+    public void setRestingColor(final int restingColor) {
+        this.restingColor = restingColor;
+        wireframe.setColor(restingColor);
     }
 
     // ***************************************************************
@@ -158,17 +162,13 @@ public final class ColliderPreviewComponent implements LocatableComponent {
         return true;
     }
 
-    /// Hit test against the placed shape's outer [AABB], returning the camera distance so the nearest
-    /// collider wins an overlap.
+    /// Hit test against the wireframe's edges under the cursor the ray was cast from, returning the camera distance so
+    /// the nearest collider wins an overlap.
     @Override
     public float rayTrace(final Model3DViewer owner, final Ray ray) {
-        AABB bounds = collider.makeObject().instantiate(null).placedAt(parentTransform.get()).getOuterAABB();
-        Vector3f end = ray.at(PICK_REACH);
-        Vec3 from = new Vec3(ray.origin().x, ray.origin().y, ray.origin().z);
+        Vector3f cursor = owner.projectToWidget(ray.at(1.0F));
 
-        return bounds.clip(from, new Vec3(end.x, end.y, end.z))
-            .map(hit -> (float) hit.distanceTo(from))
-            .orElse(-1.0F);
+        return cursor == null ? -1.0F : wireframe.pickEdge(owner, cursor.x, cursor.y, PICK_TOLERANCE_PIXELS);
     }
 
     @Override

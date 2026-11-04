@@ -55,6 +55,7 @@ import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
+import com.yesman.akytheralabs.gui.widget.viewer.NotifyDiagnosticsComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.NotifyParticlePreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.PreviewPatchComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.RootMotionTrajectoryComponent;
@@ -98,6 +99,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
     private final Model3DViewer model3DViewer;
     private final WidgetTable propertiesTable;
     private final PanelHeader propertiesHeader;
+    private @Nullable ScreenRectangle propertiesRect;
     private final AnimationTrackEditorPanel animationTrackEditorPanel;
     private final TabPanel tabPanel;
     private final NotifyDetailsPanel notifyDetailsPanel;
@@ -163,7 +165,8 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
         model3DViewer.addComponent(new PreviewPatchComponent(holder::getPreviewEntityType, holder::getPreviewItems));
-        model3DViewer.addComponent(new NotifyParticlePreviewComponent(holder::getNotifyTrackHolder));
+        model3DViewer.addComponent(new NotifyParticlePreviewComponent());
+        model3DViewer.addComponent(new NotifyDiagnosticsComponent(holder::getNotifyTrackHolder));
         EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, holder.getPreviewEntityType(), true, true);
 
         EntityModelComponent entityModelComponent = model3DViewer.getComponent(EntityModelComponent.class);
@@ -182,7 +185,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
             ROW_H
         );
 
-        new EditorWidgetFactory(minecraft.font).fillWidgetTable(propertiesTable, holder);
+        fillProperties();
 
         // Right-bottom panel: a TabPanel with the three real pages.
         notifyDetailsPanel = new NotifyDetailsPanel(this);
@@ -270,6 +273,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         leftAndRight.get(0).resizeCallback(model3DViewer::relocate);
         leftAndRight.get(0).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
         leftAndRight.get(1).resizeCallback(rect -> {
+            propertiesRect = rect;
             propertiesHeader.relocate(rect);
             propertiesTable.relocate(rect);
         });
@@ -280,6 +284,13 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         // last save point. Snapshot the point after all seeding above so a freshly opened editor is clean.
         topMenuBar.setDirtyChecker(this::hasUnsavedChanges);
         savePoint = HistoryManager.getInstance().currentSavePoint();
+    }
+
+    /// The montage's detail rows. A refill adds fresh widgets, so the table is relocated to place them.
+    private void fillProperties() {
+        new EditorWidgetFactory(minecraft.font).fillWidgetTable(propertiesTable, holder, this::fillProperties);
+
+        if (propertiesRect != null) propertiesTable.relocate(propertiesRect);
     }
 
     /// All rows for the track panel: the montage Sections indicator row, the two Segments
@@ -338,7 +349,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
     /// and re-attaches the playback-end hook — a re-install builds a fresh animator, so the hook
     /// must be set each time. Suppliers are read live, so segment/section edits need no re-install.
     private void installMontageAnimator(EntityModelComponent entityModelComponent) {
-        MontageAnimator animator = new MontageAnimator(this::previewAccessor, this::buildSectionInfo, holder::isRootMotion);
+        MontageAnimator animator = new MontageAnimator(this::previewAccessor, this::buildSectionInfo, holder::isRootMotion, holder::moveVertical, holder::playRate);
         animator.setUpdatePose(false);
         entityModelComponent.setAnimator(animator);
 
@@ -442,6 +453,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
                 int sig = System.identityHashCode(merged);
                 sig = sig * 31 + holder.getSections().hashCode();
                 sig = sig * 31 + holder.getPlayingOrders().hashCode();
+                sig = sig * 31 + Boolean.hashCode(holder.moveVertical());
 
                 if (cachedTrajectoryPath == null || sig != cachedTrajectorySig) {
                     cachedTrajectoryPath = simulateMontagePath();
@@ -504,6 +516,11 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
             if (result.ended()) break;
         }
 
+        if (!holder.moveVertical()) {
+            double restY = RootMotionTrajectoryComponent.rootLocation(clip, 0.0F).y;
+            pts.replaceAll(p -> new Vec3(p.x, restY, p.z));
+        }
+
         return pts;
     }
 
@@ -535,6 +552,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
             return;
         }
 
+        holder.getNotifyTrackHolder().getTracks().forEach(track -> track.notifyStates.forEach(state -> state.holder.markSaved()));
         savePoint = HistoryManager.getInstance().currentSavePoint();
     }
 
@@ -691,6 +709,8 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         private final Supplier<@Nullable AssetAccessor<AnimationClip>> clipSupplier;
         private final Supplier<@Nullable SectionInfo> sectionSupplier;
         private final BooleanSupplier rootMotionEnabled;
+        private final BooleanSupplier moveVertical;
+        private final Supplier<Float> playRate;
         private @Nullable ArmatureComponent armatureComponent;
         private float elapsedTime = 0.0F;
         private boolean updatePose = true;
@@ -713,11 +733,15 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         MontageAnimator(
             final Supplier<@Nullable AssetAccessor<AnimationClip>> clipSupplier,
             final Supplier<@Nullable SectionInfo> sectionSupplier,
-            final BooleanSupplier rootMotionEnabled
+            final BooleanSupplier rootMotionEnabled,
+            final BooleanSupplier moveVertical,
+            final Supplier<Float> playRate
         ) {
             this.clipSupplier = clipSupplier;
             this.sectionSupplier = sectionSupplier;
             this.rootMotionEnabled = rootMotionEnabled;
+            this.moveVertical = moveVertical;
+            this.playRate = playRate;
         }
 
         private @Nullable AnimationClip clip() {
@@ -785,7 +809,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
 
             if (!simInit) seatSimLinear();
 
-            StepResult r = step(sectionSupplier.get(), elapsedTime, timeFrame, total, visitedSections);
+            StepResult r = step(sectionSupplier.get(), elapsedTime, timeFrame * playRate.get(), total, visitedSections);
 
             if (r.loopedBack()) {
                 if (!simFrozen) {
@@ -826,12 +850,15 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         /// Live simulated root position the model is driven to (and what the trajectory gizmo marks).
         /// Frozen at the loop boundary once the section chain repeats, so it never runs off forever.
         Vec3 getSimPos() {
-            if (simFrozen) return frozenSimPos;
-
             AnimationClip clip = clip();
             if (clip == null) return Vec3.ZERO;
             if (!simInit) seatSimLinear();
-            return accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, elapsedTime).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStartTime)));
+
+            Vec3 simPos = simFrozen
+                ? frozenSimPos
+                : accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, elapsedTime).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStartTime)));
+
+            return moveVertical.getAsBoolean() ? simPos : new Vec3(simPos.x, RootMotionTrajectoryComponent.rootLocation(clip, 0.0F).y, simPos.z);
         }
 
         private void fireEnd() {

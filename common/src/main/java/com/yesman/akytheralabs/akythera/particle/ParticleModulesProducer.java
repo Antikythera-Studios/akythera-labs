@@ -20,6 +20,8 @@ import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
+import com.yesman.akytheralabs.editor.historytrack.FileDeletion;
+import com.yesman.akytheralabs.editor.historytrack.FileMove;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ListInsert;
 import com.yesman.akytheralabs.editor.historytrack.ListRemove;
@@ -29,15 +31,16 @@ import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.PopupBox;
 import com.yesman.akytheralabs.gui.widget.main.CategorizedSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
-import com.yesman.akytheralabs.gui.widget.main.NameInputModalGenerator;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.reflect.Modifier;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -48,9 +51,11 @@ import java.util.stream.Collectors;
 /// a `✕`, and under it the parameters of a built-in module.
 ///
 /// The select box lists the modules the emitter's particle takes and the list does not hold yet: the built-in
-/// ones, the open project's (blue), the loaded data packs', and the module classes. Its `+` names and makes a new
-/// project module, picks it, and opens its Event Graph on the [ParticleSystemScreen]. Its `Compile` button writes
-/// every module node graph of the project as a Java class, see [FreemarkerExporter#exportParticleModules].
+/// ones, the open project's (blue), the loaded data packs', and the module classes. The project's are edited in
+/// place: its `+` adds one named in the list, the rename key renames one, a `✕` deletes one, and a double-click opens
+/// its Event Graph on the [ParticleSystemScreen]. Its `Compile`
+/// button writes every module node graph of the project as a Java class, see
+/// [FreemarkerExporter#exportParticleModules].
 ///
 /// A parameter row edits the literal, with an `ƒ` that opens the parameter's node graph. A parameter with a graph
 /// shows a button that opens it instead, with a `✕` that drops the graph for the literal.
@@ -142,13 +147,13 @@ public final class ParticleModulesProducer implements EditorWidgetFactory.Widget
                         .map(ref -> new CategorizedSelectModal.Choice<>(ref.displayLabel(), ref, CHOICE_COLOR, MODULE_ICON))
                         .toList();
                     List<CategorizedSelectModal.Choice<ModuleRef>> project = projectIds.stream()
-                        .<ModuleRef>map(ModuleRef.ByData::new)
+                        .<ModuleRef>map(id -> ModuleRef.ByData.of(updater, id))
                         .filter(ref -> !taken.contains(ref))
-                        .map(ref -> new CategorizedSelectModal.Choice<>(ref.displayLabel(), ref, ParticleRefProducer.PROJECT_COLOR, MODULE_ICON))
+                        .map(ParticleModulesProducer::projectChoice)
                         .toList();
                     List<CategorizedSelectModal.Choice<ModuleRef>> dataPack = StaticRegistryAccess.getRegistryAccess().lookupOrThrow(registryKey).keySet().stream()
                         .filter(id -> !projectIds.contains(id))
-                        .<ModuleRef>map(ModuleRef.ByData::new)
+                        .<ModuleRef>map(id -> ModuleRef.ByData.of(updater, id))
                         .filter(ref -> !taken.contains(ref))
                         .map(ref -> new CategorizedSelectModal.Choice<>(ref.displayLabel(), ref, CHOICE_COLOR, MODULE_ICON))
                         .toList();
@@ -164,34 +169,22 @@ public final class ParticleModulesProducer implements EditorWidgetFactory.Widget
                         .map(ref -> new CategorizedSelectModal.Choice<>(ref.displayLabel(), ref, CHOICE_COLOR, MODULE_ICON))
                         .toList();
 
+                    CategorizedSelectModal.Category<ModuleRef> projectCategory = new CategorizedSelectModal.Category<>(
+                        Component.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_CATEGORY_PROJECT), project, new ProjectModules(updater)
+                    );
+
                     ModalManager.getInstance().openModalWidgetUnder(opened, new CategorizedSelectModal<>(
                         factory.font(),
                         opened.getWidth(),
                         Component.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_MODULE_SELECT_TITLE),
                         List.of(
                             new CategorizedSelectModal.Category<>(Component.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_CATEGORY_BUILT_IN), builtIn),
-                            new CategorizedSelectModal.Category<>(Component.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_CATEGORY_PROJECT), project),
+                            projectCategory,
                             new CategorizedSelectModal.Category<>(Component.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_CATEGORY_DATAPACK), dataPack),
                             new CategorizedSelectModal.Category<>(Component.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_CATEGORY_CLASS), classes)
                         ),
                         pick
-                    ).titleButton(LocalizedMessage.handwritten("+"), () -> {
-                        ModalManager.getInstance().closeModal();
-                        NameInputModalGenerator.open(
-                            factory.font(),
-                            Component.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_MODULE_NAME_TITLE),
-                            name -> projectModules(registryKey).stream().noneMatch(id -> id.getPath().equals(name)),
-                            name -> {
-                                Identifier id = AkytheraProject.getCurrentProject().createEntry(registryKey, name, true).identifier();
-
-                                pick.accept(new ModuleRef.ByData(id));
-
-                                if (AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof ParticleSystemScreen screen) {
-                                    screen.openModuleGraph(updater, id);
-                                }
-                            }
-                        );
-                    }).footerButton(LocalizedMessage.translatable(LangKeys.GUI_EXPORT_MODAL_COMPILE), () -> {
+                    ).creatingButton(LocalizedMessage.handwritten("+"), projectCategory).footerButton(LocalizedMessage.translatable(LangKeys.GUI_EXPORT_MODAL_COMPILE), () -> {
                         ModalManager.getInstance().closeModal();
 
                         if (AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof ParticleSystemScreen screen) {
@@ -258,12 +251,12 @@ public final class ParticleModulesProducer implements EditorWidgetFactory.Widget
                 table.addWidget(factory.sectionButton(LocalizedMessage.handwritten("ƒ"), openGraph));
             }
 
-            if (module.getRef() instanceof ModuleRef.ByData(Identifier id) && projectModules(moduleRegistry(list.isUpdater())).contains(id)) {
+            if (module.getRef() instanceof ModuleRef.ByData byData && projectModules(moduleRegistry(list.isUpdater())).contains(byData.id())) {
                 table.newRow(paramIndent, EditorWidgetFactory.makeLabel(factory.font(), Component.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_EVENT_GRAPH)));
                 table.addWidget(
                     AkytheraButton.buttonBuilder(factory.font(), LocalizedMessage.translatable(LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_BUTTON_EDIT_GRAPH), () -> {
                             if (AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof ParticleSystemScreen screen) {
-                                screen.openModuleGraph(list.isUpdater(), id);
+                                screen.openModuleGraph(list.isUpdater(), byData.id());
                             }
                         })
                         .xUnits(EditorWidgetFactory.columnStart(0, 1, gutter), EditorWidgetFactory.columnSize(0, 1, gutter))
@@ -281,6 +274,81 @@ public final class ParticleModulesProducer implements EditorWidgetFactory.Widget
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static ResourceKey<Registry<Object>> moduleRegistry(final boolean updater) {
         return (ResourceKey)(updater ? AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY : AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY);
+    }
+
+    /// The row of a project module in the module select modal.
+    private static CategorizedSelectModal.Choice<ModuleRef> projectChoice(final ModuleRef ref) {
+        return new CategorizedSelectModal.Choice<>(ref.displayLabel(), ref, ParticleRefProducer.PROJECT_COLOR, MODULE_ICON);
+    }
+
+    /// The project modules of the initializer registry, or of the updater one when `updater`, made, renamed and
+    /// deleted in the module select modal. A rename or a delete first closes the module's Event Graph tab, saving it.
+    /// Each is one undo step.
+    private record ProjectModules(boolean updater) implements CategorizedSelectModal.RowEditor<ModuleRef> {
+        @Override
+        public boolean accepts(final String name) {
+            return Identifier.isValidPath(name) && projectModules(moduleRegistry(updater)).stream().noneMatch(id -> id.getPath().equals(name));
+        }
+
+        @Override
+        public String nameOf(final CategorizedSelectModal.Choice<ModuleRef> choice) {
+            return ((ModuleRef.ByData) choice.value()).id().getPath();
+        }
+
+        @Override
+        public CategorizedSelectModal.Choice<ModuleRef> create(final String name) {
+            Identifier id = AkytheraProject.getCurrentProject().createEntry(moduleRegistry(updater), name, true).identifier();
+
+            return projectChoice(ModuleRef.ByData.of(updater, id));
+        }
+
+        @Override
+        public CategorizedSelectModal.@Nullable Choice<ModuleRef> rename(final CategorizedSelectModal.Choice<ModuleRef> choice, final String name) {
+            AkytheraProject project = AkytheraProject.getCurrentProject();
+            ModuleRef.ByData ref = (ModuleRef.ByData) choice.value();
+            ResourceKey<Object> oldKey = ref.key();
+            String oldName = oldKey.identifier().getPath();
+
+            closeModuleGraph(oldKey.identifier());
+
+            ResourceKey<Object> newKey = project.renameEntry(oldKey, name);
+
+            if (newKey == null) return null;
+
+            HistoryManager.getInstance().pushHistory(new FileMove(
+                () -> project.renameEntry(oldKey, name),
+                () -> project.renameEntry(newKey, oldName)
+            ));
+
+            return projectChoice(ref);
+        }
+
+        @Override
+        public void remove(final CategorizedSelectModal.Choice<ModuleRef> choice) {
+            AkytheraProject project = AkytheraProject.getCurrentProject();
+            ResourceKey<Object> key = ((ModuleRef.ByData) choice.value()).key();
+
+            closeModuleGraph(key.identifier());
+
+            Path file = project.getEntryFilePath(key);
+            Runnable restore = project.buildRestoreFor(file);
+
+            project.deletePathRecursive(file);
+            HistoryManager.getInstance().pushHistory(new FileDeletion(() -> project.deletePathRecursive(file), restore));
+        }
+
+        @Override
+        public void open(final CategorizedSelectModal.Choice<ModuleRef> choice) {
+            if (AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof ParticleSystemScreen screen) {
+                screen.openModuleGraph(updater, ((ModuleRef.ByData) choice.value()).id());
+            }
+        }
+
+        private void closeModuleGraph(final Identifier id) {
+            if (AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof ParticleSystemScreen screen) {
+                screen.closeModuleGraph(updater, id);
+            }
+        }
     }
 
     /// The ids of the open project's entries of `registryKey`.

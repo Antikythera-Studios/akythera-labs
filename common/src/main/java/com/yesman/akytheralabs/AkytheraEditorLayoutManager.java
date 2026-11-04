@@ -297,10 +297,10 @@ public final class AkytheraEditorLayoutManager {
     }
 
     /// Whether a mouse button should drive a drag. Vanilla widgets drag on the left button (0)
-    /// alone; while [#isActive] the editor also drags on the right button (1), which is what lets a
-    /// canvas such as the node graph pan on a right-drag.
+    /// alone; while [#isActive] the editor also drags on the right (1) and the middle (2) button, which is what
+    /// lets a canvas such as the node graph pan on a right-drag.
     public static boolean acceptsDragButton(MouseButtonEvent event) {
-        return event.button() == 0 || (getInstance().isActive() && event.button() == 1);
+        return event.button() == 0 || (getInstance().isActive() && (event.button() == 1 || event.button() == 2));
     }
 
     /// Toggles the main render target snatch mode. While on, [GuiRenderer] renders the UI into

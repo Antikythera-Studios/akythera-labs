@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.ValueShape;
 import org.jspecify.annotations.Nullable;
 
@@ -119,6 +120,11 @@ public final class VariableDraft {
 
     public boolean isDefaultUnreadable() {
         return defaultUnreadable;
+    }
+
+    /// Whether the default value does not encode, did not decode, or names an entry that does not resolve.
+    public boolean hasDefaultError() {
+        return defaultIncomplete || defaultUnreadable || !EditorWidgetFactory.resolves(defaultVal);
     }
 
     public ScriptVariables.SyncDirection getSync() {

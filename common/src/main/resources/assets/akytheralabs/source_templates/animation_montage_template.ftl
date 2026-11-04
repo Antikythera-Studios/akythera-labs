@@ -80,6 +80,8 @@ public final class ${className} extends AnimationMontageProvider {
                 .fadeOutTime(${dto.fade_out_time})
                 .loops(${dto.loops})
                 .rootMotionEnabled(${dto.root_motion})
+                .moveVertical(${dto.move_vertical})
+                .playRate(${dto.play_rate})
 <#if dto.layer_signature??>
                 .layerSignature(${dto.layer_signature})
 </#if>

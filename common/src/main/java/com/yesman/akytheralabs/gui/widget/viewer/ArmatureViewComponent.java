@@ -1,6 +1,5 @@
 package com.yesman.akytheralabs.gui.widget.viewer;
 
-import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
@@ -19,7 +18,6 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
@@ -33,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -100,6 +99,13 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
     /// Whether only the selected bone is drawn. Every bone is still picked.
     private boolean drawSelectedOnly;
 
+    /// Whether a bone under the cursor wins the click over every other component under it.
+    private boolean pickedInFront;
+
+    /// Whether the selected bone is drawn highlighted, read per frame. Null — the default — always highlights it.
+    @Nullable
+    private BooleanSupplier selectionHighlighted;
+
     private double lastMouseX;
     private double lastMouseY;
 
@@ -117,6 +123,14 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
 
     public void setDrawSelectedOnly(final boolean drawSelectedOnly) {
         this.drawSelectedOnly = drawSelectedOnly;
+    }
+
+    public void setPickedInFront(final boolean pickedInFront) {
+        this.pickedInFront = pickedInFront;
+    }
+
+    public void setSelectionHighlighted(final @Nullable BooleanSupplier selectionHighlighted) {
+        this.selectionHighlighted = selectionHighlighted;
     }
 
     public void setOnSelectionChanged(final Runnable onSelectionChanged) {
@@ -202,7 +216,10 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
     /// The color `bone` is drawn in: the pick, the pick's mirror partner, a bone standing in some
     /// other pair, or a plain one.
     private int colorOf(final Bone bone) {
-        if (bone.equals(selected)) return COLOR_SELECTED;
+        if (bone.equals(selected)) {
+            return selectionHighlighted == null || selectionHighlighted.getAsBoolean() ? COLOR_SELECTED : COLOR_BONE;
+        }
+
         if (mirrorPartnerProvider == null) return COLOR_BONE;
         if (selected != null && bone.getName().equals(mirrorPartnerProvider.apply(selected))) return COLOR_PARTNER;
 
@@ -386,6 +403,7 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         Bone hit = hitTest(owner, lastMouseX, lastMouseY);
 
         if (hit == null) return -1.0F;
+        if (pickedInFront) return 0.0F; // the ray's origin, nearer than any other hit
 
         Vector3f head = heads.get(hit);
 
@@ -414,12 +432,6 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         }
 
         return true;
-    }
-
-    /// Takes the Shift press while Shift-click picks a pair, so the camera does not move down under it.
-    @Override
-    public boolean onKeyPressed(final Model3DViewer owner, final KeyEvent event) {
-        return onShiftPicked != null && (event.key() == InputConstants.KEY_LSHIFT || event.key() == InputConstants.KEY_RSHIFT);
     }
 
     /// Labels the pick as `name(id)` in the viewer's top-right corner.

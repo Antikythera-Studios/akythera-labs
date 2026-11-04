@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.akythera.widget;
 
 import com.mojang.serialization.MapCodec;
+import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.api.data.serializable.RGBA;
 import com.yesman.akythera.api.data.serializable.WidgetImage;
@@ -18,7 +19,6 @@ import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import net.minecraft.resources.Identifier;
-import net.minecraft.sounds.SoundEvent;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -133,7 +133,7 @@ public abstract class WidgetComponentHolder<T extends WidgetComponentBlueprint> 
             case WidgetImage image -> "new WidgetImage(" + sourceOf(image.texture()) + ", " + sourceOf(image.color()) + ")";
             case RGBA color -> "new RGBA(" + SourceTemplateEngine.floatLiteral(color.r()) + ", " + SourceTemplateEngine.floatLiteral(color.g()) + ", "
                 + SourceTemplateEngine.floatLiteral(color.b()) + ", " + SourceTemplateEngine.floatLiteral(color.a()) + ")";
-            case SoundEvent sound -> "BuiltInRegistries.SOUND_EVENT.get(" + sourceOf(sound.location()) + ").orElseThrow()";
+            case AkytheraProject.EditorSoundEventAccessor sound -> "BuiltInRegistries.SOUND_EVENT.get(" + sourceOf(sound.location()) + ").orElseThrow()";
             case List<?> list -> "List.of(" + list.stream().map(WidgetComponentHolder::sourceOf).collect(Collectors.joining(", ")) + ")";
             default -> ScriptNodeSourceCompiler.valueLiteral(value);
         };

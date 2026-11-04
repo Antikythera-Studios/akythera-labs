@@ -42,6 +42,7 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
 
             holder.ctor = ctor;
             holder.script = script;
+            script.typeProperties(holder.layout());
 
             return holder;
         })
@@ -80,6 +81,7 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
         this.script = new BlueprintScriptData(
             ScriptGraphData.EMPTY, Map.of(), List.of(), object.body().properties(),
             object.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
+        this.script.typeProperties(layout());
     }
 
     @Override
@@ -110,6 +112,7 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
 
     public void setCtor(final ScriptFunction ctor) {
         this.ctor = ctor;
+        script.typeProperties(layout());
     }
 
     public BlueprintScriptData getScript() {

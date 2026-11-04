@@ -512,6 +512,17 @@ public final class ParticleSystemScreen extends Screen implements ModalAccessibl
         centerTabs.setActiveIndex(centerTabs.indexOfContent(session.eventGraph()));
     }
 
+    /// Closes the Event Graph tab of the project module `id`, then saves the module. Nothing when the tab is not open.
+    public void closeModuleGraph(final boolean updater, final Identifier id) {
+        ResourceKey<Object> key = ResourceKey.create(ParticleModulesProducer.moduleRegistry(updater), id);
+        BlueprintEditorSession session = moduleSessions.get(key);
+
+        if (session == null) return;
+
+        centerTabs.removeTab(centerTabs.indexOfContent(session.eventGraph()));
+        AkytheraProject.getCurrentProject().saveEntry(key);
+    }
+
     // ***************************************************************
     // Save
     // ***************************************************************

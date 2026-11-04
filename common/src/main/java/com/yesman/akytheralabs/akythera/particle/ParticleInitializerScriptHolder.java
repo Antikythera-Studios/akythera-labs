@@ -12,6 +12,7 @@ public final class ParticleInitializerScriptHolder extends ParticleModuleScriptH
             ParticleInitializerScriptHolder holder = new ParticleInitializerScriptHolder();
 
             holder.script = script;
+            script.typeProperties(holder.layout());
 
             return holder;
         },

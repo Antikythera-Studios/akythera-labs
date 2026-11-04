@@ -29,7 +29,7 @@ import java.util.List;
 /// `enum` (ComboBox), [Vec3] (three
 /// per-axis number boxes), [AssetAccessor] (a search PopupBox routed by the
 /// accessor's runtime type), plus `EnumerableDataBlock` / `Holder` / `ResourceKey` /
-/// `AnimatorScriptRef` / `ClientAsset.Texture` / `SoundEvent` pickers. Custom types register through
+/// `AnimatorScriptRef` / `ClientAsset.Texture` / `AkytheraProject.EditorSoundEventAccessor` pickers. Custom types register through
 /// [EditorWidgetFactory#registerWidgetProducer]. Other types fall back to a
 /// read-only display.
 @Retention(RetentionPolicy.RUNTIME)
@@ -122,6 +122,15 @@ public @interface EditorEditable {
     /// Blank always shows the row.
     String visibleWhen() default "";
 
+    /// Extra indent levels of this row, on top of its [#category] depth. Use it to show a row as a
+    /// sub-option of the row above it, often paired with [#visibleWhen].
+    ///
+    /// ```
+    /// Root Motion
+    ///   Move Vertical
+    /// ```
+    int indent() default 0;
+
     /// Lang key naming the reason there is nothing to pick: shown in place of an empty [#candidates]
     /// dropdown, and by a list row's `+` when [#defaultElement] answers null. Blank falls back to a
     /// generic message.
@@ -158,10 +167,6 @@ public @interface EditorEditable {
     /// ([EditorWidgetFactory#viewer]) focusing one of its boxes raises a [DirectionArrowComponent]
     /// there that turns it.
     boolean direction() default false;
-
-    /// For [WidgetImage] rows only; ignored otherwise. Whether the texture is a GUI sprite id, picked among
-    /// `textures/gui/sprites/**`, rather than a whole texture's path.
-    boolean sprite() default false;
 
     /// In a fill given a viewer ([EditorWidgetFactory#viewer]), the type of the viewer component the row focuses when
     /// one of its widgets takes focus. [Model3DViewerComponent], the default, focuses nothing, and releases a component

@@ -26,6 +26,7 @@ import com.yesman.akytheralabs.ParticleSourceWriter;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -42,6 +43,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /// Modifiable data holder for a [ParticleBlueprint] piece of any [Type]. The fields are the editor's Details panel,
 /// each type showing its own; the blueprint is rebuilt from them on [#makeObject].
@@ -49,8 +51,8 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
     private static final float DEFAULT_SIZE = 0.2F;
     private static final RGBA WHITE = new RGBA(1.0F, 1.0F, 1.0F);
     private static final float DEFAULT_LENGTH = 1.0F;
-    private static final int DEFAULT_INTERPOLATION = 4;
-    private static final float DEFAULT_INTERPOLATION_SPACING = 1.0F;
+    private static final int DEFAULT_MAX_EDGES_PER_FRAME = 5;
+    private static final float DEFAULT_EDGE_SPACING = 1.0F;
     private static final int DEFAULT_TRAIL_LIFETIME = 6;
 
     /// The shared, sprite and color fields. Over [RecordCodecBuilder]'s 16 with the rest, so split off [#MESH_AND_TRAIL].
@@ -101,8 +103,8 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 Codec.BOOL.optionalFieldOf("copy_attached_pose", false).forGetter(MeshAndTrail::copyAttachedPose),
                 Codec.FLOAT.optionalFieldOf("length", DEFAULT_LENGTH).forGetter(MeshAndTrail::length),
                 Codec.INT.optionalFieldOf("fade_out", 0).forGetter(MeshAndTrail::fadeOut),
-                Codec.INT.optionalFieldOf("interpolation", DEFAULT_INTERPOLATION).forGetter(MeshAndTrail::interpolation),
-                Codec.FLOAT.optionalFieldOf("interpolation_spacing", DEFAULT_INTERPOLATION_SPACING).forGetter(MeshAndTrail::interpolationSpacing),
+                Codec.INT.optionalFieldOf("max_edges_per_frame", DEFAULT_MAX_EDGES_PER_FRAME).forGetter(MeshAndTrail::maxEdgesPerFrame),
+                Codec.FLOAT.optionalFieldOf("edge_spacing", DEFAULT_EDGE_SPACING).forGetter(MeshAndTrail::edgeSpacing),
                 Codec.INT.optionalFieldOf("trail_lifetime", DEFAULT_TRAIL_LIFETIME).forGetter(MeshAndTrail::trailLifetime)
             ).apply(instance, MeshAndTrail::new)
     );
@@ -113,15 +115,15 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             MeshAndTrail rest = pair.getSecond();
 
             rest.mesh().ifPresent(mesh -> holder.mesh = mesh);
-            holder.texture = rest.texture().map(AkytheraProject::resourceTextureOf).orElse(null);
+            holder.texture = rest.texture().map(AkytheraProject::textureOf).orElse(null);
             rest.transform().ifPresent(transform -> holder.transform = transform);
             rest.armature().ifPresent(armature -> holder.armature = armature);
             rest.animatorScript().ifPresent(animatorScript -> holder.animatorScript = animatorScript);
             rest.armatureTransform().ifPresent(armatureTransform -> holder.armatureTransform = armatureTransform);
             holder.copyAttachedPose = rest.copyAttachedPose();
             holder.length = rest.length();
-            holder.interpolation = rest.interpolation();
-            holder.interpolationSpacing = rest.interpolationSpacing();
+            holder.maxEdgesPerFrame = rest.maxEdgesPerFrame();
+            holder.edgeSpacing = rest.edgeSpacing();
             holder.trailLifetime = rest.trailLifetime();
             holder.setFadeOut(rest.fadeOut());
 
@@ -137,8 +139,8 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             holder.copyAttachedPose,
             holder.length,
             holder.fadeOut,
-            holder.interpolation,
-            holder.interpolationSpacing,
+            holder.maxEdgesPerFrame,
+            holder.edgeSpacing,
             holder.trailLifetime
         ))
     ).codec();
@@ -231,15 +233,15 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
     @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_FADE_OUT, order = 20, min = 0, visibleWhen = "isTrail")
     private int fadeOut;
 
-    /// At most this many points sampled between two ticks, besides the one at each tick. Fewer when fewer keep two
-    /// points at most [#length] × [#interpolationSpacing] apart.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_INTERPOLATION, order = 21, min = 0, max = 32, visibleWhen = "isTrail")
-    private int interpolation = DEFAULT_INTERPOLATION;
+    /// At most this many edges sampled in a frame, and poses sampled for them. Fewer edges when fewer keep two edges at
+    /// most [#length] × [#edgeSpacing] apart.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_MAX_EDGES_PER_FRAME, order = 21, min = 1, max = 32, visibleWhen = "isTrail")
+    private int maxEdgesPerFrame = DEFAULT_MAX_EDGES_PER_FRAME;
 
-    /// The longest gap between two points that needs no more points between, as a share of [#length]. 0 always samples
-    /// [#interpolation] points.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_INTERPOLATION_SPACING, order = 22, min = 0, visibleWhen = "isTrail")
-    private float interpolationSpacing = DEFAULT_INTERPOLATION_SPACING;
+    /// The longest gap between two edges that needs no more edges between, as a share of [#length]. 0 always samples
+    /// [#maxEdgesPerFrame] edges.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_EDGE_SPACING, order = 22, min = 0, visibleWhen = "isTrail")
+    private float edgeSpacing = DEFAULT_EDGE_SPACING;
 
     /// In ticks, how long one sampled point stays.
     @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_TRAIL_LIFETIME, order = 23, min = 1, visibleWhen = "isTrail")
@@ -247,7 +249,7 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
 
     /// The sprite a new particle and a new list element start with, see [EditorEditable#defaultElement].
     static ParticleSprite defaultSprite() {
-        return new ParticleSprite(Identifier.withDefaultNamespace("generic_0"));
+        return ParticleSprite.of(Identifier.withDefaultNamespace("generic_0"));
     }
 
     // Whether a row shows, see [EditorEditable#visibleWhen]
@@ -301,20 +303,20 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 this.size = sprite.size();
                 this.roll = sprite.roll();
                 this.sprites.clear();
-                ids.stream().map(ParticleSprite::new).forEach(this.sprites::add);
+                ids.stream().map(ParticleSprite::of).forEach(this.sprites::add);
             }
             case StaticMeshParticleBlueprint staticMesh -> {
                 this.type = Type.STATIC_MESH;
                 this.color = staticMesh.color();
                 this.mesh = staticMesh.mesh();
-                this.texture = staticMesh.texture().map(AkytheraProject::resourceTextureOf).orElse(null);
+                this.texture = staticMesh.texture().map(AkytheraProject::textureOf).orElse(null);
                 this.transform = TransformHolder.of(staticMesh.transform());
             }
             case SkeletalMeshParticleBlueprint skeletal -> {
                 this.type = Type.SKELETAL_MESH;
                 this.color = skeletal.color();
                 this.mesh = skeletal.mesh();
-                this.texture = skeletal.texture().map(AkytheraProject::resourceTextureOf).orElse(null);
+                this.texture = skeletal.texture().map(AkytheraProject::textureOf).orElse(null);
                 this.transform = TransformHolder.of(skeletal.transform());
                 this.armature = skeletal.armature().<AssetAccessor<? extends Armature>>map(ArmatureComponentBlueprint::armature)
                     .orElseGet(() -> EditorAssetAccessors.armature(DataHolder.EMPTY_REFERENCE));
@@ -325,11 +327,11 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             case TrailParticleBlueprint trail -> {
                 this.type = Type.TRAIL;
                 this.color = trail.color();
-                this.texture = AkytheraProject.resourceTextureOf(trail.texture());
+                this.texture = AkytheraProject.textureOf(trail.texture());
                 this.length = trail.length();
                 this.fadeOut = trail.fadeOut();
-                this.interpolation = trail.interpolation();
-                this.interpolationSpacing = trail.interpolationSpacing();
+                this.maxEdgesPerFrame = trail.maxEdgesPerFrame();
+                this.edgeSpacing = trail.edgeSpacing();
                 this.trailLifetime = trail.trailLifetime();
             }
             default -> throw new IllegalArgumentException("The editor can't edit " + object.getClass().getSimpleName());
@@ -366,12 +368,23 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 length,
                 color,
                 fadeOut,
-                interpolation,
-                interpolationSpacing,
+                maxEdgesPerFrame,
+                edgeSpacing,
                 trailLifetime,
                 texturePath.orElseThrow(() -> new IllegalStateException("A trail particle needs a texture"))
             );
         };
+    }
+
+    /// The project assets and the data pack animator script this piece holds, and its textures.
+    @Override
+    public Stream<EditorReference> referencedReferences() {
+        return Stream.concat(
+            Stream.of(mesh, armature, texture, animatorScript instanceof AnimatorScriptRef.DataPackScript script ? script.holder() : null)
+                .filter(reference -> reference instanceof EditorReference)
+                .map(reference -> (EditorReference) reference),
+            sprites.stream().map(ParticleSprite::texture)
+        );
     }
 
     /// [#mesh], once one is picked.
@@ -464,8 +477,8 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
         boolean copyAttachedPose,
         float length,
         int fadeOut,
-        int interpolation,
-        float interpolationSpacing,
+        int maxEdgesPerFrame,
+        float edgeSpacing,
         int trailLifetime
     ) {
     }

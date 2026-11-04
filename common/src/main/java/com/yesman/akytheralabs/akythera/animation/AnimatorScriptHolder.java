@@ -73,6 +73,7 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
         ).apply(instance, (script, updateGraph, pose, machines, pm) -> {
             AnimatorScriptHolder h = new AnimatorScriptHolder();
             h.script = script;
+            script.typeProperties(layout());
             h.poseGraph = pose;
             h.stateMachines = new LinkedHashMap<>(machines);
             pm.ifPresent(h::setPreviewEntityType);
@@ -114,6 +115,7 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
         this.script = new BlueprintScriptData(
             ScriptGraphData.EMPTY, Map.of(), List.of(), object.body().properties(),
             object.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
+        this.script.typeProperties(layout());
     }
 
     @Override

@@ -120,9 +120,9 @@ public abstract class MixinMouseHandler {
 
     /// Vanilla [ContainerEventHandler] only latches dragging / forwards drag + release for the left button
     /// (button 0), so a right-press never starts a drag. These three redirects keep the stock left-button
-    /// behaviour and, when the editor is active, extend it to the right button (button 1) — gated on
-    /// [MouseButtonEvent] so vanilla and non-editor screens are untouched. This lets editor canvases (e.g.
-    /// the node graph) pan on a right-drag.
+    /// behaviour and, when the editor is active, extend it to the right and middle buttons, see
+    /// [AkytheraEditorLayoutManager#acceptsDragButton] — so vanilla and non-editor screens are untouched. This
+    /// lets editor canvases (e.g. the node graph) pan on a right-drag.
 
     @Redirect(
         at = @At(
@@ -134,9 +134,9 @@ public abstract class MixinMouseHandler {
     private boolean onMousePressForwardClick(Screen screen, MouseButtonEvent event, boolean doubleClick) {
         boolean handled = screen.mouseClicked(event, doubleClick);
 
-        // Vanilla skipped setDragging for the right button; latch it so the following
-        // right-drag is forwarded through the focused chain.
-        if (handled && AkytheraEditorLayoutManager.getInstance().isActive() && event.button() == 1) {
+        // Vanilla skipped setDragging for the right and middle buttons; latch it so the following
+        // drag is forwarded through the focused chain.
+        if (handled && event.button() != 0 && AkytheraEditorLayoutManager.acceptsDragButton(event)) {
             screen.setDragging(true);
         }
 
