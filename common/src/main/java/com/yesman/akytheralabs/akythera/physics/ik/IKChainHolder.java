@@ -2,13 +2,18 @@ package com.yesman.akytheralabs.akythera.physics.ik;
 
 import com.yesman.akythera.core.animation.ik.IKChain;
 import com.yesman.akythera.core.animation.ik.IKSolverType;
+import com.yesman.akythera.core.asset.armature.Armature;
+import com.yesman.akythera.core.asset.armature.Bone;
 import com.yesman.akytheralabs.akythera.physics.ArmaturePhysicsDataHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
+import com.yesman.akytheralabs.editor.EditorFieldScanner;
 import com.yesman.akytheralabs.generated.LangKeys;
 import org.jspecify.annotations.Nullable;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 /// Editable twin of one [IKChain]. The chain length always fits the solver: a length the solver can't solve is
@@ -26,25 +31,20 @@ public final class IKChainHolder {
     @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_SOLVER, order = 2, candidates = "solverTypes", rebuildOnWrite = true)
     private IKSolverType solverType;
 
-    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_SOLVER_SETTINGS, order = 3)
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_SOLVER_SETTINGS, order = 3, visibleWhen = "hasSolverSettings")
     private IKSolverSettingsHolder solverSettings;
 
     @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_STEPPING, order = 4)
     private final SteppingHolder stepping;
 
-    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_ALIGN_TO_NORMAL, order = 5)
-    private boolean alignToNormal;
-
     private IKChainHolder(
-        final @Nullable String tipBone, final int chainLength, final IKSolverSettingsHolder solverSettings, final IKChain.Stepping stepping,
-        final boolean alignToNormal
+        final @Nullable String tipBone, final int chainLength, final IKSolverSettingsHolder solverSettings, final IKChain.Stepping stepping
     ) {
         this.tipBone = tipBone;
         this.chainLength = chainLength;
         this.solverType = solverSettings.type();
         this.solverSettings = solverSettings;
         this.stepping = new SteppingHolder(stepping);
-        this.alignToNormal = alignToNormal;
     }
 
     /// The holder of `chain`. Throws when no settings holder is registered for its solver type.
@@ -55,12 +55,12 @@ public final class IKChainHolder {
         );
         settings.readFrom(chain.solver());
 
-        return new IKChainHolder(chain.tipBone(), chain.chainLength(), settings, chain.stepping(), chain.alignToNormal());
+        return new IKChainHolder(chain.tipBone(), chain.chainLength(), settings, chain.stepping());
     }
 
     /// A two-bone chain with no tip bone picked yet.
     public static IKChainHolder create() {
-        return new IKChainHolder(null, 2, new TwoBoneSolverHolder(), IKChain.Stepping.DEFAULT, false);
+        return new IKChainHolder(null, 2, new TwoBoneSolverHolder(), IKChain.Stepping.DEFAULT);
     }
 
     private static List<String> bones(final ArmaturePhysicsDataHolder holder) {
@@ -109,9 +109,24 @@ public final class IKChainHolder {
         }
     }
 
+    /// Whether [#solverSettings] has any row to edit.
+    boolean hasSolverSettings() {
+        return !EditorFieldScanner.fieldsOf(solverSettings.getClass()).isEmpty();
+    }
+
+    /// The names of the bones the chain spans in `armature`, from the tip bone upward. Empty while no tip bone is picked.
+    public Set<String> boneNames(final Armature armature) {
+        Set<String> names = new LinkedHashSet<>();
+        Bone bone = tipBone == null ? null : armature.getBoneByName(tipBone);
+
+        for (int i = 0; i < chainLength && bone != null; i++, bone = bone.getParent()) names.add(bone.getName());
+
+        return names;
+    }
+
     /// The chain, or null while no tip bone is picked.
     public @Nullable IKChain makeObject() {
-        return tipBone == null ? null : new IKChain(tipBone, chainLength, solverSettings.makeObject(), stepping.makeObject(), alignToNormal);
+        return tipBone == null ? null : new IKChain(tipBone, chainLength, solverSettings.makeObject(), stepping.makeObject());
     }
 
     /// Editable twin of [IKChain.Stepping].
@@ -134,6 +149,21 @@ public final class IKChainHolder {
         @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_STEP_COOLDOWN, order = 5, min = 0.0F)
         private float stepCooldown;
 
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_PREDICTION, order = 6, min = 0.0F)
+        private float prediction;
+
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_RESET_TIME, order = 7, min = 0.0F)
+        private float resetTime;
+
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_RESET_DISTANCE, order = 8, min = 0.0F)
+        private float resetDistance;
+
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_RESET_ANGLE, order = 9, min = 0.0F, max = 180.0F)
+        private float resetAngle;
+
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_RESET_STEP_TIME, order = 10, min = 0.01F)
+        private float resetStepTime;
+
         public SteppingHolder(final IKChain.Stepping stepping) {
             distanceThreshold = stepping.distanceThreshold();
             angularThreshold = stepping.angularThreshold();
@@ -141,10 +171,18 @@ public final class IKChainHolder {
             rayMaxDistance = stepping.rayMaxDistance();
             stepTime = stepping.stepTime();
             stepCooldown = stepping.stepCooldown();
+            prediction = stepping.prediction();
+            resetTime = stepping.resetTime();
+            resetDistance = stepping.resetDistance();
+            resetAngle = stepping.resetAngle();
+            resetStepTime = stepping.resetStepTime();
         }
 
         public IKChain.Stepping makeObject() {
-            return new IKChain.Stepping(distanceThreshold, angularThreshold, stepHeight, rayMaxDistance, stepTime, stepCooldown);
+            return new IKChain.Stepping(
+                distanceThreshold, angularThreshold, stepHeight, rayMaxDistance, stepTime, stepCooldown, prediction, resetTime, resetDistance, resetAngle,
+                resetStepTime
+            );
         }
     }
 }

@@ -263,11 +263,11 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
 
     /// A node's [AnimationRef] as its generated holder expression: a
     /// `…Lookup.getOrThrow(ResourceKey.create(…))` call when bound, else
-    /// `PlayableAnimation.EMPTY_ANIM_HOLDER`.
+    /// `PlayableAnimation.EMPTY_ANIM_HOLDER.get()`.
     private static NodeAnim resolveNodeAnim(AnimationRef ref) {
         return switch (ref) {
             case AnimationRef.Empty ignored ->
-                new NodeAnim("PlayableAnimation.EMPTY_ANIM_HOLDER", RefKind.NONE);
+                new NodeAnim("PlayableAnimation.EMPTY_ANIM_HOLDER.get()", RefKind.NONE);
             case AnimationRef.Sequence s ->
                 fromHolder(s.holder(), "animSequenceLookup", "AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY", RefKind.SEQUENCE);
             case AnimationRef.Montage m ->
@@ -281,7 +281,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         Identifier id = holder.unwrapKey().map(ResourceKey::identifier).orElse(null);
 
         if (id == null) {
-            return new NodeAnim("PlayableAnimation.EMPTY_ANIM_HOLDER", RefKind.NONE);
+            return new NodeAnim("PlayableAnimation.EMPTY_ANIM_HOLDER.get()", RefKind.NONE);
         }
 
         String expression = lookupVar + ".getOrThrow(ResourceKey.create("

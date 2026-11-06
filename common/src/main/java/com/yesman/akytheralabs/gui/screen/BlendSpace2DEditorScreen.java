@@ -597,7 +597,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
     /// The animation `node` plays, looked up in the project first, or the empty animation when its key names no
     /// entry.
     private static PlayableAnimation previewAnimation(final BlendSpace2D.AnimationNode node) {
-        return AkytheraProject.withProjectLookups(node::resolveAnimation).orElse(PlayableAnimation.EMPTY_ANIM_HOLDER.value());
+        return AkytheraProject.withProjectLookups(node::resolveAnimation).orElse(PlayableAnimation.EMPTY_ANIM_HOLDER.get().value());
     }
 
     /// Barycentric blend of the enclosing triangle corners' raw root locations at `t`. Mirrors

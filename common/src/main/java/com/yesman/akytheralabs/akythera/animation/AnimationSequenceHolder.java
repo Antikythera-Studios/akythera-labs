@@ -42,7 +42,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
             Codec.BOOL.optionalFieldOf("move_vertical", true).forGetter(AnimationSequenceHolder::moveVertical),
             Codec.FLOAT.optionalFieldOf("play_rate", 1.0F).forGetter(AnimationSequenceHolder::playRate),
             Codec.FLOAT.optionalFieldOf("phase_offset", 0.0F).forGetter(AnimationSequenceHolder::phaseOffset),
-            IKType.ENUM_MANAGER.getNameCodec().optionalFieldOf("ik_type", AkytheraIKType.NONE).forGetter(AnimationSequenceHolder::getIKType),
+            IKType.ENUM_MANAGER.optionalFieldOf("ik_type", () -> AkytheraIKType.PROCEDURAL).forGetter(AnimationSequenceHolder::getIKType),
             Identifier.CODEC.optionalFieldOf("preview_entity_type")
                 .forGetter(ParseUtils.provideOptional(AnimationSequenceHolder::getPreviewEntityType)),
             PreviewItem.CODEC.listOf().optionalFieldOf("preview_items", List.of())
@@ -97,7 +97,7 @@ public final class AnimationSequenceHolder extends AbstractDataHolder<AnimationS
     private float phaseOffset;
 
     @EditorEditable(label = LangKeys.GUI_ANIM_SEQUENCE_SCREEN_WIDGET_IK_TYPE, order = 8)
-    private IKType ikType = AkytheraIKType.NONE;
+    private IKType ikType = AkytheraIKType.PROCEDURAL;
 
     @Nullable
     private Identifier previewEntityType;

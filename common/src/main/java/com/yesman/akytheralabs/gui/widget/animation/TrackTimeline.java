@@ -47,4 +47,19 @@ public interface TrackTimeline {
 
     /// The length [FrameScrollBar] spans, in frames. Zero when there is nothing to span.
     float timelineFrames();
+
+    /// The frames between two ruler marks: the first of 5, 10, 25, 50, 100, 200, 400… that keeps at most 20 marks over
+    /// `frameScope` frames.
+    static int rulerStride(final float frameScope) {
+        int[] scales = { 5, 10, 25, 50, 100 };
+        int stride;
+        int i = 0;
+
+        do {
+            stride = i < scales.length ? scales[i] : 100 << (i - scales.length + 1);
+            i++;
+        } while (frameScope / stride > 20);
+
+        return stride;
+    }
 }

@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
@@ -46,6 +47,7 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
     private static final int COLOR_SELECTED = 0xFFFFA028;
     private static final int COLOR_PARTNER = 0xFF48B0FF; // the mirror partner of the selected bone
     private static final int COLOR_PAIRED = 0xFF58A882;  // paired with something else
+    private static final int COLOR_FILL = 0x80FFF2A0;    // faces of the filled bones
     private static final float LINE_WIDTH = 2.0F;
     private static final float SELECTED_LINE_WIDTH = 3.0F;
 
@@ -96,8 +98,12 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
     @Nullable
     private Supplier<Transform> transformSource;
 
-    /// Whether only the selected bone is drawn. Every bone is still picked.
-    private boolean drawSelectedOnly;
+    /// Whether the bones are drawn. Every bone is still picked.
+    private boolean bonesDrawn = true;
+
+    /// The names of the bones whose faces are filled, read per frame. Null fills none.
+    @Nullable
+    private Supplier<Set<String>> filledBones;
 
     /// Whether a bone under the cursor wins the click over every other component under it.
     private boolean pickedInFront;
@@ -121,8 +127,17 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         this.transformSource = transformSource;
     }
 
-    public void setDrawSelectedOnly(final boolean drawSelectedOnly) {
-        this.drawSelectedOnly = drawSelectedOnly;
+    /// Where the armature is drawn, the identity without a transform source.
+    public Transform getTransform() {
+        return transformSource == null ? Transform.IDENTITY : transformSource.get();
+    }
+
+    public void setBonesDrawn(final boolean bonesDrawn) {
+        this.bonesDrawn = bonesDrawn;
+    }
+
+    public void setFilledBones(final @Nullable Supplier<Set<String>> filledBones) {
+        this.filledBones = filledBones;
     }
 
     public void setPickedInFront(final boolean pickedInFront) {
@@ -184,25 +199,41 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
             poseSource == null ? null : poseSource.get()
         );
 
+        if (!bonesDrawn) return;
+
         // The scene drawn so far stays, its depth does not — so the bones read over the mesh while
         // still occluding one another.
         viewer.clearDepth();
+
+        Set<String> filled = filledBones == null ? Set.of() : filledBones.get();
+
+        if (!filled.isEmpty()) {
+            RenderType fillType = RenderTypes.debugQuads();
+            BufferBuilder fillBuilder = new BufferBuilder(byteBuffer, fillType.primitiveTopology(), fillType.format());
+
+            for (BoneSegment segment : segments) {
+                if (filled.contains(segment.bone().getName())) emitOctahedronFaces(fillBuilder, poseStack.last(), segment.head(), segment.tail());
+            }
+
+            MeshData fillMesh = fillBuilder.build();
+
+            if (fillMesh != null) RenderUtils.drawImmediate(fillType, fillMesh);
+
+            // The edges read over the faces they bound
+            viewer.clearDepth();
+        }
 
         RenderType renderType = RenderTypes.lines();
         BufferBuilder builder = new BufferBuilder(byteBuffer, renderType.primitiveTopology(), renderType.format());
         PoseStack.Pose pose = poseStack.last();
 
         for (BoneSegment segment : segments) {
-            if (drawSelectedOnly && !segment.bone().equals(selected)) continue;
-
             int color = colorOf(segment.bone());
 
             emitOctahedron(builder, pose, segment.head(), segment.tail(), color, lineWidthOf(color));
         }
 
         for (Map.Entry<Bone, Vector3f> head : heads.entrySet()) {
-            if (drawSelectedOnly && !head.getKey().equals(selected)) continue;
-
             int color = colorOf(head.getKey());
 
             emitMarker(builder, pose, viewer, head.getValue(), color, lineWidthOf(color));
@@ -249,16 +280,12 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         }
     }
 
-    /// The 12 edges of the bone shape: four from `head` to the ring, the ring itself, four from the
-    /// ring to `tail`.
-    private static void emitOctahedron(
-        BufferBuilder builder, PoseStack.Pose pose,
-        Vector3f head, Vector3f tail, int color, float width
-    ) {
+    /// The four corners of the bone shape's widest ring, null for a bone too short to draw.
+    private static Vector3f @Nullable [] octahedronRing(final Vector3f head, final Vector3f tail) {
         Vector3f axis = new Vector3f(tail).sub(head);
         float length = axis.length();
 
-        if (length < 1.0e-4F) return;
+        if (length < 1.0e-4F) return null;
 
         axis.div(length);
 
@@ -269,12 +296,42 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         Vector3f v = new Vector3f(axis).cross(u).normalize().mul(length * RING_RADIUS);
         Vector3f ringCenter = new Vector3f(axis).mul(length * RING_ALONG).add(head);
 
-        Vector3f[] ring = {
+        return new Vector3f[] {
             new Vector3f(ringCenter).add(u),
             new Vector3f(ringCenter).add(v),
             new Vector3f(ringCenter).sub(u),
             new Vector3f(ringCenter).sub(v)
         };
+    }
+
+    /// The 8 faces of the bone shape in [#COLOR_FILL], each a quad with a doubled corner for [RenderTypes#debugQuads].
+    private static void emitOctahedronFaces(final BufferBuilder builder, final PoseStack.Pose pose, final Vector3f head, final Vector3f tail) {
+        Vector3f[] ring = octahedronRing(head, tail);
+
+        if (ring == null) return;
+
+        for (int i = 0; i < ring.length; i++) {
+            Vector3f from = ring[i];
+            Vector3f to = ring[(i + 1) % ring.length];
+
+            for (Vector3f apex : new Vector3f[] { head, tail }) {
+                builder.addVertex(pose, apex.x, apex.y, apex.z).setColor(COLOR_FILL);
+                builder.addVertex(pose, from.x, from.y, from.z).setColor(COLOR_FILL);
+                builder.addVertex(pose, to.x, to.y, to.z).setColor(COLOR_FILL);
+                builder.addVertex(pose, to.x, to.y, to.z).setColor(COLOR_FILL);
+            }
+        }
+    }
+
+    /// The 12 edges of the bone shape: four from `head` to the ring, the ring itself, four from the
+    /// ring to `tail`.
+    private static void emitOctahedron(
+        BufferBuilder builder, PoseStack.Pose pose,
+        Vector3f head, Vector3f tail, int color, float width
+    ) {
+        Vector3f[] ring = octahedronRing(head, tail);
+
+        if (ring == null) return;
 
         for (int i = 0; i < ring.length; i++) {
             Vector3f from = ring[i];

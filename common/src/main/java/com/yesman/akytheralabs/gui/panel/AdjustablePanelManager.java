@@ -417,10 +417,12 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
                 }
 
                 // A horizontal split lays its subsections out around their folds: a folded one takes its header's
-                // height, and the others share what is left in the proportion the dividers gave them
+                // height, and the others share what is left in the proportion the dividers gave them. A divider
+                // resizes while an unfolded section lies on each side of it
                 if (dividers.getFirst().orientation == PanelDivider.Orientation.HORIZONTAL) {
                     for (PanelDivider divider : dividers) {
-                        divider.active = !subsections.get(divider.subdivisionOrder).folded && !subsections.get(divider.subdivisionOrder + 1).folded;
+                        divider.active = subsections.subList(0, divider.subdivisionOrder + 1).stream().anyMatch(section -> !section.folded)
+                            && subsections.subList(divider.subdivisionOrder + 1, subsections.size()).stream().anyMatch(section -> !section.folded);
                     }
 
                     if (subsections.stream().anyMatch(section -> section.folded)) {
@@ -785,6 +787,57 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
             if (dragging && event.button() == 0) {
                 switch (orientation) {
                     case HORIZONTAL -> {
+                        List<PanelSection> sections = belongedSection.subsections;
+                        List<PanelDivider> dividers = belongedSection.dividers;
+
+                        if (sections.stream().anyMatch(section -> section.folded)) {
+                            // The boundary between the nearest unfolded sections moves, carrying the folded headers
+                            // between them
+                            int above = subdivisionOrder;
+                            int below = subdivisionOrder + 1;
+
+                            while (sections.get(above).folded) above--;
+                            while (sections.get(below).folded) below++;
+
+                            PanelArea top = sections.get(above).panelArea;
+                            PanelArea bottom = sections.get(below).panelArea;
+                            int shift = Math.clamp((int)event.y() - getY(), -top.getHeight(), bottom.getHeight());
+
+                            top.setHeight(top.getHeight() + shift);
+                            bottom.setHeight(bottom.getHeight() - shift);
+
+                            for (int i = above + 1; i <= below; i++) sections.get(i).panelArea.setY(sections.get(i).panelArea.getY() + shift);
+                            for (int i = above; i < below; i++) dividers.get(i).setY(dividers.get(i).getY() + shift);
+                            for (int i = above; i <= below; i++) sections.get(i).resize(sections.get(i).panelArea.getRectangle());
+
+                            // A folded section keeps its unfolded share; the unfolded ones split the rest as shown now
+                            int[] shares = new int[sections.size()];
+                            int foldedShare = 0;
+                            int shownHeight = 0;
+
+                            for (int i = 0, start = 0; i < sections.size(); i++) {
+                                int end = i < dividers.size() ? ((Fraction)dividers.get(i).getY1()).value() : 100;
+                                shares[i] = end - start;
+                                start = end;
+
+                                if (sections.get(i).folded) {
+                                    foldedShare += shares[i];
+                                } else {
+                                    shownHeight += sections.get(i).panelArea.getHeight();
+                                }
+                            }
+
+                            float position = 0.0F;
+
+                            for (int i = 0; i < dividers.size(); i++) {
+                                PanelSection section = sections.get(i);
+                                position += section.folded ? shares[i] : section.panelArea.getHeight() * (100 - foldedShare) / (float)Math.max(shownHeight, 1);
+                                dividers.get(i).setY1(AnchoredWidget.fraction(Math.round(position)));
+                            }
+
+                            return true;
+                        }
+
                         int min = (subdivisionOrder == 0 ? // check top section
                             belongedSection.panelArea.getY() :
                             belongedSection.subsections.get(subdivisionOrder).panelArea.getY())

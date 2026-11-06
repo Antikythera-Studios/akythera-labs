@@ -74,7 +74,7 @@ public final class BonePoseComponent implements LocatableComponent {
         Pose current = posed.get();
         Matrix4f model = current.getForwardBoundTransforms(armature)[bone.getId()];
 
-        return Transform.fromMatrix(model.mul(current.orElseIdentity(bone.getName()).toMatrix().invert()));
+        return view.getTransform().mul(Transform.fromMatrix(model.mul(current.orElseIdentity(bone.getName()).toMatrix().invert())));
     }
 
     @Override

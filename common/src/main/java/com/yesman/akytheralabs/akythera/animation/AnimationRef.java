@@ -36,7 +36,7 @@ public sealed interface AnimationRef {
     record Empty() implements AnimationRef {
         @Override
         public Holder<? extends @NonNull PlayableAnimation> toEngineHolder() {
-            return PlayableAnimation.EMPTY_ANIM_HOLDER;
+            return PlayableAnimation.EMPTY_ANIM_HOLDER.get();
         }
 
         @Override
@@ -68,7 +68,7 @@ public sealed interface AnimationRef {
     }
 
     private static Holder<? extends @NonNull PlayableAnimation> safe(Holder<? extends @NonNull PlayableAnimation> h) {
-        return h.isBound() ? h : PlayableAnimation.EMPTY_ANIM_HOLDER;
+        return h.isBound() ? h : PlayableAnimation.EMPTY_ANIM_HOLDER.get();
     }
 
     private static String displayNameOf(Holder<?> h) {

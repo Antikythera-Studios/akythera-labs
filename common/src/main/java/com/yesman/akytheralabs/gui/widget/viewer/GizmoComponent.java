@@ -220,24 +220,29 @@ public final class GizmoComponent implements Model3DViewerComponent {
         PoseStack.Pose pose = poseStack.last();
 
         Handle lit = active != null ? active : hovered;
+        int lockedAxis = active != null && (active.kind() == Handle.Kind.AXIS || active.kind() == Handle.Kind.RING) ? active.index() : -1;
+        boolean free = lockedAxis < 0;
 
         switch (mode) {
             case TRANSLATE -> {
-                emitAxes(builder, pose, viewer, frame, lit, true);
-                emitPlanes(builder, pose, frame, lit);
+                emitAxes(builder, pose, viewer, frame, lit, true, lockedAxis);
+                if (free) emitPlanes(builder, pose, frame, lit);
             }
             case SCALE -> {
-                emitAxes(builder, pose, viewer, frame, lit, false);
-                emitPlanes(builder, pose, frame, lit);
-                emitViewRing(builder, pose, viewer, frame, lit);
+                emitAxes(builder, pose, viewer, frame, lit, false, lockedAxis);
+
+                if (free) {
+                    emitPlanes(builder, pose, frame, lit);
+                    emitViewRing(builder, pose, viewer, frame, lit);
+                }
             }
             case ROTATE -> {
-                emitRings(builder, pose, viewer, frame, lit);
-                emitViewRing(builder, pose, viewer, frame, lit);
+                emitRings(builder, pose, viewer, frame, lit, lockedAxis);
+                if (free) emitViewRing(builder, pose, viewer, frame, lit);
             }
         }
 
-        if (constrainedAxis >= 0) emitGuideLine(builder, pose, viewer, frame, constrainedAxis);
+        if (!free) emitGuideLine(builder, pose, viewer, frame, lockedAxis);
 
         MeshData meshData = builder.build();
 
@@ -297,12 +302,16 @@ public final class GizmoComponent implements Model3DViewerComponent {
     }
 
     /// The three axis handles: a screen-facing shaft, capped with an arrow (translate) or a square
-    /// (scale).
-    private void emitAxes(BufferBuilder builder, PoseStack.Pose pose, Model3DViewer viewer, Frame frame, @Nullable Handle lit, boolean arrow) {
+    /// (scale). Only `lockedAxis`'s while it is not -1.
+    private void emitAxes(
+        BufferBuilder builder, PoseStack.Pose pose, Model3DViewer viewer, Frame frame, @Nullable Handle lit, boolean arrow, int lockedAxis
+    ) {
         Vector3f right = viewer.getCameraRight();
         Vector3f up = viewer.getCameraUp();
 
         for (int i = 0; i < 3; i++) {
+            if (lockedAxis >= 0 && i != lockedAxis) continue;
+
             Handle handle = Handle.axis(i);
             int color = handle.equals(lit) ? COLOR_HOVER : AXIS_COLORS[i];
             Vector3f tip = frame.tip(i);
@@ -353,13 +362,15 @@ public final class GizmoComponent implements Model3DViewerComponent {
         };
     }
 
-    /// One ring per axis, in the plane that axis is normal to.
-    private void emitRings(BufferBuilder builder, PoseStack.Pose pose, Model3DViewer viewer, Frame frame, @Nullable Handle lit) {
+    /// One ring per axis, in the plane that axis is normal to. Only `lockedAxis`'s while it is not -1.
+    private void emitRings(BufferBuilder builder, PoseStack.Pose pose, Model3DViewer viewer, Frame frame, @Nullable Handle lit, int lockedAxis) {
         Vector3f right = viewer.getCameraRight();
         Vector3f up = viewer.getCameraUp();
         float half = SHAFT_HALF_PIXELS / frame.pixelsPerUnit();
 
         for (int normal = 0; normal < 3; normal++) {
+            if (lockedAxis >= 0 && normal != lockedAxis) continue;
+
             Handle handle = Handle.ring(normal);
             int color = handle.equals(lit) ? COLOR_HOVER : AXIS_COLORS[normal];
             List<Vector3f> points = ringPoints(frame, normal, frame.worldPerHandle());

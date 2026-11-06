@@ -5,7 +5,6 @@ import com.yesman.akythera.api.asset.SingletonAccessor;
 import com.yesman.akythera.api.asset.armature.ArmatureManager;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.client.api.gui.AkytheraButton;
-import com.yesman.akythera.client.api.gui.CheckBox;
 import com.yesman.akythera.client.api.gui.WidgetTable;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
@@ -15,18 +14,13 @@ import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
-import com.yesman.akythera.core.animation.ik.AkytheraIKType;
 import com.yesman.akythera.core.animation.ik.IKCurves;
-import com.yesman.akythera.core.animation.ik.InverseKinematicsSimulation;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.AnimationMirror;
 import com.yesman.akythera.core.animation.keyframe.FloatCurve;
-import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
-import com.yesman.akythera.core.math.Transform;
-import com.yesman.akythera.core.math.physics.Terrain;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -50,6 +44,7 @@ import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
+import com.yesman.akytheralabs.gui.widget.viewer.ArmatureViewComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Tooltip;
@@ -76,9 +71,6 @@ import java.util.function.Consumer;
 public final class AnimationAssetEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
-    private static final int OVERLAY_PAD = 4; // gap between an overlay widget and the viewer's edge
-    private static final int CHECKBOX_W = 90;
-    private static final int CHECKBOX_H = 12;
 
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
@@ -117,15 +109,8 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
     /// The vendor armature [#curveListTable] was filled for.
     private @Nullable AssetAccessor<? extends Armature> listedVendor;
 
-    /// Places the IK chains of the vendor armature over a floor at the viewer's origin while the IK preview is on, null
-    /// while it is off.
-    private @Nullable InverseKinematicsSimulation ikPreview;
-
-    /// The previewed animation with the IK chains placed, which the model is drawn in while [#ikPreview] runs.
-    private @Nullable Pose ikPose;
-
-    /// When the IK preview last advanced the animation, in [System#nanoTime] nanoseconds; 0 before the first frame.
-    private long ikPreviewNanos;
+    /// The previewed model's bones, shown while a curve is picked. Null while none is.
+    private @Nullable ArmatureViewComponent armatureView;
 
     public AnimationAssetEditorScreen(AkytheraProject.EditorAnimationAccessor accessor) {
         super(Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_TITLE));
@@ -227,37 +212,13 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
                 return clip == null ? 0.0F : clip.getTotalTime();
             },
-            () -> previewAnimator() == null ? 0.0F : previewAnimator().getElapsedTime(),
-            time -> {
-                EntityModelComponent.EditorScrubAnimator animator = previewAnimator();
-
-                if (animator != null) animator.setElapsedTime(time);
-            },
+            this::previewAnimator,
             Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_MESSAGE_PICK_CURVE),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(PanelHeader.DEFAULT_HEADER_HEIGHT), AnchoredWidget.pixel(0),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
-
-        CheckBox ikPreviewCheckBox = new CheckBox(
-            minecraft.font,
-            AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(CHECKBOX_W),
-            AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(CHECKBOX_H),
-            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
-            AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT,
-            () -> ikPreview != null,
-            previewing -> {
-                ikPreview = previewing ? new InverseKinematicsSimulation() : null;
-                ikPose = null;
-                ikPreviewNanos = 0L;
-                refreshPreviewAnimation();
-            },
-            Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_PREVIEW_IK),
-            true
-        );
-        ikPreviewCheckBox.valueSetter().accept(false);
-        model3DViewer.addOverlayWidget(ikPreviewCheckBox);
 
         panelManager = new AdjustablePanelManager(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -357,7 +318,10 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
                     .append(Component.translatable(plant ? LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_PLANT : LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_IK_ALPHA));
 
                 AkytheraButton pickButton = AkytheraButton
-                    .buttonBuilder(font, LocalizedMessage.handwritten(label.getString()), () -> pickedCurve = pick)
+                    .buttonBuilder(font, LocalizedMessage.handwritten(label.getString()), () -> {
+                        pickedCurve = pick;
+                        refreshArmatureView();
+                    })
                     .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H + 2))
                     .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H))
                     .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT)
@@ -397,28 +361,42 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
         if (curveListRect != null) curveListTable.relocate(curveListRect);
     }
 
-    /// Advances the preview by the real time since the last frame and places the IK chains of the vendor armature over a
-    /// floor at the viewer's origin by the sidecar's curves, while the IK preview is on. Refills the IK Curves panel when
-    /// the vendor changes. An editor screen is drawn but never ticked by the game, so the frame drives it.
+    /// Draws the previewed model's bones while a curve is picked, filling those of the picked curve's chain. A chain
+    /// the vendor's physics asset does not hold fills its tip bone alone.
+    private void refreshArmatureView() {
+        if (armatureView != null) model3DViewer.removeComponent(armatureView);
+
+        armatureView = null;
+
+        EntityModelComponent component = model3DViewer.getComponent(EntityModelComponent.class);
+        AssetAccessor<? extends Armature> armature = component == null ? null : component.getArmature();
+
+        if (pickedCurve == null || armature == null) return;
+
+        ArmatureViewComponent view = new ArmatureViewComponent(armature);
+        view.setTransformSource(() -> component.getArmatureComponent().modelTransform());
+        view.setPoseSource(() -> component.getAnimator() == null ? null : component.getAnimator().getPose());
+        view.setFilledBones(() -> {
+            Armature drawn = armature.getOrHandleException(_ -> {}); // the view reports the failure
+            ArmaturePhysicsDataHolder physics = vendorPhysics();
+            CurvePick pick = pickedCurve;
+
+            if (drawn == null || pick == null) return Set.of();
+
+            IKChainHolder chain = physics == null ? null
+                : physics.getIKChains().stream().filter(c -> pick.tipBone().equals(c.getTipBone())).findFirst().orElse(null);
+
+            return chain == null ? Set.of(pick.tipBone()) : chain.boneNames(drawn);
+        });
+
+        armatureView = view;
+        model3DViewer.addComponent(view);
+    }
+
+    /// Refills the IK Curves panel when the vendor changes.
     @Override
     public void extractRenderState(final @NonNull GuiGraphicsExtractor graphics, final int mouseX, final int mouseY, final float partialTick) {
         if (listedVendor != holder.getVendor()) fillCurveList();
-
-        EntityModelComponent component = model3DViewer.getComponent(EntityModelComponent.class);
-        EntityModelComponent.EditorScrubAnimator animator = previewAnimator();
-        ArmaturePhysicsDataHolder physics = vendorPhysics();
-
-        if (ikPreview != null && component != null && animator != null && component.getArmature() != null) {
-            long now = System.nanoTime();
-            animator.update(ikPreviewNanos == 0L ? 0.0F : (now - ikPreviewNanos) / 1.0E9F, 1.0F);
-            ikPreviewNanos = now;
-
-            Pose animated = new Pose(animator.getPose());
-            animated.setIKChannels(AkytheraIKType.curveChannels(holder.getIKCurves(), animator.getElapsedTime()));
-            ikPose = physics == null
-                ? animated
-                : ikPreview.apply(animated, component.getArmature(), physics.makeObject(), Transform.IDENTITY, Terrain.floor(0.0D), now / 1.0E9D);
-        }
 
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }
@@ -443,6 +421,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
         previewModelDirty = true;
         EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, entityType, true, true);
         refreshPreviewAnimation();
+        refreshArmatureView();
     }
 
     /// Plays the reflection in place of the source clip, or the source back. A vendor is what the
@@ -484,7 +463,6 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
         if (component != null) {
             component.setSimplePlayingAnimation(previewingMirror ? mirror : holder.getAccessor());
-            component.setPoseSource(ikPreview == null ? null : () -> ikPose);
         }
 
         mirrorPreviewButton.setMessage(Component.translatable(previewingMirror

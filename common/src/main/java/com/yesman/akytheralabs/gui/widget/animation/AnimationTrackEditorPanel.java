@@ -49,9 +49,6 @@ import java.util.function.Function;
 /// section + segment + notify rows. The panel keeps the notify holder + "+" add-track
 /// since notify tracks are the common editable track type across both screens.
 public final class AnimationTrackEditorPanel extends AdjustablePanelManager.PanelArea implements TrackTimeline {
-    private static final int[] RULER_SCALES = {5, 10, 25, 50, 100, /* Grows by x2 afterward */ };
-    private static final int MAX_VISIBLE_RULER_SCALES = 20;
-
     public static final int EDGE_DRAG_THRESHOLD = 4;
     public static final int HEADER_H = 38;
     public static final int FOOTER_H = 20;
@@ -603,16 +600,8 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         g.fill(getX(), getBottom() - (FOOTER_H), getRight(), getBottom() - (FOOTER_H + 1), 0xFF404040);
 
         // Setup variables to render track
-        float frameScope = (visualFrameEnd - visualFrameStart);
         int trackStart = getTrackStart();
-        int frameStride;
-        int i = 0;
-
-        // Find the best matching stride, loops until it meets a scale less than max visible scales.
-        do {
-            frameStride = i < RULER_SCALES.length ? RULER_SCALES[i] : (int)Math.pow(2, i - RULER_SCALES.length) * 100;
-            i++;
-        } while (frameScope / frameStride > MAX_VISIBLE_RULER_SCALES);
+        int frameStride = TrackTimeline.rulerStride(visualFrameEnd - visualFrameStart);
 
         g.enableScissor(trackStart, getY(), getRight(), frameGraphBottom);
         int frame = frameStride * ((int)(visualFrameStart / frameStride) + (visualFrameStart < 0 ? 0 : 1));

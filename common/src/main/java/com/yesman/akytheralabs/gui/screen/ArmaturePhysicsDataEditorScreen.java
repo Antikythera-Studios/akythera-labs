@@ -41,6 +41,7 @@ import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.EditorComboBox;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
+import com.yesman.akytheralabs.gui.widget.main.AnimationSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
@@ -51,6 +52,7 @@ import com.yesman.akytheralabs.gui.widget.viewer.ArmatureViewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.BoneConstraintLimitComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.BonePoseComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ColliderPreviewComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.IKBodyComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.IKTargetComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.RagdollDragComponent;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -75,6 +77,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -100,7 +103,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     private static final int SIMULATE_H = 20;
     private static final int BUOYANCY_CHECKBOX_W = 130;
     private static final int BUOYANCY_CHECKBOX_H = 12;
-    private static final int VIEW_CHECKBOX_W = 110; // the collider and IK preview checkboxes at the bottom left
+    private static final int VIEW_CHECKBOX_W = 110; // the bone, collider and IK preview checkboxes at the bottom left
 
     /// How deep the water of a buoyancy simulation is, in blocks, over its floor.
     private static final double BUOYANCY_POOL_DEPTH = 8.0D;
@@ -155,7 +158,8 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     /// The pose [#bonePoser] edits, before the bone constraints.
     private final Pose manualPose = new Pose();
 
-    /// [#manualPose] under the bone constraints, which the scene is drawn in while no simulation runs.
+    /// [#previewAnimator]'s pose, or [#manualPose] while it has no animation, under the bone constraints, which the scene
+    /// is drawn in while no simulation runs.
     private Pose constrainedPose = Pose.EMPTY_POSE;
 
     /// The collider wireframes: [ColliderPreviewComponent]s while editing, plain [ColliderViewerComponent]s while a
@@ -197,11 +201,31 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     /// Whether the collider wireframes are drawn.
     private boolean showColliders = true;
 
-    /// Places the IK chains over a floor at the viewer's origin while the IK preview is on, null while it is off.
+    /// Whether [#armatureView] draws the bones. Cleared when a rag doll starts.
+    private boolean showBones = true;
+
+    private final CheckBox boneCheckBox;
+
+    /// Places the IK chains over a flat floor while the IK preview is on, null while it is off.
     private @Nullable InverseKinematicsSimulation ikPreview;
+
+    /// Where the IK preview stands the armature in the world, moved by [#ikBody].
+    private Transform ikPreviewBody = Transform.IDENTITY;
+
+    /// The yellow square the gizmo moves [#ikPreviewBody] by while [#ikPreview] runs.
+    private @Nullable IKBodyComponent ikBody;
 
     /// [#constrainedPose] with the IK chains placed, which the scene is drawn in while [#ikPreview] runs.
     private @Nullable Pose ikPose;
+
+    /// Plays the preview animation the scene is posed in while no rag doll runs.
+    private final EntityModelComponent.SimpleHeadlessAnimator previewAnimator = new EntityModelComponent.SimpleHeadlessAnimator();
+
+    /// When [#previewAnimator] last advanced, in [System#nanoTime] nanoseconds; 0 while a rag doll runs.
+    private long previewAnimationNanos;
+
+    /// The IK chain whose `#n` row was pressed last, whose bones [#armatureView] fills. Null while none was.
+    private @Nullable IKChainHolder selectedChain;
 
     /// The chain targets the gizmo moves while [#ikPreview] runs.
     private final List<IKTargetComponent> ikTargets = new ArrayList<>();
@@ -226,6 +250,11 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelect)
+                .on(TopMenuOption.SELECT_PREVIEW_ANIMATION, () -> ModalManager.getInstance().openModalWidgetAtCenter(
+                    new AnimationSelectModal(font, holder.getPreviewEntityType(), (clips, _) ->
+                        previewAnimator.setAnimation(clips.isEmpty() ? null : clips.getFirst())
+                    )
+                ))
                 .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -266,9 +295,9 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             ROW_H
         );
 
-        simulationHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_SECTION_SIMULATION));
+        simulationHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_SECTION_RAGDOLL));
         simulateButton = AkytheraButton
-            .buttonBuilder(minecraft.font, LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_SIMULATE), this::toggleSimulation)
+            .buttonBuilder(minecraft.font, LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_START_RAGDOLL), this::toggleSimulation)
             .xUnits(AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(SIMULATE_W))
             .yUnits(AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(SIMULATE_H))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -308,6 +337,23 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         colliderCheckBox.valueSetter().accept(showColliders);
         model3DViewer.addOverlayWidget(colliderCheckBox);
 
+        boneCheckBox = new CheckBox(
+            minecraft.font,
+            AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(VIEW_CHECKBOX_W),
+            AnchoredWidget.pixel(OVERLAY_PAD * 3 + BUOYANCY_CHECKBOX_H * 2), AnchoredWidget.pixel(BUOYANCY_CHECKBOX_H),
+            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
+            AnchoredWidget.VerticalAnchorType.BOTTOM_HEIGHT,
+            () -> showBones,
+            shown -> {
+                showBones = shown;
+                if (armatureView != null) armatureView.setBonesDrawn(shown);
+            },
+            Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_SHOW_BONES),
+            true
+        );
+        boneCheckBox.valueSetter().accept(showBones);
+        model3DViewer.addOverlayWidget(boneCheckBox);
+
         CheckBox ikPreviewCheckBox = new CheckBox(
             minecraft.font,
             AnchoredWidget.pixel(OVERLAY_PAD), AnchoredWidget.pixel(VIEW_CHECKBOX_W),
@@ -318,6 +364,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             previewing -> {
                 ikPreview = previewing ? new InverseKinematicsSimulation() : null;
                 ikPose = null;
+                ikPreviewBody = Transform.IDENTITY;
                 rebuildIKTargets();
             },
             Component.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_PREVIEW_IK),
@@ -478,7 +525,15 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         if (armatureView == null) {
             ArmatureViewComponent view = new ArmatureViewComponent(holder.getArmature());
             view.setPoseSource(this::scenePose);
+            view.setTransformSource(this::sceneTransform);
             view.setPickedInFront(true);
+            view.setBonesDrawn(showBones);
+            view.setFilledBones(() -> {
+                IKChainHolder chain = selectedChain;
+                Armature drawn = holder.getArmature().getOrHandleException(_ -> {}); // rebuildAll reports the failure
+
+                return chain == null || drawn == null || !holder.getIKChains().contains(chain) ? Set.of() : chain.boneNames(drawn);
+            });
             view.setSelectionHighlighted(() -> !isColliderFocused());
             view.setOnSelectionChanged(() -> {
                 Bone picked = view.getSelectedBone();
@@ -527,19 +582,29 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
     /// The IK chain and root fitting rows. A rebuild may add or drop chains, so the IK targets follow.
     private void fillIKTable() {
-        new EditorWidgetFactory(font).fillWidgetTable(ikTable, holder, this::fillIKTable, holder);
+        new EditorWidgetFactory(font)
+            .onElementPressed(element -> selectedChain = element instanceof IKChainHolder chain ? chain : null)
+            .fillWidgetTable(ikTable, holder, this::fillIKTable, holder);
 
         if (ikRect != null) ikTable.relocate(ikRect);
 
         rebuildIKTargets();
     }
 
-    /// One [IKTargetComponent] per chain with a tip bone while [#ikPreview] runs, none otherwise.
+    /// [#ikBody] and one [IKTargetComponent] per chain with a tip bone while [#ikPreview] runs, none otherwise.
     private void rebuildIKTargets() {
         ikTargets.forEach(model3DViewer::removeComponent);
         ikTargets.clear();
 
+        if (ikBody != null) {
+            model3DViewer.removeComponent(ikBody);
+            ikBody = null;
+        }
+
         if (ikPreview == null) return;
+
+        ikBody = new IKBodyComponent(() -> ikPreviewBody, body -> ikPreviewBody = body);
+        model3DViewer.addComponent(ikBody);
 
         for (IKChainHolder chain : holder.getIKChains()) {
             if (chain.getTipBone() == null) continue;
@@ -567,7 +632,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
 
         if (armature == null) return;
 
-        if (simulation == null) applyManualPose(armature);
+        if (simulation == null) applyBasePose(armature);
 
         Bone selected = selectedBone == null ? null : armature.getBoneByName(selectedBone);
         BonePoseComponent poser = bonePoser;
@@ -611,11 +676,19 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         }
     }
 
-    /// Poses the scene in [#manualPose] under the bone constraints as they are edited now.
-    private void applyManualPose(final Armature armature) {
-        constrainedPose = armature.applyBoneConstraints(manualPose, holder.makeObject(), false);
+    /// Poses the scene in the preview animation, or in [#manualPose] while none is picked, under the bone constraints as
+    /// they are edited now.
+    private void applyBasePose(final Armature armature) {
+        Pose base = previewAnimator.getPreviewAnimation() == null ? manualPose : previewAnimator.getPose();
+        constrainedPose = armature.applyBoneConstraints(base, holder.makeObject(), false);
         scenePlacements.clear();
-        collectModelTransforms(armature.getRootBone(), new Matrix4f(), constrainedPose, scenePlacements);
+        collectModelTransforms(armature.getRootBone(), sceneTransform().toMatrix(), constrainedPose, scenePlacements);
+    }
+
+    /// Where the armature is drawn: at [#ikPreviewBody] while the IK preview runs and no rag doll does, else at the
+    /// origin.
+    private Transform sceneTransform() {
+        return ikPreview != null && simulation == null ? ikPreviewBody : Transform.IDENTITY;
     }
 
     /// The pose the preview model and the bones are drawn in: the rag doll's while one runs, else the IK preview's while
@@ -648,7 +721,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
     /// Drops the rag doll of the asset as it is edited now onto a floor at the viewer's origin, or into water whose
     /// surface is there while [#buoyancySimulation] is on, pushed at its topmost bone; or stops the one running. While
     /// it runs, the preview mesh follows it and the picked bone can be dragged by the gizmo. It starts in the textured
-    /// view.
+    /// view with the bones hidden.
     private void toggleSimulation() {
         if (simulation != null) {
             stopSimulation();
@@ -673,8 +746,9 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             .ifPresent(top -> simulation.applyImpulse(top.getKey(), new Vec3(0.0D, 0.0D, SIMULATION_PUSH), null));
 
         simulationTickNanos = System.nanoTime();
+        previewAnimationNanos = 0L;
         simulatedPose = armature.applyBoneConstraints(simulation.makePose(Transform.IDENTITY, 0.0F), simulatedPhysics, true);
-        simulateButton.setMessage(LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_STOP_SIMULATION));
+        simulateButton.setMessage(LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_STOP_RAGDOLL));
 
         if (armatureView != null && bonePoser != null) {
             model3DViewer.removeComponent(bonePoser);
@@ -684,12 +758,15 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             model3DViewer.addComponent(ragdollDrag);
         }
 
+        showBones = false;
+        boneCheckBox.setWidgetValue(false);
+        if (armatureView != null) armatureView.setBonesDrawn(false);
+
         viewModeButton.visible = true;
         applySimulationView(false);
     }
 
-    /// Draws the running simulation as the textured mesh with the picked bone alone, or as collider and bone
-    /// wireframes. Bones are picked in either.
+    /// Draws the running simulation as the textured mesh, or as collider wireframes. Bones are picked in either.
     private void applySimulationView(final boolean wireframe) {
         simulationWireframe = wireframe;
         viewModeButton.setTheme(wireframe ? AkytheraLabsButtonTheme.CLOTH_WIREFRAME_BUTTON : AkytheraLabsButtonTheme.CLOTH_TEXTURED_BUTTON);
@@ -697,7 +774,6 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         EntityModelComponent shown = model3DViewer.getComponent(EntityModelComponent.class);
 
         if (shown != null) shown.setModelVisible(!wireframe);
-        if (armatureView != null) armatureView.setDrawSelectedOnly(!wireframe);
 
         rebuildScene();
     }
@@ -706,7 +782,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         simulation = null;
         simulatedPhysics = null;
         simulatedPose = null;
-        simulateButton.setMessage(LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_SIMULATE));
+        simulateButton.setMessage(LocalizedMessage.translatable(LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_BUTTON_START_RAGDOLL));
 
         viewModeButton.visible = false;
 
@@ -719,29 +795,36 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             ragdollDrag = null;
         }
 
-        if (armatureView != null) armatureView.setDrawSelectedOnly(false);
         if (bonePoser != null) model3DViewer.addComponent(bonePoser);
 
         rebuildScene();
     }
 
     /// Steps [#simulation] by the real time since its last tick, one game tick at a time, and poses the scene between
-    /// the last two ticks; with none running, poses the scene in [#manualPose]. An editor screen is drawn but never
-    /// ticked by the game, so the frame drives it.
+    /// the last two ticks; with none running, advances the preview animation and poses the scene in it, or in
+    /// [#manualPose] while none is picked, with the IK chains placed while the IK preview runs. An editor screen is drawn
+    /// but never ticked by the game, so the frame drives it.
     @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         Armature armature = holder.getArmature().getOrHandleException(_ -> {}); // rebuildAll reports the failure
 
-        if (armature != null && simulation == null) applyManualPose(armature);
+        if (armature != null && simulation == null) {
+            long now = System.nanoTime();
+
+            if (previewAnimationNanos != 0L) previewAnimator.update((now - previewAnimationNanos) / 1.0E9F, 0.0F);
+
+            previewAnimationNanos = now;
+            applyBasePose(armature);
+        }
 
         if (armature != null && simulation == null && ikPreview != null) {
             Pose procedural = new Pose(constrainedPose);
             procedural.setIKChannels(IKChannels.PROCEDURAL);
 
             ArmaturePhysicsData physics = holder.makeObject();
-            Pose placed = ikPreview.apply(procedural, holder.getArmature(), physics, Transform.IDENTITY, Terrain.floor(0.0D), System.nanoTime() / 1.0E9D);
+            Pose placed = ikPreview.apply(procedural, holder.getArmature(), physics, ikPreviewBody, Terrain.floor(0.0D), System.nanoTime() / 1.0E9D);
             ikPose = armature.applyBoneConstraints(placed, physics, false);
-            collectModelTransforms(armature.getRootBone(), new Matrix4f(), ikPose, scenePlacements);
+            collectModelTransforms(armature.getRootBone(), sceneTransform().toMatrix(), ikPose, scenePlacements);
         }
 
         // The bone combo is made anew on each rebuild, so it reads its panel's fold every frame
@@ -811,6 +894,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         if (shown != null) {
             shown.setArmature(holder.getArmature());
             shown.setPoseSource(this::scenePose);
+            shown.setTransformSource(this::sceneTransform);
         }
     }
 

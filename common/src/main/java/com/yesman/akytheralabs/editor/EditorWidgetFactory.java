@@ -700,6 +700,9 @@ public final class EditorWidgetFactory {
     /// when they name none. Null outside such an object.
     private @Nullable Class<? extends Model3DViewerComponent> enclosingViewerFocus;
 
+    /// Run with an editor object list element when its `#n` row is pressed. Null leaves those rows unpressable.
+    private @Nullable Consumer<Object> onElementPressed;
+
     public EditorWidgetFactory(Font font) {
         this.font = font;
     }
@@ -713,6 +716,13 @@ public final class EditorWidgetFactory {
     /// Hands the fills of this factory a viewer, see [EditorEditable#direction] and [EditorEditable#viewerFocus].
     public EditorWidgetFactory viewer(final Model3DViewer viewer) {
         this.viewer = viewer;
+        return this;
+    }
+
+    /// Hands the fills of this factory what an editor object list element's `#n` row runs when pressed, with the
+    /// element.
+    public EditorWidgetFactory onElementPressed(final Consumer<Object> onElementPressed) {
+        this.onElementPressed = onElementPressed;
         return this;
     }
 
@@ -1224,6 +1234,10 @@ public final class EditorWidgetFactory {
                 // Editor object element: a `#n` marker row, then the object's own rows one level
                 // deeper.
                 table.newRow((listLevel + 1) * INDENT).addWidget(headerLabel(Component.literal(slot.label())));
+
+                Consumer<Object> pressed = onElementPressed;
+
+                if (pressed != null && value != null) table.onRowPressed(() -> pressed.accept(value));
                 if (elementFactory != null) {
                     table.addWidget(sectionButton(LocalizedMessage.handwritten("✕"), () -> {
                         if (claim != null) claim.run();

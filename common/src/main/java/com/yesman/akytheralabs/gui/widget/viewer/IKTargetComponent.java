@@ -21,18 +21,25 @@ import org.jspecify.annotations.Nullable;
 import java.util.EnumSet;
 import java.util.Set;
 
-/// The target of one IK chain in the IK preview, as a wireframe octahedron the gizmo moves. Moving it holds the chain's
-/// tip there through [InverseKinematicsSimulation#setTargetOverride]. The preview places the armature at the world's
-/// origin, so its space is the viewer's world space.
+/// One IK chain in the IK preview: a red square where its tip is placed now, which the gizmo moves, and a smaller blue
+/// square where the animation puts it. Moving the red square holds the chain's tip there through
+/// [InverseKinematicsSimulation#setTargetOverride].
 public final class IKTargetComponent implements LocatableComponent {
-    /// From the octahedron's center to each of its tips, in blocks.
-    private static final double TIP = 0.06D;
+    /// Half the side of the current position's square, in blocks.
+    private static final double CURRENT_HALF = 0.09D;
 
-    /// How far from the marker's center a click still hits it, in blocks.
+    /// Half the side of the animated position's square, in blocks.
+    private static final double ANIMATED_HALF = 0.06D;
+
+    /// How far the animated position's square is drawn over the current one's, in blocks.
+    private static final double ANIMATED_LIFT = 0.002D;
+
+    /// How far from the current position a click still hits it, in blocks.
     private static final float PICK_RADIUS = 0.1F;
 
-    private static final int COLOR = 0xFFFFAA33;
-    private static final int FOCUSED_COLOR = 0xFFFFEE99;
+    private static final int CURRENT_COLOR = 0xFFFF2222;
+    private static final int FOCUSED_COLOR = 0xFFFF9999;
+    private static final int ANIMATED_COLOR = 0xFF2244FF;
 
     private final InverseKinematicsSimulation simulation;
 
@@ -107,21 +114,13 @@ public final class IKTargetComponent implements LocatableComponent {
     public void extractComponent(
         GuiGraphicsExtractor graphics, Model3DViewer model3DViewer, PoseStack poseStack, ByteBufferBuilder byteBuffer, int mouseX, int mouseY, float a
     ) {
-        Vec3 center = worldTransform().loc();
         RenderType renderType = RenderTypes.lines();
         BufferBuilder builder = new BufferBuilder(byteBuffer, renderType.primitiveTopology(), renderType.format());
-        Vec3[] tips = {
-            center.add(TIP, 0.0D, 0.0D), center.add(-TIP, 0.0D, 0.0D),
-            center.add(0.0D, TIP, 0.0D), center.add(0.0D, -TIP, 0.0D),
-            center.add(0.0D, 0.0D, TIP), center.add(0.0D, 0.0D, -TIP)
-        };
+        Vec3 animated = simulation.getAnimatedTarget(tipBone);
 
-        // Tips 2i and 2i + 1 are opposite; every other pair is an edge
-        for (int i = 0; i < tips.length; i++) {
-            for (int j = i + 1; j < tips.length; j++) {
-                if (j != (i ^ 1)) ColliderWireframe.line(builder, poseStack.last(), tips[i], tips[j], focused ? FOCUSED_COLOR : COLOR);
-            }
-        }
+        square(builder, poseStack, worldTransform().loc(), CURRENT_HALF, focused ? FOCUSED_COLOR : CURRENT_COLOR);
+
+        if (animated != null) square(builder, poseStack, animated.add(0.0D, ANIMATED_LIFT, 0.0D), ANIMATED_HALF, ANIMATED_COLOR);
 
         MeshData meshData = builder.build();
 
@@ -131,5 +130,19 @@ public final class IKTargetComponent implements LocatableComponent {
     @Override
     public int drawOrder() {
         return 40; // after the model (10) and the collider previews (35)
+    }
+
+    /// A flat square around `center`, `half` blocks from its center to each side, with its diagonals.
+    private static void square(final BufferBuilder builder, final PoseStack poseStack, final Vec3 center, final double half, final int color) {
+        Vec3[] corners = {
+            center.add(-half, 0.0D, -half), center.add(half, 0.0D, -half), center.add(half, 0.0D, half), center.add(-half, 0.0D, half)
+        };
+
+        for (int i = 0; i < corners.length; i++) {
+            ColliderWireframe.line(builder, poseStack.last(), corners[i], corners[(i + 1) % corners.length], color);
+        }
+
+        ColliderWireframe.line(builder, poseStack.last(), corners[0], corners[2], color);
+        ColliderWireframe.line(builder, poseStack.last(), corners[1], corners[3], color);
     }
 }

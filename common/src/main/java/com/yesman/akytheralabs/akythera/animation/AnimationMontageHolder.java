@@ -53,7 +53,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
                 .optionalFieldOf("layer_signature", AkytheraAnimationLayerSignature.BASE)
                 .forGetter(AnimationMontageHolder::layerSignature),
             Codec.FLOAT.optionalFieldOf("play_rate", 1.0F).forGetter(AnimationMontageHolder::playRate),
-            IKType.ENUM_MANAGER.getNameCodec().optionalFieldOf("ik_type", AkytheraIKType.NONE).forGetter(AnimationMontageHolder::getIKType),
+            IKType.ENUM_MANAGER.optionalFieldOf("ik_type", () -> AkytheraIKType.PROCEDURAL).forGetter(AnimationMontageHolder::getIKType),
             Identifier.CODEC.optionalFieldOf("preview_entity_type")
                 .forGetter(ParseUtils.provideOptional(AnimationMontageHolder::getPreviewEntityType)),
             PreviewItem.CODEC.listOf().optionalFieldOf("preview_items", List.of())
@@ -119,7 +119,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
     private float playRate = 1.0F;
 
     @EditorEditable(label = LangKeys.GUI_ANIM_MONTAGE_SCREEN_WIDGET_IK_TYPE, order = 7)
-    private IKType ikType = AkytheraIKType.NONE;
+    private IKType ikType = AkytheraIKType.PROCEDURAL;
 
     @Nullable
     private Identifier previewEntityType;
@@ -188,7 +188,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
     /// the segment ids, the notify and notify-state rows (each `expr` from
     /// [AnimationNotifyHolder#toSourceCode]), the sections and playing orders, the fade times and
     /// flags as Java literals, `layer_signature` when it differs from [AkytheraAnimationLayerSignature#BASE], and
-    /// `ik_type` when it differs from [AkytheraIKType#NONE].
+    /// `ik_type` when it differs from [AkytheraIKType#PROCEDURAL].
     @Override
     public Map<String, Object> getDTO() {
         Map<String, Object> dto = new LinkedHashMap<>();
@@ -261,7 +261,7 @@ public final class AnimationMontageHolder extends AbstractDataHolder<AnimationMo
             dto.put("layer_signature", layerSignature.getClass().getSimpleName() + "." + e.name());
         }
 
-        if (ikType != AkytheraIKType.NONE) dto.put("ik_type", ScriptNodeSourceCompiler.dataBlockLookup("IKType", ikType));
+        if (ikType != AkytheraIKType.PROCEDURAL) dto.put("ik_type", ScriptNodeSourceCompiler.dataBlockLookup("IKType", ikType));
 
         return dto;
     }
