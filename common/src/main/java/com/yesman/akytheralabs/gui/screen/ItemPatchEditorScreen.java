@@ -54,6 +54,7 @@ import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ItemSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
@@ -88,7 +89,7 @@ import java.util.function.Supplier;
 /// property holding a canvas ([#openResultGraphTab]). With no component focused, the Details panel
 /// shows the blueprint's own fields (the parent reference).
 public final class ItemPatchEditorScreen extends Screen
-    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost, AnimationPreviewHost
+    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost, AnimationPreviewHost, GraphTabScreen
 {
     private static final int TOP_BAR_H = 22;
 
@@ -161,6 +162,7 @@ public final class ItemPatchEditorScreen extends Screen
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.SELECT_PREVIEW_ITEM, this::isMetaPatch, this::openPreviewItemSelectModal)
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
@@ -602,7 +604,7 @@ public final class ItemPatchEditorScreen extends Screen
     }
 
     @Override
-    public void openResultGraphTab(
+    public ScriptNodeGraphWidget openResultGraphTab(
         String key,
         Component title,
         ScriptGraphData data,
@@ -613,7 +615,7 @@ public final class ItemPatchEditorScreen extends Screen
         ScriptNodeGraphWidget existing = openGraphs.get(key);
         if (existing != null) {
             centerTabs.setActiveIndex(centerTabs.indexOfContent(existing));
-            return;
+            return existing;
         }
 
         ScriptNodeGraphWidget graph = new ScriptNodeGraphWidget(
@@ -649,6 +651,8 @@ public final class ItemPatchEditorScreen extends Screen
             graphFlushes.remove(flushRun);
         });
         centerTabs.setActiveIndex(centerTabs.indexOfContent(graph));
+
+        return graph;
     }
 
     /// Pure-only suggestions: literals, pure SCRIPT functions and the Math / Logic nodes.
@@ -812,6 +816,15 @@ public final class ItemPatchEditorScreen extends Screen
     /// override.
     private void onDetailsChanged() {
         componentPanel.dropUnchangedOverrides();
+    }
+
+    // ***************************************************************
+    // [GraphTabScreen]
+    // ***************************************************************
+
+    @Override
+    public List<GraphTab> graphTabs() {
+        return EditorWidgetFactory.nodeGraphTabs(this, holder);
     }
 
     private boolean hasUnsavedChanges() {

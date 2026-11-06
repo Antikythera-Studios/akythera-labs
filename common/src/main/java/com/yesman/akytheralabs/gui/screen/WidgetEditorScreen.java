@@ -52,6 +52,7 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
@@ -102,7 +103,7 @@ import java.util.stream.Stream;
 /// The parent is the container class the engine builds, which decides the [WidgetUsage]: `File > Change Parent`
 /// and the Widget Type row both re-open the screen on another one. A source code [WidgetContainerScript] locks
 /// everything below the top menu.
-public final class WidgetEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class WidgetEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, GraphTabScreen {
     private static final int TOP_BAR_H = 22;
 
     /// Height of a Details row, in screen pixels.
@@ -282,6 +283,7 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
@@ -653,6 +655,25 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
     /// tree and need no flush.
     private void flushToHolder() {
         session.flush();
+    }
+
+    // ***************************************************************
+    // [GraphTabScreen]
+    // ***************************************************************
+
+    @Override
+    public List<GraphTab> graphTabs() {
+        List<GraphTab> graphTabs = new ArrayList<>(session.graphTabs());
+
+        widgets().forEach(widget -> widget.graphSignatures().keySet().forEach(name -> graphTabs.add(new GraphTab(
+            pathIn(holder, "", widget) + "." + name,
+            () -> {
+                openWidgetGraph(widget, name);
+                return session.externalCanvas(new WidgetGraphKey(widget, name));
+            }
+        ))));
+
+        return graphTabs;
     }
 
     private boolean hasUnsavedChanges() {

@@ -100,6 +100,16 @@ public final class UniversalMenu {
             return this;
         }
 
+        /// Runs the action wired to @param `option` when it is offered now, and returns whether it ran.
+        public boolean run(final O option) {
+            Handler handler = handlers.get(option);
+
+            if (handler == null || !handler.available().getAsBoolean()) return false;
+
+            handler.action().run();
+            return true;
+        }
+
         /// Whether any of `rows` is offered — a [GroupRow]'s own availability. A plain loop rather
         /// than a stream: this runs per group row per render.
         private boolean anyAvailable(final List<Row<O>> rows) {

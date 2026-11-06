@@ -38,6 +38,7 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.viewer.NotifyDiagnosticsComponent;
@@ -109,6 +110,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
                 .on(TopMenuOption.SELECT_PREVIEW_ITEM, this::openPreviewItemSelectModal)
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
         );
 

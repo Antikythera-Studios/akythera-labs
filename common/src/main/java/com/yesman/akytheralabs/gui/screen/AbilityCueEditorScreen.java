@@ -34,6 +34,7 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
@@ -65,7 +66,7 @@ import java.util.concurrent.CompletableFuture;
 /// [AbilityCueScript] with [AbilityCue] as the graphs' Self.
 /// The Details panel shows the cue's properties, the signature of the declared function picked in the
 /// Functions panel, or the default value of the picked variable.
-public final class AbilityCueEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class AbilityCueEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, GraphTabScreen {
     private static final int TOP_BAR_H = 22;
 
     private final AdjustablePanelManager panelManager;
@@ -136,6 +137,7 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
@@ -290,6 +292,15 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
 
                 savePoint = HistoryManager.getInstance().currentSavePoint();
             }, minecraft);
+    }
+
+    // ***************************************************************
+    // [GraphTabScreen]
+    // ***************************************************************
+
+    @Override
+    public List<GraphTab> graphTabs() {
+        return session.graphTabs();
     }
 
     private boolean hasUnsavedChanges() {

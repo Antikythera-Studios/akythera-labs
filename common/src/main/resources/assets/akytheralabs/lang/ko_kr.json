@@ -29,6 +29,7 @@
   "gui.akytheralabs.menu_bar.tools.animation_retarget": "애니메이션 리타게터",
   "gui.akytheralabs.menu_bar.tools.debug": "디버그",
   "gui.akytheralabs.menu_bar.tools.console": "콘솔",
+  "gui.akytheralabs.menu_bar.tools.open_mcp": "MCP 열기",
   "gui.akytheralabs.menu_bar.help": "도움",
   "gui.akytheralabs.menu_bar.help.docs": "문서",
   "gui.akytheralabs.menu_bar.help.issue_report": "문제 보고",
@@ -340,5 +341,14 @@
   "gui.akytheralabs.console_modal.title": "콘솔",
   "gui.akytheralabs.console_modal.clear": "지우기",
   "gui.akytheralabs.console_modal.open_logs": "로그 폴더 열기",
-  "gui.akytheralabs.console_modal.buffer_size": "버퍼 크기"
+  "gui.akytheralabs.console_modal.buffer_size": "버퍼 크기",
+  "gui.akytheralabs.mcp_modal.title": "MCP 서버",
+  "gui.akytheralabs.mcp_modal.url": "서버 URL",
+  "gui.akytheralabs.mcp_modal.start": "시작",
+  "gui.akytheralabs.mcp_modal.stop": "중지",
+  "gui.akytheralabs.mcp_modal.status.running": "%s 에서 실행 중",
+  "gui.akytheralabs.mcp_modal.status.stopped": "중지됨",
+  "gui.akytheralabs.mcp_modal.status.failed": "시작 실패: %s",
+  "gui.akytheralabs.mcp_modal.warning": "AI 에이전트가 /kill, /fill 같은 위험한 명령어를 실행할 수 있습니다. 서버를 열기 전에 월드를 백업하세요.",
+  "gui.akytheralabs.mcp_modal.auto_start": "프로젝트와 함께 시작"
 }

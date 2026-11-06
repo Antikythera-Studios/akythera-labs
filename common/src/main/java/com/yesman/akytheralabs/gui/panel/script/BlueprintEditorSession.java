@@ -20,6 +20,7 @@ import com.yesman.akytheralabs.editor.ValueShape;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.generated.LangKeys;
+import com.yesman.akytheralabs.gui.screen.GraphTabScreen;
 import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.VariableDropModal;
@@ -215,6 +216,27 @@ public final class BlueprintEditorSession {
 
     public BlueprintLayout layout() {
         return layout;
+    }
+
+    /// The Event Graph and every function, open or closed. Canvases kept outside the data are the host's to list.
+    public List<GraphTabScreen.GraphTab> graphTabs() {
+        int eventGraphTab = tabs.indexOfContent(eventGraph);
+        String eventGraphTitle = eventGraphTab < 0 ? "Event Graph" : tabs.getTabTitle(eventGraphTab).getString();
+        List<GraphTabScreen.GraphTab> graphTabs = new ArrayList<>();
+
+        graphTabs.add(new GraphTabScreen.GraphTab(eventGraphTitle, () -> {
+            tabs.setActiveIndex(tabs.indexOfContent(eventGraph));
+            return eventGraph;
+        }));
+
+        for (String name : functionNames()) {
+            graphTabs.add(new GraphTabScreen.GraphTab(name, () -> {
+                openFunction(name);
+                return openCanvases.get(name);
+            }));
+        }
+
+        return graphTabs;
     }
 
     /// The Event Graph, every open function canvas and every open canvas kept outside the data.

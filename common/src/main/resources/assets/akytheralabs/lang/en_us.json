@@ -35,6 +35,7 @@
   "gui.akytheralabs.menu_bar.tools.model_skinning": "Model Skinning",
   "gui.akytheralabs.menu_bar.tools.debug": "Debug",
   "gui.akytheralabs.menu_bar.tools.console": "Console",
+  "gui.akytheralabs.menu_bar.tools.open_mcp": "Open MCP",
   "gui.akytheralabs.menu_bar.help": "Help",
   "gui.akytheralabs.menu_bar.help.docs": "Docs",
   "gui.akytheralabs.menu_bar.help.issue_report": "Issue Report",
@@ -829,5 +830,14 @@
   "gui.akytheralabs.model_skinning_screen.bending.direction": "Bending Direction",
   "gui.akytheralabs.model_skinning_screen.widget.vertex_weights": "Vertex Weights",
   "gui.akytheralabs.model_skinning_screen.widget.bone": "Bone",
-  "gui.akytheralabs.model_skinning_screen.widget.weight": "Weight"
+  "gui.akytheralabs.model_skinning_screen.widget.weight": "Weight",
+  "gui.akytheralabs.mcp_modal.title": "MCP Server",
+  "gui.akytheralabs.mcp_modal.url": "Server URL",
+  "gui.akytheralabs.mcp_modal.start": "Start",
+  "gui.akytheralabs.mcp_modal.stop": "Stop",
+  "gui.akytheralabs.mcp_modal.status.running": "Running on %s",
+  "gui.akytheralabs.mcp_modal.status.stopped": "Stopped",
+  "gui.akytheralabs.mcp_modal.status.failed": "Failed to start: %s",
+  "gui.akytheralabs.mcp_modal.warning": "Your AI agent can execute sensitive commands like /kill or /fill. Backup your world before opening the server.",
+  "gui.akytheralabs.mcp_modal.auto_start": "Start with the project"
 }

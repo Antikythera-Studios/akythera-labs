@@ -82,6 +82,7 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.*;
@@ -120,6 +121,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /// Editor screen for an [EntityPatchBlueprintHolder] (an [EntityPatchBlueprint]): a three-column
 /// layout under the top menu bar — Components, Functions and Variables on the left, a Preview / Event
@@ -134,7 +136,7 @@ import java.util.function.Supplier;
 /// every canvas on the screen and re-opens it, or a source code [EntityPatchScript], which locks
 /// everything below the top menu.
 public final class EntityPatchEditorScreen extends Screen
-    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost, DebuggableScreen
+    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost, DebuggableScreen, GraphTabScreen
 {
     private static final int TOP_BAR_H = 22;
 
@@ -354,6 +356,7 @@ public final class EntityPatchEditorScreen extends Screen
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(minecraft.font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
@@ -484,7 +487,7 @@ public final class EntityPatchEditorScreen extends Screen
     // ***************************************************************
 
     @Override
-    public void openResultGraphTab(
+    public ScriptNodeGraphWidget openResultGraphTab(
         String key,
         Component title,
         ScriptGraphData data,
@@ -495,7 +498,7 @@ public final class EntityPatchEditorScreen extends Screen
         ScriptNodeGraphWidget existing = openGraphs.get(key);
         if (existing != null) {
             centerTabs.setActiveIndex(centerTabs.indexOfContent(existing));
-            return;
+            return existing;
         }
 
         ScriptNodeGraphWidget graph = new ScriptNodeGraphWidget(
@@ -538,6 +541,8 @@ public final class EntityPatchEditorScreen extends Screen
             graphFlushes.remove(flushRun);
         });
         centerTabs.setActiveIndex(centerTabs.indexOfContent(graph));
+
+        return graph;
     }
 
     /// Selection handler for every canvas on this screen: a single node carrying its own editable
@@ -1093,6 +1098,15 @@ public final class EntityPatchEditorScreen extends Screen
             socket.getLocalTransform().readFrom(transform);
             detailsPanel.showComponent(socket, hostOf(socket));
         };
+    }
+
+    // ***************************************************************
+    // [GraphTabScreen]
+    // ***************************************************************
+
+    @Override
+    public List<GraphTab> graphTabs() {
+        return Stream.concat(session.graphTabs().stream(), EditorWidgetFactory.nodeGraphTabs(this, holder).stream()).toList();
     }
 
     private boolean hasUnsavedChanges() {

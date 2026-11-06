@@ -55,6 +55,7 @@ import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import com.yesman.akytheralabs.gui.screen.AnimationPreviewHost;
+import com.yesman.akytheralabs.gui.screen.GraphTabScreen;
 import com.yesman.akytheralabs.gui.screen.NodeGraphTabHost;
 import com.yesman.akytheralabs.gui.widget.*;
 import com.yesman.akytheralabs.gui.widget.EditorDragValueBox;
@@ -2502,6 +2503,37 @@ public final class EditorWidgetFactory {
     public static void compileNodeGraphs(Compilation compilation, ComponentAttachableHolder host, Class<?> ownerType) {
         Font font = Minecraft.getInstance().font;
 
+        for (NodeGraphField nodeGraph : nodeGraphFields(host)) {
+            if (!(tryGet(nodeGraph.field(), nodeGraph.component()) instanceof ScriptGraphData graph) || graph.isEmpty()) continue;
+
+            ScriptNodeGraphWidget canvas = ScriptNodeGraphWidget.create(font, ownerType);
+            canvas.setComponentRoot(host);
+            canvas.importGraph(graph, ContextEntryNodeWidget.factory(font, nodeGraphParams(nodeGraph.shape())));
+            canvas.setResultType(nodeGraph.shape().resultType());
+
+            compilation.canvas(nodeGraphTabKey(nodeGraph.component(), nodeGraph.field().getName()), canvas, nodeGraph.title());
+        }
+    }
+
+    /// A tab for every [EditorNodeGraph] field of the components under `host`, authored or not, opening on
+    /// `tabHost` the way the field's "Edit Node Graph" button does.
+    public static List<GraphTabScreen.GraphTab> nodeGraphTabs(NodeGraphTabHost tabHost, ComponentAttachableHolder host) {
+        return nodeGraphFields(host).stream()
+            .map(nodeGraph -> new GraphTabScreen.GraphTab(nodeGraph.title().getString(), () -> tabHost.openResultGraphTab(
+                nodeGraphTabKey(nodeGraph.component(), nodeGraph.field().getName()),
+                nodeGraph.title(),
+                tryGet(nodeGraph.field(), nodeGraph.component()) instanceof ScriptGraphData graph ? graph : ScriptGraphData.EMPTY,
+                nodeGraphParams(nodeGraph.shape()),
+                nodeGraph.shape().resultType(),
+                graph -> trySet(nodeGraph.field(), nodeGraph.component(), graph)
+            )))
+            .toList();
+    }
+
+    /// Every [EditorNodeGraph] field of the components under `host`.
+    private static List<NodeGraphField> nodeGraphFields(ComponentAttachableHolder host) {
+        List<NodeGraphField> nodeGraphs = new ArrayList<>();
+
         ComponentAttachableHolder.flatten(host).forEach(component -> {
             for (Class<?> c = component.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
                 for (Field field : c.getDeclaredFields()) {
@@ -2511,13 +2543,6 @@ public final class EditorWidgetFactory {
 
                     field.setAccessible(true);
 
-                    if (!(tryGet(field, component) instanceof ScriptGraphData graph) || graph.isEmpty()) continue;
-
-                    ScriptNodeGraphWidget canvas = ScriptNodeGraphWidget.create(font, ownerType);
-                    canvas.setComponentRoot(host);
-                    canvas.importGraph(graph, ContextEntryNodeWidget.factory(font, nodeGraphParams(shape)));
-                    canvas.setResultType(shape.resultType());
-
                     EditorEditable editable = field.getAnnotation(EditorEditable.class);
                     Component fallback = editable == null || editable.label().isEmpty()
                         ? Component.literal(field.getName())
@@ -2526,11 +2551,16 @@ public final class EditorWidgetFactory {
                         ? titles.nodeGraphTabTitle(field.getName(), fallback)
                         : fallback;
 
-                    compilation.canvas(nodeGraphTabKey(component, field.getName()), canvas, title);
+                    nodeGraphs.add(new NodeGraphField(component, field, shape, title));
                 }
             }
         });
+
+        return nodeGraphs;
     }
+
+    /// One [EditorNodeGraph] field of `component`, titled as its "Edit Node Graph" tab.
+    private record NodeGraphField(Object component, Field field, EditorNodeGraph shape, Component title) {}
 
     /// An "Edit Node Graph" button for a [ScriptGraphData] slot. Opens the slot's canvas as a
     /// closeable center tab of the hosting [NodeGraphTabHost] screen, shaped by the declaring

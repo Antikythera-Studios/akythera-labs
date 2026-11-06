@@ -9,6 +9,7 @@ import com.yesman.akythera.client.api.gui.ClampedNumberBox;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
+import com.yesman.akytheralabs.dev.ViewportCamera;
 import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ScreenSavePoint;
@@ -37,6 +38,7 @@ import org.joml.Vector4f;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Stack;
 import java.util.function.Consumer;
 
@@ -78,6 +80,9 @@ public final class AkytheraEditorLayoutManager {
 
     /// The render target the editor layout draws into.
     private final RenderTarget editorRenderTarget;
+
+    /// The world viewport's camera apart from the local player, released when the editor layout closes.
+    private final ViewportCamera viewportCamera = new ViewportCamera();
 
     /// The editor's own open-screen history.
     private final Stack<Screen> screenStacks = new Stack<> ();
@@ -169,6 +174,7 @@ public final class AkytheraEditorLayoutManager {
 
             mainScreen = null;
             suspended = false;
+            viewportCamera.release();
             setFullScreenWorldViewport();
             ModalManager.getInstance().closeAllModals();
             ModalManager.getInstance().setHostScreen(null);
@@ -216,6 +222,11 @@ public final class AkytheraEditorLayoutManager {
         screenStacks.pop();
     }
 
+    /// The open editor screens, from the main screen to the top one.
+    public List<Screen> getOpenScreens() {
+        return List.copyOf(screenStacks);
+    }
+
     public @Nullable Screen getRecentEditorScreen() {
         return screenStacks.isEmpty() ? null : screenStacks.lastElement();
     }
@@ -252,6 +263,10 @@ public final class AkytheraEditorLayoutManager {
 
     public RenderTarget getEditorRenderTarget() {
         return editorRenderTarget;
+    }
+
+    public ViewportCamera getViewportCamera() {
+        return viewportCamera;
     }
 
     public int getLayoutGuiScale() {

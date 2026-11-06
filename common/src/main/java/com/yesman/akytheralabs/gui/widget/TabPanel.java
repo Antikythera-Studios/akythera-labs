@@ -180,6 +180,19 @@ public final class TabPanel extends AbstractContainerWidget implements AnchoredW
         return tabs.get(activeIndex).content;
     }
 
+    public int getTabCount() {
+        return tabs.size();
+    }
+
+    public Component getTabTitle(final int index) {
+        return tabs.get(index).title;
+    }
+
+    /// The content of the tab at `index`, whether that tab is active or not.
+    public AbstractWidget getTabContent(final int index) {
+        return tabs.get(index).content;
+    }
+
     @Override
     protected int contentHeight() {
         return getHeight();

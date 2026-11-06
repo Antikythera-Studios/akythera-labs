@@ -22,6 +22,7 @@ import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -77,6 +78,7 @@ public final class DataBlockEditorScreen extends Screen implements ModalAccessib
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );

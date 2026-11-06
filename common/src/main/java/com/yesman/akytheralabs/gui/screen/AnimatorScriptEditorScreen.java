@@ -54,6 +54,7 @@ import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.RegistryLookupModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
@@ -97,7 +98,7 @@ import java.util.stream.Stream;
 /// Design stage only: every panel except the [Model3DViewer] is a text placeholder, and no value editing is
 /// wired up. The preview model is chosen *before* the screen opens (see
 /// [ContentWidget.AnimatorScriptContent]) and stored on the holder, so the previewer shows it here.
-public final class AnimatorScriptEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
+public final class AnimatorScriptEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen, GraphTabScreen {
     private static final int TOP_BAR_H = 22;
 
     /// Seed position of the Anim Graph's [OutputPoseNodeWidget] — set well to the right so dragged-in
@@ -219,6 +220,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
@@ -626,7 +628,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
     /// Double-click handler for the Anim Graph: opens a State Machine node's sub-tab.
     private void onNodeActivated(AbstractNodeWidget node) {
-        if (node instanceof StateMachineNodeWidget sm) openStateMachineTab(sm);
+        if (node instanceof StateMachineNodeWidget sm) openStateMachineTab(sm.machineName());
     }
 
     /// Selection handler for any node canvas: a single node's own rows followed by its literal inputs in the
@@ -1106,14 +1108,12 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// Opens (or re-focuses) the closeable `{name}` sub-tab hosting a state machine's canvas. The
     /// canvas edits its [StateMachineData] live; closing the tab (or a save) flushes it back into
     /// [#stateMachines] so reopening restores it. Double-clicking a state / transition there opens
-    /// its own nested sub-tab.
-    private void openStateMachineTab(StateMachineNodeWidget sm) {
-        String name = sm.machineName();
-
+    /// its own nested sub-tab. Returns the machine's canvas.
+    private StateMachineGraphWidget openStateMachineTab(String name) {
         StateMachineGraphWidget existing = openStateMachines.get(name);
         if (existing != null) {
             blueprintEditor.setActiveIndex(blueprintEditor.indexOfContent(existing));
-            return;
+            return existing;
         }
 
         StateMachineGraphWidget widget = new StateMachineGraphWidget(
@@ -1141,6 +1141,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             openEditors.removeIf(e -> e.content() == widget);
         });
         blueprintEditor.setActiveIndex(blueprintEditor.indexOfContent(widget));
+
+        return widget;
     }
 
     /// Opens (or re-focuses) the closeable `{state}` sub-tab: a pose data-flow graph terminating at an
@@ -1513,6 +1515,68 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
     /// True when the live history top has diverged from the last save point — i.e. there are edits
     /// to persist. Drives both the title's `*` marker and the quit-prompt skip.
+    // ***************************************************************
+    // [GraphTabScreen]
+    // ***************************************************************
+
+    @Override
+    public List<GraphTab> graphTabs() {
+        List<GraphTab> graphTabs = new ArrayList<>(session.graphTabs());
+
+        graphTabs.add(new GraphTab(Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_TAB_ANIM_GRAPH).getString(), () -> {
+            blueprintEditor.setActiveIndex(blueprintEditor.indexOfContent(poseGraph));
+            return poseGraph;
+        }));
+
+        Set<String> machineNames = new LinkedHashSet<>(stateMachines.keySet());
+        machineNames.addAll(openStateMachines.keySet());
+
+        for (String machineName : machineNames) {
+            StateMachineGraphWidget open = openStateMachines.get(machineName);
+            StateMachineData machine = open != null ? open.exportData() : stateMachines.get(machineName);
+
+            for (StateMachineData.TransitionData entry : machine.entryTransitions()) {
+                String to = ScriptCanvasKeys.stateName(entry.to());
+
+                graphTabs.add(new GraphTab(machineName + " / Entry to " + to, () -> {
+                    openTransitionConditionTab(machineName, openStateMachineTab(machineName), ScriptCanvasKeys.ENTRY, to);
+                    return openSubGraphs.get(ScriptCanvasKeys.transition(machineName, ScriptCanvasKeys.ENTRY, to));
+                }));
+            }
+
+            for (StateMachineData.StateData state : machine.states()) {
+                String from = ScriptCanvasKeys.stateName(state.state());
+
+                graphTabs.add(new GraphTab(machineName + " / " + from, () -> {
+                    openStatePoseTab(machineName, openStateMachineTab(machineName), from);
+                    return openSubGraphs.get(ScriptCanvasKeys.statePose(machineName, from));
+                }));
+
+                for (StateMachineData.TransitionData transition : state.transitions()) {
+                    String to = ScriptCanvasKeys.stateName(transition.to());
+
+                    graphTabs.add(new GraphTab(machineName + " / " + from + " to " + to, () -> {
+                        openTransitionConditionTab(machineName, openStateMachineTab(machineName), from, to);
+                        return openSubGraphs.get(ScriptCanvasKeys.transition(machineName, from, to));
+                    }));
+                }
+            }
+
+            for (StateMachineData.GroupData group : machine.groups()) {
+                for (StateMachineData.TransitionData transition : group.transitions()) {
+                    String to = ScriptCanvasKeys.stateName(transition.to());
+
+                    graphTabs.add(new GraphTab(machineName + " / " + group.name() + " to " + to, () -> {
+                        openGroupTransitionConditionTab(machineName, openStateMachineTab(machineName), group.name(), to);
+                        return openSubGraphs.get(ScriptCanvasKeys.groupTransition(machineName, group.name(), to));
+                    }));
+                }
+            }
+        }
+
+        return graphTabs;
+    }
+
     private boolean hasUnsavedChanges() {
         return HistoryManager.getInstance().currentSavePoint() != savePoint;
     }

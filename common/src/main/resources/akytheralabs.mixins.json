@@ -10,6 +10,7 @@
     "BlendingAnimatorAccessor",
     "CachedPoseReferenceAccessor",
     "MixinAbstractWidget",
+    "MixinCamera",
     "MixinEnumerableDataBlockManager",
     "MixinGameRenderer",
     "MixinGameRendererAccessor",

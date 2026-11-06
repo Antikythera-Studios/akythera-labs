@@ -81,7 +81,14 @@ public final class ProjectReloader {
             return;
         }
 
-        BrokenEntriesModalGenerator.confirmProceed(font, project, () -> switchPacks(() -> exportTempPacks(project), () -> {}));
+        BrokenEntriesModalGenerator.confirmProceed(font, project, () -> reload(project));
+    }
+
+    /// Re-exports `project` and reloads the world with no confirmation. Completes once the world has reloaded.
+    public static CompletableFuture<Void> reload(final AkytheraProject project) {
+        switchPacks(() -> exportTempPacks(project), () -> {});
+
+        return pendingSwitch;
     }
 
     /// Unloads the project's temporary packs from the world behind the loading overlay and deletes them.

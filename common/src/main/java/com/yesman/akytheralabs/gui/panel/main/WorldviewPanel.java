@@ -32,7 +32,7 @@ public final class WorldviewPanel extends AdjustablePanelManager.PanelArea {
         this.font = font;
         this.worldViewport = worldViewport;
 
-        resumeButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.EMPTY, () -> onResume())
+        resumeButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.EMPTY, this::resume)
             .xUnits(AnchoredWidget.pixel(5), AnchoredWidget.pixel(BTN))
             .yUnits(AnchoredWidget.pixel(5), AnchoredWidget.pixel(BTN))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -42,7 +42,7 @@ public final class WorldviewPanel extends AdjustablePanelManager.PanelArea {
             .sprite(RESUME_SPRITE, 30, 30)
             .build();
 
-        pauseButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.EMPTY, () -> onPause())
+        pauseButton = AkytheraButton.buttonBuilder(font, LocalizedMessage.EMPTY, this::pause)
             .xUnits(AnchoredWidget.pixel(5), AnchoredWidget.pixel(BTN))
             .yUnits(AnchoredWidget.pixel(BTN + 10), AnchoredWidget.pixel(BTN))
             .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
@@ -76,7 +76,8 @@ public final class WorldviewPanel extends AdjustablePanelManager.PanelArea {
         reloadButton.relocate(screenRectangle);
     }
 
-    private void onResume() {
+    /// Closes the game's pause screen and lets the world run in the viewport.
+    public void resume() {
         Minecraft mc = Minecraft.getInstance();
 
         if (playState != PlayState.PLAYING || mc.gui.screen() != null) {
@@ -94,7 +95,8 @@ public final class WorldviewPanel extends AdjustablePanelManager.PanelArea {
         }
     }
 
-    private void onPause() {
+    /// Pauses the game, opening its pause screen.
+    public void pause() {
         if (playState != PlayState.PAUSED) {
             Minecraft mc = Minecraft.getInstance();
             mc.pauseGame(true);

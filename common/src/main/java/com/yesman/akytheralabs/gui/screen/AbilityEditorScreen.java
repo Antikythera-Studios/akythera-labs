@@ -40,6 +40,7 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.script.AbstractNodeWidget;
@@ -79,7 +80,7 @@ import java.util.function.Consumer;
 /// `File > Change Parent` picks another ability class and re-opens the screen, whose layout the class may
 /// change. A parent that binds its own state holds no variables: adding one is refused under it, and it
 /// cannot be picked while the ability has any.
-public final class AbilityEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class AbilityEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, GraphTabScreen {
     private static final int TOP_BAR_H = 22;
 
     /// Width of the parent picker, in screen pixels.
@@ -237,6 +238,7 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
@@ -400,6 +402,15 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
 
                 savePoint = HistoryManager.getInstance().currentSavePoint();
             }, minecraft);
+    }
+
+    // ***************************************************************
+    // [GraphTabScreen]
+    // ***************************************************************
+
+    @Override
+    public List<GraphTab> graphTabs() {
+        return session.graphTabs();
     }
 
     private boolean hasUnsavedChanges() {

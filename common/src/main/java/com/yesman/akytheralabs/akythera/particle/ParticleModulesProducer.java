@@ -352,7 +352,7 @@ public final class ParticleModulesProducer implements EditorWidgetFactory.Widget
     }
 
     /// The ids of the open project's entries of `registryKey`.
-    private static Set<Identifier> projectModules(final ResourceKey<Registry<Object>> registryKey) {
+    public static Set<Identifier> projectModules(final ResourceKey<Registry<Object>> registryKey) {
         return AkytheraProject.getCurrentProject().getModifiableEntries(registryKey).stream()
             .map(entry -> entry.getKey().identifier())
             .collect(Collectors.toSet());

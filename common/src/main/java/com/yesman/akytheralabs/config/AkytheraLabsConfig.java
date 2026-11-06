@@ -9,6 +9,7 @@ import com.yesman.akytheralabs.editor.debug.EditorLogBuffer;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMapping;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.gui.widget.script.WireStyle;
+import com.yesman.akytheralabs.mcp.AkytheraMcpServer;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 import java.util.ArrayList;
@@ -38,12 +39,22 @@ public final class AkytheraLabsConfig {
         .comment("Editor key mappings, each encoded as 'id=modBits,keyCode'")
         .defineListAllowEmpty("input.key_mappings", List.of(), () -> "", o -> o instanceof String s && s.indexOf('=') > 0);
 
+    public static final ModConfigSpec.ConfigValue<String> MCP_SERVER_URL = BUILDER
+        .comment("The URL the editor's MCP server listens on, an http:// address of a loopback host")
+        .define("mcp.server_url", AkytheraMcpServer.DEFAULT_URL);
+
+    public static final ModConfigSpec.BooleanValue MCP_AUTO_START = BUILDER
+        .comment("Whether the editor's MCP server starts with a project and stops when the project ends")
+        .define("mcp.auto_start", false);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     // config values
     private static int editorGuiScale;
     private static int consoleBufferSize;
     private static WireStyle wireStyle = WireStyle.BEZIER;
+    private static String mcpServerUrl = AkytheraMcpServer.DEFAULT_URL;
+    private static boolean mcpAutoStart;
 
     public static int getEditorGuiScale() {
         return editorGuiScale;
@@ -69,11 +80,29 @@ public final class AkytheraLabsConfig {
         wireStyle = value;
     }
 
+    public static String getMcpServerUrl() {
+        return mcpServerUrl;
+    }
+
+    public static void setMcpServerUrl(String value) {
+        mcpServerUrl = value;
+    }
+
+    public static boolean isMcpAutoStart() {
+        return mcpAutoStart;
+    }
+
+    public static void setMcpAutoStart(boolean value) {
+        mcpAutoStart = value;
+    }
+
     /// Loads the in-memory values from the config specs.
     public static void initConfigValues() {
         editorGuiScale = EDITOR_GUI_SCALE.getAsInt();
         consoleBufferSize = CONSOLE_BUFFER_SIZE.getAsInt();
         wireStyle = WIRE_STYLE.get();
+        mcpServerUrl = MCP_SERVER_URL.get();
+        mcpAutoStart = MCP_AUTO_START.getAsBoolean();
         EditorLogBuffer.getInstance().setCapacity(consoleBufferSize);
         applyKeyMappingsFromSpec();
     }
@@ -83,6 +112,8 @@ public final class AkytheraLabsConfig {
         setAndSave(EDITOR_GUI_SCALE, editorGuiScale);
         setAndSave(CONSOLE_BUFFER_SIZE, consoleBufferSize);
         setAndSave(WIRE_STYLE, wireStyle);
+        setAndSave(MCP_SERVER_URL, mcpServerUrl);
+        setAndSave(MCP_AUTO_START, mcpAutoStart);
         setAndSave(KEY_MAPPINGS, serializeKeyMappings());
     }
 

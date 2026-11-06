@@ -4,6 +4,7 @@ import com.yesman.akytheralabs.editor.EditorNodeGraph;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.gui.widget.script.ContextEntryNodeWidget;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
+import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
 import net.minecraft.network.chat.Component;
 
 import java.util.List;
@@ -15,8 +16,8 @@ import java.util.function.Consumer;
 public interface NodeGraphTabHost {
     /// Opens (or re-focuses) the canvas for one result-graph field: a pure data-flow graph from a
     /// [ContextEntryNodeWidget] carrying `params` into a `resultType`-typed result root. `flush`
-    /// receives the exported graph on tab close and on save.
-    void openResultGraphTab(
+    /// receives the exported graph on tab close and on save. Returns the canvas.
+    ScriptNodeGraphWidget openResultGraphTab(
         String key,
         Component title,
         ScriptGraphData data,

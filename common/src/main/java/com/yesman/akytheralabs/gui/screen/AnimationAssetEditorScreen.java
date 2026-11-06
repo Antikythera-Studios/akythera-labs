@@ -42,6 +42,7 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.viewer.ArmatureViewComponent;
@@ -131,6 +132,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
         );
 

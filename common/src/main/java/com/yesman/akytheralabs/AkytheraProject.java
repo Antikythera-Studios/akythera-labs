@@ -71,6 +71,7 @@ import com.yesman.akytheralabs.akythera.particle.ParticleUpdaterScriptHolder;
 import com.yesman.akytheralabs.akythera.physics.ArmaturePhysicsDataHolder;
 import com.yesman.akytheralabs.akythera.physics.ClothPhysicsDataHolder;
 import com.yesman.akytheralabs.akythera.widget.WidgetBlueprintHolder;
+import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.dataholder.*;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModel;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
@@ -84,6 +85,7 @@ import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.main.ProjectSetupModalGenerator;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
+import com.yesman.akytheralabs.mcp.AkytheraMcpServer;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -384,6 +386,14 @@ public final class AkytheraProject {
         currentProject.discoverEditorAssets();
         currentProject.applyPreviewBindings(previewBindings);
 
+        if (AkytheraLabsConfig.isMcpAutoStart()) {
+            try {
+                AkytheraMcpServer.getInstance().start(AkytheraLabsConfig.getMcpServerUrl());
+            } catch (IOException | IllegalArgumentException e) {
+                AkytheraLabs.LOGGER.warn("Failed to start the MCP server on {}", AkytheraLabsConfig.getMcpServerUrl(), e);
+            }
+        }
+
         return currentProject;
     }
 
@@ -511,6 +521,7 @@ public final class AkytheraProject {
         ContentClipboard.getInstance().clear();
         currentProject = null;
         ProjectReloader.close();
+        AkytheraMcpServer.getInstance().stop();
     }
 
     /// Re-registers [EntityPreviewModelMapping]'s bindings from the saved settings. Clears the

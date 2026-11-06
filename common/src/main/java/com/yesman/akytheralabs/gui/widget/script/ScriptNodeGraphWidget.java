@@ -304,6 +304,11 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         nodes.add(node);
     }
 
+    /// The nodes on the canvas, in z-order.
+    public List<AbstractNodeWidget> nodes() {
+        return Collections.unmodifiableList(nodes);
+    }
+
     /// The method entry nodes currently on the canvas, in z-order.
     public List<MethodEntryNodeWidget> methodEntryNodes() {
         return nodes.stream()
@@ -1202,22 +1207,16 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         return LinkKind.NONE;
     }
 
-    /// The [LinkKind] of the wire's source pin against the opposite-side `target` pin, oriented so the
-    /// output pin is always the source of the value regardless of which end the drag began from.
-    private LinkKind targetLinkKind(PinTarget target) {
+    /// Whether the wire's source pin and the opposite-side `target` pin can join at all (directly or
+    /// via an auto-inserted converter), regardless of which end the drag started from.
+    private boolean targetCompatible(PinTarget target) {
         AbstractNodeWidget.Pin output = wireFromOutput
             ? wireSourceNode.outputPin(wireSourcePin)
             : target.node().outputPin(target.pin());
         AbstractNodeWidget.Pin input = wireFromOutput
             ? target.node().inputPin(target.pin())
             : wireSourceNode.inputPin(wireSourcePin);
-        return linkKind(output, input);
-    }
-
-    /// Whether the wire's source pin and the opposite-side `target` pin can join at all (directly or
-    /// via an auto-inserted converter), regardless of which end the drag started from.
-    private boolean targetCompatible(PinTarget target) {
-        return targetLinkKind(target) != LinkKind.NONE;
+        return linkKind(output, input) != LinkKind.NONE;
     }
 
     /// A square ring around a pin marker (screen space), scaled with zoom.
@@ -1469,6 +1468,22 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
         wireSourceNode = null;
     }
 
+    /// Wires output pin `fromPin` of `from` into input pin `toPin` of `to` as one undoable unit, putting a
+    /// converter between pins of castable types. Returns false when the pins can't join.
+    public boolean connect(AbstractNodeWidget from, int fromPin, AbstractNodeWidget to, int toPin) {
+        if (fromPin < 0 || fromPin >= from.outputPinCount() || toPin < 0 || toPin >= to.inputPinCount()) return false;
+
+        switch (linkKind(from.outputPin(fromPin), to.inputPin(toPin))) {
+            case DIRECT -> addConnection(new Connection(from, fromPin, to, toPin));
+            case CONVERT -> insertConverter(from, fromPin, to, toPin);
+            case NONE -> {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// Commits a connection and records it so making a wire can be undone / redone.
     ///
     /// A data input pin holds a single source, so a new wire into an already-wired input
@@ -1552,7 +1567,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
 
     /// Breaks every wire attached to the given pin (`output` selects which endpoint to
     /// match) and records it so the Alt+click disconnect can be undone / redone.
-    private void disconnectPin(AbstractNodeWidget node, int pinIndex, boolean output) {
+    public void disconnectPin(AbstractNodeWidget node, int pinIndex, boolean output) {
         List<Connection> removed = connections.stream()
             .filter(c -> output
                 ? c.fromNode() == node && c.fromPin() == pinIndex
@@ -1666,10 +1681,13 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// add as one undoable unit and selecting the new node. Backs the Variables drag-and-drop: a
     /// variable released over the canvas drops its Get / Set node at the cursor.
     public void spawnNodeAt(NodeWidgetFactory factory, double screenX, double screenY) {
-        int gx = screenToGraphX(screenX);
-        int gy = screenToGraphY(screenY);
+        spawnNode(factory, screenToGraphX(screenX), screenToGraphY(screenY));
+    }
 
-        AbstractNodeWidget created = factory.create(font, gx, gy);
+    /// Spawns `factory`'s node at the graph-space point `graphX, graphY`, recording the add as one undoable
+    /// unit and selecting the new node.
+    public AbstractNodeWidget spawnNode(NodeWidgetFactory factory, int graphX, int graphY) {
+        AbstractNodeWidget created = factory.create(font, graphX, graphY);
         if (scriptOwnerType != null) created.setScriptOwnerType(scriptOwnerType);
         nodes.add(created);
         selectOnly(created);
@@ -1687,6 +1705,18 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
                 selectOnly(created);
             }
         });
+
+        return created;
+    }
+
+    /// The suggestions a right-click on empty canvas offers, plus the value providers (literals, variable
+    /// getters, self). Empty when the host screen installed no suggestion provider.
+    public List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> catalogue() {
+        if (suggestionProvider == null) return List.of();
+
+        NodeSuggestContext everything = new NodeSuggestContext(true, true, true, null, null, _ -> true, usage, dataFlowOnly);
+
+        return suggestionProvider.apply(this, everything);
     }
 
     /// Pastes a clipboard [ScriptGraphData] onto this canvas: each node row is rebuilt as its widget
@@ -1832,7 +1862,7 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
     /// Removes `targets` (skipping non-deletable nodes like the entry point) from the graph
     /// along with every wire attached to any of them, and records it so the whole removal
     /// can be undone / redone as a single unit.
-    private void deleteNodes(List<AbstractNodeWidget> targets) {
+    public void deleteNodes(List<AbstractNodeWidget> targets) {
         // Snapshot the victims in ascending z-order so re-insertion on undo restores it.
         List<AbstractNodeWidget> victims = targets.stream()
             .filter(n -> n.isDeletable() && nodes.contains(n))
@@ -2366,19 +2396,13 @@ public final class ScriptNodeGraphWidget extends AbstractContainerWidget impleme
             PinTarget target = fromOutput ? findInputPinTarget(gx, gy) : findOutputPinTarget(gx, gy);
 
             if (source != null && target != null) {
-                LinkKind kind = targetLinkKind(target);
-                if (kind != LinkKind.NONE) {
-                    AbstractNodeWidget fromNode = fromOutput ? source : target.node();
-                    int fromPin = fromOutput ? sourcePin : target.pin();
+                AbstractNodeWidget fromNode = fromOutput ? source : target.node();
+                int fromPin = fromOutput ? sourcePin : target.pin();
 
-                    AbstractNodeWidget toNode = fromOutput ? target.node() : source;
-                    int toPin = fromOutput ? target.pin() : sourcePin;
+                AbstractNodeWidget toNode = fromOutput ? target.node() : source;
+                int toPin = fromOutput ? target.pin() : sourcePin;
 
-                    if (kind == LinkKind.CONVERT) {
-                        insertConverter(fromNode, fromPin, toNode, toPin);
-                    } else {
-                        addConnection(new Connection(fromNode, fromPin, toNode, toPin));
-                    }
+                if (connect(fromNode, fromPin, toNode, toPin)) {
                     wireSourceNode = null;
 
                     return true;

@@ -49,6 +49,7 @@ import com.yesman.akytheralabs.gui.widget.main.AnimationSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.viewer.ClothParticleMappingComponent;
@@ -154,6 +155,7 @@ public final class ClothPhysicsDataEditorScreen extends Screen implements ModalA
                 .on(TopMenuOption.SELECT_PREVIEW_ANIMATION, this::openPreviewAnimationSelect)
                 .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
         );
 

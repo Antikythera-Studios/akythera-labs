@@ -61,7 +61,8 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
             new UniversalMenu.OptionRow<>(TopMenuOption.MODEL_TRANSFORMER),
             new UniversalMenu.OptionRow<>(TopMenuOption.MODEL_SKINNING),
             new UniversalMenu.OptionRow<>(TopMenuOption.DEBUG),
-            new UniversalMenu.OptionRow<>(TopMenuOption.CONSOLE)
+            new UniversalMenu.OptionRow<>(TopMenuOption.CONSOLE),
+            new UniversalMenu.OptionRow<>(TopMenuOption.OPEN_MCP)
         )),
         new Menu(LocalizedMessage.translatable(LangKeys.GUI_MENU_BAR_HELP), List.of(
             new UniversalMenu.OptionRow<>(TopMenuOption.DOCS),
@@ -77,6 +78,9 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     /// One dropdown per [#MENUS] entry, in the same order. Each is a [ContextMenuContainer] so
     /// options can nest into sub-lists (`Export > As Pack` / `As Source Code`).
     private final ContextMenuContainer[] dropdowns;
+
+    /// What each [TopMenuOption] runs on the screen this bar belongs to.
+    private final UniversalMenu.Actions<TopMenuOption> actions;
 
     /// Optional unsaved-changes probe. When it returns `true` a `*` is drawn in front of the title.
     /// Null means always clean.
@@ -103,6 +107,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         this.y2 = y2;
         this.horizontalAnchorType = horizontalAnchorType;
         this.verticalAnchorType = verticalAnchorType;
+        this.actions = actions;
 
         Minecraft minecraft = Minecraft.getInstance();
 
@@ -143,6 +148,17 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
     /// Installs the unsaved-changes probe driving the title's `*` marker. See [#dirtyChecker].
     public void setDirtyChecker(BooleanSupplier dirtyChecker) {
         this.dirtyChecker = dirtyChecker;
+    }
+
+    /// Whether the screen this bar belongs to has unsaved changes.
+    public boolean isDirty() {
+        return dirtyChecker != null && dirtyChecker.getAsBoolean();
+    }
+
+    /// Runs what @param `option` does on this bar's screen, as picking it from the menu would. Returns
+    /// false when the screen does not offer `option` now.
+    public boolean runAction(final TopMenuOption option) {
+        return actions.run(option);
     }
 
     private void onMenuClick(int i) {
@@ -203,7 +219,7 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
 
         // Prefix a `*` while the screen has unsaved changes (the save point no longer matches the
         // history stack's top), dropped again once a save re-marks the point.
-        Component title = dirtyChecker != null && dirtyChecker.getAsBoolean()
+        Component title = isDirty()
             ? Component.literal("*").append(getMessage())
             : getMessage();
         int titleWidth = font.width(title);

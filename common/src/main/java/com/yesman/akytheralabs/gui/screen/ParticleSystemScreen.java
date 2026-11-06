@@ -18,6 +18,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.particle.ModuleParamHolder;
+import com.yesman.akytheralabs.akythera.particle.ModuleRef;
 import com.yesman.akytheralabs.akythera.particle.ParticleEmitterHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleModuleScriptHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleModulesProducer;
@@ -42,6 +43,7 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
 import com.yesman.akytheralabs.gui.widget.particle.EmitterTrackPanel;
@@ -63,6 +65,7 @@ import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -70,11 +73,13 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
@@ -91,7 +96,7 @@ import java.util.function.UnaryOperator;
 /// A saved parameter dragged from the Parameters panel onto a node graph drops a node that reads it. The preview
 /// plays with the parameters as last saved, and a save builds its system again. Removing a parameter that a parameter
 /// canvas reads asks first.
-public final class ParticleSystemScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class ParticleSystemScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, GraphTabScreen {
     private static final int TOP_BAR_H = 22;
 
     /// The volume the camera frames, in blocks.
@@ -156,6 +161,7 @@ public final class ParticleSystemScreen extends Screen implements ModalAccessibl
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
+                .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );
@@ -557,6 +563,48 @@ public final class ParticleSystemScreen extends Screen implements ModalAccessibl
     public void flushNodeGraphs() {
         List.copyOf(parameterFlushes).forEach(Runnable::run);
         moduleSessions.values().forEach(BlueprintEditorSession::flush);
+    }
+
+    // ***************************************************************
+    // [GraphTabScreen]
+    // ***************************************************************
+
+    @Override
+    public List<GraphTab> graphTabs() {
+        List<GraphTab> graphTabs = new ArrayList<>();
+        Set<ResourceKey<Object>> listedModules = new HashSet<>();
+
+        for (ParticleEmitterHolder emitter : holder.getEmitters()) {
+            emitter.modules().forEach(module -> {
+                for (ModuleParamHolder param : module.getParams()) {
+                    Component title = Component.literal(module.getRef().displayLabel() + ": " + param.displayName());
+
+                    graphTabs.add(new GraphTab(emitter.getName() + " / " + title.getString(), () -> {
+                        openParameterGraph(param, title, trackPanel::refreshSelectionView);
+                        return parameterGraphs.get(param);
+                    }));
+                }
+
+                if (!(module.getRef() instanceof ModuleRef.ByData byData)) return;
+
+                ResourceKey<Registry<Object>> registry = ParticleModulesProducer.moduleRegistry(module.isUpdater());
+                ResourceKey<Object> key = ResourceKey.create(registry, byData.id());
+                BlueprintEditorSession session = moduleSessions.get(key);
+
+                if (!listedModules.add(key) || !ParticleModulesProducer.projectModules(registry).contains(byData.id())) return;
+
+                if (session != null) {
+                    graphTabs.addAll(session.graphTabs());
+                } else {
+                    graphTabs.add(new GraphTab(byData.id().toString(), () -> {
+                        openModuleGraph(module.isUpdater(), byData.id());
+                        return moduleSessions.get(key).eventGraph();
+                    }));
+                }
+            });
+        }
+
+        return graphTabs;
     }
 
     private boolean hasUnsavedChanges() {

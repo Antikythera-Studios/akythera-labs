@@ -64,6 +64,11 @@ public final class AdjustablePanelManager extends AbstractContainerWidget implem
         return root.setupProxy;
     }
 
+    /// The area of every leaf section, in layout order. [#children] lists none of them.
+    public List<PanelArea> getAreas() {
+        return leafSections.stream().map(section -> section.panelArea).toList();
+    }
+
     @Override
     protected int contentHeight() {
         return getHeight();
