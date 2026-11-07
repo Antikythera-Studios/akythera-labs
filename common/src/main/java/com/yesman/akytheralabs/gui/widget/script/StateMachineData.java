@@ -28,8 +28,9 @@ import java.util.stream.Stream;
 /// data-flow into "Can Enter Transition"). Both are full [ScriptGraphData] sub-graphs, defaulting to
 /// [ScriptGraphData#EMPTY] until edited.
 ///
-/// A [GroupData] bundles states that leave on the same transitions: the compile copies each of its
-/// edges onto every member, so a group is an authoring device and never reaches the engine.
+/// A [GroupData] is a canvas node whose transitions every state declaring its name in
+/// [StateData#groups] inherits. The compile copies them onto the members, so a group never reaches
+/// the engine.
 public record StateMachineData(
     int entryX,
     int entryY,
@@ -85,21 +86,21 @@ public record StateMachineData(
     public StateMachineData withCachedPoseGettersRenamed(String oldName, String newName) {
         List<StateData> renamedStates = states.stream()
             .map(s -> new StateData(s.state(), s.x(), s.y(),
-                s.poseGraph().withCachedPoseGettersRenamed(oldName, newName), s.transitions(), s.group()))
+                s.poseGraph().withCachedPoseGettersRenamed(oldName, newName), s.transitions(), s.groups()))
             .toList();
         return new StateMachineData(entryX, entryY, entryTransitions, renamedStates, groups);
     }
 
     /// One state: its [FSMAnimationState] signature (unique within the machine, also the `{state}`
     /// sub-tab title), its canvas position, its output-pose sub-graph, the transitions leaving it, and
-    /// the name of the [GroupData] it belongs to — empty for none. A state is in at most one group.
+    /// the names of the groups it belongs to, shared by the states of this machine only.
     public record StateData(
         Holder<FSMAnimationState> state,
         int x,
         int y,
         ScriptGraphData poseGraph,
         List<TransitionData> transitions,
-        String group
+        List<String> groups
     ) {
         public static final Codec<StateData> CODEC = RecordCodecBuilder.create(
             instance ->
@@ -109,21 +110,21 @@ public record StateMachineData(
                     Codec.INT.fieldOf("y").forGetter(StateData::y),
                     ScriptGraphData.CODEC.optionalFieldOf("pose_graph", ScriptGraphData.EMPTY).forGetter(StateData::poseGraph),
                     TransitionData.CODEC.listOf().optionalFieldOf("transitions", List.of()).forGetter(StateData::transitions),
-                    Codec.STRING.optionalFieldOf("group", "").forGetter(StateData::group)
+                    Codec.STRING.listOf().optionalFieldOf("groups", List.of()).forGetter(StateData::groups)
                 ).apply(instance, StateData::new)
         );
     }
 
-    /// One state group: an editor-only name and the transitions every member leaves on. The compile
-    /// copies each of these onto every state naming this group in [StateData#group].
-    ///
-    /// A group carries no geometry: its box on the canvas is the bounding box of its members, and a
-    /// group with no member is dropped.
-    public record GroupData(String name, List<TransitionData> transitions) {
+    /// One state group node: an editor-only name, its canvas position and the transitions its members
+    /// inherit. The compile copies each of these onto every state naming this group in
+    /// [StateData#groups], unless the state has its own transition to the same target.
+    public record GroupData(String name, int x, int y, List<TransitionData> transitions) {
         public static final Codec<GroupData> CODEC = RecordCodecBuilder.create(
             instance ->
                 instance.group(
                     Codec.STRING.fieldOf("name").forGetter(GroupData::name),
+                    Codec.INT.fieldOf("x").forGetter(GroupData::x),
+                    Codec.INT.fieldOf("y").forGetter(GroupData::y),
                     TransitionData.CODEC.listOf().optionalFieldOf("transitions", List.of()).forGetter(GroupData::transitions)
                 ).apply(instance, GroupData::new)
         );

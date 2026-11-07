@@ -477,6 +477,7 @@
   "gui.akytheralabs.animator_script_screen.details.sequence": "Sequence",
   "gui.akytheralabs.animator_script_screen.details.blend_space": "Blend Space",
   "gui.akytheralabs.animator_script_screen.details.animation_state": "Animation State",
+  "gui.akytheralabs.animator_script_screen.details.state_group": "State Group",
   "gui.akytheralabs.animator_script_screen.details.blend_time": "Blend Time",
   "gui.akytheralabs.animator_script_screen.details.transfer_elapsed_time": "Transfer Elapsed Time",
   "gui.akytheralabs.animator_script_screen.details.control_reference_driver": "Control Reference Driver",

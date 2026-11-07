@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.screen;
 
+import com.mojang.serialization.Codec;
 import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
 import com.yesman.akythera.api.animation.animator.Animator;
 import com.yesman.akythera.api.animation.impl.AkytheraAnimationState;
@@ -33,7 +34,9 @@ import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.NodeClipboard;
+import com.yesman.akytheralabs.editor.ValueShape;
 import com.yesman.akytheralabs.editor.debug.AnimatorProbe;
 import com.yesman.akytheralabs.editor.debug.EntityDebugSession;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
@@ -840,7 +843,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
     /// signatures minus the reserved Entry / Exit states and minus every signature another state on the
     /// same machine already carries (so a pick can never duplicate a state), the state's own current
     /// signature kept in the list. Picking one re-signs the state as one undoable unit; the `(none)` row and a
-    /// blank / duplicate are rejected and revert.
+    /// blank / duplicate are rejected and revert. The State Group rows below it list the state's group names.
     private void showStateDetails(
         String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.StateNode state
     ) {
@@ -861,6 +864,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
 
         options.sort(Comparator.comparing(Identifier::toString));
+
+        EditorWidgetFactory.PropertySlot groups = new EditorWidgetFactory.PropertySlot(
+            Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_STATE_GROUP).getString(),
+            new ValueShape.Sequence(new ValueShape.Leaf(String.class, Codec.STRING), ScriptType.Container.LIST),
+            machine,
+            () -> machine.getStateGroups(state),
+            value -> machine.setStateGroups(state, ((List<?>) value).stream().map(String::valueOf).toList()));
 
         scriptNodeDetailsPanel.showAnimationState(
             options,
@@ -889,7 +899,8 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 });
 
                 return true;
-            });
+            },
+            List.of(groups));
     }
 
     /// Re-signs `state` to `signature`, see [StateMachineGraphWidget#changeStateSignature]. False when rejected.
@@ -903,10 +914,9 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         return machine.changeStateSignature(state, signature);
     }
 
-    /// Shows the selected state group's editor-only name. The name never reaches the engine — the
-    /// compile expands the group into per-member transitions — but it keys the group's condition
-    /// sub-tabs, so those are flushed and closed before a rename lands; a blank or taken name reverts. A rename is
-    /// one undoable unit.
+    /// Shows the selected group node's editor-only name. It keys the group's condition sub-tabs, so those are
+    /// flushed and closed before a rename lands; a blank or taken name reverts. A rename also renames every
+    /// state declaration naming the group, as one undoable unit.
     private void showGroupDetails(
         String machineName, StateMachineGraphWidget machine, StateMachineGraphWidget.GroupNode group
     ) {

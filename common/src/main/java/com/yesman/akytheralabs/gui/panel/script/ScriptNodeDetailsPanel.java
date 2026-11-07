@@ -302,11 +302,12 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
     /// the same machine already carries, so the list can never introduce a duplicate. `current` reads
     /// the state's present signature; `onPicked` is handed the chosen id and returns false to reject it
     /// — a rejected pick reverts the box to `current`. A state must keep a signature, so the box has no
-    /// "(none)" row.
+    /// "(none)" row. The rows of `slots` follow it.
     public void showAnimationState(
         List<Identifier> options,
         Supplier<@Nullable Identifier> current,
-        Predicate<@Nullable Identifier> onPicked
+        Predicate<@Nullable Identifier> onPicked,
+        List<? extends EditorWidgetFactory.ValueSlot> slots
     ) {
         table.clearWidgets();
 
@@ -331,6 +332,8 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
 
         table.newRow(EditorWidgetFactory.makeTranslatableLabel(font, LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_ANIMATION_STATE))
             .addWidget(box);
+
+        factory.appendSlots(table, slots, () -> showAnimationState(options, current, onPicked, slots));
 
         table.initialize(false);
 

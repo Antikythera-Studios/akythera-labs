@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.akythera.animation;
 
+import com.mojang.datafixers.util.Pair;
 import com.yesman.akythera.api.data.modularize.AkytheraScriptTypes;
 import com.yesman.akythera.api.data.modularize.node.*;
 import com.yesman.akythera.api.data.modularize.node.animgraph.AnimationStateMachineNode;
@@ -38,8 +39,9 @@ import java.util.*;
 /// cycles.
 ///
 /// A machine's state groups are expanded here and nowhere else: every transition a
-/// [StateMachineData.GroupData] holds is copied onto each state naming that group, so the engine only
-/// ever sees per-state transitions.
+/// [StateMachineData.GroupData] holds is copied onto each state naming that group, unless the state
+/// already transitions to the same target. Between groups heading to one target, the highest
+/// `transitionPriority` wins. The engine only ever sees per-state transitions.
 ///
 /// Each canvas lowers under its [ScriptCanvasKeys] key, which the deferred sub-trees — a blendspace's
 /// inputs, a transition's condition — carry into the pack so their samples can be recorded against
@@ -176,11 +178,46 @@ public final class AnimGraphCompiler {
                 String stateName = ScriptCanvasKeys.stateName(s.state());
                 PureNode driver = compilePoseGraph(s.poseGraph(), ScriptCanvasKeys.statePose(name, stateName));
 
-                // The state's own transitions come first: a group edge is the fallback its members
-                // share, so a state that answers a condition itself wins over the group's answer.
                 List<TransitionEntry> outgoing =
                     new ArrayList<>(compileTransitions(s.transitions(), name, stateName));
-                outgoing.addAll(compileGroupTransitions(groups.get(s.group()), name, stateName));
+
+                // Targets the state transitions to itself, which no group transition overrides
+                Set<String> ownTargets = new HashSet<>();
+                for (StateMachineData.TransitionData t : s.transitions()) ownTargets.add(ScriptCanvasKeys.stateName(t.to()));
+                ownTargets.add(stateName);
+
+                // The group transition each remaining target inherits: the highest transitionPriority, the
+                // group listed first on a tie
+                Map<String, Pair<String, StateMachineData.TransitionData>> inherited = new LinkedHashMap<>();
+
+                for (String groupName : s.groups()) {
+                    StateMachineData.GroupData group = groups.get(groupName);
+                    if (group == null) continue;
+
+                    for (StateMachineData.TransitionData t : group.transitions()) {
+                        if (!t.to().isBound()) {
+                            AkytheraLabs.LOGGER.warn("Skipping transition to unresolved state {}", idOf(t.to()));
+                            continue;
+                        }
+
+                        String toName = ScriptCanvasKeys.stateName(t.to());
+                        if (ownTargets.contains(toName)) continue;
+
+                        Pair<String, StateMachineData.TransitionData> held = inherited.get(toName);
+                        if (held == null || t.transitionPriority() > held.getSecond().transitionPriority()) {
+                            inherited.put(toName, Pair.of(groupName, t));
+                        }
+                    }
+                }
+
+                inherited.forEach((toName, edge) -> {
+                    StateMachineData.TransitionData t = edge.getSecond();
+                    String canvasKey = ScriptCanvasKeys.groupTransition(name, edge.getFirst(), toName);
+
+                    outgoing.add(new TransitionEntry(
+                        t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey),
+                        t.blendTime(), t.transferElapsedTime(), t.transitionPriority(), canvasKey));
+                });
 
                 states.add(new StateEntry(s.state().value(), driver, outgoing));
             }
@@ -188,32 +225,6 @@ public final class AnimGraphCompiler {
         } finally {
             machineStack.remove(name);
         }
-    }
-
-    /// The transitions a state inherits from the group it belongs to: one copy of every group edge,
-    /// each keeping the group's single authored condition **and** its canvas key, so the values a run
-    /// records land on the one sub-tab that draws it. An edge back onto the inheriting state is
-    /// dropped — a machine never transitions a state to itself. Empty for a state in no group.
-    private List<TransitionEntry> compileGroupTransitions(
-        StateMachineData.@Nullable GroupData group, String machineName, String stateName
-    ) {
-        if (group == null) return List.of();
-
-        List<TransitionEntry> out = new ArrayList<>(group.transitions().size());
-        for (StateMachineData.TransitionData t : group.transitions()) {
-            if (!t.to().isBound()) {
-                AkytheraLabs.LOGGER.warn("Skipping transition to unresolved state {}", idOf(t.to()));
-                continue;
-            }
-            String toName = ScriptCanvasKeys.stateName(t.to());
-            if (toName.equals(stateName)) continue;
-
-            String canvasKey = ScriptCanvasKeys.groupTransition(machineName, group.name(), toName);
-            out.add(new TransitionEntry(
-                t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey),
-                t.blendTime(), t.transferElapsedTime(), t.transitionPriority(), canvasKey));
-        }
-        return out;
     }
 
     private List<TransitionEntry> compileTransitions(
