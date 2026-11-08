@@ -8,6 +8,7 @@ import com.yesman.akythera.client.api.event.gui.ModalEvent;
 import com.yesman.akythera.client.api.gui.ClampedNumberBox;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akytheralabs.editor.debug.BrainProbe;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
 import com.yesman.akytheralabs.dev.ViewportCamera;
 import com.yesman.akytheralabs.editor.NodeClipboard;
@@ -110,6 +111,7 @@ public final class AkytheraEditorLayoutManager {
     public static void registerEvents() {
         BuiltInClientEventHooks.Gui.MODAL_OPENED.registerEvent(AkytheraEditorLayoutManager::onModalOpened);
         BuiltInClientEventHooks.Gui.MODAL_CLOSED.registerEvent(AkytheraEditorLayoutManager::onModalClosed);
+        BrainProbe.registerEvents();
     }
 
     private static void onModalOpened(final ModalEvent.Opened event) {

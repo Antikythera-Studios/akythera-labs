@@ -38,8 +38,8 @@ import java.util.Objects;
 import java.util.Set;
 
 /// How the editor holds and edits a value no field carries, such as a blueprint property: a leaf a widget
-/// producer edits, a registry entry held as its [ResourceKey], a list, set or map held as a list, or a record
-/// held as a [RecordValue] of its components.
+/// producer edits, a registry entry held as its [ResourceKey], a list, set or map held as a list, a record
+/// held as a [RecordValue] of its components, or a sealed interface of records held as a [VariantValue].
 ///
 /// The editor value is never the live object. A registry entry cannot be resolved in the editor, and a
 /// record may normalize or refuse what it is built from, so the live object is built only to encode it.
@@ -401,6 +401,64 @@ public sealed interface ValueShape {
         }
     }
 
+    /// A sealed interface whose permitted classes are all records, held as a [VariantValue]: which record it is, and
+    /// that record's components. It has no codec of its own, so it is only edited inside a record.
+    ///
+    /// @param options one per permitted record, in declaration order
+    record Variant(Class<?> type, List<RecordShape> options) implements ValueShape {
+        @Override
+        public @Nullable Object unset() {
+            return null;
+        }
+
+        /// The first option, blank.
+        @Override
+        public Object blank() {
+            return new VariantValue(0, (RecordValue) options.getFirst().blank());
+        }
+
+        @Override
+        public @Nullable Object toEditor(@Nullable Object value) {
+            if (value == null) return null;
+
+            for (int i = 0; i < options.size(); i++) {
+                if (options.get(i).type() == value.getClass()) return new VariantValue(i, (RecordValue) options.get(i).toEditor(value));
+            }
+
+            throw new IllegalStateException(value.getClass().getName() + " is no permitted " + type.getName());
+        }
+
+        @Override
+        public @Nullable Object fromEditor(@Nullable Object value) {
+            if (value == null) return null;
+
+            VariantValue variant = (VariantValue) value;
+
+            return options.get(variant.option()).fromEditor(variant.value());
+        }
+
+        @Override
+        public JsonElement toJson(@Nullable Object value) {
+            throw new IllegalStateException(type.getName() + " has no codec");
+        }
+
+        @Override
+        public Object fromJson(JsonElement json) {
+            throw new IllegalStateException(type.getName() + " has no codec");
+        }
+
+        @Override
+        public boolean encodable() {
+            return false;
+        }
+    }
+
+    /// A value of a [Variant] as the editor holds it.
+    ///
+    /// @param option the index of its record in [Variant#options]
+    record VariantValue(int option, RecordValue value) {
+    }
+
     /// A record's components as the editor holds them.
     record RecordValue(List<@Nullable Object> components) {
         public RecordValue {
@@ -448,7 +506,8 @@ public sealed interface ValueShape {
     }
 
     /// The shape of a value declared as `type` inside a record: a list or set by its element's shape, a
-    /// record by its components' shapes, and anything else by its class. None of it has a codec of its own.
+    /// record by its components' shapes, a sealed interface of records by the shapes of those records, and
+    /// anything else by its class. None of it has a codec of its own.
     static ValueShape of(Type type) {
         if (type instanceof ParameterizedType parameterized
             && parameterized.getActualTypeArguments().length == 1
@@ -463,6 +522,10 @@ public sealed interface ValueShape {
         Class<?> raw = type instanceof ParameterizedType parameterized
             ? (Class<?>) parameterized.getRawType()
             : type instanceof Class<?> c ? c : Object.class;
+
+        if (raw.isSealed() && raw.isInterface() && Arrays.stream(raw.getPermittedSubclasses()).allMatch(Class::isRecord)) {
+            return new Variant(raw, Arrays.stream(raw.getPermittedSubclasses()).map(option -> (RecordShape) of(option)).toList());
+        }
 
         if (raw.isRecord()) {
             return new RecordShape(

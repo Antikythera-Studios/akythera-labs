@@ -29,6 +29,7 @@ public final class EntityPatchComponentHolders {
     public static final Identifier ENTITY_MOVEMENT = Akythera.identifier("entity_movement");
     public static final Identifier ROOT_MOTION = Akythera.identifier("root_motion");
     public static final Identifier ABILITY_SYSTEM = Akythera.identifier("ability_system");
+    public static final Identifier BRAIN = Akythera.identifier("brain");
     public static final Identifier TRANSFORM_SOCKET = Akythera.identifier("transform_socket");
     public static final Identifier COLLIDER = Akythera.identifier("collider");
     public static final Identifier EQUIPMENT_SLOT_BINDER = Akythera.identifier("equipment_slot_binder");
@@ -48,6 +49,12 @@ public final class EntityPatchComponentHolders {
             _ -> RootMotionComponentHolder.createDefault(), RootMotionComponentHolder.EDITOR_CODEC);
         REGISTRY.register(ABILITY_SYSTEM, AbilitySystemComponentHolder.class,
             _ -> AbilitySystemComponentHolder.createDefault(), AbilitySystemComponentHolder.EDITOR_CODEC,
+            (host, _) -> host instanceof EntityPatchBlueprintHolder blueprint
+                && LivingEntityPatch.class.isAssignableFrom(blueprint.ownerType())
+                ? null
+                : Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MENU_REFUSED_NOT_LIVING));
+        REGISTRY.register(BRAIN, BrainComponentHolder.class,
+            _ -> BrainComponentHolder.createDefault(), BrainComponentHolder.EDITOR_CODEC,
             (host, _) -> host instanceof EntityPatchBlueprintHolder blueprint
                 && LivingEntityPatch.class.isAssignableFrom(blueprint.ownerType())
                 ? null

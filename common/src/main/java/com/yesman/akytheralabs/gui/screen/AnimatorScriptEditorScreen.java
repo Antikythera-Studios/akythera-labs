@@ -29,6 +29,7 @@ import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.animation.AnimGraphCompiler;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
@@ -614,7 +615,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
         for (StateMachineData machine : stateMachines.values()) {
             for (StateMachineData.StateData state : machine.states()) {
-                machineNamesIn(state.poseGraph()).forEach(used::add);
+                machineNamesIn(AnimGraphCompiler.poseGraphOf(state)).forEach(used::add);
             }
         }
 
@@ -967,17 +968,26 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             new ScriptNodeDetailsPanel.FloatRow(
                 LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_BLEND_TIME,
                 BLEND_TIME_MIN, BLEND_TIME_MAX, BLEND_TIME_STEP,
-                () -> machine.getTransitionBlendTime(transition),
-                blendTime -> machine.setTransitionBlendTime(transition, blendTime)),
+                () -> crossFadeOf(machine, transition).blendTime(),
+                blendTime -> machine.setTransitionPart(transition,
+                    new StateMachineData.AnimationTransitionPart(blendTime, crossFadeOf(machine, transition).transferElapsedTime()))),
             new ScriptNodeDetailsPanel.BooleanRow(
                 LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_TRANSFER_ELAPSED_TIME,
-                () -> machine.getTransitionTransferElapsedTime(transition),
-                transfer -> machine.setTransitionTransferElapsedTime(transition, transfer)),
+                () -> crossFadeOf(machine, transition).transferElapsedTime(),
+                transfer -> machine.setTransitionPart(transition,
+                    new StateMachineData.AnimationTransitionPart(crossFadeOf(machine, transition).blendTime(), transfer))),
             new ScriptNodeDetailsPanel.IntRow(
                 LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_DETAILS_TRANSITION_PRIORITY,
                 TRANSITION_PRIORITY_MIN, TRANSITION_PRIORITY_MAX,
                 () -> machine.getTransitionPriority(transition),
                 priority -> machine.setTransitionPriority(transition, priority))));
+    }
+
+    /// The cross-fade `transition` of an animation machine carries.
+    private static StateMachineData.AnimationTransitionPart crossFadeOf(StateMachineGraphWidget machine, StateMachineGraphWidget.Transition transition) {
+        return machine.getTransitionPart(transition) instanceof StateMachineData.AnimationTransitionPart animation
+            ? animation
+            : StateMachineData.AnimationTransitionPart.DEFAULT;
     }
 
     /// Closes (flushing first) every open condition sub-tab of `groupName` on `machineName` — their
@@ -1128,6 +1138,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
 
         StateMachineGraphWidget widget = new StateMachineGraphWidget(
             minecraft.font,
+            StateMachineData.Kind.ANIMATION,
             stateMachines.getOrDefault(name, StateMachineData.EMPTY),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -1166,7 +1177,9 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
 
         ScriptNodeGraphWidget graph = makeSubGraph(ScriptFunction.Usage.ANIM_GRAPH, ScriptFunction.Usage.SCRIPT);
-        ScriptGraphData data = machine.getStatePoseGraph(stateName);
+        ScriptGraphData data = machine.getStatePart(stateName) instanceof StateMachineData.AnimationStatePart animation
+            ? animation.poseGraph()
+            : ScriptGraphData.EMPTY;
         if (data.isEmpty()) {
             graph.addNode(new OutputPoseNodeWidget(
                 minecraft.font, Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_NODE_OUTPUT_POSE),
@@ -1176,7 +1189,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         }
 
         registerSubGraphTab(key, Component.literal(stateName), graph,
-            () -> machine.setStatePoseGraph(stateName, graph.exportGraph()), machineName, machine);
+            () -> machine.setStatePart(stateName, new StateMachineData.AnimationStatePart(graph.exportGraph())), machineName, machine);
     }
 
     /// Opens (or re-focuses) the closeable `{from} to {to}` sub-tab: a boolean data-flow graph
@@ -1296,7 +1309,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 if (referenced.add(name)) {
                     StateMachineData data = stateMachines.get(name);
                     if (data != null) {
-                        for (StateMachineData.StateData state : data.states()) queue.add(state.poseGraph());
+                        for (StateMachineData.StateData state : data.states()) queue.add(AnimGraphCompiler.poseGraphOf(state));
                     }
                 }
             }
@@ -1343,7 +1356,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             case StateMachineGraphWidget machine -> {
                 if (!(cut ? clipboard.cut(machine) : clipboard.copy(machine))) return;
 
-                clipboard.setMachines(collectMachineData(clipboard.states().stream().flatMap(s -> machineNamesIn(s.poseGraph()))));
+                clipboard.setMachines(collectMachineData(clipboard.states().stream().flatMap(s -> machineNamesIn(AnimGraphCompiler.poseGraphOf(s)))));
             }
             default -> {}
         }
@@ -1369,7 +1382,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             out.put(name, data);
 
             for (StateMachineData.StateData state : data.states()) {
-                machineNamesIn(state.poseGraph()).forEach(queue::add);
+                machineNamesIn(AnimGraphCompiler.poseGraphOf(state)).forEach(queue::add);
             }
         }
 

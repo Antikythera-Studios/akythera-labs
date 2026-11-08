@@ -178,8 +178,8 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
             for (StateMachineData.StateData state : machine.states()) {
                 String from = ScriptCanvasKeys.stateName(state.state());
 
-                if (!state.poseGraph().isEmpty()) {
-                    compilation.canvas(ScriptCanvasKeys.statePose(machineName, from), canvasOf(state.poseGraph()),
+                if (!AnimGraphCompiler.poseGraphOf(state).isEmpty()) {
+                    compilation.canvas(ScriptCanvasKeys.statePose(machineName, from), canvasOf(AnimGraphCompiler.poseGraphOf(state)),
                         Component.literal(from), duplicateErrors);
                 }
 
@@ -260,7 +260,7 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
     /// Every pose and condition sub-graph of every state machine.
     private Stream<ScriptGraphData> stateMachineGraphs() {
         return stateMachines.values().stream().flatMap(machine -> Stream.of(
-            machine.states().stream().map(StateMachineData.StateData::poseGraph),
+            machine.states().stream().map(AnimGraphCompiler::poseGraphOf),
             machine.states().stream().flatMap(state -> state.transitions().stream()).map(StateMachineData.TransitionData::conditionGraph),
             machine.entryTransitions().stream().map(StateMachineData.TransitionData::conditionGraph),
             machine.groups().stream().flatMap(group -> group.transitions().stream()).map(StateMachineData.TransitionData::conditionGraph)
@@ -278,7 +278,7 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
     private Map<UniqueProperty, Integer> duplicatedProperties() {
         Map<UniqueProperty, Integer> counts = new LinkedHashMap<>();
         Stream<ScriptGraphData> poseGraphs = Stream.concat(Stream.of(poseGraph),
-            stateMachines.values().stream().flatMap(machine -> machine.states().stream()).map(StateMachineData.StateData::poseGraph));
+            stateMachines.values().stream().flatMap(machine -> machine.states().stream()).map(AnimGraphCompiler::poseGraphOf));
 
         poseGraphs.forEach(graph -> {
             for (GraphNode row : graph.nodes()) {
@@ -371,7 +371,7 @@ public final class AnimatorScriptHolder extends AbstractDataHolder<DataDrivenAni
 
         for (StateMachineData machine : stateMachines.values()) {
             for (StateMachineData.StateData s : machine.states()) {
-                if ((e = s.poseGraph().firstFailure()) != null) return e;
+                if ((e = AnimGraphCompiler.poseGraphOf(s).firstFailure()) != null) return e;
 
                 for (StateMachineData.TransitionData t : s.transitions()) {
                     if ((e = t.conditionGraph().firstFailure()) != null) return e;

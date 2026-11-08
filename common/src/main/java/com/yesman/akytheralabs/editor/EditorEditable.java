@@ -13,6 +13,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -28,7 +29,7 @@ import java.util.List;
 /// `boolean` (checkbox), `String` (edit box), [LocalizedMessage] (text area with a lang key picker),
 /// `enum` (ComboBox), [Vec3] (three
 /// per-axis number boxes), [AssetAccessor] (a search PopupBox routed by the
-/// accessor's runtime type), plus `EnumerableDataBlock` / `Holder` / `ResourceKey` /
+/// accessor's runtime type), plus `EnumerableDataBlock` / `Holder` / `ResourceKey` / `TagKey` /
 /// `AnimatorScriptRef` / `ClientAsset.Texture` / `AkytheraProject.EditorSoundEventAccessor` pickers. Custom types register through
 /// [EditorWidgetFactory#registerWidgetProducer]. Other types fall back to a
 /// read-only display.
@@ -68,10 +69,11 @@ public @interface EditorEditable {
     /// while the numeric inspector must write the raw value through `setXUnsnapped`.
     String setter() default "";
 
-    /// For [List] fields only; ignored otherwise. Names the **static method** — resolved by name on
-    /// the class declaring the list field, the same way [#setter] is resolved — that builds one fresh
-    /// element for the list row's `+` button. It takes no parameter, or the list itself, to build from
-    /// what the list already holds.
+    /// For [List] fields and [Nullable] nested editor objects; ignored otherwise. Names the **static
+    /// method** — resolved by name on the class declaring the field, the same way [#setter] is resolved —
+    /// that builds one fresh element for the row's `+` button. For a list it takes no parameter, or the
+    /// list itself, to build from what the list already holds. For a nested editor object it takes no
+    /// parameter, and the header row carries `+` while the field is null and `✕` while it is set.
     ///
     /// A method name rather than a type: an annotation member has to be a compile-time constant, and
     /// the elements this editor creates — a first-registered `EnumerableDataBlock`, a dangling project

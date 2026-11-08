@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.akythera.entitypatch.component;
 
+import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.component.PatchComponent;
@@ -14,17 +15,20 @@ import java.util.Map;
 /// Editor holder for an `akythera:entity_movement` ([EntityMovementComponentBlueprint]) — moves and turns
 /// the entity, which is what a [RootMotionComponent] moves it through.
 ///
-/// Besides the switch every component carries, toggled from the Components tree, it holds how the body turns.
+/// Besides the switch every component carries, toggled from the Components tree, it holds how the body turns
+/// and whether the entity can swim up.
 public final class EntityMovementComponentHolder extends ComponentDataHolder<EntityMovementComponentBlueprint>
     implements RootAttachableComponent
 {
     public static final MapCodec<EntityMovementComponentHolder> EDITOR_CODEC = RecordCodecBuilder.mapCodec(
         instance -> instance.group(
             EntityMovementComponent.BodyRotation.CODEC.optionalFieldOf("body_rotation", EntityMovementComponent.BodyRotation.VANILLA)
-                .forGetter(h -> h.bodyRotation)
-        ).apply(instance, bodyRotation -> {
+                .forGetter(h -> h.bodyRotation),
+            Codec.BOOL.optionalFieldOf("can_float_in_water", true).forGetter(h -> h.canFloatInWater)
+        ).apply(instance, (bodyRotation, canFloatInWater) -> {
             EntityMovementComponentHolder h = new EntityMovementComponentHolder();
             h.bodyRotation = bodyRotation;
+            h.canFloatInWater = canFloatInWater;
             return h;
         })
     );
@@ -33,6 +37,10 @@ public final class EntityMovementComponentHolder extends ComponentDataHolder<Ent
     @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_BODY_ROTATION, order = 0)
     public EntityMovementComponent.BodyRotation bodyRotation = EntityMovementComponent.BodyRotation.VANILLA;
 
+    /// Whether the entity can swim up in water at all.
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_CAN_FLOAT_IN_WATER, order = 1)
+    public boolean canFloatInWater = true;
+
     public static EntityMovementComponentHolder createDefault() {
         return new EntityMovementComponentHolder();
     }
@@ -40,11 +48,12 @@ public final class EntityMovementComponentHolder extends ComponentDataHolder<Ent
     @Override
     public void readFrom(EntityMovementComponentBlueprint object) {
         bodyRotation = object.bodyRotation();
+        canFloatInWater = object.canFloatInWater();
     }
 
     @Override
     public EntityMovementComponentBlueprint makeObject() {
-        return new EntityMovementComponentBlueprint(bodyRotation, isEnabled());
+        return new EntityMovementComponentBlueprint(bodyRotation, canFloatInWater, isEnabled());
     }
 
     @Override
@@ -63,6 +72,6 @@ public final class EntityMovementComponentHolder extends ComponentDataHolder<Ent
 
     @Override
     public Map<String, Object> getDTO() {
-        return Map.of("body_rotation", bodyRotation.name());
+        return Map.of("body_rotation", bodyRotation.name(), "can_float_in_water", canFloatInWater);
     }
 }

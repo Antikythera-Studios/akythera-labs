@@ -63,7 +63,15 @@ public interface ResourceProcessor<T> {
         Map.entry(AkytheraRegistries.DataPack.INPUT_ACTION_KEY,    InputActionResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.WIDGET_KEY,          WidgetBlueprintResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY,  ParticlePieceResourceProcessor.INSTANCE),
-        Map.entry(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, ParticleSystemResourceProcessor.INSTANCE)
+        Map.entry(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, ParticleSystemResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY,
+            new NewEntryResourceProcessor<>(AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY, "behavior_tree", ContentWidget.BehaviorTreeContent::new)),
+        Map.entry(AkytheraRegistries.DataPack.BEHAVIOR_TASK_KEY,
+            new NewEntryResourceProcessor<>(AkytheraRegistries.DataPack.BEHAVIOR_TASK_KEY, "task", ContentWidget.BehaviorScriptContent::new)),
+        Map.entry(AkytheraRegistries.DataPack.BEHAVIOR_SUBTASK_KEY,
+            new NewEntryResourceProcessor<>(AkytheraRegistries.DataPack.BEHAVIOR_SUBTASK_KEY, "subtask", ContentWidget.BehaviorScriptContent::new)),
+        Map.entry(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY,
+            new NewEntryResourceProcessor<>(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY, "condition", ContentWidget.BehaviorScriptContent::new))
     );
 
     static @Nullable ResourceProcessor<?> forTag(@Nullable Object tag) {

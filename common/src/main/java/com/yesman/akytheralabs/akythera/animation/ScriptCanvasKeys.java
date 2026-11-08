@@ -1,6 +1,6 @@
 package com.yesman.akytheralabs.akythera.animation;
 
-import com.yesman.akythera.core.animation.FSMAnimationState;
+import com.yesman.akythera.core.math.model.FSMState;
 import com.yesman.akytheralabs.gui.screen.AnimatorScriptEditorScreen;
 import net.minecraft.core.Holder;
 
@@ -41,7 +41,7 @@ public final class ScriptCanvasKeys {
 
     /// Display/identity name of a state holder — its key id, which exists even for a dangling
     /// (unresolved) holder; only a keyless engine direct holder reads the live value.
-    public static String stateName(final Holder<FSMAnimationState> holder) {
+    public static String stateName(final Holder<? extends FSMState> holder) {
         return holder.unwrapKey().map(k -> k.identifier().toString())
             .orElseGet(() -> holder.value().identifier().toString());
     }

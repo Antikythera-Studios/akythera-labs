@@ -2,12 +2,10 @@ package com.yesman.akytheralabs.gui.widget.script;
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import com.mojang.datafixers.util.Pair;
-import com.yesman.akythera.api.animation.impl.AkytheraAnimationState;
 import com.yesman.akythera.client.api.gui.ContextMenuContainer;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
-import com.yesman.akythera.core.animation.FSMAnimationState;
-import com.yesman.akythera.core.animation.driver.AnimationStateTransition;
+import com.yesman.akythera.core.math.model.FSMState;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.ScriptCanvasKeys;
@@ -42,7 +40,7 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
-/// The canvas of one animation state machine (UE's state-machine tab): a hardcoded **Entry** node
+/// The canvas of one state machine of a [StateMachineData.Kind] (UE's state-machine tab): a hardcoded **Entry** node
 /// plus user-added **state** and **group** nodes, joined by directed **transition** arrows.
 ///
 /// Interaction mirrors UE: a left-drag starting on a box's **inner** body moves it; a left-drag
@@ -55,8 +53,8 @@ import java.util.function.Consumer;
 /// A group node is the transition source its members share, and never a target.
 ///
 /// This widget owns the topology — the positions, the names, the group declarations and the
-/// transition set — and round-trips it through [StateMachineData]. The state pose and transition condition
-/// sub-graphs are authored in their own `{state}` / `{from} to {to}` sub-tabs.
+/// transition set — and round-trips it through [StateMachineData]. What a state runs and the transition
+/// condition sub-graphs are authored in their own `{state}` / `{from} to {to}` sub-tabs.
 public final class StateMachineGraphWidget extends AbstractContainerWidget implements AnchoredWidget, CutSource {
     /// Outer edge band (graph posX) of a box where a press starts a transition instead of a move.
     private static final int EDGE_BAND = 6;
@@ -104,7 +102,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     /// Graph-space shift between one paste and the next at the same press. A multiple of [#DRAG_SNAP].
     private static final int PASTE_STEP = 25;
 
-    /// Name of a pasted state whose [FSMAnimationState] this machine already carries. No block carries it, so the
+    /// Name of a pasted state whose signature this machine already carries. No block carries it, so the
     /// state reads as unresolved until a signature is picked for it.
     private static final String UNSELECTED = AkytheraLabs.MODID + ":unselected";
 
@@ -112,6 +110,9 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     private static final String ENTRY = ScriptCanvasKeys.ENTRY;
 
     private final Font font;
+
+    /// The kind of machine this canvas edits: its signatures and the parts of its states and transitions.
+    private final StateMachineData.Kind<?> kind;
 
     /// Entry is a node like any other for hit-testing / moving, but it is non-deletable and is the
     /// source of the Entry transitions (the machine's candidate initial states).
@@ -214,6 +215,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
     public StateMachineGraphWidget(
         Font font,
+        StateMachineData.Kind<?> kind,
         StateMachineData data,
         Unit x1, Unit x2, Unit y1, Unit y2,
         AnchoredWidget.HorizontalAnchorType horizontalAnchorType,
@@ -222,6 +224,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         super(0, 0, 0, 0, Component.empty(), AbstractScrollArea.defaultSettings(0));
 
         this.font = font;
+        this.kind = kind;
         this.x1 = x1;
         this.x2 = x2;
         this.y1 = y1;
@@ -229,7 +232,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         this.horizontalAnchorType = horizontalAnchorType;
         this.verticalAnchorType = verticalAnchorType;
 
-        this.entry = new StateNode("Entry", data.entryX(), data.entryY());
+        this.entry = new StateNode("Entry", data.entryX(), data.entryY(), kind.defaultStatePart().get());
         importData(data);
     }
 
@@ -273,7 +276,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         if (onSelectionChanged != null) onSelectionChanged.accept(single);
     }
 
-    /// The [FSMAnimationState] signature (id string) of every state currently on this machine — the
+    /// The signature (id string) of every state currently on this machine — the
     /// set the host's Details combo strips from its options so a state can never be re-signed to a
     /// signature another state already carries (no duplicate states on one machine).
     public Set<String> stateNames() {
@@ -282,9 +285,9 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         return names;
     }
 
-    /// Re-signs `node` to the [FSMAnimationState] `newName`, retargeting every transition that pointed
+    /// Re-signs `node` to the signature `newName`, retargeting every transition that pointed
     /// at its old signature so the topology (and each transition's condition sub-graph) survives the
-    /// change; the state's own pose sub-graph travels with the node, and a transition *leaving* it
+    /// change; the state's own part travels with the node, and a transition *leaving* it
     /// holds the node itself so it needs no retargeting. Returns false — rejecting the edit — when
     /// `newName` is blank or already carried by another state on this machine.
     public boolean changeStateSignature(StateNode node, String newName) {
@@ -335,8 +338,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         }
 
         for (StateMachineData.StateData s : data.states()) {
-            StateNode node = new StateNode(nameOf(s.state()), s.x(), s.y());
-            node.poseGraph = s.poseGraph();
+            StateNode node = new StateNode(nameOf(s.state()), s.x(), s.y(), s.part());
             node.groups = s.groups();
             states.add(node);
         }
@@ -358,34 +360,32 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     }
 
     private void addImported(Box from, StateMachineData.TransitionData data) {
-        Transition transition = new Transition(from, nameOf(data.to()));
+        Transition transition = new Transition(from, nameOf(data.to()), data.part());
         transition.conditionGraph = data.conditionGraph();
-        transition.blendTime = data.blendTime();
-        transition.transferElapsedTime = data.transferElapsedTime();
         transition.transitionPriority = data.transitionPriority();
         transitions.add(transition);
     }
 
     /// Display/identity name of a state holder — its key id, which exists even for a dangling
     /// (unresolved) holder; only a keyless engine direct holder reads the live value.
-    private static String nameOf(Holder<FSMAnimationState> holder) {
+    private static String nameOf(Holder<? extends FSMState> holder) {
         return ScriptCanvasKeys.stateName(holder);
     }
 
-    /// Flattens the live topology — each state's pose sub-graph, each transition's condition sub-graph
+    /// Flattens the live topology — each state's part, each transition's condition sub-graph
     /// and the group declarations — back to a builder-shaped [StateMachineData]: each transition nested
     /// under the box it leaves, Entry's outgoing edges collected into `entryTransitions`. State names
-    /// round-trip through their [FSMAnimationState] signature; an unresolved signature persists as a
+    /// round-trip through their signature; an unresolved signature persists as a
     /// dangling holder (the red MISSING state round-trips instead of being silently deleted) — only an
     /// unparseable name (cannot happen for names created from ids) is dropped.
     public StateMachineData exportData() {
         List<StateMachineData.StateData> stateData = new ArrayList<>();
         for (StateNode s : states) {
-            Holder<FSMAnimationState> signature = holderOf(s.name);
+            Holder<? extends FSMState> signature = holderOf(s.name);
             if (signature == null) continue;
 
             stateData.add(new StateMachineData.StateData(
-                signature, s.x, s.y, s.poseGraph, outgoingData(s), s.groups));
+                signature, s.x, s.y, s.part, outgoingData(s), s.groups));
         }
 
         List<StateMachineData.GroupData> groupData = new ArrayList<>();
@@ -396,7 +396,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         return new StateMachineData(entry.x, entry.y, outgoingData(entry), stateData, groupData);
     }
 
-    /// The persisted transitions leaving `from`, their targets resolved back to [FSMAnimationState]
+    /// The persisted transitions leaving `from`, their targets resolved back to signature
     /// holders (an unresolved signature persists as a dangling holder; only an unparseable name is
     /// dropped).
     private List<StateMachineData.TransitionData> outgoingData(Box from) {
@@ -404,14 +404,19 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
         for (Transition t : transitions) {
             if (t.from != from) continue;
-            Holder<FSMAnimationState> to = holderOf(t.to);
+            Holder<? extends FSMState> to = holderOf(t.to);
             if (to != null) {
-                out.add(new StateMachineData.TransitionData(
-                    to, t.conditionGraph, t.blendTime, t.transferElapsedTime, t.transitionPriority));
+                out.add(new StateMachineData.TransitionData(to, t.conditionGraph, t.transitionPriority, t.part));
             }
         }
 
         return out;
+    }
+
+    /// Replaces the whole topology with `data`, as one undoable unit.
+    public void replaceData(StateMachineData data) {
+        recordTopology(() -> importData(data));
+        notifySelection();
     }
 
     // ***************************************************************
@@ -419,8 +424,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     // ***************************************************************
 
     /// Snapshots the selected states for the clipboard in the same builder shape the machine persists:
-    /// each state keeps its position, its group names and its pose sub-graph — the animation driver
-    /// authored under it — and carries the transitions leaving it **to another selected state**, so a
+    /// each state keeps its position, its group names and its part — what it runs — and carries the transitions leaving it **to another selected state**, so a
     /// paste never lands an edge with no source or target. Entry is skipped: a machine has exactly one
     /// and it is hardcoded. Returns null when no state is selected.
     public @Nullable List<StateMachineData.StateData> copySelection() {
@@ -433,21 +437,20 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         List<StateMachineData.StateData> out = new ArrayList<>();
 
         for (StateNode node : copied) {
-            Holder<FSMAnimationState> signature = holderOf(node.name);
+            Holder<? extends FSMState> signature = holderOf(node.name);
             if (signature == null) continue;
 
             List<StateMachineData.TransitionData> outgoing = new ArrayList<>();
             for (Transition t : transitions) {
                 if (t.from != node || !names.contains(t.to)) continue;
-                Holder<FSMAnimationState> to = holderOf(t.to);
+                Holder<? extends FSMState> to = holderOf(t.to);
                 if (to != null) {
-                    outgoing.add(new StateMachineData.TransitionData(
-                        to, t.conditionGraph, t.blendTime, t.transferElapsedTime, t.transitionPriority));
+                    outgoing.add(new StateMachineData.TransitionData(to, t.conditionGraph, t.transitionPriority, t.part));
                 }
             }
 
             out.add(new StateMachineData.StateData(
-                signature, node.x, node.y, node.poseGraph, outgoing, node.groups));
+                signature, node.x, node.y, node.part, outgoing, node.groups));
         }
 
         return out.isEmpty() ? null : out;
@@ -468,7 +471,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     }
 
     /// Places clipboard states on this machine as one undoable unit, the top-left corner of them at the last
-    /// press on the canvas. A state whose [FSMAnimationState] signature this machine already carries lands
+    /// press on the canvas. A state whose signature this machine already carries lands
     /// under an [#UNSELECTED] name instead — a signature is the state's identity and a machine holds it once.
     /// A transition whose target is not among the pasted states lands on the state of this machine carrying
     /// that signature, when there is one. Group nodes are not on the clipboard. The placed states become the
@@ -490,8 +493,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
                     name = suffix == 2 ? UNSELECTED : UNSELECTED + "_" + (suffix - 1);
                 }
 
-                StateNode node = new StateNode(name, snap(s.x() + dx), snap(s.y() + dy));
-                node.poseGraph = s.poseGraph();
+                StateNode node = new StateNode(name, snap(s.x() + dx), snap(s.y() + dy), s.part());
                 node.groups = s.groups();
                 states.add(node);
                 created.add(node);
@@ -505,10 +507,8 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
                     String to = landedNames.getOrDefault(nameOf(t.to()), nameOf(t.to()));
                     if (findState(to) == null || findTransitionFrom(from, to) != null) continue;
 
-                    Transition transition = new Transition(from, to);
+                    Transition transition = new Transition(from, to, t.part());
                     transition.conditionGraph = t.conditionGraph();
-                    transition.blendTime = t.blendTime();
-                    transition.transferElapsedTime = t.transferElapsedTime();
                     transition.transitionPriority = t.transitionPriority();
                     transitions.add(transition);
                 }
@@ -662,26 +662,29 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     /// project &cup; manager (so editor-created blocks resolve); an id in neither mints a dangling
     /// holder so the unresolved state/transition still round-trips to disk. Only an unparseable
     /// name (cannot happen for names created from ids) yields null, now logged.
-    private static @Nullable Holder<FSMAnimationState> holderOf(String name) {
+    private @Nullable Holder<? extends FSMState> holderOf(String name) {
         Identifier id = Identifier.tryParse(name);
         if (id == null) {
             AkytheraLabs.LOGGER.warn("Dropping state-machine element with unparseable name {}", name);
             return null;
         }
-        return AkytheraProject.getCurrentProject()
-            .getDataBlockHolderOrDangling(FSMAnimationState.ENUM_MANAGER, id);
+        return AkytheraProject.getCurrentProject().getDataBlockHolderOrDangling(kind.manager(), id);
     }
 
-    /// The pose sub-graph stored for state `name` ([ScriptGraphData#EMPTY] if unset / unknown), and
-    /// its setter — the host's `{state}` pose sub-tab reads / writes these.
-    public ScriptGraphData getStatePoseGraph(String name) {
-        StateNode s = findState(name);
-        return s == null ? ScriptGraphData.EMPTY : s.poseGraph;
+    public StateMachineData.Kind<?> getKind() {
+        return kind;
     }
 
-    public void setStatePoseGraph(String name, ScriptGraphData graph) {
+    /// What state `name` runs (the kind's default if unknown), and its setter — the host's `{state}` sub-tab
+    /// reads / writes these.
+    public StateMachineData.StatePart getStatePart(String name) {
         StateNode s = findState(name);
-        if (s != null) s.poseGraph = graph;
+        return s == null ? kind.defaultStatePart().get() : s.part;
+    }
+
+    public void setStatePart(String name, StateMachineData.StatePart part) {
+        StateNode s = findState(name);
+        if (s != null) s.part = part;
     }
 
     /// The condition sub-graph stored for the state / Entry transition `from → to`
@@ -710,24 +713,13 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         if (t != null) t.conditionGraph = graph;
     }
 
-    /// The blend time of `transition`, in seconds, and its setter — the Details panel's Blend Time row
-    /// reads and writes these.
-    public float getTransitionBlendTime(Transition transition) {
-        return transition.blendTime;
+    /// How `transition` is taken, and its setter — the Details panel's rows of the kind read and write these.
+    public StateMachineData.TransitionPart getTransitionPart(Transition transition) {
+        return transition.part;
     }
 
-    public void setTransitionBlendTime(Transition transition, float blendTime) {
-        transition.blendTime = blendTime;
-    }
-
-    /// Whether `transition` hands the elapsed time of the state it leaves to the one it enters, and its
-    /// setter — the Details panel's Transfer Elapsed Time row reads and writes these.
-    public boolean getTransitionTransferElapsedTime(Transition transition) {
-        return transition.transferElapsedTime;
-    }
-
-    public void setTransitionTransferElapsedTime(Transition transition, boolean transferElapsedTime) {
-        transition.transferElapsedTime = transferElapsedTime;
+    public void setTransitionPart(Transition transition, StateMachineData.TransitionPart part) {
+        transition.part = part;
     }
 
     /// The priority `transition` is taken at, and its setter — the Details panel's Transition Priority
@@ -955,7 +947,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     /// a reload.
     private boolean isUnresolved(StateNode n) {
         if (n == entry) return false;
-        Holder<FSMAnimationState> h = holderOf(n.name);
+        Holder<? extends FSMState> h = holderOf(n.name);
         return h == null || !h.isBound();
     }
 
@@ -1435,7 +1427,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         if (from instanceof GroupNode group && to.groups.contains(group.name)) return;
         if (findTransitionFrom(from, to.name) != null) return;
 
-        transitions.add(new Transition(from, to.name));
+        transitions.add(new Transition(from, to.name, kind.defaultTransitionPart().get()));
     }
 
     /// Scroll-wheel zoom, anchored on the graph point under the cursor (mirrors the Event Graph).
@@ -1567,7 +1559,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         pendingMenu = menu;
     }
 
-    /// Fills `page` with every registered [FSMAnimationState] signature — engine values merged with
+    /// Fills `page` with every registered signature of the kind — engine values merged with
     /// editor-created (labs) ones — minus the reserved Entry / Exit and any already on this machine (no
     /// duplicate states). A state is named by its signature and never renamed, so the picked signature
     /// *is* its identity. When every signature is already used the page shows a disabled note.
@@ -1576,14 +1568,11 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
         ContextMenuContainer.PageBuilder page, StateMenuAction action, int gx, int gy
     ) {
         // Reserved engine states never appear as user-addable.
-        Set<Identifier> reserved = Set.of(
-            AkytheraAnimationState.ENTRY.identifier(),
-            AkytheraAnimationState.EXIT.identifier());
+        Set<Identifier> reserved = Set.of(kind.entry().identifier(), kind.exit().identifier());
 
         boolean any = false;
 
-        for (Identifier id : AkytheraProject.getCurrentProject()
-                .getMergedDataBlockIdentifiers(FSMAnimationState.ENUM_MANAGER)) {
+        for (Identifier id : AkytheraProject.getCurrentProject().getMergedDataBlockIdentifiers(kind.manager())) {
             if (reserved.contains(id)) continue;
             String name = id.toString();
             if (findState(name) != null) continue; // already on this machine — no duplicates
@@ -1622,7 +1611,7 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
     /// Places a picked signature as a state.
     private StateNode addState(String name, int gx, int gy) {
-        StateNode node = new StateNode(name, snap(gx), snap(gy));
+        StateNode node = new StateNode(name, snap(gx), snap(gy), kind.defaultStatePart().get());
         states.add(node);
         selectOnly(node);
         return node;
@@ -1681,17 +1670,18 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
     }
 
     /// A state node (Entry is one too: non-deletable; `name` "Entry"). The name is its
-    /// [FSMAnimationState] signature, re-signed from the Details combo (see
-    /// [StateMachineGraphWidget#changeStateSignature]). Owns its `{state}` output-pose sub-graph, edited in
-    /// the state's sub-tab.
+    /// signature, re-signed from the Details combo (see
+    /// [StateMachineGraphWidget#changeStateSignature]). Owns its part, edited in the state's sub-tab.
     public static final class StateNode extends Box {
-        private ScriptGraphData poseGraph = ScriptGraphData.EMPTY;
+        /// What the state runs.
+        private StateMachineData.StatePart part;
 
         /// The names of the groups this state belongs to.
         private List<String> groups = List.of();
 
-        StateNode(String name, int x, int y) {
+        StateNode(String name, int x, int y, StateMachineData.StatePart part) {
             super(name, x, y);
+            this.part = part;
         }
     }
 
@@ -1718,21 +1708,16 @@ public final class StateMachineGraphWidget extends AbstractContainerWidget imple
 
         private ScriptGraphData conditionGraph = ScriptGraphData.EMPTY;
 
-        /// Seconds the machine cross-fades over while taking this transition — the `blendTime` of the
-        /// [AnimationStateTransition] it compiles into.
-        private float blendTime = StateMachineData.TransitionData.DEFAULT_BLEND_TIME;
-
-        /// Whether the state this transition leaves hands its elapsed time to the one it enters — the
-        /// `transferElapsedTime` of the [AnimationStateTransition] it compiles into.
-        private boolean transferElapsedTime = StateMachineData.TransitionData.DEFAULT_TRANSFER_ELAPSED_TIME;
-
-        /// The priority this transition is taken at — the `transitionPriority` of the
-        /// [AnimationStateTransition] it compiles into.
+        /// The priority this transition is taken at.
         private int transitionPriority = StateMachineData.TransitionData.DEFAULT_TRANSITION_PRIORITY;
 
-        Transition(Box from, String to) {
+        /// How the transition is taken, by the machine's kind.
+        private StateMachineData.TransitionPart part;
+
+        Transition(Box from, String to, StateMachineData.TransitionPart part) {
             this.from = from;
             this.to = to;
+            this.part = part;
         }
     }
 

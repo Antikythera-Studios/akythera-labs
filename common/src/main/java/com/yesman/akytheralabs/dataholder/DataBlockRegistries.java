@@ -5,6 +5,7 @@ import com.yesman.akythera.api.animation.animator.AnimationInterfaceKey;
 import com.yesman.akythera.api.world.ability.AbilitySlot;
 import com.yesman.akythera.api.world.ability.AbilitySlotGroup;
 import com.yesman.akythera.api.world.ability.AbilityTag;
+import com.yesman.akythera.api.world.behavior.MobBehaviorState;
 import com.yesman.akythera.api.world.patch.item.WeaponStance;
 import com.yesman.akythera.core.animation.AnimationLayerSignature;
 import com.yesman.akythera.core.animation.FSMAnimationState;
@@ -18,6 +19,7 @@ import com.yesman.akytheralabs.akythera.dataholder.datablock.AbilityTagHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.AnimationInterfaceKeyHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.AnimationLayerSignatureHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.FSMAnimationStateHolder;
+import com.yesman.akytheralabs.akythera.dataholder.datablock.MobBehaviorStateHolder;
 import com.yesman.akytheralabs.akythera.dataholder.datablock.WeaponStanceHolder;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.panel.main.processors.DataBlockResourceProcessor;
@@ -124,6 +126,7 @@ public final class DataBlockRegistries {
         // Slots reference a group, so groups load first.
         register(AbilitySlotGroup.ENUM_MANAGER, AbilitySlotGroupHolder::new, AbilitySlotGroupHolder.CODEC);
         register(AbilitySlot.ENUM_MANAGER, AbilitySlotHolder::new, AbilitySlotHolder.CODEC);
+        register(MobBehaviorState.ENUM_MANAGER, MobBehaviorStateHolder::new, MobBehaviorStateHolder.CODEC);
     }
 
     /// Registers the editor holder for one data block type: the engine manager the type is registered

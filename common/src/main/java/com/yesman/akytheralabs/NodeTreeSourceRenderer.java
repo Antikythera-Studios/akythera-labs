@@ -200,12 +200,12 @@ public final class NodeTreeSourceRenderer {
     }
 
     /// One `Map.entry(key, value)` of a map rendered by [#mapOf].
-    private static String entry(String key, String value) {
+    public static String entry(String key, String value) {
         return "Map.entry(" + quote(key) + ", " + value + ")";
     }
 
     /// `Map.ofEntries(...)` with one entry per line; an empty map stays inline.
-    private static String mapOf(List<String> entries, int indent) {
+    public static String mapOf(List<String> entries, int indent) {
         if (entries.isEmpty()) return "Map.of()";
 
         String pad = INDENT.repeat(indent + 1);
@@ -309,7 +309,7 @@ public final class NodeTreeSourceRenderer {
     }
 
     /// `List.of(...)` with one element per line; empty lists stay inline.
-    private static String listOf(List<String> elements, int indent) {
+    public static String listOf(List<String> elements, int indent) {
         if (elements.isEmpty()) return "List.of()";
 
         String pad = INDENT.repeat(indent + 1);
@@ -318,7 +318,7 @@ public final class NodeTreeSourceRenderer {
     }
 
     /// `new <className>(...)` with one argument per line at `indent + 1`, closing paren at `indent`.
-    private static String ctor(String className, int indent, String... args) {
+    public static String ctor(String className, int indent, String... args) {
         String pad = INDENT.repeat(indent + 1);
         return "new " + className + "(\n" + pad + String.join(",\n" + pad, args)
             + "\n" + INDENT.repeat(indent) + ")";

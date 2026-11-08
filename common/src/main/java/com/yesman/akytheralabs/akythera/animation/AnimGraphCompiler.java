@@ -7,6 +7,7 @@ import com.yesman.akythera.api.data.modularize.node.animgraph.AnimationStateMach
 import com.yesman.akythera.api.data.modularize.node.animgraph.AnimationStateMachineNode.StateEntry;
 import com.yesman.akythera.api.data.modularize.node.animgraph.AnimationStateMachineNode.TransitionEntry;
 import com.yesman.akythera.api.data.modularize.node.animgraph.CachedPoseReferenceNode;
+import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
@@ -176,7 +177,7 @@ public final class AnimGraphCompiler {
                     continue;
                 }
                 String stateName = ScriptCanvasKeys.stateName(s.state());
-                PureNode driver = compilePoseGraph(s.poseGraph(), ScriptCanvasKeys.statePose(name, stateName));
+                PureNode driver = compilePoseGraph(poseGraphOf(s), ScriptCanvasKeys.statePose(name, stateName));
 
                 List<TransitionEntry> outgoing =
                     new ArrayList<>(compileTransitions(s.transitions(), name, stateName));
@@ -214,12 +215,14 @@ public final class AnimGraphCompiler {
                     StateMachineData.TransitionData t = edge.getSecond();
                     String canvasKey = ScriptCanvasKeys.groupTransition(name, edge.getFirst(), toName);
 
+                    StateMachineData.AnimationTransitionPart part = crossFadeOf(t);
+
                     outgoing.add(new TransitionEntry(
-                        t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey),
-                        t.blendTime(), t.transferElapsedTime(), t.transitionPriority(), canvasKey));
+                        (FSMAnimationState)t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey),
+                        part.blendTime(), part.transferElapsedTime(), t.transitionPriority(), canvasKey));
                 });
 
-                states.add(new StateEntry(s.state().value(), driver, outgoing));
+                states.add(new StateEntry((FSMAnimationState)s.state().value(), driver, outgoing));
             }
             return new AnimationStateMachineNode(entryTransitions, states);
         } finally {
@@ -238,9 +241,11 @@ public final class AnimGraphCompiler {
             }
             String canvasKey =
                 ScriptCanvasKeys.transition(machineName, fromName, ScriptCanvasKeys.stateName(t.to()));
+            StateMachineData.AnimationTransitionPart part = crossFadeOf(t);
+
             out.add(new TransitionEntry(
-                t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey),
-                t.blendTime(), t.transferElapsedTime(), t.transitionPriority(), canvasKey));
+                (FSMAnimationState)t.to().value(), compileConditionGraph(t.conditionGraph(), canvasKey),
+                part.blendTime(), part.transferElapsedTime(), t.transitionPriority(), canvasKey));
         }
         return out;
     }
@@ -331,7 +336,7 @@ public final class AnimGraphCompiler {
                     if (unbound(t.to())) missing.add(idOf(t.to()));
                 }
 
-                s.poseGraph().missingReferences().forEach(missing::add);
+                poseGraphOf(s).missingReferences().forEach(missing::add);
             }
 
             for (StateMachineData.TransitionData t : machine.entryTransitions()) {
@@ -355,5 +360,17 @@ public final class AnimGraphCompiler {
 
     private static Identifier idOf(Holder<?> holder) {
         return holder.unwrapKey().map(k -> k.identifier()).orElseThrow();
+    }
+
+    /// The pose sub-graph of an animation state.
+    public static ScriptGraphData poseGraphOf(final StateMachineData.StateData state) {
+        return state.part() instanceof StateMachineData.AnimationStatePart animation ? animation.poseGraph() : ScriptGraphData.EMPTY;
+    }
+
+    /// The cross-fade of an animation transition.
+    public static StateMachineData.AnimationTransitionPart crossFadeOf(final StateMachineData.TransitionData transition) {
+        return transition.part() instanceof StateMachineData.AnimationTransitionPart animation
+            ? animation
+            : StateMachineData.AnimationTransitionPart.DEFAULT;
     }
 }

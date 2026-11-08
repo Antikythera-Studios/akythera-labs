@@ -50,6 +50,8 @@ import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.StaticRegistryAccess;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.akythera.behavior.BehaviorScriptHolder;
+import com.yesman.akytheralabs.akythera.behavior.BehaviorTreeBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityCueBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityEffectHolder;
@@ -416,6 +418,10 @@ public final class AkytheraProject {
         loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.BEHAVIOR_TASK_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.BEHAVIOR_SUBTASK_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY);
     }
 
     /// Loads every editor-editable [EnumerableDataBlock] type's entries from `data/<registryPath>/*.json`.
@@ -688,7 +694,11 @@ public final class AkytheraProject {
         AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY,
         AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY,
         AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY,
-        AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY
+        AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY,
+        AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY,
+        AkytheraRegistries.DataPack.BEHAVIOR_TASK_KEY,
+        AkytheraRegistries.DataPack.BEHAVIOR_SUBTASK_KEY,
+        AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY
     );
 
     /// The [#DATAPACK_REGISTRIES] the explorer does not list. Their entries are reached from the editors that use them.
@@ -1598,6 +1608,10 @@ public final class AkytheraProject {
         createProjectRegistry(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, ParticleSystemHolder::new, ParticleSystemHolder.EDITOR_CODEC);
         createProjectRegistry(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY, ParticleInitializerScriptHolder::new, ParticleInitializerScriptHolder.EDITOR_CODEC);
         createProjectRegistry(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY, ParticleUpdaterScriptHolder::new, ParticleUpdaterScriptHolder.EDITOR_CODEC);
+        createProjectRegistry(AkytheraRegistries.DataPack.BEHAVIOR_TASK_KEY, () -> new BehaviorScriptHolder<>(BehaviorScriptHolder.TASK), BehaviorScriptHolder.TASK.codec());
+        createProjectRegistry(AkytheraRegistries.DataPack.BEHAVIOR_SUBTASK_KEY, () -> new BehaviorScriptHolder<>(BehaviorScriptHolder.SUBTASK), BehaviorScriptHolder.SUBTASK.codec());
+        createProjectRegistry(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY, () -> new BehaviorScriptHolder<>(BehaviorScriptHolder.CONDITION), BehaviorScriptHolder.CONDITION.codec());
+        createProjectRegistry(AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY, BehaviorTreeBlueprintHolder::new, BehaviorTreeBlueprintHolder.EDITOR_CODEC);
 
         // Editor-editable EnumerableDataBlock types (FSMAnimationState, AnimationLayerSignature, …):
         // one registry each, value type = the engine enum type. These never enter the engine

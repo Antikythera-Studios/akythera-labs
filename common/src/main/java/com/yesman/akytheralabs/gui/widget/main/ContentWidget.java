@@ -27,6 +27,10 @@ import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
+import com.yesman.akytheralabs.akythera.behavior.BehaviorScriptHolder;
+import com.yesman.akytheralabs.akythera.behavior.BehaviorTreeBlueprintHolder;
+import com.yesman.akytheralabs.gui.screen.BehaviorTreeEditorExtension;
+import com.yesman.akythera.core.blueprint.behavior.BehaviorTreeBlueprint;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -57,7 +61,7 @@ import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.processors.AnimatorScriptResourceProcessor;
 import com.yesman.akytheralabs.gui.panel.main.processors.EntityPatchResourceProcessor;
 import com.yesman.akytheralabs.gui.panel.main.processors.ItemPatchResourceProcessor;
-import com.yesman.akytheralabs.gui.screen.AbilityCueEditorScreen;
+import com.yesman.akytheralabs.gui.screen.ScriptBlueprintEditorScreen;
 import com.yesman.akytheralabs.gui.screen.ParticleEditorScreen;
 import com.yesman.akytheralabs.gui.screen.ParticleSystemScreen;
 import com.yesman.akytheralabs.gui.screen.AbilityEditorScreen;
@@ -1075,8 +1079,49 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
 
         @Override
         public void onDoubleClicked() {
-            AkytheraEditorLayoutManager.getInstance().openNewScreen(new AbilityCueEditorScreen(
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ScriptBlueprintEditorScreen<>(
                 resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    /// A data pack task, subtask or condition, edited in a [ScriptBlueprintEditorScreen].
+    public static class BehaviorScriptContent<B> extends DataDrivenObjectContent<B, BehaviorScriptHolder<B>> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/script");
+
+        public BehaviorScriptContent(Font font, ResourceKey<@NonNull B> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ScriptBlueprintEditorScreen<>(
+                resourceKey, AkytheraProject.getCurrentProject().<B, BehaviorScriptHolder<B>>getDataHolderOrThrow(resourceKey)));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class BehaviorTreeContent extends DataDrivenObjectContent<BehaviorTreeBlueprint, BehaviorTreeBlueprintHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/script");
+
+        public BehaviorTreeContent(Font font, ResourceKey<@NonNull BehaviorTreeBlueprint> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            BehaviorTreeBlueprintHolder holder = AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey);
+
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ScriptBlueprintEditorScreen<>(
+                resourceKey, holder, new BehaviorTreeEditorExtension(resourceKey, holder)));
         }
 
         @Override

@@ -235,21 +235,30 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
             });
 
         // Editor-editable EnumerableDataBlock types — grouped under one foldable `datablock`
-        // parent (each type's registry path is `datablock/<enumName>`).
+        // parent (each type's registry path is `datablock/<enumName>`), folded like the data registries.
         if (!DataBlockRegistries.all().isEmpty()) {
-            TreeNode dataBlockRoot = new TreeNode("datablock", false, projectRoot.resolve("data").resolve("datablock"), null);
+            Path dataBlockDir = projectRoot.resolve("data").resolve("datablock");
+            TreeNode dataBlockRoot = new TreeNode("datablock", false, dataBlockDir, null);
             dataBlockRoot.parentNode = dataRoot;
 
             DataBlockRegistries.all().stream()
                 .sorted(Comparator.comparing(entry -> entry.registryKey().identifier().getPath()))
                 .forEach(entry -> {
                     Path registryDir = projectRoot.resolve("data").resolve(entry.registryKey().identifier().getPath());
-                    String displayName = Path.of(entry.registryKey().identifier().getPath()).getFileName().toString();
+                    String[] segments = entry.manager().getEnumType().split("/");
                     ResourceProcessor<?> processor = entry.processor();
-                    TreeNode registryNode = new TreeNode(displayName, false, registryDir, processor);
-                    registryNode.parentNode = dataBlockRoot;
+                    TreeNode parent = dataBlockRoot;
+                    Path parentDir = dataBlockDir;
+
+                    for (int i = 0; i < segments.length - 1; i++) {
+                        parentDir = parentDir.resolve(segments[i]);
+                        parent = getOrCreateGroupingFolder(parent, segments[i], parentDir);
+                    }
+
+                    TreeNode registryNode = new TreeNode(segments[segments.length - 1], false, registryDir, processor);
+                    registryNode.parentNode = parent;
                     scanSubDirectories(registryDir, processor, registryNode);
-                    dataBlockRoot.children.add(registryNode);
+                    parent.children.add(registryNode);
                 });
 
             dataRoot.children.add(dataBlockRoot);

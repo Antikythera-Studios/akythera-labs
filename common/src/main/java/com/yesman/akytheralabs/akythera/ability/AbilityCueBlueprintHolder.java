@@ -9,6 +9,7 @@ import com.yesman.akythera.core.blueprint.script.BlueprintBody;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
+import com.yesman.akytheralabs.akythera.blueprint.ScriptBlueprintHolder;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
@@ -26,7 +27,7 @@ import java.util.stream.Stream;
 /// The editor keeps the graphs, property values and variables as one [BlueprintScriptData], laid out by
 /// [AbilityCueScript] with [AbilityCue] as the script owner. [#makeObject] is the compile step: it lowers the
 /// data into a [BlueprintBody].
-public final class AbilityCueBlueprintHolder extends AbstractDataHolder<AbilityCueBlueprint> {
+public final class AbilityCueBlueprintHolder extends AbstractDataHolder<AbilityCueBlueprint> implements ScriptBlueprintHolder<AbilityCueBlueprint> {
     public static final Codec<AbilityCueBlueprintHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
             BlueprintScriptData.MAP_CODEC.forGetter(h -> h.script)
@@ -43,6 +44,7 @@ public final class AbilityCueBlueprintHolder extends AbstractDataHolder<AbilityC
     private BlueprintScriptData script = new BlueprintScriptData();
 
     /// The members of [AbilityCueScript] the editor is laid out with.
+    @Override
     public BlueprintLayout layout() {
         return Objects.requireNonNull(ScriptModularizeHelper.blueprintLayoutOf(AbilityCue.class));
     }
@@ -78,6 +80,12 @@ public final class AbilityCueBlueprintHolder extends AbstractDataHolder<AbilityC
         return script.firstFailure();
     }
 
+    @Override
+    public Class<?> scriptOwner() {
+        return AbilityCue.class;
+    }
+
+    @Override
     public BlueprintScriptData getScript() {
         return script;
     }

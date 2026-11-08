@@ -3,9 +3,11 @@ package com.yesman.akytheralabs.editor;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.client.api.gui.AkytheraEditBox;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
+import com.yesman.akytheralabs.akythera.behavior.BehaviorTreeData;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
+import com.yesman.akytheralabs.gui.widget.behavior.BehaviorTreeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.script.CutSource;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
@@ -29,7 +31,7 @@ public final class NodeClipboard {
         return INSTANCE;
     }
 
-    private Content content = new Content(ScriptGraphData.EMPTY, Set.of(), false, List.of(), Map.of());
+    private Content content = new Content(ScriptGraphData.EMPTY, Set.of(), false, List.of(), Map.of(), List.of());
 
     /// The cut waiting for the paste that moves its nodes, or null.
     @Nullable
@@ -48,7 +50,7 @@ public final class NodeClipboard {
     }
 
     public void setMachines(final Map<String, StateMachineData> machines) {
-        content = new Content(content.graph(), content.usage(), content.dataFlowOnly(), content.states(), Map.copyOf(machines));
+        content = new Content(content.graph(), content.usage(), content.dataFlowOnly(), content.states(), Map.copyOf(machines), content.treeNodes());
     }
 
     /// Copies the selected nodes of `canvas`. False when none of them can be copied.
@@ -57,7 +59,7 @@ public final class NodeClipboard {
         if (copied == null) return false;
 
         cancelCut();
-        content = new Content(copied, Set.copyOf(canvas.usage()), canvas.isDataFlowOnly(), List.of(), Map.of());
+        content = new Content(copied, Set.copyOf(canvas.usage()), canvas.isDataFlowOnly(), List.of(), Map.of(), List.of());
 
         return true;
     }
@@ -68,7 +70,18 @@ public final class NodeClipboard {
         if (copied == null) return false;
 
         cancelCut();
-        content = new Content(ScriptGraphData.EMPTY, Set.of(), false, List.copyOf(copied), Map.of());
+        content = new Content(ScriptGraphData.EMPTY, Set.of(), false, List.copyOf(copied), Map.of(), List.of());
+
+        return true;
+    }
+
+    /// Copies the selected nodes of `canvas`. False when none is selected.
+    public boolean copy(final BehaviorTreeGraphWidget canvas) {
+        List<BehaviorTreeData.NodeData> copied = canvas.copySelection();
+        if (copied == null) return false;
+
+        cancelCut();
+        content = new Content(ScriptGraphData.EMPTY, Set.of(), false, List.of(), Map.of(), List.copyOf(copied));
 
         return true;
     }
@@ -86,6 +99,16 @@ public final class NodeClipboard {
     /// [#copy], keeping the copied states on `canvas`, marked as cut, until a paste moves them or the cut is
     /// cancelled.
     public boolean cut(final StateMachineGraphWidget canvas) {
+        if (!copy(canvas)) return false;
+
+        holdCut(canvas, canvas, canvas.markSelectionCut());
+
+        return true;
+    }
+
+    /// [#copy], keeping the copied nodes on `canvas`, marked as cut, until a paste moves them or the cut is
+    /// cancelled.
+    public boolean cut(final BehaviorTreeGraphWidget canvas) {
         if (!copy(canvas)) return false;
 
         holdCut(canvas, canvas, canvas.markSelectionCut());
@@ -117,6 +140,15 @@ public final class NodeClipboard {
         if (content.states().isEmpty()) return false;
 
         paste(canvas, () -> canvas.pasteStates(content.states()));
+
+        return true;
+    }
+
+    /// Pastes the copied behavior tree nodes where `canvas` was last pressed. False when there is none.
+    public boolean paste(final BehaviorTreeGraphWidget canvas) {
+        if (content.treeNodes().isEmpty()) return false;
+
+        paste(canvas, () -> canvas.pasteNodes(content.treeNodes()));
 
         return true;
     }
@@ -178,10 +210,29 @@ public final class NodeClipboard {
         pendingCut = null;
     }
 
-    /// Runs the copy, cut and paste keys on `content` when it is a node canvas, and cancels a pending cut on
-    /// `Escape`. A modal, a focused edit box, or a node hosting an inline editor keeps the keys.
+    /// Runs the copy, cut and paste keys on `content` when it is a node canvas or a behavior tree canvas, and cancels
+    /// a pending cut on `Escape`. A modal, a focused edit box, or a node hosting an inline editor keeps the keys.
     public <S extends Screen & ModalAccessibleScreen> boolean keyPressed(final KeyEvent event, final S screen, final AbstractWidget content) {
         if (screen.getFocusOwningModal() != null || AkytheraEditBox.isEditingText(screen)) return false;
+
+        if (content instanceof BehaviorTreeGraphWidget tree && !event.isEscape()) {
+            if (EditorKeyMappings.COPY.matches(event)) {
+                copy(tree);
+                return true;
+            }
+
+            if (EditorKeyMappings.CUT.matches(event)) {
+                cut(tree);
+                return true;
+            }
+
+            if (EditorKeyMappings.PASTE.matches(event)) {
+                paste(tree);
+                return true;
+            }
+
+            return false;
+        }
 
         ScriptNodeGraphWidget canvas = content instanceof ScriptNodeGraphWidget graphWidget ? graphWidget : null;
 
@@ -214,12 +265,14 @@ public final class NodeClipboard {
     /// @param dataFlowOnly the [ScriptNodeGraphWidget#isDataFlowOnly] of the canvas `graph` was copied off
     /// @param states       the states copied off a state-machine canvas
     /// @param machines     the topology of every State Machine the copy names, by machine name
+    /// @param treeNodes    the nodes copied off a behavior tree canvas
     private record Content(
         ScriptGraphData graph,
         Set<ScriptFunction.Usage> usage,
         boolean dataFlowOnly,
         List<StateMachineData.StateData> states,
-        Map<String, StateMachineData> machines
+        Map<String, StateMachineData> machines,
+        List<BehaviorTreeData.NodeData> treeNodes
     ) {
     }
 

@@ -1,19 +1,19 @@
 package com.yesman.akytheralabs.gui.screen;
 
+import com.yesman.akythera.api.world.patch.entity.EntityPatch;
+import net.minecraft.world.entity.Entity;
+import java.util.function.Predicate;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.ScriptFailure;
 import com.yesman.akythera.api.data.modularize.node.ScriptRecorder;
-import com.yesman.akythera.api.world.ability.AbilityCue;
-import com.yesman.akythera.api.world.ability.AbilityCueScript;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
-import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.akythera.ability.AbilityCueBlueprintHolder;
+import com.yesman.akytheralabs.akythera.blueprint.ScriptBlueprintHolder;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -61,12 +61,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
-/// Editor screen for an [AbilityCueBlueprintHolder]: Functions over Variables on the left, the Event Graph
-/// and the function tabs in the center, and the Details panel on the right, all laid out by
-/// [AbilityCueScript] with [AbilityCue] as the graphs' Self.
+/// Editor screen for a [ScriptBlueprintHolder]: Functions, or the [Extension#sidePanel] in their place, over
+/// Variables on the left, the Event Graph and the function tabs in the center, and the Details panel on the right,
+/// all laid out by the holder's layout with [ScriptBlueprintHolder#scriptOwner] as the graphs' Self.
 /// The Details panel shows the cue's properties, the signature of the declared function picked in the
 /// Functions panel, or the default value of the picked variable.
-public final class AbilityCueEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, GraphTabScreen {
+public final class ScriptBlueprintEditorScreen<T> extends Screen implements ModalAccessibleScreen, SafeCloseScreen, GraphTabScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
 
     private final AdjustablePanelManager panelManager;
@@ -76,8 +76,11 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
     private final ComponentDetailsPanel detailsPanel;
     private final BlueprintEditorSession session;
 
-    private final ResourceKey<AbilityCueBlueprint> resourceKey;
-    private final AbilityCueBlueprintHolder holder;
+    private final ResourceKey<T> resourceKey;
+    private final ScriptBlueprintHolder<T> holder;
+
+    /// The tabs the holder's own content adds beside the Event Graph, or null for none.
+    private final @Nullable Extension extension;
 
     /// Working copies of the blueprint's variables; flushed to the holder by [#session] on save.
     private final List<VariableDraft> variableDrafts = new ArrayList<>();
@@ -88,11 +91,16 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
     /// Whether runtime failures were marked on the last frame, so the frame after they are cleared unmarks them.
     private boolean failuresMarked;
 
-    public AbilityCueEditorScreen(final ResourceKey<AbilityCueBlueprint> resourceKey, final AbilityCueBlueprintHolder holder) {
+    public ScriptBlueprintEditorScreen(final ResourceKey<T> resourceKey, final ScriptBlueprintHolder<T> holder) {
+        this(resourceKey, holder, null);
+    }
+
+    public ScriptBlueprintEditorScreen(final ResourceKey<T> resourceKey, final ScriptBlueprintHolder<T> holder, final @Nullable Extension extension) {
         super(Component.literal(resourceKey.identifier().toString()));
 
         this.resourceKey = resourceKey;
         this.holder = holder;
+        this.extension = extension;
 
         graphTabs = new TabPanel(
             minecraft.font,
@@ -106,10 +114,10 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
             variableDrafts.add(new VariableDraft(variable));
         }
 
-        ScriptNodeSuggestions nodeSuggestions = new ScriptNodeSuggestions(() -> AbilityCue.class, variableDrafts);
+        ScriptNodeSuggestions nodeSuggestions = new ScriptNodeSuggestions(holder::scriptOwner, variableDrafts);
 
         session = new BlueprintEditorSession(
-            minecraft.font, this, holder.layout(), AbilityCue.class, holder.getScript(), graphTabs, variableDrafts,
+            minecraft.font, this, holder.layout(), holder.scriptOwner(), holder.getScript(), graphTabs, variableDrafts,
             nodeSuggestions::build,
             this::showDetails,
             ScriptFunction.Usage.SCRIPT
@@ -131,6 +139,7 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
                 .on(TopMenuOption.COMPILE, () -> {
                     ScriptRecorder.removeFailures(resourceKey);
                     session.flush();
+                    if (extension != null) extension.flush();
                     session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
                     Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
                 })
@@ -175,6 +184,8 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
 
         detailsPanel = new ComponentDetailsPanel(minecraft.font, this, session::onSignaturesEdited);
         showDetails(List.of());
+
+        if (extension != null) extension.install(this, graphTabs, detailsPanel);
 
         // A picked variable shows its name, type and default value. With none picked, Details goes back to the
         // properties
@@ -237,7 +248,9 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
             1, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, ratios.get(2)
         );
 
-        leftSplit.get(0).area(session.functionPanel());
+        AdjustablePanelManager.PanelArea sidePanel = extension == null ? null : extension.sidePanel();
+
+        leftSplit.get(0).area(sidePanel == null ? session.functionPanel() : sidePanel);
         leftSplit.get(1).area(variablePanel);
         columns.get(1).area(graphHostArea);
         columns.get(2).area(detailsPanel);
@@ -275,6 +288,7 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
     /// Flattens the session into the holder, then writes the entry to disk.
     private CompletableFuture<Void> save() {
         session.flush();
+        if (extension != null) extension.flush();
 
         WidgetContainerModal awaitModal = AwaitIconModal.openSaving(minecraft.font);
 
@@ -300,7 +314,12 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
 
     @Override
     public List<GraphTab> graphTabs() {
-        return session.graphTabs();
+        if (extension == null) return session.graphTabs();
+
+        List<GraphTab> tabs = new ArrayList<>(session.graphTabs());
+        tabs.addAll(extension.graphTabs());
+
+        return tabs;
     }
 
     private boolean hasUnsavedChanges() {
@@ -331,6 +350,8 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
 
     @Override
     public void onClose() {
+        if (extension != null) extension.close();
+
         AkytheraProject.getCurrentProject().saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());
         AkytheraEditorLayoutManager.getInstance().removeLastScreen();
     }
@@ -411,6 +432,57 @@ public final class AbilityCueEditorScreen extends Screen implements ModalAccessi
         } else {
             super.setFocused(g);
         }
+    }
+
+    /// Content of the holder beyond its blueprint script, edited in tabs beside the Event Graph.
+    public interface Extension {
+        /// Adds the extension's tabs to `tabs`. `details` shows what they select.
+        void install(final Screen screen, final TabPanel tabs, final ComponentDetailsPanel details);
+
+        /// Writes what the tabs edit back to the holder, before a save or a compile reads it.
+        void flush();
+
+        /// Entities the tabs can mirror, see [DebuggableScreen#debugTargetFilter].
+        default Predicate<Entity> debugTargetFilter() {
+            return _ -> true;
+        }
+
+        /// Mirrors the possessed entity onto the tabs, see [DebuggableScreen#onDebugTick].
+        default void onDebugTick(final EntityPatch<?> entityPatch) {
+        }
+
+        /// The node graph canvases the tabs can show, see [GraphTabScreen#graphTabs].
+        default List<GraphTab> graphTabs() {
+            return List.of();
+        }
+
+        /// The panel shown above Variables in place of the Functions panel, or null to keep the Functions panel. Read
+        /// after [#install].
+        default AdjustablePanelManager.@Nullable PanelArea sidePanel() {
+            return null;
+        }
+
+        /// Releases what [#install] built, as the screen closes.
+        default void close() {
+        }
+    }
+
+    public @Nullable Extension getExtension() {
+        return extension;
+    }
+
+    // ***************************************************************
+    // [DebuggableScreen]
+    // ***************************************************************
+
+    @Override
+    public Predicate<Entity> debugTargetFilter() {
+        return extension == null ? _ -> true : extension.debugTargetFilter();
+    }
+
+    @Override
+    public void onDebugTick(final EntityPatch<?> entityPatch) {
+        if (extension != null) extension.onDebugTick(entityPatch);
     }
 
     @Override

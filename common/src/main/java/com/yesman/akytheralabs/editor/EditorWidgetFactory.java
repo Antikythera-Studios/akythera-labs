@@ -74,6 +74,7 @@ import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.viewer.DirectionArrowComponent;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -85,6 +86,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
@@ -176,7 +178,7 @@ public final class EditorWidgetFactory {
     /// a body reporting its anonymous subclass and a `Holder<T>`'s `T` being erased. [#owner] is the
     /// holder in both cases, never the element.
     public sealed interface ValueSlot
-        permits FieldSlot, ElementSlot, PropertySlot, ShapedElementSlot, ShapedComponentSlot, WritingSlot, RebuildingSlot
+        permits FieldSlot, ElementSlot, PropertySlot, ShapedElementSlot, ShapedComponentSlot, ShapedVariantSlot, WritingSlot, RebuildingSlot
     {
         Class<?> type();
 
@@ -478,6 +480,55 @@ public final class EditorWidgetFactory {
         }
     }
 
+    /// The record a [ValueShape.Variant] slot holds now, laid out by that record's shape. A write keeps the record and
+    /// replaces the whole value in `variant`.
+    public record ShapedVariantSlot(ValueSlot variant) implements ValueSlot {
+        @Override
+        public ValueShape shape() {
+            return ((ValueShape.Variant) variant.shape()).options().get(((ValueShape.VariantValue) variant.get()).option());
+        }
+
+        @Override
+        public Class<?> type() {
+            return shape().type();
+        }
+
+        @Override
+        public EditorEditable annotation() {
+            return DEFAULT_EDITABLE;
+        }
+
+        @Override
+        public String label() {
+            return variant.label();
+        }
+
+        @Override
+        public Component labelComponent() {
+            return variant.labelComponent();
+        }
+
+        @Override
+        public Object owner() {
+            return variant.owner();
+        }
+
+        @Override
+        public @Nullable Field field() {
+            return null;
+        }
+
+        @Override
+        public Object get() {
+            return ((ValueShape.VariantValue) variant.get()).value();
+        }
+
+        @Override
+        public void set(@Nullable Object value) {
+            variant.set(new ValueShape.VariantValue(((ValueShape.VariantValue) variant.get()).option(), (ValueShape.RecordValue) value));
+        }
+    }
+
     /// Carries the [EditorEditable] defaults a [PropertySlot] row takes.
     @EditorEditable
     private static final Object DEFAULTS_CARRIER = new Object();
@@ -647,6 +698,7 @@ public final class EditorWidgetFactory {
         registerWidgetProducer(AkytheraProject.EditorSoundEventAccessor.class, EditorWidgetFactory::soundEventPopup);
         registerWidgetProducer(Holder.class, new HolderProducer());
         registerWidgetProducer(ResourceKey.class, EditorWidgetFactory::resourceKeyPopup);
+        registerWidgetProducer(TagKey.class, EditorWidgetFactory::tagKeyCombo);
         registerWidgetProducer(Enum.class, EditorWidgetFactory::enumCombo);
         registerWidgetProducer(ScriptGraphData.class, EditorWidgetFactory::nodeGraphButton);
         registerWidgetProducer(Quaterniond.class, EditorWidgetFactory::quaternionBoxes);
@@ -895,6 +947,8 @@ public final class EditorWidgetFactory {
     /// - a sequence: a header row with a `+` button, then each element one level deeper with a `✕`
     ///   button on its first row;
     /// - a record: a header row, then each component one level deeper;
+    /// - a sealed interface of records: a combo of its records, then the components of the picked one one level
+    ///   deeper;
     /// - anything else: its producer's rows, or its value read-only when no producer covers its type.
     ///
     /// @param remove what the `✕` button on the slot's first row does, or null for no button
@@ -932,6 +986,17 @@ public final class EditorWidgetFactory {
                     appendShaped(table, new ShapedComponentSlot(slot, i), indent + INDENT, rebuild, null);
                 }
             }
+            case ValueShape.Variant variant -> {
+                table.newRow(indent, slotLabel(slot)).addWidget(variantCombo(slot, variant, rebuild));
+                if (remove != null) table.addWidget(sectionButton(LocalizedMessage.handwritten("✕"), remove));
+
+                if (slot.get() != null) {
+                    ShapedVariantSlot picked = new ShapedVariantSlot(slot);
+                    int size = ((ValueShape.RecordShape) picked.shape()).shapes().size();
+
+                    for (int i = 0; i < size; i++) appendShaped(table, new ShapedComponentSlot(picked, i), indent + INDENT, rebuild, null);
+                }
+            }
             default -> {
                 WidgetProducer producer = findProducer(slot.type());
 
@@ -946,8 +1011,34 @@ public final class EditorWidgetFactory {
         }
     }
 
+    /// A combo over the records of `variant`, by name. Picking one writes it blank, as one undo step.
+    @SuppressWarnings("unchecked")
+    private EditorComboBox<Object> variantCombo(ValueSlot slot, ValueShape.Variant variant, Runnable rebuild) {
+        List<Object> options = new ArrayList<>();
+
+        for (int i = 0; i < variant.options().size(); i++) options.add(i);
+
+        EditorComboBox<Object> box = new EditorComboBox<>(
+            font,
+            columnStart(slot, 0, 1), columnSize(slot, 0, 1),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
+            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
+            AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
+            () -> slot.get() instanceof ValueShape.VariantValue value ? value.option() : null,
+            v -> pushValueChange(slot, new ValueShape.VariantValue((Integer) v, (ValueShape.RecordValue) variant.options().get((Integer) v).blank()), rebuild),
+            Math.min(8, options.size()),
+            Component.empty(),
+            options,
+            v -> ParseUtils.camelToSpacedPascal(variant.options().get((Integer) v).type().getSimpleName())
+        );
+
+        box.setClearable(false);
+
+        return box;
+    }
+
     /// Writes `value` through `slot` as one undo step, re-rendering after it and after its undo/redo.
-    private static void pushValueChange(ValueSlot slot, Object value, Runnable rebuild) {
+    private static void pushValueChange(ValueSlot slot, @Nullable Object value, Runnable rebuild) {
         Object oldValue = slot.get();
 
         slot.set(value);
@@ -1139,19 +1230,31 @@ public final class EditorWidgetFactory {
         if (producer == null) {
             // Nested editor object: a header label, then the value's own @EditorEditable rows one
             // level deeper. The runtime value decides — a field declared as an abstract carrier owns
-            // no rows itself, and the recursion dispatches on the runtime class anyway.
+            // no rows itself, and the recursion dispatches on the runtime class anyway. A nullable one
+            // with a default element carries a `+` while unset and a `✕` while set.
             return (table, inst, indentLevel, rebuild) -> {
                 Object nested = tryGet(f, inst);
+                ValueSlot nestedSlot = slot(new FieldSlot(editorField, inst));
+                Supplier<@Nullable Object> blank = rebuild != null && nestedSlot.nullable()
+                    ? defaultElementFactory(nestedSlot, f.getType(), null)
+                    : null;
 
-                if (nested == null || EditorFieldScanner.fieldsOf(nested.getClass()).isEmpty()) {
+                if (blank != null) {
+                    table.newRow((indentLevel + depth) * INDENT).addWidget(headerLabel(Component.translatable(labelText)));
+                    table.addWidget(sectionButton(
+                        LocalizedMessage.handwritten(nested == null ? "+" : "✕"),
+                        () -> pushValueChange(nestedSlot, nested == null ? blank.get() : null, rebuild)
+                    ));
+
+                    if (nested == null) return;
+                } else if (nested == null || EditorFieldScanner.fieldsOf(nested.getClass()).isEmpty()) {
                     // TODO: editor for f.getType()
-                    ValueSlot slot = slot(new FieldSlot(editorField, inst));
-                    table.newRow((indentLevel + depth) * INDENT, slotLabel(slot))
-                        .addWidget(readOnlyDisplay(slot));
+                    table.newRow((indentLevel + depth) * INDENT, slotLabel(nestedSlot))
+                        .addWidget(readOnlyDisplay(nestedSlot));
                     return;
+                } else {
+                    table.newRow((indentLevel + depth) * INDENT).addWidget(headerLabel(Component.translatable(labelText)));
                 }
-
-                table.newRow((indentLevel + depth) * INDENT).addWidget(headerLabel(Component.translatable(labelText)));
 
                 Object nestedInherited = inherited == null ? null : tryGet(f, inherited);
                 Class<? extends Model3DViewerComponent> outerViewerFocus = enclosingViewerFocus;
@@ -1295,13 +1398,15 @@ public final class EditorWidgetFactory {
     /// declaring the list, handed `entries` when it takes them, or null when the annotation leaves it
     /// blank. A name matching no such method throws. The factory itself may answer null — nothing to
     /// build an element from yet.
+    ///
+    /// For a nullable nested editor object, `entries` is null and the method takes nothing.
     private static @Nullable Supplier<@Nullable Object> defaultElementFactory(
-        ValueSlot listSlot, @Nullable Class<?> elementType, List<Object> entries
+        ValueSlot listSlot, @Nullable Class<?> elementType, @Nullable List<Object> entries
     ) {
         String name = listSlot.annotation().defaultElement();
         if (name.isBlank()) return null;
 
-        Method factory = findEditorMethod(declaringClassOf(listSlot), name, 1);
+        Method factory = findEditorMethod(declaringClassOf(listSlot), name, entries == null ? 0 : 1);
 
         if (factory.getParameterCount() == 1 && !factory.getParameterTypes()[0].isAssignableFrom(List.class)) {
             throw new IllegalStateException(
@@ -2430,6 +2535,47 @@ public final class EditorWidgetFactory {
         factory.bindPlaceholder(slot, box);
 
         return List.of(box);
+    }
+
+    /// A combo over the tags of the registry the slot's [TagKey] names, as the loaded world lists them. A tag
+    /// keyed [DataHolder#EMPTY_REFERENCE] is nothing picked.
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static List<? extends AbstractWidget> tagKeyCombo(EditorWidgetFactory factory, ValueSlot slot) {
+        TagKey<?> current = (TagKey<?>) slot.get();
+        ClientLevel level = Minecraft.getInstance().level;
+        Optional<? extends Registry<?>> registry = level == null
+            ? Optional.empty()
+            : level.registryAccess().lookup((ResourceKey) current.registry());
+        List<Object> tags = registry
+            .map(lookup -> lookup.listTagIds()
+                .sorted(Comparator.comparing((TagKey<?> tag) -> tag.location().toString()))
+                .<Object>map(tag -> tag)
+                .toList())
+            .orElse(List.of());
+
+        // Late-bound cell: the change consumer is a constructor argument and cannot capture
+        // the widget it configures.
+        EditorComboBox<Object>[] ref = new EditorComboBox[1];
+
+        ref[0] = new EditorComboBox<>(
+            factory.font,
+            columnStart(slot, 0, 1), columnSize(slot, 0, 1),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
+            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
+            AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
+            slot::get,
+            v -> pushSlotChange(slot, v, ref[0]),
+            Math.min(8, tags.size()),
+            Component.empty(),
+            tags,
+            v -> ((TagKey<?>) v).location().equals(DataHolder.EMPTY_REFERENCE) ? "<none>" : "#" + ((TagKey<?>) v).location()
+        );
+
+        ref[0].setEmptyMessage(Component.translatable(LangKeys.GUI_WIDGET_ADVANCED_COMBO_BOX_NO_CANDIDATES));
+        ref[0].setClearable(false);
+        ref[0].setSearchable(true);
+
+        return List.of(ref[0]);
     }
 
     /// A combo over every entry of the registry a [ValueShape.RegistryLeaf] slot picks from, the project's
