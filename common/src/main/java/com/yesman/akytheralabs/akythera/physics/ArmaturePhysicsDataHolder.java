@@ -10,6 +10,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.akythera.physics.constraint.BoneConstraintStackHolder;
+import com.yesman.akytheralabs.akythera.physics.ik.BodyTurnHolder;
 import com.yesman.akytheralabs.akythera.physics.ik.IKChainHolder;
 import com.yesman.akytheralabs.akythera.physics.ik.RootFittingHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
@@ -48,6 +49,9 @@ public final class ArmaturePhysicsDataHolder {
     @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_ROOT_FITTING, order = 1)
     private final RootFittingHolder rootFitting;
 
+    @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_BODY_TURN, order = 2)
+    private final BodyTurnHolder bodyTurn;
+
     /// The entity the bodies are previewed on, or null for none.
     private @Nullable Identifier previewEntityType;
 
@@ -63,6 +67,7 @@ public final class ArmaturePhysicsDataHolder {
         this.previewEntityType = previewEntityType;
         this.simulation = new RagdollParametersHolder(data == null ? ArmaturePhysicsData.RagdollParameters.DEFAULT : data.simulation());
         this.rootFitting = new RootFittingHolder(data == null ? ArmaturePhysicsData.RootFitting.DEFAULT : data.rootFitting());
+        this.bodyTurn = new BodyTurnHolder(data == null ? ArmaturePhysicsData.BodyTurn.DEFAULT : data.bodyTurn());
 
         if (data != null) {
             data.bodies().forEach((bone, body) -> bodies.put(bone, new BoneBodyHolder(body)));
@@ -105,7 +110,8 @@ public final class ArmaturePhysicsDataHolder {
         }
 
         return new ArmaturePhysicsData(
-            Map.copyOf(madeBodies), Map.copyOf(madeConstraints), simulation.makeObject(), List.copyOf(madeChains), rootFitting.makeObject()
+            Map.copyOf(madeBodies), Map.copyOf(madeConstraints), simulation.makeObject(), List.copyOf(madeChains), rootFitting.makeObject(),
+            bodyTurn.makeObject()
         );
     }
 

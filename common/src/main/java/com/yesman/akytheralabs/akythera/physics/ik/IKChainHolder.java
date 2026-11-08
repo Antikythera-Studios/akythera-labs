@@ -164,6 +164,15 @@ public final class IKChainHolder {
         @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_RESET_STEP_TIME, order = 10, min = 0.01F)
         private float resetStepTime;
 
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_TURN_LEAD, order = 11)
+        private IKChain.TurnLead turnLead;
+
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_GAIT_GROUP, order = 12)
+        private String gaitGroup;
+
+        @EditorEditable(label = LangKeys.GUI_ARMATURE_PHYSICS_SCREEN_WIDGET_HOLD_FACING, order = 13)
+        private boolean holdFacing;
+
         public SteppingHolder(final IKChain.Stepping stepping) {
             distanceThreshold = stepping.distanceThreshold();
             angularThreshold = stepping.angularThreshold();
@@ -176,12 +185,15 @@ public final class IKChainHolder {
             resetDistance = stepping.resetDistance();
             resetAngle = stepping.resetAngle();
             resetStepTime = stepping.resetStepTime();
+            turnLead = stepping.turnLead();
+            gaitGroup = stepping.gaitGroup();
+            holdFacing = stepping.holdFacing();
         }
 
         public IKChain.Stepping makeObject() {
             return new IKChain.Stepping(
                 distanceThreshold, angularThreshold, stepHeight, rayMaxDistance, stepTime, stepCooldown, prediction, resetTime, resetDistance, resetAngle,
-                resetStepTime
+                resetStepTime, turnLead, gaitGroup.strip(), holdFacing
             );
         }
     }

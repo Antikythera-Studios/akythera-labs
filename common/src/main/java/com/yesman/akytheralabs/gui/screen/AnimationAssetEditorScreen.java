@@ -295,7 +295,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
     /// Two rows per IK chain of the vendor armature, and per chain the sidecar holds curves for: its IK Alpha and its
     /// Plant curve. A row picks its curve for the Curve Editor, marked with ● while the curve exists, and its ✕
-    /// removes the curve.
+    /// removes the curve. A Plant row's ⇓ fills the curve with [IKCurves#detectPlant].
     private void fillCurveList() {
         listedVendor = holder.getVendor();
         curveListTable.clearWidgets();
@@ -322,7 +322,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
                         pickedCurve = pick;
                         refreshArmatureView();
                     })
-                    .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H + 2))
+                    .xUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(plant ? 2 * (ROW_H + 2) : ROW_H + 2))
                     .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H))
                     .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT)
                     .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
@@ -355,6 +355,35 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
                 removeButton.active = exists;
 
                 curveListTable.newRow().addWidget(pickButton).addWidget(removeButton);
+
+                if (!plant) continue;
+
+                AkytheraButton detectButton = AkytheraButton
+                    .buttonBuilder(font, LocalizedMessage.handwritten("⇓"), () -> {
+                        AnimationClip clip = holder.getAccessor().getOrHandleException(AkytheraLabs.LOGGER::error);
+                        FloatCurve detected = clip == null ? null : IKCurves.detectPlant(clip, holder.getVendor(), tipBone);
+
+                        if (detected == null) return;
+
+                        IKCurves before = holder.getIKCurves(tipBone);
+                        IKCurves after = new IKCurves(before == null ? null : before.alpha(), detected);
+                        Consumer<IKCurves> setter = written -> {
+                            holder.setIKCurves(tipBone, written);
+                            fillCurveList();
+                        };
+
+                        setter.accept(after);
+                        HistoryManager.getInstance().pushHistory(new DataChange<>(before, after, setter));
+                    })
+                    .xUnits(AnchoredWidget.pixel(ROW_H + 2), AnchoredWidget.pixel(ROW_H))
+                    .yUnits(AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H))
+                    .horizontalAnchorType(AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH)
+                    .verticalAnchorType(AnchoredWidget.VerticalAnchorType.TOP_HEIGHT)
+                    .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
+                    .tooltip(_ -> Tooltip.create(Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_MESSAGE_DETECT_PLANT)))
+                    .build();
+
+                curveListTable.addWidget(detectButton);
             }
         }
 
