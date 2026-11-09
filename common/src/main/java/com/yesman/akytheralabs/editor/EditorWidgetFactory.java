@@ -25,6 +25,7 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akythera.core.util.helper.QuaternionUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.ProjectTags;
 import com.yesman.akytheralabs.akythera.animation.AnimationRef;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
@@ -113,6 +114,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /// Builds [WidgetTable] rows of editor widgets from a holder's `@EditorEditable` fields.
 /// Instantiate once per panel; call [#fillWidgetTable] on every selection change.
@@ -1011,12 +1013,14 @@ public final class EditorWidgetFactory {
         }
     }
 
-    /// A combo over the records of `variant`, by name. Picking one writes it blank, as one undo step.
+    /// A combo over the records of `variant`, by name. Picking another one writes it blank, as one undo step.
     @SuppressWarnings("unchecked")
     private EditorComboBox<Object> variantCombo(ValueSlot slot, ValueShape.Variant variant, Runnable rebuild) {
         List<Object> options = new ArrayList<>();
 
         for (int i = 0; i < variant.options().size(); i++) options.add(i);
+
+        Supplier<@Nullable Integer> picked = () -> slot.get() instanceof ValueShape.VariantValue value ? value.option() : null;
 
         EditorComboBox<Object> box = new EditorComboBox<>(
             font,
@@ -1024,8 +1028,12 @@ public final class EditorWidgetFactory {
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
             AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
-            () -> slot.get() instanceof ValueShape.VariantValue value ? value.option() : null,
-            v -> pushValueChange(slot, new ValueShape.VariantValue((Integer) v, (ValueShape.RecordValue) variant.options().get((Integer) v).blank()), rebuild),
+            picked::get,
+            v -> {
+                if (Objects.equals(v, picked.get())) return; // also fired by WidgetTable#initialize
+
+                pushValueChange(slot, new ValueShape.VariantValue((Integer) v, (ValueShape.RecordValue) variant.options().get((Integer) v).blank()), rebuild);
+            },
             Math.min(8, options.size()),
             Component.empty(),
             options,
@@ -1525,7 +1533,7 @@ public final class EditorWidgetFactory {
 
     /// Nearest registered producer for the boxed value type, breadth-first over the class itself,
     /// its interfaces in declaration order, then its superclass.
-    private static @Nullable WidgetProducer findProducer(Class<?> valueType) {
+    static @Nullable WidgetProducer findProducer(Class<?> valueType) {
         Deque<Class<?>> queue = new ArrayDeque<>();
         Set<Class<?>> visited = new HashSet<>();
         queue.add(ParseUtils.box(valueType));
@@ -2537,21 +2545,24 @@ public final class EditorWidgetFactory {
         return List.of(box);
     }
 
-    /// A combo over the tags of the registry the slot's [TagKey] names, as the loaded world lists them. A tag
-    /// keyed [DataHolder#EMPTY_REFERENCE] is nothing picked.
+    /// A combo over the tags of the registry the slot's [TagKey] names: the loaded world's and the project's
+    /// ([ProjectTags]). A tag keyed [DataHolder#EMPTY_REFERENCE] is nothing picked.
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static List<? extends AbstractWidget> tagKeyCombo(EditorWidgetFactory factory, ValueSlot slot) {
         TagKey<?> current = (TagKey<?>) slot.get();
         ClientLevel level = Minecraft.getInstance().level;
+        AkytheraProject project = AkytheraProject.getCurrentProject();
         Optional<? extends Registry<?>> registry = level == null
             ? Optional.empty()
             : level.registryAccess().lookup((ResourceKey) current.registry());
-        List<Object> tags = registry
-            .map(lookup -> lookup.listTagIds()
-                .sorted(Comparator.comparing((TagKey<?> tag) -> tag.location().toString()))
-                .<Object>map(tag -> tag)
-                .toList())
-            .orElse(List.of());
+        List<Object> tags = Stream.concat(
+                registry.map(lookup -> (Stream<TagKey<?>>) lookup.listTagIds()).orElse(Stream.empty()),
+                project.getTags().tagKeysOf(current.registry(), project.getProjectName()).stream()
+            )
+            .distinct()
+            .sorted(Comparator.comparing((TagKey<?> tag) -> tag.location().toString()))
+            .<Object>map(tag -> tag)
+            .toList();
 
         // Late-bound cell: the change consumer is a constructor argument and cannot capture
         // the widget it configures.

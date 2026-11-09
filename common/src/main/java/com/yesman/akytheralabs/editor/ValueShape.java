@@ -506,8 +506,8 @@ public sealed interface ValueShape {
     }
 
     /// The shape of a value declared as `type` inside a record: a list or set by its element's shape, a
-    /// record by its components' shapes, a sealed interface of records by the shapes of those records, and
-    /// anything else by its class. None of it has a codec of its own.
+    /// record no widget producer covers by its components' shapes, a sealed interface of records by the
+    /// shapes of those records, and anything else by its class. None of it has a codec of its own.
     static ValueShape of(Type type) {
         if (type instanceof ParameterizedType parameterized
             && parameterized.getActualTypeArguments().length == 1
@@ -527,7 +527,7 @@ public sealed interface ValueShape {
             return new Variant(raw, Arrays.stream(raw.getPermittedSubclasses()).map(option -> (RecordShape) of(option)).toList());
         }
 
-        if (raw.isRecord()) {
+        if (raw.isRecord() && EditorWidgetFactory.findProducer(raw) == null) {
             return new RecordShape(
                 raw, Arrays.stream(raw.getRecordComponents()).map(c -> of(c.getGenericType())).toList(), null);
         }

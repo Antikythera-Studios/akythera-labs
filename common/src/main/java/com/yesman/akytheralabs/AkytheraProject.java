@@ -1569,6 +1569,8 @@ public final class AkytheraProject {
 
     private final ProjectLocalization localization;
 
+    private final ProjectTags tags;
+
     public AkytheraProject(String projectName, String versionString, Path projectRoot) {
         this(projectName, versionString, projectRoot, new HashMap<>(), new LinkedHashMap<>(), "none");
     }
@@ -1588,6 +1590,7 @@ public final class AkytheraProject {
         this.savedFolderStates = new LinkedHashMap<>(savedFolderStates);
         this.savedFocusedNode = savedFocusedNode;
         this.localization = ProjectLocalization.load(projectRoot);
+        this.tags = ProjectTags.load(projectRoot);
 
         // Must match with 'DATAPACK_REGISTRIES'
         // Manually gives registry keys to generated typed registry
@@ -1635,6 +1638,14 @@ public final class AkytheraProject {
 
     public void saveLocalization() {
         localization.save(projectRoot);
+    }
+
+    public ProjectTags getTags() {
+        return tags;
+    }
+
+    public void saveTags() {
+        tags.save(projectRoot);
     }
 
     /// Rename the project on disk and rebuild every namespace-bearing piece
@@ -1700,6 +1711,8 @@ public final class AkytheraProject {
         // The blocking form: this runs inside the project-settings modal's apply, which closes its
         // own modal afterwards — an await modal stacked on top would be the one that got closed.
         writeAllEntries();
+        tags.remapNamespace(oldName, newName);
+        saveTags();
         persistMetadata();
 
         AkytheraEditorLayoutManager.getInstance().<MainEditorScreen>ifLastScreen(screen -> {
@@ -2680,7 +2693,8 @@ public final class AkytheraProject {
     /// [Codec] (see [#collectDataPackEntries]) and placed at `data/<entryNs>/<registryNs>/<registryPath>/…`.
     /// The registry-namespace folder is skipped only for `minecraft`; Akythera registries live under
     /// `akythera`, so their entries land under an `akythera/` folder. The `pack.mcmeta` is stamped with
-    /// the running game's pack format.
+    /// the running game's pack format. The project's tags land under `data/<projectName>/tags/`, see
+    /// [ProjectTags#exportedTagFiles].
     ///
     /// `includeAssets` additionally copies the project's `assets/` tree verbatim into
     /// `data/<projectName>/assets/`, where
@@ -2712,6 +2726,9 @@ public final class AkytheraProject {
         for (DataBlockRegistries.Entry<?, ?> entry : DataBlockRegistries.all()) {
             collectDataBlockEntries(entry, ops, dataEntries);
         }
+
+        tags.exportedTagFiles().forEach((path, file) ->
+            dataEntries.put("data/" + projectName + "/" + path, GSON_PRETTY.toJson(file).getBytes(StandardCharsets.UTF_8)));
 
         Set<Path> usedSoundFiles = usedSoundFiles();
 

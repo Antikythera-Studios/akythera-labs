@@ -54,6 +54,7 @@ import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ItemSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.ProjectTagsModal;
 import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
@@ -157,6 +158,7 @@ public final class ItemPatchEditorScreen extends Screen
             () -> handleQuitRequest(),
             TopMenuBar.actions()
                 .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
+                .on(TopMenuOption.PROJECT_TAGS, () -> ProjectTagsModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.COMPILE, this::compile)
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))

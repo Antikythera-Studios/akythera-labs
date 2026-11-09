@@ -12,6 +12,7 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
+import com.yesman.akytheralabs.ProjectTags;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.editor.ContentClipboard;
 import com.yesman.akytheralabs.editor.historytrack.FileCreation;
@@ -277,6 +278,8 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
                             String name = path.getFileName().toString();
 
                             if (Files.isDirectory(path)) {
+                                if (path.equals(project.getProjectRoot().resolve("data").resolve(ProjectTags.DIRECTORY))) return;
+
                                 ContentWidget<?> w = new ContentWidget.FolderContent(font, name, path, !project.isReservedDirectory(path));
 
                                 if (query.isEmpty() || name.toLowerCase().contains(query)) {

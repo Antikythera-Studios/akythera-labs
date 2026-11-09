@@ -71,6 +71,7 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
                 .on(TopMenuOption.DELETE_PROJECT, () -> DeleteProjectModalGenerator.open(font))
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(font))
                 .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(font))
+                .on(TopMenuOption.PROJECT_TAGS, () -> ProjectTagsModal.open(font))
                 .on(TopMenuOption.PROJECT_SETTINGS, () -> ProjectSetupModalGenerator.open(font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.ENTITY_PREVIEW_MODEL_MAPPING, () -> EntityPreviewModelMappingModal.open(font))

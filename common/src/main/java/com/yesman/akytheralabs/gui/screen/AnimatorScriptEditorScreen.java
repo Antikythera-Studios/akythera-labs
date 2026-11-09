@@ -58,6 +58,7 @@ import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.ProjectTagsModal;
 import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.RegistryLookupModal;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
@@ -218,6 +219,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
             () -> handleQuitRequest(),
             TopMenuBar.actions()
                 .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
+                .on(TopMenuOption.PROJECT_TAGS, () -> ProjectTagsModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.COMPILE, this::compile)
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(font))

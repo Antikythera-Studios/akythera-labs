@@ -82,6 +82,7 @@ import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
+import com.yesman.akytheralabs.gui.widget.main.ProjectTagsModal;
 import com.yesman.akytheralabs.gui.widget.main.McpServerModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuBar;
 import com.yesman.akytheralabs.gui.widget.main.TopMenuOption;
@@ -270,6 +271,7 @@ public final class EntityPatchEditorScreen extends Screen
             () -> handleQuitRequest(),
             TopMenuBar.actions()
                 .on(TopMenuOption.LOCALIZATION, () -> LocalizationManagerModal.open(minecraft.font))
+                .on(TopMenuOption.PROJECT_TAGS, () -> ProjectTagsModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.COMPILE, this::compile)
                 // Parent picker: the entity patch classes the patched entity can be built as, and the
