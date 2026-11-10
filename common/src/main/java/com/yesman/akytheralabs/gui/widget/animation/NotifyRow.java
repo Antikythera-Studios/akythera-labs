@@ -5,6 +5,7 @@ import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
@@ -24,12 +25,15 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /// One notify-track row. Self-contained: owns its notify / notify-state widgets, its
@@ -288,6 +292,7 @@ public final class NotifyRow extends TimelineTrackEntry {
                 .onPress(_ -> openTypePicker(
                     Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_SELECT_NOTIFY_TYPE),
                     AkytheraRegistries.Frozen.ANIM_NOTIFY_TYPES,
+                    _ -> true,
                     mapCodec -> {
                         Supplier<AnimationNotifyHolder<?>> factory = DataHolderMapper.notifyHolderFor(mapCodec);
 
@@ -311,6 +316,11 @@ public final class NotifyRow extends TimelineTrackEntry {
                 .onPress(_ -> openTypePicker(
                     Component.translatable(LangKeys.GUI_NOTIFY_TRACKS_SELECT_NOTIFY_STATE_TYPE),
                     AkytheraRegistries.Frozen.ANIM_NOTIFY_STATE_TYPES,
+                    mapCodec -> {
+                        Supplier<AnimationNotifyStateHolder<?>> factory = DataHolderMapper.notifyStateHolderFor(mapCodec);
+
+                        return parent.playableAnimationHolder() instanceof AnimationMontageHolder || factory == null || !factory.get().montageOnly();
+                    },
                     mapCodec -> {
                         Supplier<AnimationNotifyStateHolder<?>> factory = DataHolderMapper.notifyStateHolderFor(mapCodec);
 
@@ -350,8 +360,14 @@ public final class NotifyRow extends TimelineTrackEntry {
         if (parent.getSelected() != null && parent.getSelected().track() == track) parent.removeSelectedNotify();
     }
 
-    private <T> void openTypePicker(Component title, Registry<T> registry, Consumer<T> onPick) {
-        RegistryLookupModal<T> modal = new RegistryLookupModal<>(Minecraft.getInstance().font, title, registry, onPick);
+    private <T> void openTypePicker(Component title, Registry<T> registry, Predicate<T> listed, Consumer<T> onPick) {
+        List<ResourceKey<T>> keys = registry.entrySet().stream()
+            .filter(entry -> listed.test(entry.getValue()))
+            .map(Map.Entry::getKey)
+            .toList();
+        RegistryLookupModal<T> modal = new RegistryLookupModal<>(
+            Minecraft.getInstance().font, title, keys, key -> onPick.accept(registry.getValueOrThrow(key))
+        );
 
         ModalManager.getInstance().openModalWidgetAt(modal, sheetMenuX, sheetMenuY);
     }

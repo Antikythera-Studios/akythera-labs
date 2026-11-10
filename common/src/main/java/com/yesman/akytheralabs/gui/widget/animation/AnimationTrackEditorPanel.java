@@ -199,6 +199,10 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         rebuildEntries();
     }
 
+    public PlayableAnimationHolder<?> playableAnimationHolder() {
+        return playableAnimationHolder;
+    }
+
     public NotifyTrackHolder holder() {
         return holder;
     }

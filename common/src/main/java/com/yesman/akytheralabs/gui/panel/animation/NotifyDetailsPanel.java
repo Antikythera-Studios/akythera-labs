@@ -80,10 +80,15 @@ public final class NotifyDetailsPanel extends AdjustablePanelManager.PanelArea {
 
     /// Populates the table with the annotated fields of the notify's timing and of its type holder.
     private void fillNotifyProperties(Object notifyInstance, Object notifyTypeHolder) {
+        Runnable rebuild = () -> {
+            fillNotifyProperties(notifyInstance, notifyTypeHolder);
+            table.initialize(false);
+        };
+
         table.clearWidgets();
 
-        factory.appendRowsFrom(table, notifyInstance);
-        factory.appendRowsFrom(table, notifyTypeHolder);
+        factory.appendRowsFrom(table, notifyInstance, rebuild);
+        factory.appendRowsFrom(table, notifyTypeHolder, rebuild);
 
         table.relocate(getRectangle());
     }

@@ -24,9 +24,11 @@ import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleSystemBlueprint;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
+import com.yesman.akythera.core.blueprint.warping.MotionWarpTargetScriptBlueprint;
 import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
+import com.yesman.akytheralabs.akythera.animation.MotionWarpTargetScriptHolder;
 import com.yesman.akytheralabs.akythera.behavior.BehaviorScriptHolder;
 import com.yesman.akytheralabs.akythera.behavior.BehaviorTreeBlueprintHolder;
 import com.yesman.akytheralabs.gui.screen.BehaviorTreeEditorExtension;
@@ -1101,6 +1103,25 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
         public void onDoubleClicked() {
             AkytheraEditorLayoutManager.getInstance().openNewScreen(new ScriptBlueprintEditorScreen<>(
                 resourceKey, AkytheraProject.getCurrentProject().<B, BehaviorScriptHolder<B>>getDataHolderOrThrow(resourceKey)));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class MotionWarpTargetContent extends DataDrivenObjectContent<MotionWarpTargetScriptBlueprint, MotionWarpTargetScriptHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/script");
+
+        public MotionWarpTargetContent(Font font, ResourceKey<@NonNull MotionWarpTargetScriptBlueprint> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ScriptBlueprintEditorScreen<>(
+                resourceKey, AkytheraProject.getCurrentProject().<MotionWarpTargetScriptBlueprint, MotionWarpTargetScriptHolder>getDataHolderOrThrow(resourceKey)));
         }
 
         @Override

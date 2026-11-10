@@ -18,6 +18,12 @@ public final class CancelOnMoveNotifyStateHolder extends AnimationNotifyStateHol
         return new CancelOnMoveNotifyState();
     }
 
+    /// Only the montage players are read for it.
+    @Override
+    public boolean montageOnly() {
+        return true;
+    }
+
     @Override
     public LogicalSide logicalSide() {
         return LogicalSide.BOTH;

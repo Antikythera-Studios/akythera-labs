@@ -5,6 +5,7 @@ import com.yesman.akythera.api.animation.notify.impl.ExtendDeathTimeNotifyState;
 import com.yesman.akythera.api.animation.notify.impl.LivingHurtNotify;
 import com.yesman.akythera.api.animation.notify.impl.LivingHurtNotifyState;
 import com.yesman.akythera.api.animation.notify.impl.LockMovementNotifyState;
+import com.yesman.akythera.api.animation.notify.impl.MotionWarpingNotifyState;
 import com.yesman.akythera.api.animation.notify.impl.LogNotify;
 import com.yesman.akythera.api.animation.notify.impl.LogNotifyState;
 import com.yesman.akythera.api.animation.notify.impl.PlaySoundNotify;
@@ -16,6 +17,7 @@ import com.yesman.akytheralabs.akythera.animation.notify.impl.ExtendDeathTimeNot
 import com.yesman.akytheralabs.akythera.animation.notify.impl.LivingHurtNotifyHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.LivingHurtNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.LockMovementNotifyStateHolder;
+import com.yesman.akytheralabs.akythera.animation.notify.impl.MotionWarpingNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.LogNotifyHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.LogNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.PlaySoundNotifyHolder;
@@ -56,5 +58,6 @@ public class AkytheraLabs {
         DataHolderMapper.registerNotifyState(StartRagdollNotifyState.CODEC, StartRagdollNotifyStateHolder::new);
         DataHolderMapper.registerNotifyState(TrailParticleNotifyState.CODEC, TrailParticleNotifyStateHolder::new);
         DataHolderMapper.registerNotifyState(LivingHurtNotifyState.CODEC, LivingHurtNotifyStateHolder::new);
+        DataHolderMapper.registerNotifyState(MotionWarpingNotifyState.CODEC, MotionWarpingNotifyStateHolder::new);
     }
 }

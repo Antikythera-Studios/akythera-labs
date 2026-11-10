@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.akythera.animation.notify;
 
 import com.yesman.akythera.api.animation.notify.AnimationNotifyState;
+import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.core.util.LogicalSide;
@@ -42,6 +43,11 @@ public abstract class AnimationNotifyStateHolder<T extends AnimationNotifyState<
     @Override
     public void markFailed(Exception exception) {
         loadingException = exception;
+    }
+
+    /// Whether the notify state works only in an [AnimationMontage]. The other editors leave it out of their lists.
+    public boolean montageOnly() {
+        return false;
     }
 
     /// The logical side, read without allocating an engine instance through [#makeObject].

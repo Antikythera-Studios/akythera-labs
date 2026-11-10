@@ -25,6 +25,7 @@ import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
+import com.yesman.akytheralabs.akythera.animation.notify.impl.MotionWarpingNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.PreviewItem;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
@@ -77,6 +78,7 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -127,6 +129,9 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
     @Nullable
     private List<Vec3> cachedTrajectoryPath;
     private int cachedTrajectorySig;
+
+    /// Playback time of each point of [#cachedTrajectoryPath], in seconds.
+    private List<Float> cachedTrajectoryTimes = List.of();
 
     public AnimationMontageEditorScreen(ResourceKey<@NonNull AnimationMontage> resourceKey, AnimationMontageHolder holder) {
         super(Component.translatable(LangKeys.GUI_ANIM_MONTAGE_SCREEN_TITLE));
@@ -460,7 +465,10 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
                 sig = sig * 31 + Boolean.hashCode(holder.moveVertical());
 
                 if (cachedTrajectoryPath == null || sig != cachedTrajectorySig) {
-                    cachedTrajectoryPath = simulateMontagePath();
+                    List<Float> times = new ArrayList<>();
+
+                    cachedTrajectoryPath = simulateMontagePath(times);
+                    cachedTrajectoryTimes = times;
                     cachedTrajectorySig = sig;
                 }
 
@@ -470,14 +478,34 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
             () -> {
                 EntityModelComponent c = model3DViewer.getComponent(EntityModelComponent.class);
                 return (c != null && c.getAnimator() instanceof MontageAnimator m) ? m.getSimPos() : Vec3.ZERO;
+            },
+            // The segments a motion warping window covers
+            () -> {
+                BitSet warped = new BitSet();
+                List<Float> times = cachedTrajectoryTimes;
+
+                for (NotifyTrackHolder.Track track : holder.getNotifyTrackHolder().getTracks()) {
+                    for (NotifyTrackHolder.MutableNotifyState state : track.notifyStates) {
+                        if (!(state.holder instanceof MotionWarpingNotifyStateHolder)) continue;
+
+                        for (int i = 1; i < times.size(); i++) {
+                            float a = times.get(i - 1);
+                            float b = times.get(i);
+
+                            if (Math.max(a, b) > state.from && Math.min(a, b) < state.to) warped.set(i);
+                        }
+                    }
+                }
+
+                return warped;
             }
         ));
     }
 
     /// Builds the trajectory polyline by simulating section-ordered playback in fixed steps and
     /// integrating the root delta at each step (matching how `RootMotionComponent` moves the entity
-    /// at runtime). One pass; self-looping chains are bounded by a step cap.
-    private List<Vec3> simulateMontagePath() {
+    /// at runtime). One pass; self-looping chains are bounded by a step cap. `times` takes each point's playback time.
+    private List<Vec3> simulateMontagePath(List<Float> times) {
         AnimationClip clip = holder.getMergedClip();
         float total = clip.getTotalTime();
 
@@ -489,6 +517,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         float windowStart = sectionStart(info, 0.0F);
         Vec3 accumBase = RootMotionTrajectoryComponent.rootLocation(clip, windowStart);
         pts.add(accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, elapsed).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStart))));
+        times.add(elapsed);
 
         // Mirrors MontageAnimator's visited-section pause so the drawn path ends where playback holds.
         Set<String> visited = new HashSet<>();
@@ -506,6 +535,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
             // Loop back: the path ends at the loop boundary (one pass) — add the exit point and stop.
             if (result.loopedBack()) {
                 pts.add(accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, result.left().to()).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStart))));
+                times.add(result.left().to());
                 break;
             }
 
@@ -516,6 +546,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
 
             elapsed = result.newElapsed();
             pts.add(accumBase.add(RootMotionTrajectoryComponent.rootLocation(clip, elapsed).subtract(RootMotionTrajectoryComponent.rootLocation(clip, windowStart))));
+            times.add(elapsed);
 
             if (result.ended()) break;
         }

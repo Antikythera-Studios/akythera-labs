@@ -12,9 +12,7 @@ import com.yesman.akythera.api.asset.armature.ArmatureManager;
 import com.yesman.akythera.api.asset.physics.ArmaturePhysicsManager;
 import com.yesman.akythera.api.event.BuiltInEventHooks;
 import com.yesman.akythera.api.event.registry.RegistryEntryLookupEvent;
-import com.yesman.akythera.api.input.InputAction;
 import com.yesman.akythera.api.lifecycle.ComponentsFactory;
-import com.yesman.akythera.api.world.ability.AbilityEffect;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.loader.MeshLoader;
@@ -25,9 +23,6 @@ import com.yesman.akythera.client.core.asset.mesh.StaticMesh;
 import com.yesman.akythera.client.core.asset.physics.ClothPhysicsData;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
-import com.yesman.akythera.core.animation.playable.AnimationMontage;
-import com.yesman.akythera.core.animation.playable.AnimationSequence;
-import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.asset.loader.ArmatureLoader;
@@ -35,21 +30,12 @@ import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
 import com.yesman.akythera.core.asset.loader.json.JsonAssetLoader;
 import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
-import com.yesman.akythera.core.blueprint.AbilityBlueprint;
-import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
-import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
-import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
-import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
-import com.yesman.akythera.core.blueprint.particle.ParticleInitializerScriptBlueprint;
-import com.yesman.akythera.core.blueprint.particle.ParticleSystemBlueprint;
-import com.yesman.akythera.core.blueprint.particle.ParticleUpdaterScriptBlueprint;
-import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
-import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.StaticRegistryAccess;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.akythera.animation.MotionWarpTargetScriptHolder;
 import com.yesman.akytheralabs.akythera.behavior.BehaviorScriptHolder;
 import com.yesman.akytheralabs.akythera.behavior.BehaviorTreeBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
@@ -422,6 +408,7 @@ public final class AkytheraProject {
         loadDatapackRegistry(AkytheraRegistries.DataPack.BEHAVIOR_SUBTASK_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY);
     }
 
     /// Loads every editor-editable [EnumerableDataBlock] type's entries from `data/<registryPath>/*.json`.
@@ -698,7 +685,8 @@ public final class AkytheraProject {
         AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY,
         AkytheraRegistries.DataPack.BEHAVIOR_TASK_KEY,
         AkytheraRegistries.DataPack.BEHAVIOR_SUBTASK_KEY,
-        AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY
+        AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY,
+        AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY
     );
 
     /// The [#DATAPACK_REGISTRIES] the explorer does not list. Their entries are reached from the editors that use them.
@@ -1615,6 +1603,7 @@ public final class AkytheraProject {
         createProjectRegistry(AkytheraRegistries.DataPack.BEHAVIOR_SUBTASK_KEY, () -> new BehaviorScriptHolder<>(BehaviorScriptHolder.SUBTASK), BehaviorScriptHolder.SUBTASK.codec());
         createProjectRegistry(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY, () -> new BehaviorScriptHolder<>(BehaviorScriptHolder.CONDITION), BehaviorScriptHolder.CONDITION.codec());
         createProjectRegistry(AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY, BehaviorTreeBlueprintHolder::new, BehaviorTreeBlueprintHolder.EDITOR_CODEC);
+        createProjectRegistry(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, MotionWarpTargetScriptHolder::new, MotionWarpTargetScriptHolder.EDITOR_CODEC);
 
         // Editor-editable EnumerableDataBlock types (FSMAnimationState, AnimationLayerSignature, …):
         // one registry each, value type = the engine enum type. These never enter the engine
@@ -2690,7 +2679,8 @@ public final class AkytheraProject {
     /// copied from disk: the on-disk JSON is written by each holder's `EDITOR_CODEC` — a different
     /// schema (flattened sections, editor-only `preview_*` / `notify_tracks` fields) the engine runtime
     /// codec rejects. Instead each entry is re-encoded from [DataHolder#makeObject] through the engine
-    /// [Codec] (see [#collectDataPackEntries]) and placed at `data/<entryNs>/<registryNs>/<registryPath>/…`.
+    /// [Codec] of its [AkytheraRegistries.DataPack#REGISTRATIONS] row (see [#collectDataPackEntries]) and placed at
+    /// `data/<entryNs>/<registryNs>/<registryPath>/…`.
     /// The registry-namespace folder is skipped only for `minecraft`; Akythera registries live under
     /// `akythera`, so their entries land under an `akythera/` folder. The `pack.mcmeta` is stamped with
     /// the running game's pack format. The project's tags land under `data/<projectName>/tags/`, see
@@ -2705,21 +2695,16 @@ public final class AkytheraProject {
         addPackIcon(dataEntries);
 
         DynamicOps<JsonElement> ops = RegistryOps.create(JsonOps.INSTANCE, StaticRegistryAccess.getRegistryAccess());
-        collectDataPackEntries(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, AnimationMontage.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, AnimationSequence.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY, BlendSpace2D.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, DataDrivenAnimatorScript.AnimatorScriptBlueprint.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, EntityPatchBlueprint.CODEC, ops, true, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, ItemPatchBlueprint.CODEC, ops, true, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY, AbilityEffect.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.INPUT_ACTION_KEY, InputAction.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.ABILITY_CUE_KEY, AbilityCueBlueprint.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.ABILITY_KEY, AbilityBlueprint.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.WIDGET_KEY, WidgetBlueprint.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY, ParticleBlueprint.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, ParticleSystemBlueprint.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY, ParticleInitializerScriptBlueprint.CODEC, ops, false, dataEntries);
-        collectDataPackEntries(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY, ParticleUpdaterScriptBlueprint.CODEC, ops, false, dataEntries);
+
+        for (AkytheraRegistries.DataPack.Registration<?> registration : AkytheraRegistries.DataPack.REGISTRATIONS) {
+            @SuppressWarnings("unchecked")
+            AkytheraRegistries.DataPack.Registration<Object> typed = (AkytheraRegistries.DataPack.Registration<Object>)registration;
+            // Patch ids carry the patched entity's or item's namespace as their first path segment
+            boolean pathEncodesNamespace = AkytheraRegistries.DataPack.ENTITY_PATCH_KEY.equals(registration.key())
+                || AkytheraRegistries.DataPack.ITEM_PATCH_KEY.equals(registration.key());
+
+            collectDataPackEntries(typed.key(), typed.codec(), ops, pathEncodesNamespace, dataEntries);
+        }
 
         // Editor-editable EnumerableDataBlocks (datablock/<enumName>): property-less `{}` entries
         // encoded via the engine manager's unit map codec, so they reload under <projectName>:<entry>.

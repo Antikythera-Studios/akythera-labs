@@ -1062,8 +1062,20 @@ public final class EditorWidgetFactory {
     /// Appends `instance`'s editor rows to `table` without clearing existing rows, stacking them
     /// under those of a previous [#fillWidgetTable].
     public void appendRowsFrom(WidgetTable table, Object instance) {
-        table.setMinTitleWidth(LABEL_W);
-        appendObject(table, instance, null, 0, null);
+        appendRowsFrom(table, instance, null);
+    }
+
+    /// Variant for panels that can re-render themselves: `rebuild` re-fills the whole table, see
+    /// [EditorEditable#rebuildOnWrite].
+    public void appendRowsFrom(WidgetTable table, Object instance, @Nullable Runnable rebuild) {
+        this.rebuild = rebuild;
+
+        try {
+            table.setMinTitleWidth(LABEL_W);
+            appendObject(table, instance, null, 0, rebuild);
+        } finally {
+            this.rebuild = null;
+        }
     }
 
     /// Renders one object's editor rows at `indentLevel`, each level inset by [#INDENT] pixels.

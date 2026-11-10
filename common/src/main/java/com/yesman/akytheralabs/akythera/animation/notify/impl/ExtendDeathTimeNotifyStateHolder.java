@@ -18,6 +18,12 @@ public final class ExtendDeathTimeNotifyStateHolder extends AnimationNotifyState
         return new ExtendDeathTimeNotifyState();
     }
 
+    /// Only the montage players are read for it.
+    @Override
+    public boolean montageOnly() {
+        return true;
+    }
+
     @Override
     public LogicalSide logicalSide() {
         return LogicalSide.BOTH;

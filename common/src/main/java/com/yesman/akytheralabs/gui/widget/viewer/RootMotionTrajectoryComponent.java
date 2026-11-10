@@ -19,11 +19,13 @@ import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.function.Supplier;
 
 /// Draws a root-motion trajectory: a connected path with a sampling dot every fixed step,
-/// big dots on the start/end, and a gizmo marker on the current playback position.
+/// big dots on the start/end, and a gizmo marker on the current playback position. Highlighted
+/// segments draw in purple, as the motion warping windows do.
 ///
 /// Self-contained — it pulls positions from a [RootMotionSampler] (built by the editor screen)
 /// so it knows nothing about holders. Flat quads on the XZ plane via [RenderTypes#debugQuads]
@@ -36,6 +38,8 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
     private static final int DOT_COLOR = 0xFFFFE08A; // per-point dots
     private static final int EDGE_COLOR = 0xFFFF4040; // big start/end dots
     private static final int GIZMO_COLOR = 0xFF44AAFF; // current playback marker
+    private static final int WARP_LINE_COLOR = 0xFFB040FF; // highlighted path
+    private static final int WARP_DOT_COLOR = 0xFFD9A0FF; // highlighted per-point dots
     private static final float LINE_HALF_W = 0.02F;
     private static final float DOT_HALF = 0.04F;
     private static final float EDGE_HALF = 0.09F;
@@ -50,9 +54,18 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
     /// Current playback marker position (where the model's root is right now).
     private final Supplier<Vec3> gizmoSupplier;
 
+    /// The highlighted points of the path, by index. A set point colors itself and the segment that ends on it.
+    /// Fetched after [#pathSupplier] each frame.
+    private final Supplier<BitSet> highlightSupplier;
+
     public RootMotionTrajectoryComponent(Supplier<List<Vec3>> pathSupplier, Supplier<Vec3> gizmoSupplier) {
+        this(pathSupplier, gizmoSupplier, BitSet::new);
+    }
+
+    public RootMotionTrajectoryComponent(Supplier<List<Vec3>> pathSupplier, Supplier<Vec3> gizmoSupplier, Supplier<BitSet> highlightSupplier) {
         this.pathSupplier = pathSupplier;
         this.gizmoSupplier = gizmoSupplier;
+        this.highlightSupplier = highlightSupplier;
     }
 
     /// `clip`'s root path sampled every [#SAMPLE_STEP], the end point included. Empty for no clip.
@@ -82,6 +95,7 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
         EntityModelComponent model = model3DViewer.getComponent(EntityModelComponent.class);
         Transform armature = model == null ? Transform.IDENTITY : model.getArmatureComponent().modelTransform();
         List<Vec3> path = sampled.stream().map(armature::mul).toList();
+        BitSet highlighted = highlightSupplier.get();
 
         RenderType renderType = RenderTypes.debugQuads();
         BufferBuilder builder = new BufferBuilder(byteBuffer, renderType.primitiveTopology(), renderType.format());
@@ -90,10 +104,11 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
         int n = path.size();
         for (int i = 0; i < n; i++) {
             Vec3 p = path.get(i);
-            if (i > 0) emitLine(builder, pose, path.get(i - 1), p, LINE_HALF_W, LINE_COLOR);
+            boolean warped = highlighted.get(i);
+            if (i > 0) emitLine(builder, pose, path.get(i - 1), p, LINE_HALF_W, warped ? WARP_LINE_COLOR : LINE_COLOR);
 
             boolean edge = (i == 0 || i == n - 1);
-            emitDot(builder, pose, p, edge ? EDGE_HALF : DOT_HALF, edge ? EDGE_COLOR : DOT_COLOR);
+            emitDot(builder, pose, p, edge ? EDGE_HALF : DOT_HALF, edge ? EDGE_COLOR : warped ? WARP_DOT_COLOR : DOT_COLOR);
         }
 
         Vec3 gizmo = gizmoSupplier.get();
