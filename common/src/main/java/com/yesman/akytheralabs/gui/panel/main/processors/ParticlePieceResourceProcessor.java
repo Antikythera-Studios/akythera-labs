@@ -3,7 +3,6 @@ package com.yesman.akytheralabs.gui.panel.main.processors;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
@@ -57,11 +56,7 @@ public final class ParticlePieceResourceProcessor implements ResourceProcessor<P
     /// The pieces' data provider.
     @Override
     public ExportModalGenerator.Compile categoryCompile() {
-        return new ExportModalGenerator.Compile(
-            key -> key.registryKey().equals(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY),
-            (project, sourceRoot, packageName) -> FreemarkerExporter.exportRegistryProvider(
-                project, AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY, sourceRoot, packageName)
-        );
+        return ExportModalGenerator.Compile.objects(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY);
     }
 
     @Override

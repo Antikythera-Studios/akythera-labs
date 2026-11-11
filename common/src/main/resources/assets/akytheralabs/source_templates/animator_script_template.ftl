@@ -8,14 +8,11 @@
 /// node graphs. Register it through your mod's ComponentsFactory / entity
 /// patch wiring wherever a DataDrivenAnimatorScript would otherwise be used.
 ///
-/// Register this script to `AkytheraRegistries.Frozen.SCRIPT_TYPE` to expose
-/// the script class to AkytheraLabs, listing your animator scripts in
-/// entity patch script > armature patchComponent
+/// Registered as a `ScriptType` by the generated registries/*ScriptTypes.java.
+/// Akythera Labs lists it in an armature component's animator script box.
 
 <#import "method_list.ftl" as methodList>
 package ${package};
-
-// Import section is empty. Use auto import feature in IDE
 
 public final class ${className} implements AnimatorScript {
 <#list fields as field>

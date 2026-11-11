@@ -34,6 +34,7 @@ import com.yesman.akythera.api.data.modularize.node.animgraph.CachedPoseReferenc
 import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.Mesh;
 import com.yesman.akythera.core.animation.FSMAnimationState;
+import com.yesman.akythera.core.blueprint.ArmatureComponentBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.client.api.particle.module.ParticleSystemParameterNode;
 import com.yesman.akythera.core.blueprint.script.BlueprintBody;
@@ -261,6 +262,23 @@ public final class NodeTreeSourceRenderer {
     // ***************************************************************
     // Leaves & helpers
     // ***************************************************************
+
+    /// An armature's animator script factory as its constructor expression. A data pack script the open project
+    /// compiles is named by its class ([FreemarkerExporter#compiledClass]).
+    public static String animatorScriptFactory(ArmatureComponentBlueprint.AnimatorScriptFactory factory) {
+        return switch (factory) {
+            case ArmatureComponentBlueprint.ByClass byClass -> "new ArmatureComponentBlueprint.ByClass(" + scriptType(byClass.animatorType()) + ")";
+            case ArmatureComponentBlueprint.ByDataPack byDataPack -> {
+                String compiled = FreemarkerExporter.compiledClass(byDataPack.resourceKey());
+
+                yield compiled != null
+                    ? "new ArmatureComponentBlueprint.ByClass(ScriptType.of(" + compiled + ".class))"
+                    : "new ArmatureComponentBlueprint.ByDataPack("
+                        + BlueprintSourceWriter.registryKey(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, byDataPack.resourceKey().identifier().toString()) + ")";
+            }
+            default -> throw new IllegalStateException("No source form for the animator script factory " + factory.getClass().getSimpleName());
+        };
+    }
 
     /// A mesh accessor as the [MeshManager] call that reissues it, from the asset's trimmed id.
     public static String meshAccessor(AssetAccessor<? extends Mesh<?>> mesh) {

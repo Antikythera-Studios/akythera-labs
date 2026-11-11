@@ -48,8 +48,6 @@
 
 package ${package};
 
-// Import section is empty. Use auto import feature in IDE
-
 public final class ${className} extends AnimationSequenceProvider {
     static ResourceKey<AnimationSequence> createId(final String name) {
         return ResourceKey.create(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, Identifier.fromNamespaceAndPath("${modid}", name));

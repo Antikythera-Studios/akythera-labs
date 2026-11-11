@@ -131,11 +131,7 @@ public final class EntityPatchResourceProcessor implements ResourceProcessor<Ent
 
     @Override
     public ExportModalGenerator.Compile categoryCompile() {
-        return new ExportModalGenerator.Compile(
-            key -> key.registryKey().equals(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY),
-            (project, sourceRoot, packageName) -> FreemarkerExporter.exportRegistryProvider(
-                project, AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, sourceRoot, packageName)
-        );
+        return ExportModalGenerator.Compile.objects(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY);
     }
 
     /// The per-entry `…PatchScript.java`, next to the provider class [#categoryCompile] emits: an

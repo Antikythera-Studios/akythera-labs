@@ -59,6 +59,12 @@ public final class WidgetBlueprintResourceProcessor implements ResourceProcessor
         return ResourceProcessor.resolveDatapackWidget(font, path, AkytheraRegistries.DataPack.WIDGET_KEY, ContentWidget.WidgetBlueprintContent::new);
     }
 
+    /// The widget blueprints' data provider.
+    @Override
+    public ExportModalGenerator.Compile categoryCompile() {
+        return ExportModalGenerator.Compile.objects(AkytheraRegistries.DataPack.WIDGET_KEY);
+    }
+
     /// The per-entry `…ScreenScript.java` (or `WidgetScript`, `HUDScript`).
     @Override
     public ExportModalGenerator.Compile entryCompile(List<ResourceKey<?>> entryKeys) {

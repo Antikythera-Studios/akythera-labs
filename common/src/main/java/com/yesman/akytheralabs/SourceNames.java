@@ -40,9 +40,9 @@ public final class SourceNames {
         return idPath.replaceAll("[^A-Za-z0-9]+", "_").toUpperCase(Locale.ROOT);
     }
 
-    /// `type` as generated source spells it, leaving the imports to the IDE: a nested class behind its
-    /// outer class (`SystematicAbility.Tags`), type arguments and wildcards kept, and a type variable read as
-    /// its bound.
+    /// `type` as generated source spells it, recording each class in the open [SourceExport] for its import: a
+    /// nested class behind its outer class (`SystematicAbility.Tags`), type arguments and wildcards kept, and a type
+    /// variable read as its bound.
     public static String typeName(Type type) {
         return typeName(type, Map.of());
     }
@@ -53,7 +53,10 @@ public final class SourceNames {
             case Class<?> c when c.isArray() -> typeName(c.getComponentType(), arguments) + "[]";
             case Class<?> c when c.getEnclosingClass() != null && !c.isAnonymousClass() ->
                 typeName(c.getEnclosingClass(), arguments) + "." + c.getSimpleName();
-            case Class<?> c -> c.getSimpleName();
+            case Class<?> c -> {
+                SourceExport.spell(c);
+                yield c.getSimpleName();
+            }
             case ParameterizedType p -> typeName(p.getRawType(), arguments) + "<"
                 + Arrays.stream(p.getActualTypeArguments())
                     .map(argument -> typeName(argument, arguments))
@@ -129,23 +132,30 @@ public final class SourceNames {
     }
 
     /// The expression naming `block` in generated source: the constant of the enum this project exports
-    /// for `block`'s type.
+    /// for `block`'s type, spelled in the open [SourceExport] for its import.
     ///
     /// Null when `block` is not one of the project's entries — an engine (hardcoded or data pack) block,
     /// which generated source resolves through its [EnumerableDataBlockManager] by id instead.
     public static @Nullable String dataBlockReference(EnumerableDataBlock block) {
+        Identifier id = block.identifier();
+
+        return id == null ? null : dataBlockReference(block.getEnumManager(), id);
+    }
+
+    /// As [#dataBlockReference(EnumerableDataBlock)], for the block `manager` holds under `id`.
+    public static @Nullable String dataBlockReference(EnumerableDataBlockManager<?> manager, Identifier id) {
         AkytheraProject project = AkytheraProject.getCurrentProjectOrNull();
         if (project == null) return null;
 
-        DataBlockRegistries.Entry<?, ?> entry = DataBlockRegistries.entryOf(block.getEnumManager().directoryKey());
+        DataBlockRegistries.Entry<?, ?> entry = DataBlockRegistries.entryOf(manager.directoryKey());
         if (entry == null) return null;
-
-        Identifier id = block.identifier();
-        if (id == null) return null;
 
         String constant = dataBlockConstants(project, entry).get(id.getPath());
         if (constant == null) return null;
 
-        return dataBlockEnumClass(project, entry.blockType()) + "." + constant;
+        String enumClass = dataBlockEnumClass(project, entry.blockType());
+        SourceExport.spellGenerated(FreemarkerExporter.DATA_BLOCKS_DIR, enumClass);
+
+        return enumClass + "." + constant;
     }
 }

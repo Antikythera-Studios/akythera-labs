@@ -4,6 +4,7 @@ import com.yesman.akythera.api.data.modularize.node.FlowNode;
 import com.yesman.akythera.api.world.ability.Ability;
 import com.yesman.akythera.api.world.ability.AbilityCue;
 import com.yesman.akythera.api.world.ability.AbilityCueScript;
+import com.yesman.akythera.api.animation.warping.MotionWarpTarget;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.client.api.particle.AkytheraParticleEmitter;
 import com.yesman.akythera.core.animation.animator.BlendingAnimator;
@@ -18,12 +19,15 @@ import com.yesman.akythera.core.blueprint.script.EntityPatchScript;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akythera.core.blueprint.widget.DataDrivenWidgetBlueprint;
 import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
+import com.yesman.akythera.core.blueprint.widget.WidgetUsage;
+import com.yesman.akythera.core.blueprint.warping.MotionWarpTargetScriptBlueprint;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintParentRef;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintSignature;
 import com.yesman.akytheralabs.akythera.particle.ParticleModuleScriptHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleModulesProducer;
@@ -35,9 +39,9 @@ import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.ProjectObjectRegistry;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
+import com.yesman.akytheralabs.akythera.animation.MotionWarpTargetScriptHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
-import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
@@ -46,9 +50,10 @@ import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
-import java.io.Writer;
+import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.TypeVariable;
@@ -61,6 +66,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -83,8 +89,24 @@ public final class FreemarkerExporter {
     private static final String WIDGETS_DIR = "scripts/widgets";
     /// Sub-directory (and sub-package) the generated `*ParticleInitializer` and `*ParticleUpdater` classes land in.
     private static final String PARTICLES_DIR = "scripts/particles";
+    /// Sub-directory (and sub-package) the generated `*MotionWarpTarget` classes land in.
+    private static final String MOTION_WARP_TARGETS_DIR = "scripts/warping";
+    /// Sub-directory (and sub-package) the generated `*ScriptTypes` and `*ScriptFunctions` classes land in.
+    private static final String REGISTRIES_DIR = "registries";
+
+    /// The registries whose entries compile to a class registered as a [ScriptType], each by whether the class is
+    /// client only.
+    private static final Map<ResourceKey<? extends Registry<?>>, Boolean> SCRIPT_TYPE_REGISTRIES = Map.of(
+        AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, false,
+        AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, false,
+        AkytheraRegistries.DataPack.ABILITY_CUE_KEY, false,
+        AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, false,
+        AkytheraRegistries.DataPack.WIDGET_KEY, true,
+        AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY, true,
+        AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY, true
+    );
     /// Sub-directory (and sub-package) the generated [EnumerableDataBlock] enums land in.
-    private static final String DATA_BLOCKS_DIR = "datablocks";
+    static final String DATA_BLOCKS_DIR = "datablocks";
 
     /// The owner handle [ScriptNodeSourceCompiler] lowers a graph `self` to, per script kind: an animator
     /// script's field is `animator`, an entity-patch script's is `owner`, and an ability is its own.
@@ -94,9 +116,13 @@ public final class FreemarkerExporter {
     private static final String ABILITY_CUE_SELF = "this.cue";
     private static final String WIDGET_SELF = "this.owner";
     private static final String PARTICLE_MODULE_SELF = "this.emitter";
+    private static final String MOTION_WARP_TARGET_SELF = "this.owner";
 
     /// The line a generated particle module's event starts with, which captures [#PARTICLE_MODULE_SELF].
     private static final List<String> PARTICLE_MODULE_PROLOGUE = List.of("this.emitter = particle.getEmitter();");
+
+    /// The line a generated motion warp target's `find` starts with, which captures [#MOTION_WARP_TARGET_SELF].
+    private static final List<String> MOTION_WARP_TARGET_PROLOGUE = List.of("this.owner = owner;");
 
     /// The nested class a generated ability keeps its variables in, one per equipped instance, and the name a
     /// function the blueprint declares receives it under.
@@ -148,8 +174,30 @@ public final class FreemarkerExporter {
         Map.entry(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY,
             new SourceTemplate("behavior_condition_template.ftl", "entries", "BehaviorConditions")),
 
-        Map.entry(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY,
-            new SourceTemplate("motion_warp_target_template.ftl", "entries", "MotionWarpTargets"))
+        Map.entry(AkytheraRegistries.DataPack.ABILITY_KEY,
+            new SourceTemplate("ability_blueprint_template.ftl", "abilities", "Abilities")),
+
+        Map.entry(AkytheraRegistries.DataPack.WIDGET_KEY,
+            new SourceTemplate("widget_blueprint_template.ftl", "widgets", "WidgetBlueprints"))
+    );
+
+    /// A registry of modularized functions, the node graphs a data kind names, and the writer of one entry's class.
+    private record ModularizedFunctions(ResourceKey<? extends Registry<?>> registry, EntryExport export) {}
+
+    @FunctionalInterface
+    private interface EntryExport {
+        void run(AkytheraProject project, ResourceKey<?> entryKey, Path sourceCodeRoot, String packageName);
+    }
+
+    /// The modularized functions each data kind names by usage, compiled with the kind's provider by
+    /// [#exportObjects] so the provider's references to them name their classes.
+    private static final Map<ResourceKey<? extends Registry<?>>, List<ModularizedFunctions>> MODULARIZED_FUNCTIONS = Map.of(
+        AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, List.of(
+            new ModularizedFunctions(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, FreemarkerExporter::exportMotionWarpTarget)),
+
+        AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, List.of(
+            new ModularizedFunctions(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY, FreemarkerExporter::exportParticleModule),
+            new ModularizedFunctions(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY, FreemarkerExporter::exportParticleModule))
     );
 
     /// Export the project as [DataProvider] source. JSON objects are generated by each mod platform's datagen
@@ -159,20 +207,47 @@ public final class FreemarkerExporter {
     /// - `sourceCodeRoot` — directory the generated `.java` files are written into.
     /// - `packageName` — fills the `${package}` token in every template.
     public static void exportProject(AkytheraProject project, Path sourceCodeRoot, String packageName) {
-        for (ResourceKey<? extends Registry<?>> registryKey : FTL_FILES.keySet()) {
-            exportRegistryProvider(project, registryKey, sourceCodeRoot, packageName);
-        }
+        SourceExport.run(packageName, () -> {
+            for (ResourceKey<? extends Registry<?>> registryKey : FTL_FILES.keySet()) {
+                exportRegistryProvider(project, registryKey, sourceCodeRoot, packageName);
+            }
 
-        for (DataBlockRegistries.Entry<?, ?> entry : DataBlockRegistries.all()) {
-            exportDataBlockEnum(project, entry.registryKey(), sourceCodeRoot, packageName);
-        }
+            for (DataBlockRegistries.Entry<?, ?> entry : DataBlockRegistries.all()) {
+                exportDataBlockEnum(project, entry.registryKey(), sourceCodeRoot, packageName);
+            }
 
-        exportAnimatorScripts(project, sourceCodeRoot, packageName);
-        exportEntityPatchScripts(project, sourceCodeRoot, packageName);
-        exportAbilityScripts(project, sourceCodeRoot, packageName);
-        exportAbilityCueScripts(project, sourceCodeRoot, packageName);
-        exportWidgetScripts(project, sourceCodeRoot, packageName);
-        exportParticleModules(project, sourceCodeRoot, packageName);
+            exportAnimatorScripts(project, sourceCodeRoot, packageName);
+            exportEntityPatchScripts(project, sourceCodeRoot, packageName);
+            exportAbilityScripts(project, sourceCodeRoot, packageName);
+            exportAbilityCueScripts(project, sourceCodeRoot, packageName);
+            exportWidgetScripts(project, sourceCodeRoot, packageName);
+            exportParticleModules(project, sourceCodeRoot, packageName);
+            exportMotionWarpTargets(project, sourceCodeRoot, packageName);
+            exportScriptTypes(project, sourceCodeRoot, packageName);
+            exportScriptFunctions(project, sourceCodeRoot, packageName);
+        });
+    }
+
+    /// `Compile Objects` on the data kind `registryKey`: its provider ([#exportRegistryProvider]) and the class of
+    /// every modularized function it names by usage ([#MODULARIZED_FUNCTIONS]).
+    @SuppressWarnings("unchecked")
+    public static void exportObjects(
+        AkytheraProject project, ResourceKey<? extends Registry<?>> registryKey, Path sourceCodeRoot, String packageName
+    ) {
+        exportRegistryProvider(project, registryKey, sourceCodeRoot, packageName);
+
+        for (ModularizedFunctions functions : MODULARIZED_FUNCTIONS.getOrDefault(registryKey, List.of())) {
+            for (var entry : project.<Object, DataHolder<Object>>getModifiableEntries((ResourceKey<? extends Registry<Object>>) functions.registry())) {
+                functions.export().run(project, entry.getKey(), sourceCodeRoot, packageName);
+            }
+        }
+    }
+
+    /// Whether `key` is an entry [#exportObjects] writes for `registryKey`: one of the kind itself or of a
+    /// modularized function it names.
+    public static boolean coversObjects(ResourceKey<? extends Registry<?>> registryKey, ResourceKey<?> key) {
+        return key.registryKey().equals(registryKey)
+            || MODULARIZED_FUNCTIONS.getOrDefault(registryKey, List.of()).stream().anyMatch(functions -> functions.registry().equals(key.registryKey()));
     }
 
     /// One registry's provider class: every entry the project created for `registryKey`, folded into
@@ -259,6 +334,11 @@ public final class FreemarkerExporter {
         }
     }
 
+    /// The class [#exportAnimatorScript] writes the animator script `entryKey` as: its id path, then `AnimatorScript`.
+    public static String animatorScriptClass(ResourceKey<?> entryKey) {
+        return ParseUtils.pascalCase(entryKey.identifier().getPath()) + "AnimatorScript";
+    }
+
     /// Unlike the [#FTL_FILES] registries (one provider class per registry), each animator-script entry
     /// becomes its own `<PascalCaseEntryName>AnimatorScript.java` — a handwritten-style
     /// [AnimatorScript] implementation. The entry's flat
@@ -278,7 +358,7 @@ public final class FreemarkerExporter {
         Path scriptsRoot = sourceCodeRoot.resolve(SCRIPTS_DIR);
         if (!prepareDirectory(scriptsRoot)) return;
 
-        String className = ParseUtils.pascalCase(entryKey.identifier().getPath()) + "AnimatorScript";
+        String className = animatorScriptClass(entryKey);
 
         try {
             DataDrivenAnimatorScript.AnimatorScriptBlueprint blueprint = holder.makeObject();
@@ -317,6 +397,12 @@ public final class FreemarkerExporter {
         }
     }
 
+    /// The class [#exportEntityPatchScript] writes the entity patch `entryKey` as: the entry's leaf name, not its
+    /// directory, then `PatchScript` (`minecraft/player` -> `PlayerPatchScript`).
+    public static String entityPatchScriptClass(ResourceKey<?> entryKey) {
+        return leafPascalCase(entryKey) + "PatchScript";
+    }
+
     /// The entity-patch analogue of [#exportAnimatorScript]: the entry becomes its own
     /// `<PascalCaseEntryName>PatchScript.java`, a handwritten-style [EntityPatchScript]. The entry's graphs
     /// are lowered to the runtime [EntityPatchBlueprint] (the holder's `makeObject`, the same compile the
@@ -340,11 +426,7 @@ public final class FreemarkerExporter {
         Path patchesRoot = sourceCodeRoot.resolve(PATCHES_DIR);
         if (!prepareDirectory(patchesRoot)) return;
 
-        // Name from the entry's leaf only, not its directory: `minecraft/player` -> `PlayerPatchScript`
-        // (the folder is organisational, not part of the type's identity).
-        String idPath = entryKey.identifier().getPath();
-        String entryName = idPath.substring(idPath.lastIndexOf('/') + 1);
-        String className = ParseUtils.pascalCase(entryName) + "PatchScript";
+        String className = entityPatchScriptClass(entryKey);
 
         try {
             if (!(holder.makeObject() instanceof DataDrivenEntityPatchBlueprint blueprint)) {
@@ -384,6 +466,11 @@ public final class FreemarkerExporter {
         }
     }
 
+    /// The class [#exportAbilityScript] writes the ability `entryKey` as: the entry's leaf name, then `Ability`.
+    public static String abilityClass(ResourceKey<?> entryKey) {
+        return leafPascalCase(entryKey) + "Ability";
+    }
+
     /// An ability entry as its own `<PascalCaseEntryName>Ability.java`: a subclass of the class its parent
     /// constructor builds, whose events, overridden functions, declared functions and property values are
     /// real methods.
@@ -404,8 +491,7 @@ public final class FreemarkerExporter {
         Path abilitiesRoot = sourceCodeRoot.resolve(ABILITIES_DIR);
         if (!prepareDirectory(abilitiesRoot)) return;
 
-        String idPath = entryKey.identifier().getPath();
-        String className = ParseUtils.pascalCase(idPath.substring(idPath.lastIndexOf('/') + 1)) + "Ability";
+        String className = abilityClass(entryKey);
 
         try {
             AbilityBlueprint blueprint = holder.makeObject();
@@ -475,6 +561,11 @@ public final class FreemarkerExporter {
         }
     }
 
+    /// The class [#exportAbilityCueScript] writes the ability cue `entryKey` as: the entry's leaf name, then `CueScript`.
+    public static String abilityCueClass(ResourceKey<?> entryKey) {
+        return leafPascalCase(entryKey) + "CueScript";
+    }
+
     /// An ability cue entry as its own `<PascalCaseEntryName>CueScript.java`: an [AbilityCueScript] whose
     /// events, declared functions and property values are real methods, with `self` bound to the generated
     /// class's `cue` field, captured on activation.
@@ -490,8 +581,7 @@ public final class FreemarkerExporter {
         Path cuesRoot = sourceCodeRoot.resolve(ABILITY_CUES_DIR);
         if (!prepareDirectory(cuesRoot)) return;
 
-        String idPath = entryKey.identifier().getPath();
-        String className = ParseUtils.pascalCase(idPath.substring(idPath.lastIndexOf('/') + 1)) + "CueScript";
+        String className = abilityCueClass(entryKey);
 
         try {
             AbilityCueBlueprint blueprint = holder.makeObject();
@@ -528,6 +618,16 @@ public final class FreemarkerExporter {
         }
     }
 
+    /// The class [#exportWidgetScript] writes the widget blueprint `entryKey` of `usage` as: the entry's leaf name,
+    /// then `ScreenScript`, `WidgetScript` or `HUDScript`.
+    public static String widgetScriptClass(ResourceKey<?> entryKey, WidgetUsage usage) {
+        return leafPascalCase(entryKey) + switch (usage) {
+            case SCREEN -> "ScreenScript";
+            case WIDGET -> "WidgetScript";
+            case HUD -> "HUDScript";
+        };
+    }
+
     /// A widget blueprint entry as its own `<PascalCaseEntryName>ScreenScript.java` (or `WidgetScript`,
     /// `HUDScript`, by its usage): the script interface of its container, constructed with the container, whose
     /// events, overridden functions, declared functions and property values are methods with `self` bound to the
@@ -550,12 +650,7 @@ public final class FreemarkerExporter {
         Path widgetsRoot = sourceCodeRoot.resolve(WIDGETS_DIR);
         if (!prepareDirectory(widgetsRoot)) return;
 
-        String idPath = entryKey.identifier().getPath();
-        String className = ParseUtils.pascalCase(idPath.substring(idPath.lastIndexOf('/') + 1)) + switch (widgetHolder.usage()) {
-            case SCREEN -> "ScreenScript";
-            case WIDGET -> "WidgetScript";
-            case HUD -> "HUDScript";
-        };
+        String className = widgetScriptClass(entryKey, widgetHolder.usage());
 
         try {
             if (!(holder.makeObject() instanceof DataDrivenWidgetBlueprint blueprint)) {
@@ -640,11 +735,63 @@ public final class FreemarkerExporter {
     /// The class [#exportParticleModule] writes the module node graph `entryKey` as: `<PascalCaseEntryName>` then
     /// `ParticleUpdater` for an entry of the updater registry, `ParticleInitializer` otherwise.
     public static String particleModuleClass(ResourceKey<?> entryKey) {
-        String idPath = entryKey.identifier().getPath();
         boolean updater = entryKey.registryKey().equals(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY);
 
-        return ParseUtils.pascalCase(idPath.substring(idPath.lastIndexOf('/') + 1)) + (updater ? "ParticleUpdater" : "ParticleInitializer");
+        return leafPascalCase(entryKey) + (updater ? "ParticleUpdater" : "ParticleInitializer");
     }
+
+    /// The class the source export writes the open project's entry `key` as, so a reference to the entry names the
+    /// class instead of the data pack entry, spelled in the open [SourceExport] for its import. Null for an entry the
+    /// project does not hold, a broken one, and one the export writes no class for. The class is named whether this
+    /// export writes it or not.
+    public static @Nullable String compiledClass(ResourceKey<?> key) {
+        @SuppressWarnings("unchecked")
+        DataHolder<?> holder = AkytheraProject.getCurrentProject().<Object, DataHolder<Object>>getDataHolder((ResourceKey<Object>) key).orElse(null);
+        if (holder == null || holder.getFailureException() != null) return null;
+
+        ResourceKey<?> registry = key.registryKey();
+
+        if (registry.equals(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY)) {
+            return generated(SCRIPTS_DIR, animatorScriptClass(key));
+        }
+
+        if (registry.equals(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY) && holder.makeObject() instanceof DataDrivenEntityPatchBlueprint) {
+            return generated(PATCHES_DIR, entityPatchScriptClass(key));
+        }
+
+        if (registry.equals(AkytheraRegistries.DataPack.ABILITY_KEY) && holder instanceof AbilityBlueprintHolder ability
+            && (ability.makeObject().body().variables().isEmpty() || AbilityBlueprintHolder.stateSlot(ability.getCtor()) != null)
+        ) {
+            return generated(ABILITIES_DIR, abilityClass(key));
+        }
+
+        if (registry.equals(AkytheraRegistries.DataPack.ABILITY_CUE_KEY)) {
+            return generated(ABILITY_CUES_DIR, abilityCueClass(key));
+        }
+
+        if (registry.equals(AkytheraRegistries.DataPack.WIDGET_KEY) && holder instanceof WidgetBlueprintHolder widget
+            && widget.getParent() instanceof BlueprintParentRef.ParentClass
+        ) {
+            return generated(WIDGETS_DIR, widgetScriptClass(key, widget.usage()));
+        }
+
+        if (registry.equals(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY) || registry.equals(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY)) {
+            return generated(PARTICLES_DIR, particleModuleClass(key));
+        }
+
+        if (registry.equals(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY)) {
+            return generated(MOTION_WARP_TARGETS_DIR, motionWarpTargetClass(key));
+        }
+
+        return null;
+    }
+
+    private static String generated(String dir, String className) {
+        SourceExport.spellGenerated(dir, className);
+
+        return className;
+    }
+
 
     /// A particle module node graph as its own [#particleModuleClass]: a `ParticleInitializerModule` or a
     /// `ParticleUpdateModule` whose event and declared functions are methods, with `self` bound to the `emitter`
@@ -681,14 +828,137 @@ public final class FreemarkerExporter {
         }
     }
 
-    /// Renders `templateFile` against `model` into `outputFile`, reporting the write under `id`.
-    private static void render(String templateFile, Map<String, Object> model, Path outputFile, Identifier id) {
-        try {
-            Template template = SourceTemplateEngine.getTemplate(templateFile);
+    /// Every motion warp target node graph the project holds, through [#exportMotionWarpTarget].
+    public static void exportMotionWarpTargets(AkytheraProject project, Path sourceCodeRoot, String packageName) {
+        for (var entry : project.<MotionWarpTargetScriptBlueprint, DataHolder<MotionWarpTargetScriptBlueprint>>getModifiableEntries(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY)) {
+            exportMotionWarpTarget(project, entry.getKey(), sourceCodeRoot, packageName);
+        }
+    }
 
-            try (Writer writer = Files.newBufferedWriter(outputFile, StandardCharsets.UTF_8)) {
-                template.process(model, writer);
+    /// The class [#exportMotionWarpTarget] writes the motion warp target `entryKey` as: the entry's leaf name, then
+    /// `MotionWarpTarget`.
+    public static String motionWarpTargetClass(ResourceKey<?> entryKey) {
+        return leafPascalCase(entryKey) + "MotionWarpTarget";
+    }
+
+    /// A motion warp target node graph as its own [#motionWarpTargetClass]: a `MotionWarpTarget` whose `find` and
+    /// declared functions are methods, with `self` bound to the `owner` field `find` captures.
+    public static void exportMotionWarpTarget(AkytheraProject project, ResourceKey<?> entryKey, Path sourceCodeRoot, String packageName) {
+        @SuppressWarnings("unchecked")
+        DataHolder<?> holder = project.getDataHolderOrThrow((ResourceKey<Object>) entryKey);
+        if (!notBroken(entryKey, holder) || !(holder instanceof MotionWarpTargetScriptHolder targetHolder)) return;
+
+        Path targetsRoot = sourceCodeRoot.resolve(MOTION_WARP_TARGETS_DIR);
+        if (!prepareDirectory(targetsRoot)) return;
+
+        String className = motionWarpTargetClass(entryKey);
+
+        try {
+            BlueprintBody body = targetHolder.makeObject().body();
+            List<String> memberVariables = body.variables().stream().map(ScriptVariables.VariableInfo::name).toList();
+
+            Map<String, Object> model = new HashMap<>();
+            model.put("package", subPackage(packageName, MOTION_WARP_TARGETS_DIR));
+            model.put("modid", project.getProjectName());
+            model.put("entryId", entryKey.identifier().toString());
+            model.put("className", className);
+            model.put("fields", animatorFields(body.variables()));
+            model.put("methods", BlueprintSourceWriter.methods(
+                targetHolder.layout(), body, MotionWarpTarget.class, memberVariables, null, MOTION_WARP_TARGET_SELF, EntityPatch.class,
+                Map.of("find", MOTION_WARP_TARGET_PROLOGUE)));
+
+            render("motion_warp_target_script_template.ftl", model, targetsRoot.resolve(className + ".java"), entryKey.identifier());
+        } catch (Exception e) {
+            AkytheraLabs.LOGGER.error("Failed to export motion warp target {} as source", entryKey.identifier(), e);
+        }
+    }
+
+    /// `<PascalCaseModid>ScriptTypes.java` under [#REGISTRIES_DIR]: a [ScriptType] registration of every class the
+    /// project compiles to ([#compiledClass]), whether this compile writes it or not. Its id is the class name in
+    /// snake case.
+    @SuppressWarnings("unchecked")
+    public static void exportScriptTypes(AkytheraProject project, Path sourceCodeRoot, String packageName) {
+        Map<String, Map<String, Object>> types = new TreeMap<>();
+
+        SCRIPT_TYPE_REGISTRIES.forEach((registry, clientOnly) -> {
+            for (var entry : project.<Object, DataHolder<Object>>getModifiableEntries((ResourceKey<? extends Registry<Object>>) registry)) {
+                String className = compiledClass(entry.getKey());
+                if (className == null) continue;
+
+                String id = ParseUtils.camelToSnake(className);
+
+                if (types.containsKey(id)) {
+                    AkytheraLabs.LOGGER.warn("Skipped {} for script type registration: another entry also compiles to {}", entry.getKey().identifier(), className);
+                    continue;
+                }
+
+                types.put(id, Map.of("field", SourceNames.screamingSnake(id), "id", id, "className", className, "clientOnly", clientOnly));
             }
+        });
+
+        if (types.isEmpty()) return;
+
+        Path registriesRoot = sourceCodeRoot.resolve(REGISTRIES_DIR);
+        if (!prepareDirectory(registriesRoot)) return;
+
+        String className = ParseUtils.pascalCase(project.getProjectName()) + "ScriptTypes";
+
+        Map<String, Object> model = new HashMap<>();
+        model.put("package", subPackage(packageName, REGISTRIES_DIR));
+        model.put("modid", project.getProjectName());
+        model.put("className", className);
+        model.put("types", List.copyOf(types.values()));
+
+        render("script_types_template.ftl", model, registriesRoot.resolve(className + ".java"),
+            Identifier.fromNamespaceAndPath(project.getProjectName(), "script_types"));
+    }
+
+    /// `<PascalCaseModid>ScriptFunctions.java` under [#REGISTRIES_DIR]: an `ABILITY_CTOR` registration of the
+    /// constructor of every ability the project compiles to ([#compiledClass]), whether this compile writes it or not.
+    /// Its id is the class name in snake case, then `_ctor`.
+    public static void exportScriptFunctions(AkytheraProject project, Path sourceCodeRoot, String packageName) {
+        Map<String, Map<String, Object>> functions = new TreeMap<>();
+
+        for (var entry : project.<AbilityBlueprint, DataHolder<AbilityBlueprint>>getModifiableEntries(AkytheraRegistries.DataPack.ABILITY_KEY)) {
+            String className = compiledClass(entry.getKey());
+            if (className == null) continue;
+
+            String id = ParseUtils.camelToSnake(className) + "_ctor";
+
+            if (functions.containsKey(id)) {
+                AkytheraLabs.LOGGER.warn("Skipped {} for script function registration: another entry also compiles to {}", entry.getKey().identifier(), className);
+                continue;
+            }
+
+            functions.put(id, Map.of(
+                "field", SourceNames.screamingSnake(id), "id", id, "className", className, "label", ParseUtils.camelToSpacedPascal(className)));
+        }
+
+        if (functions.isEmpty()) return;
+
+        Path registriesRoot = sourceCodeRoot.resolve(REGISTRIES_DIR);
+        if (!prepareDirectory(registriesRoot)) return;
+
+        String className = ParseUtils.pascalCase(project.getProjectName()) + "ScriptFunctions";
+
+        Map<String, Object> model = new HashMap<>();
+        model.put("package", subPackage(packageName, REGISTRIES_DIR));
+        model.put("modid", project.getProjectName());
+        model.put("className", className);
+        model.put("functions", List.copyOf(functions.values()));
+
+        render("script_functions_template.ftl", model, registriesRoot.resolve(className + ".java"),
+            Identifier.fromNamespaceAndPath(project.getProjectName(), "script_functions"));
+    }
+
+    /// Renders `templateFile` against `model` into `outputFile` with its imports ([SourceImports]), reporting the
+    /// write under `id`.
+    private static void render(String templateFile, Map<String, Object> model, Path outputFile, Identifier id) {
+        try (StringWriter writer = new StringWriter()) {
+            SourceTemplateEngine.getTemplate(templateFile).process(model, writer);
+            // Deleted first, so a file a case-insensitive file system holds under the other casing takes this name.
+            Files.deleteIfExists(outputFile);
+            Files.writeString(outputFile, SourceImports.insert(writer.toString()), StandardCharsets.UTF_8);
 
             AkytheraLabs.LOGGER.info("Exported {} -> {}", id, outputFile);
         } catch (IOException | TemplateException e) {
@@ -846,9 +1116,16 @@ public final class FreemarkerExporter {
             .toList();
     }
 
+    /// `entryKey`'s leaf name, not its directory, in PascalCase: `minecraft/player` -> `Player`.
+    private static String leafPascalCase(ResourceKey<?> entryKey) {
+        String idPath = entryKey.identifier().getPath();
+
+        return ParseUtils.pascalCase(idPath.substring(idPath.lastIndexOf('/') + 1));
+    }
+
     /// Append a sub-package segment to the chosen base package, tolerating a blank base (the modal
     /// leaves the package field empty when the export dir isn't under `src/main/java`).
-    private static String subPackage(String base, String segment) {
+    static String subPackage(String base, String segment) {
         String subPackage = segment.replace('/', '.');
 
         return base.isBlank() ? subPackage : base + "." + subPackage;

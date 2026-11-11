@@ -10,14 +10,13 @@
 /// as runtime ComponentBlueprints, and widgetEvent() / widgetBinding() answer the
 /// widgets' events and bindings with the methods their graphs became.
 ///
-/// Register this class as a `ScriptType` and pick it as the source code script of a
+/// Registered as a `ScriptType` by the generated registries/*ScriptTypes.java.
+/// Pick it as the source code script of a
 /// widget blueprint in Akythera Labs.
 
 <#import "component_map.ftl" as tpl>
 <#import "method_list.ftl" as methodList>
 package ${package};
-
-// Import section is empty. Use auto import feature in IDE
 
 public final class ${className} implements ${scriptInterface} {
 <#list fields as field>

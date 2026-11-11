@@ -40,8 +40,6 @@
 <#import "component_map.ftl" as tpl>
 package ${package};
 
-// Import section is empty. Use auto import feature in IDE
-
 public final class ${className} extends ItemPatchBlueprintProvider {
     static ResourceKey<ItemPatchBlueprint> createId(final String name) {
         return ResourceKey.create(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, Identifier.fromNamespaceAndPath("${modid}", name));

@@ -46,8 +46,6 @@
 
 package ${package};
 
-// Import section is empty. Use auto import feature in IDE
-
 public enum ${className} implements ${blockType} {
 <#list constants as constant>
     ${constant.name}("${constant.path}"<#list constant.args as arg>, ${arg}</#list>)<#if constant_has_next>,<#else>;</#if>

@@ -21,14 +21,12 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NullMarked;
-import org.jspecify.annotations.Nullable;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /// Writes particle pieces, and the emitters of a particle system, as the constructor expressions their generated
@@ -40,12 +38,7 @@ public final class ParticleSourceWriter {
     private static final String INDENT = "    ";
 
     /// `emitter` as its [ParticleEmitterBlueprint] constructor expression, one argument per line, closing at `indent`.
-    ///
-    /// @param moduleClasses the generated class of a module node graph, by its entry, or null for an entry that stays
-    ///                      a data pack entry
-    public static String emitter(
-        ParticleEmitterBlueprint emitter, Function<ResourceKey<?>, @Nullable String> moduleClasses, int indent
-    ) {
+    public static String emitter(ParticleEmitterBlueprint emitter, int indent) {
         return ctor("ParticleEmitterBlueprint", indent, List.of(
             ScriptNodeSourceCompiler.valueLiteral(emitter.name()),
             emitter.particle().map(
@@ -65,8 +58,8 @@ public final class ParticleSourceWriter {
             transform(emitter.transform()),
             track(emitter.pivotKeys(), indent + 1),
             track(emitter.transformKeys(), indent + 1),
-            listOf(emitter.initializers().stream().map(initializer -> module(initializer, moduleClasses, indent + 2)).toList(), indent + 1),
-            listOf(emitter.updaters().stream().map(updater -> module(updater, moduleClasses, indent + 2)).toList(), indent + 1)
+            listOf(emitter.initializers().stream().map(initializer -> module(initializer, indent + 2)).toList(), indent + 1),
+            listOf(emitter.updaters().stream().map(updater -> module(updater, indent + 2)).toList(), indent + 1)
         ));
     }
 
@@ -130,13 +123,7 @@ public final class ParticleSourceWriter {
 
         return ctor("ArmatureComponentBlueprint", indent, List.of(
             "ArmatureManager.accessor(" + ScriptNodeSourceCompiler.valueLiteral(id.getNamespace()) + ", " + ScriptNodeSourceCompiler.valueLiteral(path) + ", Armature::new)",
-            switch (armature.scriptFactory()) {
-                case ArmatureComponentBlueprint.ByClass byClass ->
-                    "new ArmatureComponentBlueprint.ByClass(" + NodeTreeSourceRenderer.scriptType(byClass.animatorType()) + ")";
-                case ArmatureComponentBlueprint.ByDataPack byDataPack -> "new ArmatureComponentBlueprint.ByDataPack("
-                    + BlueprintSourceWriter.registryKey(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, byDataPack.resourceKey().identifier().toString()) + ")";
-                default -> throw new IllegalStateException("No source form for the animator script factory " + armature.scriptFactory().getClass().getSimpleName());
-            },
+            NodeTreeSourceRenderer.animatorScriptFactory(armature.scriptFactory()),
             transform(armature.transform()),
             "TransformInheritPolicy." + armature.transformInheritPolicy().name(),
             "Map.of()",
@@ -171,16 +158,16 @@ public final class ParticleSourceWriter {
         return "new KeyframeTrack<>(" + listOf(keys, indent) + ")";
     }
 
-    /// One entry of an emitter's initializer or updater list: a class, a data pack entry or its generated class, or a
+    /// One entry of an emitter's initializer or updater list: a class, a data pack entry or its compiled class, or a
     /// built-in module's record with each parameter as its node tree.
-    private static String module(Object module, Function<ResourceKey<?>, @Nullable String> moduleClasses, int indent) {
+    private static String module(Object module, int indent) {
         return switch (module) {
             case ParticleInitializerBlueprint.ByClass byClass ->
                 "new ParticleInitializerBlueprint.ByClass(" + NodeTreeSourceRenderer.scriptType(byClass.type()) + ")";
             case ParticleUpdaterBlueprint.ByClass byClass ->
                 "new ParticleUpdaterBlueprint.ByClass(" + NodeTreeSourceRenderer.scriptType(byClass.type()) + ")";
-            case ParticleInitializerBlueprint.ByData byData -> dataModule("ParticleInitializerBlueprint", byData.module(), moduleClasses);
-            case ParticleUpdaterBlueprint.ByData byData -> dataModule("ParticleUpdaterBlueprint", byData.module(), moduleClasses);
+            case ParticleInitializerBlueprint.ByData byData -> dataModule("ParticleInitializerBlueprint", byData.module());
+            case ParticleUpdaterBlueprint.ByData byData -> dataModule("ParticleUpdaterBlueprint", byData.module());
             default -> {
                 List<String> arguments = new ArrayList<>();
 
@@ -199,11 +186,11 @@ public final class ParticleSourceWriter {
         };
     }
 
-    private static String dataModule(String blueprintType, ResourceKey<?> key, Function<ResourceKey<?>, @Nullable String> moduleClasses) {
-        String generated = moduleClasses.apply(key);
+    private static String dataModule(String blueprintType, ResourceKey<?> key) {
+        String compiled = FreemarkerExporter.compiledClass(key);
 
-        return generated != null
-            ? "new " + blueprintType + ".ByClass(ScriptType.of(" + generated + ".class))"
+        return compiled != null
+            ? "new " + blueprintType + ".ByClass(ScriptType.of(" + compiled + ".class))"
             : "new " + blueprintType + ".ByData(" + BlueprintSourceWriter.registryKey(key.registryKey(), key.identifier().toString()) + ")";
     }
 

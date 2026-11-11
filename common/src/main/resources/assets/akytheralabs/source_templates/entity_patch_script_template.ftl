@@ -9,13 +9,11 @@
 /// blueprint is a method, and componentsToAttach() returns the attached
 /// components as runtime ComponentBlueprints.
 ///
-/// Register this class as a `ScriptType` and pick it as the entity patch's parent in Akythera Labs.
+/// Registered as a `ScriptType` by the generated registries/*ScriptTypes.java. Pick it as the entity patch's parent in Akythera Labs.
 
 <#import "component_map.ftl" as tpl>
 <#import "method_list.ftl" as methodList>
 package ${package};
-
-// Import section is empty. Use auto import feature in IDE
 
 public final class ${className} implements EntityPatchScript {
 <#list fields as field>

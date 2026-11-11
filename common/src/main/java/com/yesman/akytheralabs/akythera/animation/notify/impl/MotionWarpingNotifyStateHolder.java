@@ -15,6 +15,7 @@ import com.yesman.akythera.core.util.LogicalSide;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.BlueprintSourceWriter;
+import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.animation.MotionWarpTargetScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
@@ -192,8 +193,14 @@ public final class MotionWarpingNotifyStateHolder extends AnimationNotifyStateHo
     @Override
     public Map<String, Object> getDTO() {
         String targetSource = switch (target) {
-            case MotionWarpTargetBlueprint.ByData byData -> "new MotionWarpTargetBlueprint.ByData("
-                + BlueprintSourceWriter.registryKey(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, byData.target().identifier().toString()) + ")";
+            case MotionWarpTargetBlueprint.ByData byData -> {
+                String compiled = FreemarkerExporter.compiledClass(byData.target());
+
+                yield compiled != null
+                    ? "new MotionWarpTargetBlueprint.ByClass(ScriptType.of(" + compiled + ".class))"
+                    : "new MotionWarpTargetBlueprint.ByData("
+                        + BlueprintSourceWriter.registryKey(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, byData.target().identifier().toString()) + ")";
+            }
             case MotionWarpTargetBlueprint.ByClass byClass -> "new MotionWarpTargetBlueprint.ByClass(" + NodeTreeSourceRenderer.scriptType(byClass.type()) + ")";
             default -> "new " + target.getClass().getSimpleName() + "()";
         };

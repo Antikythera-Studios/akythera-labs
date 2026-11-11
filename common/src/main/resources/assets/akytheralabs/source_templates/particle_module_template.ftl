@@ -8,13 +8,12 @@
 /// particle module "${entryId}". Its event and every declared function of the
 /// node graph is a method.
 ///
-/// Register this class as a `ScriptType`, then pick it under `Class` in an emitter's
+/// Registered as a `ScriptType` by the generated registries/*ScriptTypes.java.
+/// Pick it under `Class` in an emitter's
 /// module select box in Akythera Labs.
 
 <#import "method_list.ftl" as methodList>
 package ${package};
-
-// Import section is empty. Use auto import feature in IDE
 
 public final class ${className} implements ${moduleInterface} {
 <#list fields as field>

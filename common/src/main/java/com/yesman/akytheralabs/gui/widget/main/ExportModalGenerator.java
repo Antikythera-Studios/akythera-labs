@@ -8,6 +8,7 @@ import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.FreemarkerExporter;
+import com.yesman.akytheralabs.SourceExport;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
@@ -18,6 +19,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.network.chat.Component;
+import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
@@ -202,7 +204,9 @@ public final class ExportModalGenerator {
     }
 
     /// `Compile` on one data category, or on a content-browser selection: the `As Source Code` layout
-    /// without its Resource Path row, since a compile only writes generated `.java`. The folder picked
+    /// without its Resource Path row, since a compile only writes generated `.java`. Every compile also rewrites the
+    /// project's `*ScriptTypes` and `*ScriptFunctions` classes ([FreemarkerExporter#exportScriptTypes],
+    /// [FreemarkerExporter#exportScriptFunctions]). The folder picked
     /// is the same export root the whole-project export uses, so each kind still lands under the
     /// sub-directory it owns (`<root>\scripts\animator\MyAnimatorScript.java`), and it is remembered in
     /// `project_settings.akproject` alongside the `As Source Code` path.
@@ -237,7 +241,12 @@ public final class ExportModalGenerator {
             project.saveSourceExportPaths(sourceDir, project.getLastSourceResourcePath());
 
             Path sourceRoot = Path.of(sourceDir);
-            compile.work().run(project, sourceRoot, packageRow.getPackageName());
+            String packageName = packageRow.getPackageName();
+            SourceExport.run(packageName, () -> {
+                compile.work().run(project, sourceRoot, packageName);
+                FreemarkerExporter.exportScriptTypes(project, sourceRoot, packageName);
+                FreemarkerExporter.exportScriptFunctions(project, sourceRoot, packageName);
+            });
 
             ModalManager.getInstance().closeModal();
             Util.getPlatform().openFile(sourceRoot.toFile());
@@ -263,6 +272,14 @@ public final class ExportModalGenerator {
     /// gate — and the writer emitting their generated `.java` into the chosen source root. Produced by
     /// [ResourceProcessor#categoryCompile] and [ResourceProcessor#entryCompile].
     public record Compile(Predicate<ResourceKey<?>> scope, Work work) {
+        /// `Compile Objects` on the data kind `registryKey`, see [FreemarkerExporter#exportObjects].
+        public static Compile objects(ResourceKey<? extends Registry<?>> registryKey) {
+            return new Compile(
+                key -> FreemarkerExporter.coversObjects(registryKey, key),
+                (project, sourceRoot, packageName) -> FreemarkerExporter.exportObjects(project, registryKey, sourceRoot, packageName)
+            );
+        }
+
         @FunctionalInterface
         public interface Work {
             void run(AkytheraProject project, Path sourceRoot, String packageName);

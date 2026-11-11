@@ -41,8 +41,6 @@
 
 package ${package};
 
-// Import section is empty. Use auto import feature in IDE
-
 public final class ${className} extends ParticleBlueprintProvider {
     static ResourceKey<ParticleBlueprint> createId(final String name) {
         return ResourceKey.create(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY, Identifier.fromNamespaceAndPath("${modid}", name));

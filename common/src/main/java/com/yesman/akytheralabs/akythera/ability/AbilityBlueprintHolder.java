@@ -11,8 +11,11 @@ import com.yesman.akythera.core.blueprint.script.BlueprintBody;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akytheralabs.FreemarkerExporter;
+import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
+import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
@@ -31,7 +34,7 @@ import java.util.stream.Stream;
 /// The editor keeps the graphs, property values and variables as one [BlueprintScriptData], laid out by the
 /// [Ability] class the parent constructor builds. [#makeObject] is the compile step: it lowers the data into
 /// a [BlueprintBody].
-public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlueprint> {
+public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlueprint> implements DTOProvider {
     public static final Codec<AbilityBlueprintHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
             AkytheraRegistries.Frozen.SCRIPT_FUNCTION.byNameCodec().fieldOf("parent")
@@ -99,6 +102,17 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
     @Override
     public Stream<EditorReference> referencedReferences() {
         return script.referencedReferences();
+    }
+
+    /// Tokens for `ability_blueprint_template.ftl`: the constructor and the body. An ability the open project
+    /// compiles is built by its compiled class ([FreemarkerExporter#compiledClass]) with an empty body.
+    @Override
+    public Map<String, Object> getDTO() {
+        String compiled = FreemarkerExporter.compiledClass(Objects.requireNonNull(getOwnResourceKey()));
+
+        return compiled == null
+            ? Map.of("ctor", NodeTreeSourceRenderer.scriptFunction(ctor), "body", NodeTreeSourceRenderer.body(makeObject().body(), 4))
+            : Map.of("ctor", "ScriptFunction.constructorOf(" + compiled + ".class, ScriptFunction.Usage.ABILITY_CTOR)", "body", "BlueprintBody.EMPTY");
     }
 
     @Override

@@ -39,8 +39,6 @@
 
 package ${package};
 
-// Import section is empty. Use auto import feature in IDE
-
 public final class ${className} extends BlendSpace2DProvider {
     static ResourceKey<BlendSpace2D> createId(final String name) {
         return ResourceKey.create(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY, Identifier.fromNamespaceAndPath("${modid}", name));

@@ -47,8 +47,6 @@
 
 package ${package};
 
-// Import section is empty. Use auto import feature in IDE
-
 public final class ${className} extends ${blueprint}Provider {
     static ResourceKey<${blueprint}> createId(final String name) {
         return ResourceKey.create(AkytheraRegistries.DataPack.${registryKey}, Identifier.fromNamespaceAndPath("${modid}", name));

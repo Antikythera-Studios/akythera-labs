@@ -11,7 +11,7 @@
 <#list modifiers as m>
                         new AttributeModifierEntry(
                             BuiltInRegistries.ATTRIBUTE.getOrThrow(ResourceKey.create(Registries.ATTRIBUTE, Identifier.parse("${m.attribute}"))),
-                            new AttributeModifier(Identifier.parse("${m.id}"), ${m.amount}, AttributeModifier.Operation.${m.operation})
+                            new net.minecraft.world.entity.ai.attributes.AttributeModifier(Identifier.parse("${m.id}"), ${m.amount}, net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.${m.operation})
                         )<#sep>,</#sep>
 </#list>
                     ), ${enabled?c})<#t>

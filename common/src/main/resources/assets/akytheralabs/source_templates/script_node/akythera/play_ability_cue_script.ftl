@@ -1,0 +1,2 @@
+<#-- akythera:play_ability_cue_script (component, scriptId, source, withState, endsWithAbility) -> AbilityCue --><#t>
+${params[0]}.playCue(AkytheraRegistries.Frozen.SCRIPT_TYPE.getOptional(Identifier.parse(${params[1]})).orElseThrow(() -> new IllegalArgumentException("No script type " + ${params[1]})).type().asSubclass(AbilityCueScript.class), ${params[2]}, Boolean.TRUE.equals(${params[3]}), Boolean.TRUE.equals(${params[4]}))<#t>

@@ -4,7 +4,6 @@ import com.yesman.akythera.core.blueprint.particle.ParticleSystemBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
@@ -53,18 +52,10 @@ public final class ParticleSystemResourceProcessor implements ResourceProcessor<
         });
     }
 
-    /// The systems' data provider, with the class of every module node graph of the project.
+    /// The systems' data provider, with the class of every particle initializer and updater.
     @Override
     public ExportModalGenerator.Compile categoryCompile() {
-        return new ExportModalGenerator.Compile(
-            key -> key.registryKey().equals(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY)
-                || key.registryKey().equals(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY)
-                || key.registryKey().equals(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY),
-            (project, sourceRoot, packageName) -> {
-                FreemarkerExporter.exportRegistryProvider(project, AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, sourceRoot, packageName);
-                FreemarkerExporter.exportParticleModules(project, sourceRoot, packageName);
-            }
-        );
+        return ExportModalGenerator.Compile.objects(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY);
     }
 
     @Override

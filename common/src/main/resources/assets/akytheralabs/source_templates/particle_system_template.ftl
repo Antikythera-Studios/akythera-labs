@@ -6,7 +6,7 @@
 ///
 /// Emits the particle systems as datapack JSON at datagen. A module node graph of the project is
 /// named by its compiled class, see the exported scripts/particles/*ParticleInitializer.java and
-/// *ParticleUpdater.java sources. Register those classes as `ScriptType` before datagen runs.
+/// *ParticleUpdater.java sources. registries/*ScriptTypes.java registers those classes; its registrar must be present before datagen runs.
 ///
 /// Wire the provider through each mod loader's datagen register process.
 ///
@@ -42,8 +42,6 @@
 /// ```
 
 package ${package};
-
-// Import section is empty. Use auto import feature in IDE
 
 public final class ${className} extends ParticleSystemBlueprintProvider {
     static ResourceKey<ParticleSystemBlueprint> createId(final String name) {

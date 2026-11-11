@@ -9,6 +9,9 @@ import freemarker.template.Configuration;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import freemarker.template.TemplateExceptionHandler;
+import freemarker.template.TemplateMethodModelEx;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NullMarked;
 
 import java.io.IOException;
@@ -49,6 +52,21 @@ public final class SourceTemplateEngine {
         // a class literal that the build has stripped, so resolving any "?new" would raise NoClassDefFoundError
         // instead of a template error. ALLOWS_NOTHING_RESOLVER is stricter anyway.
         CONFIGURATION.setNewBuiltinClassResolver(TemplateClassResolver.ALLOWS_NOTHING_RESOLVER);
+
+        // `compiledClass(registryId, idLiteral)`: the compiled class ([FreemarkerExporter#compiledClass]) of the entry
+        // a Java string literal names, or "" when the argument is no literal or the entry has no compiled class.
+        CONFIGURATION.setSharedVariable("compiledClass", (TemplateMethodModelEx) arguments -> {
+            String literal = String.valueOf(arguments.get(1));
+            if (literal.length() < 2 || !literal.startsWith("\"") || !literal.endsWith("\"")) return "";
+
+            Identifier id = Identifier.tryParse(literal.substring(1, literal.length() - 1));
+            if (id == null) return "";
+
+            String compiled = FreemarkerExporter.compiledClass(
+                ResourceKey.create(ResourceKey.createRegistryKey(Identifier.parse(String.valueOf(arguments.get(0)))), id));
+
+            return compiled == null ? "" : compiled;
+        });
     }
 
     /// Registers another jar's `.ftl` source under the same [#TEMPLATE_ROOT] path, anchored at a

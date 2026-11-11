@@ -8,13 +8,11 @@
 /// ability cue blueprint. Every event and declared function of the blueprint
 /// is a method, and every property it sets is an overriding getter.
 ///
-/// Register this class as a `ScriptType`, then play it with the "Play Ability Cue Script"
-/// node, or through `AbilitySystemComponent#playCue(${className}.class, ...)`.
+/// Registered as a `ScriptType` by the generated registries/*ScriptTypes.java.
+/// Play it with the "Play Ability Cue Script" node, or through `AbilitySystemComponent#playCue(${className}.class, ...)`.
 
 <#import "method_list.ftl" as methodList>
 package ${package};
-
-// Import section is empty. Use auto import feature in IDE
 
 public final class ${className} implements AbilityCueScript {
 <#list fields as field>

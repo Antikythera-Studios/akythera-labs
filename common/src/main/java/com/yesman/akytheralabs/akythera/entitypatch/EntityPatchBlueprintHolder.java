@@ -16,6 +16,7 @@ import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintParentRef;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
@@ -29,7 +30,6 @@ import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
-import com.yesman.akytheralabs.dataholder.FailedComponentHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
@@ -38,7 +38,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -206,42 +205,23 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
         return script.firstFailure();
     }
 
-    /// Tokens for `entity_patch_blueprint_template.ftl`, as Java constructor expressions from
-    /// [NodeTreeSourceRenderer] lowered through [#makeObject]: the parent constructor, plus either the
-    /// source code script (`source_code_script`) or the [BlueprintBody] and the attached components'
-    /// constructor expressions. The indent base, 4, matches the template's splice point.
+    /// Tokens for `entity_patch_blueprint_template.ftl`: the parent constructor, and the source code script, which
+    /// is the compiled class ([FreemarkerExporter#compiledClass]) of a data-driven entry.
     @Override
     public Map<String, Object> getDTO() {
         EntityPatchBlueprint blueprint = makeObject();
+        String script = switch (blueprint) {
+            case SourceCodeEntityPatchBlueprint sourceCode -> NodeTreeSourceRenderer.scriptType(sourceCode.script());
+            case DataDrivenEntityPatchBlueprint _ ->
+                "ScriptType.of(" + Objects.requireNonNull(FreemarkerExporter.compiledClass(Objects.requireNonNull(getOwnResourceKey()))) + ".class)";
+        };
 
-        Map<String, Object> dto = new HashMap<>();
-        dto.put("parent", NodeTreeSourceRenderer.scriptFunction(blueprint.ctor()));
-
-        switch (blueprint) {
-            case SourceCodeEntityPatchBlueprint sourceCode ->
-                dto.put("source_code_script", NodeTreeSourceRenderer.scriptType(sourceCode.script()));
-            case DataDrivenEntityPatchBlueprint dataDriven -> {
-                dto.put("components", ComponentDataHolder.sourcesOf(healthyComponents(), false));
-                dto.put("body", NodeTreeSourceRenderer.body(dataDriven.body(), 4));
-            }
-        }
-
-        return dto;
+        return Map.of("parent", NodeTreeSourceRenderer.scriptFunction(blueprint.ctor()), "source_code_script", script);
     }
 
     // ***************************************************************
     // Components (editor holders keyed by attachment name)
     // ***************************************************************
-    /// The component map minus unknown-type placeholders. A [FailedComponentHolder] has no source
-    /// form and round-trips only through its raw JSON.
-    private SequencedMap<String, ComponentDataHolder<?>> healthyComponents() {
-        SequencedMap<String, ComponentDataHolder<?>> healthy = ComponentAttachableHolder.newComponentMap();
-        components.forEach((name, c) -> {
-            if (!(c instanceof FailedComponentHolder)) healthy.put(name, c);
-        });
-        return healthy;
-    }
-
     @Override
     public SequencedMap<String, ComponentDataHolder<?>> getComponents() {
         return components;

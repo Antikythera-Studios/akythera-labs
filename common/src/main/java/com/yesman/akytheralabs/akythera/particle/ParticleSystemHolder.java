@@ -5,7 +5,6 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.core.blueprint.particle.ParticleEmitterBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleSystemBlueprint;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
-import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.ParticleSourceWriter;
@@ -13,7 +12,6 @@ import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
-import net.minecraft.resources.ResourceKey;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -97,19 +95,15 @@ public final class ParticleSystemHolder extends AbstractDataHolder<ParticleSyste
     }
 
     /// The `emitters` and `variables` lists of the system's constructor, as source. A module node graph the open
-    /// project holds is named by the class [FreemarkerExporter#particleModuleClass] gives it.
+    /// project compiles is named by its class ([FreemarkerExporter#compiledClass]).
     @Override
-    @SuppressWarnings("unchecked")
     public Map<String, Object> getDTO() {
-        AkytheraProject project = AkytheraProject.getCurrentProject();
         ParticleSystemBlueprint system = makeObject();
 
         return Map.of(
             "emitters", ParticleSourceWriter.listOf(
                 system.emitters().stream()
-                    .map(emitter -> ParticleSourceWriter.emitter(
-                        emitter, module -> project.getDataHolder((ResourceKey<Object>)module).isPresent() ? FreemarkerExporter.particleModuleClass(module) : null, DTO_INDENT + 1
-                    ))
+                    .map(emitter -> ParticleSourceWriter.emitter(emitter, DTO_INDENT + 1))
                     .toList(),
                 DTO_INDENT
             ),

@@ -17,6 +17,8 @@ import com.yesman.akythera.core.blueprint.widget.WidgetUsage;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akytheralabs.FreemarkerExporter;
+import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintMembers;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintParentRef;
@@ -26,6 +28,7 @@ import com.yesman.akytheralabs.akythera.blueprint.ComponentPaths;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
+import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
@@ -52,7 +55,7 @@ import java.util.stream.Stream;
 ///
 /// [#parent] is either a container class, lowered into a [DataDrivenWidgetBlueprint], or a source code script,
 /// lowered into a [SourceCodeWidgetBlueprint] that carries nothing but the title.
-public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBlueprint> implements ComponentAttachableHolder {
+public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBlueprint> implements ComponentAttachableHolder, DTOProvider {
     private static final int DEFAULT_CANVAS_WIDTH = 640;
     private static final int DEFAULT_CANVAS_HEIGHT = 360;
 
@@ -228,6 +231,24 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
             }
             case BlueprintParentRef.SourceCodeScript sourceCode -> new SourceCodeWidgetBlueprint(usage(), sourceCode.ctor(), title, sourceCode.script());
         };
+    }
+
+    /// Tokens for `widget_blueprint_template.ftl`: the usage, the parent constructor, the title and the source code
+    /// script, which is the compiled class ([FreemarkerExporter#compiledClass]) of a container class parent.
+    @Override
+    public Map<String, Object> getDTO() {
+        String script = switch (parent) {
+            case BlueprintParentRef.ParentClass _ ->
+                "ScriptType.of(" + Objects.requireNonNull(FreemarkerExporter.compiledClass(Objects.requireNonNull(getOwnResourceKey()))) + ".class)";
+            case BlueprintParentRef.SourceCodeScript sourceCode -> NodeTreeSourceRenderer.scriptType(sourceCode.script());
+        };
+
+        return Map.of(
+            "usage", "WidgetUsage." + usage().name(),
+            "ctor", NodeTreeSourceRenderer.scriptFunction(parent.ctor()),
+            "title", WidgetComponentHolder.sourceOf(title),
+            "script", script
+        );
     }
 
     /// Also validates the graph of every widget event and binding, under its [WidgetGraphSite#key]. A source

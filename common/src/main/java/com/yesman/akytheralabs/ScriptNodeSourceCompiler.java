@@ -26,6 +26,7 @@ import com.yesman.akythera.core.animation.FSMAnimationState;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
+import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
@@ -188,26 +189,29 @@ public final class ScriptNodeSourceCompiler {
             }
             case BranchNode branch -> {
                 out.add(line(indent, "if (" + expr(branch.boolFunction()) + ") {"));
-                for (FlowNode arm : branch.whenTrue()) statements(arm, out, indent + 1);
+                block(branch.whenTrue(), out, indent + 1);
 
                 if (!branch.whenFalse().isEmpty()) {
                     out.add(line(indent, "} else {"));
-                    for (FlowNode arm : branch.whenFalse()) statements(arm, out, indent + 1);
+                    block(branch.whenFalse(), out, indent + 1);
                 }
 
                 out.add(line(indent, "}"));
             }
             case CastNode cast -> {
+                Set<String> enclosingNames = new HashSet<>(scopedNames);
+
                 scopedNames.add(cast.castName());
                 out.add(line(indent, "if (" + expr(cast.object()) + " instanceof " + typeName(cast.type().type()) + " " + cast.castName() + ") {"));
-                for (FlowNode arm : cast.whenSucceeded()) statements(arm, out, indent + 1);
+                block(cast.whenSucceeded(), out, indent + 1);
 
                 if (!cast.whenFailed().isEmpty()) {
                     out.add(line(indent, "} else {"));
-                    for (FlowNode arm : cast.whenFailed()) statements(arm, out, indent + 1);
+                    block(cast.whenFailed(), out, indent + 1);
                 }
 
                 out.add(line(indent, "}"));
+                scopedNames.retainAll(enclosingNames);
             }
             case FlowFunctionNode fn -> {
                 out.add(line(indent, functionExpr(fn.function(), argsOf(fn.function(), fn.params())) + ";"));
@@ -221,6 +225,18 @@ public final class ScriptNodeSourceCompiler {
                 out.add(line(indent, "this." + setter.field() + " = " + expr(setter.value()) + ";"));
             default -> out.add(line(indent, "// TODO: unsupported flow node " + node.getClass().getSimpleName()));
         }
+    }
+
+    /// Emits `nodes` as the body of one Java block, so the locals they declare stay inside it.
+    private void block(List<FlowNode> nodes, List<String> out, int indent) {
+        Set<String> enclosingNames = new HashSet<>(scopedNames);
+        Map<String, Class<?>> enclosingTypes = new HashMap<>(localTypes);
+
+        for (FlowNode node : nodes) statements(node, out, indent);
+
+        scopedNames.retainAll(enclosingNames);
+        localTypes.keySet().retainAll(enclosingTypes.keySet());
+        localTypes.putAll(enclosingTypes);
     }
 
     /// Whether every path through `node` ends in a [ReturnNode].
@@ -293,7 +309,7 @@ public final class ScriptNodeSourceCompiler {
     private String callbackExpr(CallbackAdapterNode node) {
         List<String> body = new ArrayList<>();
 
-        statements(node.child(), body, 0);
+        block(List.of(node.child()), body, 0);
 
         return body.isEmpty() ? "() -> {}" : "() -> { " + String.join(" ", body) + " }";
     }
@@ -332,7 +348,8 @@ public final class ScriptNodeSourceCompiler {
                 : getter.variableName();
             case SourceDriverNode _ -> sourceDriverExpr != null ? sourceDriverExpr
                 : "null /* TODO: Source State Driver outside a transition */";
-            case PureFunctionNode fn -> functionExpr(fn.function(), argsOf(fn.function(), fn.params()));
+            // A flow function reads as a value where the editor keeps its answer in a local, `var call_<id> = ...`.
+            case FunctionNode fn -> functionExpr(fn.function(), argsOf(fn.function(), fn.params()));
             case NumericOperatorNode op -> "(" + expr(op.a()) + " " + operatorSign(op.operator()) + " " + expr(op.b()) + ")";
             case LogicalOperationNode op -> logicalExpr(op);
             case InvertBooleanNode invert -> "!(" + expr(invert.child()) + ")";
@@ -393,7 +410,7 @@ public final class ScriptNodeSourceCompiler {
     private @Nullable Class<?> staticType(PureNode node) {
         return switch (node) {
             case SelfNode _ -> selfType;
-            case PureFunctionNode fn -> fn.function().functionSignature().returnType();
+            case FunctionNode fn -> fn.function().functionSignature().returnType();
             case ContextVariableAccessNode access -> localTypes.get(access.localVariableName());
             case ScriptVariableGetterNode getter -> memberVariables.contains(getter.variableName()) ? null : localTypes.get(getter.variableName());
             default -> null;
@@ -516,14 +533,16 @@ public final class ScriptNodeSourceCompiler {
     ///
     /// `type` is the enum interface the block belongs to, e.g. `FSMAnimationState`.
     public static String dataBlockLookup(String type, EnumerableDataBlock block) {
-        String projectConstant = SourceNames.dataBlockReference(block);
-        if (projectConstant != null) return projectConstant;
-
         Identifier id = block.identifier();
 
-        return id == null
-            ? "null /* TODO: unregistered " + type + " */"
-            : type + ".ENUM_MANAGER.getOrThrow(Identifier.parse(" + quote(id.toString()) + "))";
+        return id == null ? "null /* TODO: unregistered " + type + " */" : dataBlockLookup(type, block.getEnumManager(), id);
+    }
+
+    /// As [#dataBlockLookup(String, EnumerableDataBlock)], for the block `manager` holds under `id`.
+    public static String dataBlockLookup(String type, EnumerableDataBlockManager<?> manager, Identifier id) {
+        String projectConstant = SourceNames.dataBlockReference(manager, id);
+
+        return projectConstant != null ? projectConstant : type + ".ENUM_MANAGER.getOrThrow(Identifier.parse(" + quote(id.toString()) + "))";
     }
 
     // ***************************************************************

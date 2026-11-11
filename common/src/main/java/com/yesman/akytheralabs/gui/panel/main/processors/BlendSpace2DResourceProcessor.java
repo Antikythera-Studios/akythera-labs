@@ -5,7 +5,6 @@ import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.akythera.animation.BlendSpace2DHolder;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
@@ -77,10 +76,6 @@ public final class BlendSpace2DResourceProcessor implements ResourceProcessor<Bl
 
     @Override
     public ExportModalGenerator.Compile categoryCompile() {
-        return new ExportModalGenerator.Compile(
-            key -> key.registryKey().equals(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY),
-            (project, sourceRoot, packageName) -> FreemarkerExporter.exportRegistryProvider(
-                project, AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY, sourceRoot, packageName)
-        );
+        return ExportModalGenerator.Compile.objects(AkytheraRegistries.DataPack.BLEND_SPACE_2D_KEY);
     }
 }

@@ -4,7 +4,6 @@ import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.dataholder.DataBlockRegistries;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
@@ -12,7 +11,6 @@ import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.RefusalPopup;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
-import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
 import net.minecraft.client.gui.Font;
 import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
@@ -93,14 +91,5 @@ public final class DataBlockResourceProcessor<T extends EnumerableDataBlock> imp
     public @Nullable ContentWidget<?> createContentWidget(Font font, Path path) {
         return ResourceProcessor.resolveDatapackWidget(
             font, path, registryKey, ContentWidget.DataBlockContent::new);
-    }
-
-    @Override
-    public ExportModalGenerator.Compile categoryCompile() {
-        return new ExportModalGenerator.Compile(
-            key -> key.registryKey().equals(registryKey),
-            (project, sourceRoot, packageName) -> FreemarkerExporter.exportDataBlockEnum(
-                project, registryKey, sourceRoot, packageName)
-        );
     }
 }

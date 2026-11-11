@@ -11,21 +11,11 @@
 /// The blueprint's variables live in ${stateClass}, one per equipped instance.
 </#if>
 ///
-/// Register its constructor as an ABILITY_CTOR script function, and pick it as
-/// an ability's parent in Akythera Labs:
-///
-/// ```
-/// ScriptModularizeHelper.makeCustomScript(
-///     (Function<Holder.Reference, ${className}>) ${className}::new,
-///     FunctionSignature.create(${className}.class, List.of("blueprint"), Holder.Reference.class),
-///     "${className}", "Ability", "", true, ScriptFunction.Usage.ABILITY_CTOR
-/// )
-/// ```
+/// Its constructor is registered as an ABILITY_CTOR script function by the generated
+/// registries/*ScriptFunctions.java. Pick it as an ability's parent in Akythera Labs.
 
 <#import "method_list.ftl" as methodList>
 package ${package};
-
-// Import section is empty. Use auto import feature in IDE
 
 public class ${className} extends ${supertype} {
 <#if !stateClass??>

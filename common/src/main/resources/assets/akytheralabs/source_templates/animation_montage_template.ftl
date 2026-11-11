@@ -39,8 +39,6 @@
 
 package ${package};
 
-// Import section is empty. Use auto import feature in IDE
-
 public final class ${className} extends AnimationMontageProvider {
     static ResourceKey<AnimationMontage> createId(final String name) {
         return ResourceKey.create(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, Identifier.fromNamespaceAndPath("${modid}", name));

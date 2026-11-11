@@ -8,7 +8,6 @@ import com.yesman.akythera.core.animation.playable.AnimationMontage;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
@@ -88,10 +87,6 @@ public final class AnimMontageResourceProcessor implements ResourceProcessor<Ani
 
     @Override
     public ExportModalGenerator.Compile categoryCompile() {
-        return new ExportModalGenerator.Compile(
-            key -> key.registryKey().equals(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY),
-            (project, sourceRoot, packageName) -> FreemarkerExporter.exportRegistryProvider(
-                project, AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, sourceRoot, packageName)
-        );
+        return ExportModalGenerator.Compile.objects(AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY);
     }
 }

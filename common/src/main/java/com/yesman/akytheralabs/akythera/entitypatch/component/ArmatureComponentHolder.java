@@ -10,8 +10,8 @@ import com.yesman.akythera.api.component.PatchComponent;
 import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.blueprint.ArmatureComponentBlueprint;
-import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
@@ -252,10 +252,9 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
     }
 
     /// Tokens for `components/armature.ftl`: the trimmed armature namespace and path the fragment
-    /// rebuilds into an [ArmatureManager#accessor] call, the animator script as a `script_kind`
-    /// (`class` / `datapack`) and `script_id` pair lowering to the matching
-    /// `ArmatureComponentBlueprint.ByClass` / `ByDataPack`, the transform's
-    /// [TransformHolder#sourceTokens] and the inherit policy's constant name. A script whose id resolves nowhere emits an empty `script_id`.
+    /// rebuilds into an [ArmatureManager#accessor] call, the animator script factory as a constructor
+    /// expression ([NodeTreeSourceRenderer#animatorScriptFactory]), the transform's
+    /// [TransformHolder#sourceTokens] and the inherit policy's constant name.
     @Override
     public Map<String, Object> getDTO() {
         Identifier armatureId = trimDirectory(armature.identifier());
@@ -266,18 +265,7 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
         dto.put("transform", localTransform.sourceTokens());
         dto.put("transform_inherit_policy", transformInheritPolicy.name());
 
-        switch (animatorScript) {
-            case AnimatorScriptRef.ClassScript classScript -> {
-                Identifier id = AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(classScript.scriptType());
-                dto.put("script_kind", "class");
-                dto.put("script_id", id == null ? "" : id.toString());
-            }
-            case AnimatorScriptRef.DataPackScript dataPackScript -> {
-                dto.put("script_kind", "datapack");
-                dto.put("script_id", dataPackScript.holder().unwrapKey()
-                    .map(key -> key.identifier().toString()).orElse(""));
-            }
-        }
+        dto.put("script", NodeTreeSourceRenderer.animatorScriptFactory(animatorScript.toFactory()));
 
         return dto;
     }

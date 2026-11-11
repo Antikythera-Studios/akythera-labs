@@ -5,7 +5,6 @@ import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
@@ -138,11 +137,6 @@ public final class ItemPatchResourceProcessor implements ResourceProcessor<ItemP
 
     @Override
     public ExportModalGenerator.Compile categoryCompile() {
-        return new ExportModalGenerator.Compile(
-            key -> key.registryKey().equals(AkytheraRegistries.DataPack.ITEM_PATCH_KEY),
-            (project, sourceRoot, packageName) -> FreemarkerExporter.exportRegistryProvider(
-                project, AkytheraRegistries.DataPack.ITEM_PATCH_KEY, sourceRoot, packageName
-            )
-        );
+        return ExportModalGenerator.Compile.objects(AkytheraRegistries.DataPack.ITEM_PATCH_KEY);
     }
 }

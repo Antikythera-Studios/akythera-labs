@@ -4,6 +4,9 @@ import com.google.common.reflect.TypeToken;
 import com.google.gson.JsonElement;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
+import com.yesman.akythera.api.world.ability.AbilityTag;
+import com.yesman.akythera.api.world.ability.AbilityTagSet;
+import com.yesman.akythera.api.world.ability.SystematicAbility;
 import com.yesman.akythera.core.blueprint.script.BlueprintBody;
 import com.yesman.akythera.core.blueprint.script.FunctionGraph;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
@@ -11,6 +14,7 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
@@ -116,11 +120,25 @@ public final class BlueprintSourceWriter {
 
             if (value == null) continue;
 
-            methods.add(row(
-                List.of("@Override"),
-                declaration(property.getter(), baseToken, arguments),
-                List.of("return " + propertyLiteral(property.type(), value) + ";")
-            ));
+            ScriptType type = property.type();
+            String literal = propertyLiteral(type, value);
+            List<String> annotations = List.of("@Override");
+            String declaration = declaration(property.getter(), baseToken, arguments);
+
+            // An object value is built once, at construction. A registry entry is read each time, since a reload replaces it.
+            boolean cached = type.registry() == null && type.base().registry() == null && (type.element() == null || type.element().registry() == null)
+                && !ParseUtils.unbox(type.type()).isPrimitive() && type.type() != String.class && !type.type().isEnum();
+
+            if (!cached) {
+                methods.add(row(annotations, declaration, List.of("return " + literal + ";")));
+                continue;
+            }
+
+            String field = property.key() + "Property";
+            Map<String, Object> row = row(annotations, declaration, List.of("return this." + field + ";"));
+            row.put("field", "private final " + SourceNames.typeName(baseToken.resolveType(property.getter().method().getGenericReturnType()).getType(), arguments)
+                + " " + field + " = " + literal + ";");
+            methods.add(row);
         }
 
         for (Map.Entry<String, FunctionGraph> function : body.functions().entrySet()) {
@@ -270,8 +288,33 @@ public final class BlueprintSourceWriter {
             return ScriptNodeSourceCompiler.valueLiteral(type.parse(json));
         }
 
+        if (type.type() == AbilityTagSet.class && json.isJsonArray()) {
+            return json.getAsJsonArray().isEmpty()
+                ? SourceNames.typeName(AbilityTagSet.class) + ".EMPTY"
+                : SourceNames.typeName(AbilityTagSet.class) + ".of(List.of(" + abilityTags(json) + "))";
+        }
+
+        if (type.type() == SystematicAbility.Tags.class && json.isJsonObject()) {
+            StringBuilder builder = new StringBuilder(SourceNames.typeName(SystematicAbility.Tags.class) + ".builder()");
+
+            json.getAsJsonObject().entrySet().forEach(set -> {
+                if (!set.getValue().getAsJsonArray().isEmpty()) {
+                    builder.append(".").append(ParseUtils.snakeToCamel(set.getKey())).append("(").append(abilityTags(set.getValue())).append(")");
+                }
+            });
+
+            return builder.append(".build()").toString();
+        }
+
         return NodeTreeSourceRenderer.scriptType(type)
             + ".parse(JsonParser.parseString(" + ScriptNodeSourceCompiler.valueLiteral(json.toString()) + "))";
+    }
+
+    /// The ability tags a JSON array names, each as its project enum constant or its manager lookup.
+    private static String abilityTags(JsonElement ids) {
+        return ids.getAsJsonArray().asList().stream()
+            .map(id -> ScriptNodeSourceCompiler.dataBlockLookup(SourceNames.typeName(AbilityTag.class), AbilityTag.ENUM_MANAGER, Identifier.parse(id.getAsString())))
+            .collect(Collectors.joining(", "));
     }
 
     /// The live registries' holder of `id` in `registry`.

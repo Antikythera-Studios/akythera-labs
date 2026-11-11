@@ -8,7 +8,6 @@ import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
-import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
 import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
@@ -85,10 +84,6 @@ public final class AnimSequenceResourceProcessor implements ResourceProcessor<An
 
     @Override
     public ExportModalGenerator.Compile categoryCompile() {
-        return new ExportModalGenerator.Compile(
-            key -> key.registryKey().equals(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY),
-            (project, sourceRoot, packageName) -> FreemarkerExporter.exportRegistryProvider(
-                project, AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY, sourceRoot, packageName)
-        );
+        return ExportModalGenerator.Compile.objects(AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY);
     }
 }

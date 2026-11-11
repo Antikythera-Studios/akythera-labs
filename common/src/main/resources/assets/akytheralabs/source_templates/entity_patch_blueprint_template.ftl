@@ -4,9 +4,10 @@
 /// Akythera Labs "File > Export > As Source Code" since your manual changes
 /// will always be overwritten by the action.
 ///
-/// Emits the entity patch blueprints as datapack JSON at datagen — the *data-driven* distribution
-/// path (the engine executes the flows through DataDrivenEntityPatchScript). For a handwritten-style
-/// script class instead, see the exported scripts/entitypatches/*PatchScript.java sources.
+/// Emits the entity patch blueprints as datapack JSON at datagen. An entity patch of the project is
+/// run by its compiled class, see the exported scripts/entitypatches/*PatchScript.java sources, and
+/// so is an animator script its armature component picks, see scripts/animator/*AnimatorScript.java.
+/// registries/*ScriptTypes.java registers those classes; its registrar must be present before datagen runs.
 ///
 /// Wire the provider through each mod loader's datagen register process.
 ///
@@ -41,10 +42,7 @@
 /// },
 /// ```
 
-<#import "component_map.ftl" as tpl>
 package ${package};
-
-// Import section is empty. Use auto import feature in IDE
 
 public final class ${className} extends EntityPatchBlueprintProvider {
     static ResourceKey<EntityPatchBlueprint> createId(final String name) {
@@ -65,18 +63,10 @@ public final class ${className} extends EntityPatchBlueprintProvider {
     <#assign dto = patch.dto>
         writer.accept(
             ${patch.asVariableName},
-<#if dto.source_code_script??>
             new SourceCodeEntityPatchBlueprint(
                 ${dto.parent},
                 ${dto.source_code_script}
             )
-<#else>
-            new DataDrivenEntityPatchBlueprint(
-                <@tpl.componentMap dto.components "                    "/>,
-                ${dto.parent},
-                ${dto.body}
-            )
-</#if>
         );
 </#list>
     }

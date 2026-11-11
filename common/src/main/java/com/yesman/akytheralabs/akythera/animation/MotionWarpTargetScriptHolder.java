@@ -7,11 +7,9 @@ import com.yesman.akythera.core.blueprint.script.BlueprintBody;
 import com.yesman.akythera.core.blueprint.warping.MotionWarpTargetScriptBlueprint;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
-import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.blueprint.ScriptBlueprintHolder;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
-import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
@@ -25,7 +23,7 @@ import java.util.stream.Stream;
 /// Modifiable data holder for [MotionWarpTargetScriptBlueprint]: one [BlueprintScriptData] laid out by
 /// [MotionWarpTarget], with the entity patch as the graphs' Self.
 public final class MotionWarpTargetScriptHolder extends AbstractDataHolder<MotionWarpTargetScriptBlueprint>
-    implements ScriptBlueprintHolder<MotionWarpTargetScriptBlueprint>, DTOProvider
+    implements ScriptBlueprintHolder<MotionWarpTargetScriptBlueprint>
 {
     public static final Codec<MotionWarpTargetScriptHolder> EDITOR_CODEC = BlueprintScriptData.MAP_CODEC.codec().xmap(
         script -> {
@@ -88,11 +86,5 @@ public final class MotionWarpTargetScriptHolder extends AbstractDataHolder<Motio
     @Override
     public @Nullable Exception getNestedFailureException() {
         return script.firstFailure();
-    }
-
-    /// Tokens for `behavior_script_provider.ftl`: the body's `BlueprintBody` constructor.
-    @Override
-    public Map<String, Object> getDTO() {
-        return Map.of("body", NodeTreeSourceRenderer.body(makeObject().body(), 4));
     }
 }

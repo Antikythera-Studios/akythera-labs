@@ -41,8 +41,6 @@
 
 package ${package};
 
-// Import section is empty. Use auto import feature in IDE
-
 public final class ${className} extends BehaviorTreeBlueprintProvider {
     static ResourceKey<BehaviorTreeBlueprint> createId(final String name) {
         return ResourceKey.create(AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY, Identifier.fromNamespaceAndPath("${modid}", name));
