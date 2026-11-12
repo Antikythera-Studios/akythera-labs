@@ -347,8 +347,9 @@ public final class McpTools {
         register(McpTool.of(
             "reload_project",
             "Compiles every project entry, exports the project as temporary packs and reloads the world with them, "
-                + "the same as the viewport's reload button. Waits until the world has reloaded. Saved files only: "
-                + "unsaved editor changes are not exported.",
+                + "the same as the viewport's reload button. Waits until the world has reloaded. Each entry is exported "
+                + "as the editor holds it: a component's Details rows write into the entry, so they reach the world "
+                + "unsaved, but a node graph canvas reaches its entry only when its editor saves.",
             """
             {
               "type": "object",

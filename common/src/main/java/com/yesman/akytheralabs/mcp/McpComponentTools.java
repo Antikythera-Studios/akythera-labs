@@ -26,6 +26,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.SequencedMap;
@@ -85,10 +86,13 @@ final class McpComponentTools {
                 + "way. 'values' maps a row key whose 'write' is 'values' to its JSON value: a number, a boolean, a "
                 + "string, an enum constant name, [x, y, z] for a vector, [x, y, z] Euler degrees for a quaternion. "
                 + "'values' is written after 'declaration' and wins on the same row. A row hidden now is written when "
-                + "the call's other writes show it. An inherited component becomes the patch's own "
-                + "override on the first write. The entry stays unsaved; a project reload exports it anyway. Returns "
-                + "the declaration and rows after the write, and 'unwritten', the declaration keys that still differ "
-                + "from what was asked: a hidden row, or a key no row edits.",
+                + "the call's other writes show it. A key another key needs, such as the sizes of a new shape, goes "
+                + "in the same call. An inherited component becomes the patch's own override on the first write. The "
+                + "entry stays unsaved; a project reload exports it anyway. Returns the declaration and rows after the "
+                + "write; 'unwritten', the declaration keys that still differ from what was asked (a hidden row, or a "
+                + "key no row edits); and 'dropped', the given declaration keys that changed nothing, left out of the "
+                + "declaration before and after the write (a key the component does not read, or one already at its "
+                + "default value).",
             """
             {
               "type": "object",
@@ -119,7 +123,8 @@ final class McpComponentTools {
                     JsonObject merged = declaration.deepCopy();
                     arguments.getAsJsonObject("declaration").entrySet().forEach(entry -> merged.add(entry.getKey(), entry.getValue()));
 
-                    ComponentDataHolder<?> decoded = registry.codec().parse(JsonOps.INSTANCE, merged).getOrThrow(IllegalArgumentException::new);
+                    ComponentDataHolder<?> decoded = registry.codec().parse(JsonOps.INSTANCE, merged)
+                        .getOrThrow(message -> new IllegalArgumentException("The declaration does not decode: " + message));
 
                     if (decoded.getClass() != holder.getClass()) throw new IllegalArgumentException("The declaration changes the component type");
 
@@ -174,6 +179,16 @@ final class McpComponentTools {
                     if (!unwritten.isEmpty()) result.add("unwritten", unwritten);
                 }
 
+                if (arguments.has("declaration") && written instanceof JsonObject now) {
+                    JsonArray dropped = new JsonArray();
+
+                    arguments.getAsJsonObject("declaration").keySet().forEach(key -> {
+                        if (!declaration.has(key) && !now.has(key)) dropped.add(key);
+                    });
+
+                    if (!dropped.isEmpty()) result.add("dropped", dropped);
+                }
+
                 return McpToolResult.text(McpTools.PRETTY_GSON.toJson(result));
             })
         ));
@@ -219,7 +234,7 @@ final class McpComponentTools {
             row.addProperty("row", key);
             row.addProperty("label", Component.translatable(editorField.label()).getString());
             row.addProperty("type", type.getSimpleName());
-            row.add("value", encoded != null ? encoded : value == null ? JsonNull.INSTANCE : new JsonPrimitive(String.valueOf(value)));
+            row.add("value", encoded != null ? encoded : preview(value));
             row.addProperty("write", isDecodable(type) ? "values" : "declaration");
             rows.add(row);
         }
@@ -329,6 +344,33 @@ final class McpComponentTools {
             }
             default -> null;
         };
+    }
+
+    /// `value` as JSON to read: a list by its elements, an editor object by its shown fields, anything else as `values`
+    /// takes it or by its text.
+    private static JsonElement preview(final @Nullable Object value) {
+        if (value instanceof List<?> list) {
+            JsonArray elements = new JsonArray();
+            list.forEach(element -> elements.add(preview(element)));
+
+            return elements;
+        }
+
+        if (value != null && !EditorFieldScanner.fieldsOf(value.getClass()).isEmpty()) {
+            JsonObject fields = new JsonObject();
+
+            for (EditorFieldScanner.EditorField editorField : EditorFieldScanner.fieldsOf(value.getClass())) {
+                if (EditorWidgetFactory.isShown(editorField, value)) {
+                    fields.add(editorField.field().getName(), preview(EditorWidgetFactory.tryGet(editorField.field(), value)));
+                }
+            }
+
+            return fields;
+        }
+
+        JsonElement encoded = value == null ? null : encode(value, value.getClass());
+
+        return encoded != null ? encoded : value == null ? JsonNull.INSTANCE : new JsonPrimitive(String.valueOf(value));
     }
 
     private static boolean isDecodable(final Class<?> type) {

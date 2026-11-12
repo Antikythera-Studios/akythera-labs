@@ -797,7 +797,7 @@ public final class ItemPatchEditorScreen extends Screen
 
     /// [ComponentEditorPanel] focus callback: shows the component in the Details panel, with `host` as
     /// its rows' context and whatever it overrides behind it. A component the patch does not hold yet
-    /// carries the hook that attaches it, see [ComponentEditorPanel#onDetailsWrite]. Nothing focused
+    /// carries the hook that attaches it, see [ComponentEditorPanel#detailsWriteHook]. Nothing focused
     /// shows the blueprint's own fields.
     private void onComponentFocused(
         @Nullable ComponentDataHolder<?> component, @Nullable ComponentAttachableHolder host
@@ -806,7 +806,7 @@ public final class ItemPatchEditorScreen extends Screen
             detailsPanel.showComponent(holder);
         } else {
             detailsPanel.showComponent(
-                component, host, componentPanel.inheritedBehind(component), componentPanel::onDetailsWrite);
+                component, host, componentPanel.inheritedBehind(component), componentPanel.detailsWriteHook());
         }
 
         // A focus on an inherited row is a focus on the claim's copy, which the panel lists from here

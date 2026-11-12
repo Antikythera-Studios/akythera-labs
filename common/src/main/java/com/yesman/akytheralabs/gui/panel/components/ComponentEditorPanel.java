@@ -951,7 +951,7 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
         onComponentFocused.accept(holder, host);
     }
 
-    /// Focuses a row. An inherited one is shown through a copy of itself that [#commitClaim] attaches
+    /// Focuses a row. An inherited one is shown through a copy of itself that [#commitClaims] attaches
     /// once something is written into it, so an idle click leaves the patch alone.
     private void selectRow(Row row) {
         if (!row.inherited()) {
@@ -1000,20 +1000,36 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
     /// A value is about to be written into the shown component: take over a component the patch is
     /// only previewing, and re-read the row colors, the write landing right after this returns.
     public void onDetailsWrite() {
-        commitClaim();
-        overridingStale = true;
+        commitClaims(List.copyOf(pending));
     }
 
-    /// Attaches what [#prepareClaim] set aside. Does nothing after the first write of a fill.
-    private void commitClaim() {
-        if (pending.isEmpty()) return;
+    /// The [#onDetailsWrite] of the focused component's rows. It holds on to the claims of this focus, so
+    /// the redo of a write [#dropUnchangedOverrides] swept off attaches them again.
+    public Runnable detailsWriteHook() {
+        List<Claim> claims = List.copyOf(pending);
 
-        pending.forEach(claim -> claim.host().getComponents().put(claim.name(), claim.holder()));
-        committed.addAll(pending);
-        pending.clear();
+        return () -> commitClaims(claims);
+    }
 
-        rebuildList();
-        onChanged.run();
+    /// Attaches every claim of `claims` whose name its host leaves free, and re-reads the row colors.
+    private void commitClaims(final List<Claim> claims) {
+        boolean attached = false;
+
+        for (Claim claim : claims) {
+            if (claim.host().getComponents().putIfAbsent(claim.name(), claim.holder()) != null) continue;
+            if (!committed.contains(claim)) committed.add(claim);
+
+            attached = true;
+        }
+
+        pending.removeAll(claims);
+
+        if (attached) {
+            rebuildList();
+            onChanged.run();
+        }
+
+        overridingStale = true;
     }
 
     /// Drops every committed override that declares what it overrides and nothing more, children
