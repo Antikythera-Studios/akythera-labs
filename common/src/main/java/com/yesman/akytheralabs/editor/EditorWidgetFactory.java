@@ -1046,7 +1046,7 @@ public final class EditorWidgetFactory {
     }
 
     /// Writes `value` through `slot` as one undo step, re-rendering after it and after its undo/redo.
-    private static void pushValueChange(ValueSlot slot, @Nullable Object value, Runnable rebuild) {
+    public static void pushValueChange(ValueSlot slot, @Nullable Object value, Runnable rebuild) {
         Object oldValue = slot.get();
 
         slot.set(value);
@@ -1136,19 +1136,11 @@ public final class EditorWidgetFactory {
             switch (entry) {
                 case FieldEntry(EditorField editorField) -> {
                     RowBuilder rows = builderFor(editorField, depth + editorField.annotation().indent());
-                    String visibleWhen = editorField.annotation().visibleWhen();
+                    Method visibility = visibilityOf(editorField);
 
-                    if (visibleWhen.isBlank()) {
+                    if (visibility == null) {
                         out.add(rows);
                         break;
-                    }
-
-                    Method visibility = findEditorMethod(editorField.field().getDeclaringClass(), visibleWhen, 0);
-
-                    if (ParseUtils.box(visibility.getReturnType()) != Boolean.class) {
-                        throw new IllegalStateException(
-                            "@EditorEditable(visibleWhen) must return a boolean: "
-                                + visibility.getDeclaringClass().getName() + "#" + visibleWhen);
                     }
 
                     out.add((table, inst, indentLevel, rebuild) -> {
@@ -1163,6 +1155,40 @@ public final class EditorWidgetFactory {
                 }
             }
         }
+    }
+
+    /// The [EditorEditable#visibleWhen] method of `editorField`, or null when its row always shows.
+    private static @Nullable Method visibilityOf(EditorField editorField) {
+        String visibleWhen = editorField.annotation().visibleWhen();
+
+        if (visibleWhen.isBlank()) return null;
+
+        Method visibility = findEditorMethod(editorField.field().getDeclaringClass(), visibleWhen, 0);
+
+        if (ParseUtils.box(visibility.getReturnType()) != Boolean.class) {
+            throw new IllegalStateException(
+                "@EditorEditable(visibleWhen) must return a boolean: "
+                    + visibility.getDeclaringClass().getName() + "#" + visibleWhen);
+        }
+
+        return visibility;
+    }
+
+    /// Whether the row of `editorField` shows on `owner`, see [EditorEditable#visibleWhen].
+    public static boolean isShown(EditorField editorField, Object owner) {
+        Method visibility = visibilityOf(editorField);
+
+        return visibility == null || (Boolean) invokeEditorMethod(visibility, owner);
+    }
+
+    /// Whether `editorField` lays `value` out as a nested editor object: a header, then the value's own rows one
+    /// level deeper.
+    public static boolean isNestedObject(EditorField editorField, @Nullable Object value) {
+        return value != null
+            && !List.class.isAssignableFrom(editorField.field().getType())
+            && editorField.annotation().candidates().isBlank()
+            && findProducer(editorField.field().getType()) == null
+            && !EditorFieldScanner.fieldsOf(value.getClass()).isEmpty();
     }
 
     /// Segments of a category path, split on `/` since each segment is a whole lang key. Blank

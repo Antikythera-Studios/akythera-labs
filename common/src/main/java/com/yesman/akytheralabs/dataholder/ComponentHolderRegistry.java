@@ -245,7 +245,7 @@ public final class ComponentHolderRegistry {
     /// `holder` encoded without its children, so two hosts compare by their own declaration. Null for
     /// a holder no type is registered for — a [FailedComponentHolder], which declares nothing this
     /// side understands.
-    private @Nullable JsonElement declarationOf(ComponentDataHolder<?> holder) {
+    public @Nullable JsonElement declarationOf(ComponentDataHolder<?> holder) {
         if (typeIdOrNull(holder) == null) return null;
 
         JsonElement json = codec.encodeStart(JsonOps.INSTANCE, holder).result().orElse(null);

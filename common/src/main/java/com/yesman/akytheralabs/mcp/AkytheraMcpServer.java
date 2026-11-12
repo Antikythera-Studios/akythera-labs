@@ -327,7 +327,10 @@ public final class AkytheraMcpServer {
                     + "Read and edit node graphs with get_script_graph and edit_script_graph, never by writing the entry's .json "
                     + "file: the editor keeps open entries in memory and overwrites the file on its next save, and wires name "
                     + "pins by index, which only get_script_graph shows. get_script_graph reaches every graph of the top editor "
-                    + "screen, closed tabs included.");
+                    + "screen, closed tabs included. Read and edit a component with get_component_rows and "
+                    + "set_component_rows, never by writing the entry's .json file: a project reload exports the editor's "
+                    + "in-memory entries, so a file edit does not reach the world. set_component_rows takes the same JSON "
+                    + "as the file in its 'declaration' argument.");
 
                 yield resultResponse(id, result);
             }

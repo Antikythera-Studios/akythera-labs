@@ -5,6 +5,8 @@ import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
+import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
+import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import net.minecraft.client.gui.Font;
@@ -16,6 +18,7 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.SequencedMap;
 import java.util.function.Consumer;
 
 /// Right-hand "Details" panel of the entity-patch editor: shows the focused component's [EditorEditable]
@@ -157,6 +160,42 @@ public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelAre
         table.initialize(false);
 
         if (lastRect != null) table.relocate(lastRect);
+    }
+
+    /// Writes every slot of `values` into the shown component as one undo step, the way their rows do: the first
+    /// write attaches a component the patch is only previewing, and the rows re-render after each.
+    ///
+    /// @throws IllegalStateException when no component is shown, or a slot is a row the inherited component owns
+    public void write(final SequencedMap<? extends EditorWidgetFactory.ValueSlot, @Nullable Object> values) {
+        Object owner = shown;
+        Runnable onWrite = shownOnWrite;
+
+        if (owner == null || owner instanceof List<?>) throw new IllegalStateException("The Details panel shows no component");
+
+        for (EditorWidgetFactory.ValueSlot slot : values.keySet()) {
+            if (shownInherited != null && slot.annotation().declarerOwned()) {
+                throw new IllegalStateException(slot.label() + " is owned by the inherited component");
+            }
+        }
+
+        if (values.isEmpty()) return;
+
+        HistoryManager history = HistoryManager.getInstance();
+        List<WorkHistory> steps = history.capture(() -> values.forEach((slot, value) -> EditorWidgetFactory.pushValueChange(
+            onWrite == null ? slot : new EditorWidgetFactory.WritingSlot(slot, onWrite), value, () -> refreshIfShown(owner)
+        )));
+
+        history.pushHistory(EditorWidgetFactory.historyScope(values.firstEntry().getKey()), new WorkHistory() {
+            @Override
+            public void undo() {
+                steps.reversed().forEach(WorkHistory::undo);
+            }
+
+            @Override
+            public void redo() {
+                steps.forEach(WorkHistory::redo);
+            }
+        });
     }
 
     /// Whether the rows on display are the ones [#showRows] filled for `owner`.

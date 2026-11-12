@@ -426,6 +426,33 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
         if (row != null) selectRow(row);
     }
 
+    /// The editor holders of the patch kind being edited.
+    public ComponentHolderRegistry registry() {
+        return registry;
+    }
+
+    /// The path of every listed row, in row order: names from the root host down, joined by
+    /// [ComponentAttachable#PATH_SEPARATOR].
+    public List<String> rowPaths() {
+        return rows.stream().map(Row::path).toList();
+    }
+
+    /// Focuses the row at `path` as a click on it does, claim and all. Answers the holder the Details panel shows
+    /// for it—the copy of an inherited one—or null when no row sits at `path` or no copy can be made.
+    public @Nullable ComponentDataHolder<?> focusPath(final String path) {
+        for (Row row : rows) {
+            if (!row.path().equals(path)) continue;
+
+            ComponentDataHolder<?> before = selected;
+
+            selectRow(row);
+
+            return row.inherited() && selected == before ? null : selected;
+        }
+
+        return null;
+    }
+
     /// Re-keys every fixed-name component in the tree whose key no longer matches the name it derives,
     /// suffixing a name a sibling already holds. True when a key actually moved.
     ///
