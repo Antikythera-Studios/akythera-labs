@@ -45,6 +45,7 @@ import com.yesman.akytheralabs.akythera.blueprint.ComponentPaths;
 import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ArmatureComponentHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.CameraComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.EntityPatchComponentHolders;
@@ -742,6 +743,7 @@ public final class EntityPatchEditorScreen extends Screen
             case EquipmentSlotBinderHolder item -> equipmentPreviews.get(item);
             case ArmatureComponentHolder armature -> addFocusMarker(armature);
             case MeshComponentHolder mesh -> addFocusMarker(mesh);
+            case CameraComponentHolder camera -> addFocusMarker(camera);
             case null, default -> null;
         });
 

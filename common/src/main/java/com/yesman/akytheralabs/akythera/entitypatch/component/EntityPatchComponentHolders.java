@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.akythera.entitypatch.component;
 
 import com.yesman.akythera.api.world.patch.entity.LivingEntityPatch;
+import com.yesman.akythera.api.world.patch.entity.PlayerPatch;
 import com.yesman.akythera.compat.CompatibleMod;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
@@ -36,6 +37,7 @@ public final class EntityPatchComponentHolders {
     public static final Identifier SKINNED_ARMOR = Akythera.identifier("skinned_armor");
     public static final Identifier MESH = Akythera.identifier("mesh");
     public static final Identifier PAL_POSE_BINDER = Akythera.identifier("pal_pose_binder");
+    public static final Identifier CAMERA = Akythera.identifier("camera");
 
     public static final ComponentHolderRegistry REGISTRY =
         new ComponentHolderRegistry(AkytheraRegistries.Frozen.ENTITY_PATCH_COMPONENT_TYPES);
@@ -98,5 +100,11 @@ public final class EntityPatchComponentHolders {
             (_, _) -> ModPlatformProvider.get().isModLoaded(CompatibleMod.PLAYER_ANIMATION_LIBRARY.getModId())
                 ? null
                 : Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MENU_REFUSED_NO_PAL));
+        REGISTRY.register(CAMERA, CameraComponentHolder.class,
+            _ -> CameraComponentHolder.createDefault(), CameraComponentHolder.EDITOR_CODEC,
+            (host, _) -> host instanceof EntityPatchBlueprintHolder blueprint
+                && PlayerPatch.class.isAssignableFrom(blueprint.ownerType())
+                ? null
+                : Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MENU_REFUSED_NOT_PLAYER));
     }
 }
