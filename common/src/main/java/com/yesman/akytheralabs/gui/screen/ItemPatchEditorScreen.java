@@ -362,7 +362,7 @@ public final class ItemPatchEditorScreen extends Screen
                     : ColliderPreviewComponent.editable(
                         collider, () -> space.parentTransform(collider), this::onComponentDragCommitted, this::onComponentPicked));
                 case TransformSocketHolder socket when !listed.inherited() -> model3DViewer.addComponent(new TransformComponentPreviewComponent<>(
-                    socket, () -> space.parentTransform(socket), this::onComponentDragCommitted, this::onComponentPicked, null));
+                    socket, () -> space.parentTransform(socket), this::onComponentDragCommitted, this::onComponentPicked, null, null));
                 default -> {}
             }
         });

@@ -27,7 +27,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /// The 3D marker for one [TransformComponentHolder]: a screen-facing dot at the holder's transform, inside the
-/// parent space its screen resolves.
+/// parent space its screen resolves. A marker with a [#figure] is picked by the figure instead of the dot.
 ///
 /// The gizmo is a *sibling* in the viewer, not a child of this component — [Model3DViewer#focus]
 /// raises and binds one. This component holds no gizmo reference; it reports its two transforms and
@@ -55,6 +55,9 @@ public final class TransformComponentPreviewComponent<H extends ComponentDataHol
     /// Opens the marker's options menu, null for a marker with none.
     private final @Nullable Consumer<H> optionsOpener;
 
+    /// What the holder is drawn as, whose [Model3DViewerComponent#rayTrace] picks the marker. Null picks by the dot.
+    private final @Nullable Model3DViewerComponent figure;
+
     private boolean focused;
     private boolean dragging;
 
@@ -63,13 +66,15 @@ public final class TransformComponentPreviewComponent<H extends ComponentDataHol
         Supplier<Transform> parentTransform,
         Runnable onCommitted,
         Consumer<H> onPicked,
-        @Nullable Consumer<H> optionsOpener
+        @Nullable Consumer<H> optionsOpener,
+        @Nullable Model3DViewerComponent figure
     ) {
         this.holder = holder;
         this.parentTransform = parentTransform;
         this.onCommitted = onCommitted;
         this.onPicked = onPicked;
         this.optionsOpener = optionsOpener;
+        this.figure = figure;
     }
 
     public H getHolder() {
@@ -144,6 +149,8 @@ public final class TransformComponentPreviewComponent<H extends ComponentDataHol
     /// marker wins an overlap.
     @Override
     public float rayTrace(final Model3DViewer owner, final Ray ray) {
+        if (figure != null) return figure.rayTrace(owner, ray);
+
         Vector3f world = worldOrigin();
         Vector3f toMarker = new Vector3f(world).sub(ray.origin());
         float along = toMarker.dot(ray.direction());

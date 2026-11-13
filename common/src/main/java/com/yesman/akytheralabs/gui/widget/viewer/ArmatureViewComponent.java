@@ -438,7 +438,8 @@ public final class ArmatureViewComponent implements Model3DViewerComponent {
         return nearest;
     }
 
-    private static double distanceToSegment(double x, double y, Vector3f from, Vector3f to) {
+    /// Distance from `(x, y)` to the segment between `from` and `to`, all in widget pixels.
+    static double distanceToSegment(double x, double y, Vector3f from, Vector3f to) {
         double dx = to.x - from.x;
         double dy = to.y - from.y;
         double lengthSquared = dx * dx + dy * dy;

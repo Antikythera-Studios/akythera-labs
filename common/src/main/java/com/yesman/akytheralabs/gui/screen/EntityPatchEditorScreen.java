@@ -22,6 +22,7 @@ import com.yesman.akythera.client.api.gui.viewer.ClothModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.client.core.asset.mesh.Mesh;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.client.core.asset.mesh.StaticMesh;
@@ -784,6 +785,7 @@ public final class EntityPatchEditorScreen extends Screen
             () -> space.parentTransform(holder),
             () -> detailsPanel.showComponent(holder, hostOf(holder)),
             _ -> {},
+            null,
             null
         );
 
@@ -867,17 +869,7 @@ public final class EntityPatchEditorScreen extends Screen
         ComponentAttachableHolder.flattenEnabled(holder)
             .filter(TransformSocketHolder.class::isInstance)
             .map(TransformSocketHolder.class::cast)
-            .forEach(socket -> addMarker(socket, this::openSocketOptions));
-
-        ComponentAttachableHolder.flattenEnabled(holder)
-            .filter(CameraComponentHolder.class::isInstance)
-            .map(CameraComponentHolder.class::cast)
-            .forEach(camera -> addMarker(camera, null));
-
-        ComponentAttachableHolder.flattenEnabled(holder)
-            .filter(SpringArmComponentHolder.class::isInstance)
-            .map(SpringArmComponentHolder.class::cast)
-            .forEach(arm -> addMarker(arm, null));
+            .forEach(socket -> addMarker(socket, this::openSocketOptions, null));
 
         ComponentAttachableHolder.flattenEnabled(holder)
             .filter(ColliderComponentHolder.class::isInstance)
@@ -923,15 +915,25 @@ public final class EntityPatchEditorScreen extends Screen
         ComponentAttachableHolder.flattenEnabled(holder)
             .filter(CameraComponentHolder.class::isInstance)
             .map(CameraComponentHolder.class::cast)
-            .forEach(camera -> model3DViewer.addComponent(new CameraFrustumComponent(camera, () -> space.modelTransform(camera), fov, aspect)));
+            .forEach(camera -> {
+                CameraFrustumComponent frustum = new CameraFrustumComponent(camera, () -> space.modelTransform(camera), fov, aspect);
+
+                model3DViewer.addComponent(frustum);
+                addMarker(camera, null, frustum);
+            });
 
         ComponentAttachableHolder.flattenEnabled(holder)
             .filter(SpringArmComponentHolder.class::isInstance)
             .map(SpringArmComponentHolder.class::cast)
-            .forEach(arm -> model3DViewer.addComponent(new SpringArmPreviewComponent(
-                () -> arm.getTransformInheritPolicy().inherit(space.parentTransform(arm), arm.getLocalTransform().makeObject()),
-                () -> space.modelTransform(arm)
-            )));
+            .forEach(arm -> {
+                SpringArmPreviewComponent line = new SpringArmPreviewComponent(
+                    () -> arm.getTransformInheritPolicy().inherit(space.parentTransform(arm), arm.getLocalTransform().makeObject()),
+                    () -> space.modelTransform(arm)
+                );
+
+                model3DViewer.addComponent(line);
+                addMarker(arm, null, line);
+            });
 
         focusPreviewOf(refocus);
         showArmatureView();
@@ -947,14 +949,18 @@ public final class EntityPatchEditorScreen extends Screen
         }
     }
 
-    /// One marker that stays in the preview, picking `holder` in the Components tree when clicked.
-    private <H extends ComponentDataHolder<?> & TransformComponentHolder> void addMarker(H holder, @Nullable Consumer<H> optionsOpener) {
+    /// One marker that stays in the preview, picking `holder` in the Components tree when it, or `figure` when given,
+    /// is clicked.
+    private <H extends ComponentDataHolder<?> & TransformComponentHolder> void addMarker(
+        H holder, @Nullable Consumer<H> optionsOpener, @Nullable Model3DViewerComponent figure
+    ) {
         model3DViewer.addComponent(new TransformComponentPreviewComponent<>(
             holder,
             () -> space.parentTransform(holder),
             () -> detailsPanel.showComponent(holder, hostOf(holder)),
             componentPanel::focusComponent,
-            optionsOpener
+            optionsOpener,
+            figure
         ));
     }
 
