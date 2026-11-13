@@ -5,6 +5,7 @@ import com.yesman.akythera.api.component.TransformComponent;
 import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
+import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 import java.util.function.Function;
@@ -21,7 +22,8 @@ public interface TransformComponentHolder {
 
     /// The spaces of one previewed patch's holders, resolved by [TransformComponent]'s rules: a socket on an armature
     /// rides its bone, a skeletal mesh and a worn equipment piece sit in their armature's space, anything else in its nearest
-    /// [TransformComponentHolder] host's space, and the patch root gives [#rootTransform].
+    /// [TransformComponentHolder] host's space, and the patch root gives [#rootTransform]. A spring arm's space is the
+    /// arm's end.
     ///
     /// @param hostOf        the holder a component holder is attached under
     /// @param boneTransform a bone's transform in the previewed armature's own space, by bone name
@@ -33,7 +35,9 @@ public interface TransformComponentHolder {
     ) {
         /// `holder`'s transform in viewer space.
         public Transform modelTransform(final TransformComponentHolder holder) {
-            return holder.getTransformInheritPolicy().inherit(parentTransform(holder), holder.getLocalTransform().makeObject());
+            Transform model = holder.getTransformInheritPolicy().inherit(parentTransform(holder), holder.getLocalTransform().makeObject());
+
+            return holder instanceof SpringArmComponentHolder arm ? model.mul(Transform.fromTranslation(new Vec3(0.0D, 0.0D, arm.getLength()))) : model;
         }
 
         /// The space `holder`'s [#getLocalTransform] is in, in viewer space.

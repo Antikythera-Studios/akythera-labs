@@ -33,8 +33,11 @@ public final class TransformHolder extends AbstractDataHolder<Transform> {
     @EditorEditable(label = LangKeys.GUI_TRANSFORM_ROTATION, order = 1)
     private Quaterniond rotation;
 
-    @EditorEditable(label = LangKeys.GUI_TRANSFORM_SCALE, order = 2)
+    @EditorEditable(label = LangKeys.GUI_TRANSFORM_SCALE, order = 2, visibleWhen = "isScaled")
     private Vec3 scale;
+
+    /// Whether the scale is edited: shown in the rows and offered by the gizmo.
+    private boolean scaled = true;
 
     public TransformHolder(Vec3 location, Quaterniond rotation, Vec3 scale) {
         this.location = location;
@@ -75,6 +78,16 @@ public final class TransformHolder extends AbstractDataHolder<Transform> {
 
     public void setScale(Vec3 scale) {
         this.scale = scale;
+    }
+
+    public boolean isScaled() {
+        return scaled;
+    }
+
+    /// Leaves the scale out of editing, returning this holder.
+    public TransformHolder hideScale() {
+        scaled = false;
+        return this;
     }
 
     @Override

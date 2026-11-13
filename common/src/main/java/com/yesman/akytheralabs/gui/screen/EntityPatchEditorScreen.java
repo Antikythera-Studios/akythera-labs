@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs.gui.screen;
 
+import com.mojang.blaze3d.platform.Window;
 import com.yesman.akythera.api.animation.animator.Animator;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.component.TransformInheritPolicy;
@@ -52,6 +53,7 @@ import com.yesman.akytheralabs.akythera.entitypatch.component.EntityPatchCompone
 import com.yesman.akytheralabs.akythera.entitypatch.component.EquipmentSlotBinderHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.MeshComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.SkinnedArmorRendererHolder;
+import com.yesman.akytheralabs.akythera.entitypatch.component.SpringArmComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformSocketHolder;
 import com.yesman.akytheralabs.akythera.physics.ClothPhysicsDataHolder;
@@ -91,10 +93,13 @@ import com.yesman.akytheralabs.gui.widget.script.*;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import com.yesman.akytheralabs.gui.widget.viewer.ArmatureViewComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.CameraFrustumComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ColliderPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.ItemModelComponent;
+import com.yesman.akytheralabs.gui.widget.viewer.SpringArmPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.StaticMeshPreviewComponent;
 import com.yesman.akytheralabs.gui.widget.viewer.TransformComponentPreviewComponent;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
@@ -730,7 +735,8 @@ public final class EntityPatchEditorScreen extends Screen
     }
 
     /// Focuses the preview's stand-in for `component`. An armature, a mesh, an armor piece or an item drawn as
-    /// its 3D model has none of its own, so a marker is raised for it while it holds the focus.
+    /// its 3D model has none of its own, so a marker is raised for it while it holds the focus. A camera also lights
+    /// its frustum up and shows, in the view's corner, what it sees.
     private void focusPreviewOf(@Nullable ComponentDataHolder<?> component) {
         TransformComponentPreviewComponent<?> previousMarker = focusMarker;
 
@@ -743,11 +749,32 @@ public final class EntityPatchEditorScreen extends Screen
             case EquipmentSlotBinderHolder item -> equipmentPreviews.get(item);
             case ArmatureComponentHolder armature -> addFocusMarker(armature);
             case MeshComponentHolder mesh -> addFocusMarker(mesh);
-            case CameraComponentHolder camera -> addFocusMarker(camera);
+            case CameraComponentHolder camera -> previewOf(camera);
+            case SpringArmComponentHolder springArm -> previewOf(springArm);
             case null, default -> null;
         });
 
         if (previousMarker != null) model3DViewer.removeComponent(previousMarker);
+
+        model3DViewer.setInsetView(null);
+
+        for (int i = 0; model3DViewer.getComponent(CameraFrustumComponent.class, i) instanceof CameraFrustumComponent frustum; i++) {
+            frustum.setFocused(frustum.getCamera() == component);
+        }
+
+        if (component instanceof CameraComponentHolder camera) {
+            Window window = Minecraft.getInstance().getWindow();
+            float aspect = (float)window.getWidth() / Math.max(1, window.getHeight());
+
+            model3DViewer.setInsetView(new Model3DViewer.InsetView(
+                () -> space.modelTransform(camera),
+                Minecraft.getInstance().options.fov().get(),
+                aspect,
+                preview -> preview instanceof EntityModelComponent || preview instanceof ClothModelComponent || preview instanceof StaticMeshPreviewComponent
+                    || preview instanceof ItemModelComponent || preview instanceof GridFloorComponent,
+                Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_CAMERA_PREVIEW)
+            ));
+        }
     }
 
     /// A gizmo marker for `holder`, at its place in the preview.
@@ -809,6 +836,8 @@ public final class EntityPatchEditorScreen extends Screen
         model3DViewer.removeAllComponents(ColliderPreviewComponent.class);
         model3DViewer.removeAllComponents(ClothModelComponent.class);
         model3DViewer.removeAllComponents(StaticMeshPreviewComponent.class);
+        model3DViewer.removeAllComponents(CameraFrustumComponent.class);
+        model3DViewer.removeAllComponents(SpringArmPreviewComponent.class);
 
         meshPreviews.forEach(model3DViewer::removeComponent);
         meshPreviews.clear();
@@ -838,7 +867,17 @@ public final class EntityPatchEditorScreen extends Screen
         ComponentAttachableHolder.flattenEnabled(holder)
             .filter(TransformSocketHolder.class::isInstance)
             .map(TransformSocketHolder.class::cast)
-            .forEach(this::addSocketPreview);
+            .forEach(socket -> addMarker(socket, this::openSocketOptions));
+
+        ComponentAttachableHolder.flattenEnabled(holder)
+            .filter(CameraComponentHolder.class::isInstance)
+            .map(CameraComponentHolder.class::cast)
+            .forEach(camera -> addMarker(camera, null));
+
+        ComponentAttachableHolder.flattenEnabled(holder)
+            .filter(SpringArmComponentHolder.class::isInstance)
+            .map(SpringArmComponentHolder.class::cast)
+            .forEach(arm -> addMarker(arm, null));
 
         ComponentAttachableHolder.flattenEnabled(holder)
             .filter(ColliderComponentHolder.class::isInstance)
@@ -877,6 +916,23 @@ public final class EntityPatchEditorScreen extends Screen
             .map(MeshComponentHolder.class::cast)
             .forEach(mesh -> addMeshPreview(mesh, model));
 
+        Window window = Minecraft.getInstance().getWindow();
+        float fov = Minecraft.getInstance().options.fov().get();
+        float aspect = (float)window.getWidth() / Math.max(1, window.getHeight());
+
+        ComponentAttachableHolder.flattenEnabled(holder)
+            .filter(CameraComponentHolder.class::isInstance)
+            .map(CameraComponentHolder.class::cast)
+            .forEach(camera -> model3DViewer.addComponent(new CameraFrustumComponent(camera, () -> space.modelTransform(camera), fov, aspect)));
+
+        ComponentAttachableHolder.flattenEnabled(holder)
+            .filter(SpringArmComponentHolder.class::isInstance)
+            .map(SpringArmComponentHolder.class::cast)
+            .forEach(arm -> model3DViewer.addComponent(new SpringArmPreviewComponent(
+                () -> arm.getTransformInheritPolicy().inherit(space.parentTransform(arm), arm.getLocalTransform().makeObject()),
+                () -> space.modelTransform(arm)
+            )));
+
         focusPreviewOf(refocus);
         showArmatureView();
     }
@@ -891,24 +947,24 @@ public final class EntityPatchEditorScreen extends Screen
         }
     }
 
-    /// One socket's marker.
-    private void addSocketPreview(TransformSocketHolder socket) {
+    /// One marker that stays in the preview, picking `holder` in the Components tree when clicked.
+    private <H extends ComponentDataHolder<?> & TransformComponentHolder> void addMarker(H holder, @Nullable Consumer<H> optionsOpener) {
         model3DViewer.addComponent(new TransformComponentPreviewComponent<>(
-            socket,
-            () -> space.parentTransform(socket),
-            () -> detailsPanel.showComponent(socket, hostOf(socket)),
+            holder,
+            () -> space.parentTransform(holder),
+            () -> detailsPanel.showComponent(holder, hostOf(holder)),
             componentPanel::focusComponent,
-            this::openSocketOptions
+            optionsOpener
         ));
     }
 
-    /// The marker standing for `socket`, or null when the preview has no model to hang it off.
-    private @Nullable TransformComponentPreviewComponent<?> previewOf(TransformSocketHolder socket) {
+    /// The marker standing for `holder`, or null when the preview has no model to hang it off.
+    private @Nullable TransformComponentPreviewComponent<?> previewOf(ComponentDataHolder<?> holder) {
         for (int i = 0; ; i++) {
             TransformComponentPreviewComponent<?> preview = model3DViewer.getComponent(TransformComponentPreviewComponent.class, i);
 
             if (preview == null) return null;
-            if (preview.getHolder() == socket) return preview;
+            if (preview.getHolder() == holder) return preview;
         }
     }
 

@@ -187,7 +187,7 @@ public final class ArmatureComponentHolder extends ComponentDataHolder<ArmatureC
     /// [RootMotionComponentHolder] moving the entity by its montages' root motion.
     @Override
     public List<Class<?>> attachableTypes() {
-        return List.of(TransformSocketHolder.class, MeshComponentHolder.class, PALPoseBinderHolder.class, SkinnedArmorRendererHolder.class, RootMotionComponentHolder.class);
+        return List.of(TransformSocketHolder.class, MeshComponentHolder.class, PALPoseBinderHolder.class, SkinnedArmorRendererHolder.class, RootMotionComponentHolder.class, SpringArmComponentHolder.class);
     }
 
     @Override

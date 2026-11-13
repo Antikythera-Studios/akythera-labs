@@ -21,6 +21,8 @@ import net.minecraft.client.renderer.rendertype.RenderTypes;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -93,6 +95,13 @@ public final class TransformComponentPreviewComponent<H extends ComponentDataHol
     @Override
     public TransformInheritPolicy transformInheritPolicy() {
         return holder.getTransformInheritPolicy();
+    }
+
+    @Override
+    public Set<GizmoComponent.Mode> gizmoModes() {
+        return holder.getLocalTransform().isScaled()
+            ? EnumSet.allOf(GizmoComponent.Mode.class)
+            : EnumSet.of(GizmoComponent.Mode.TRANSLATE, GizmoComponent.Mode.ROTATE);
     }
 
     @Override

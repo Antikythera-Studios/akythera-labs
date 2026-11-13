@@ -38,6 +38,7 @@ public final class EntityPatchComponentHolders {
     public static final Identifier MESH = Akythera.identifier("mesh");
     public static final Identifier PAL_POSE_BINDER = Akythera.identifier("pal_pose_binder");
     public static final Identifier CAMERA = Akythera.identifier("camera");
+    public static final Identifier SPRING_ARM = Akythera.identifier("spring_arm");
 
     public static final ComponentHolderRegistry REGISTRY =
         new ComponentHolderRegistry(AkytheraRegistries.Frozen.ENTITY_PATCH_COMPONENT_TYPES);
@@ -102,9 +103,11 @@ public final class EntityPatchComponentHolders {
                 : Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MENU_REFUSED_NO_PAL));
         REGISTRY.register(CAMERA, CameraComponentHolder.class,
             _ -> CameraComponentHolder.createDefault(), CameraComponentHolder.EDITOR_CODEC,
-            (host, _) -> host instanceof EntityPatchBlueprintHolder blueprint
+            (_, root) -> root instanceof EntityPatchBlueprintHolder blueprint
                 && PlayerPatch.class.isAssignableFrom(blueprint.ownerType())
                 ? null
                 : Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MENU_REFUSED_NOT_PLAYER));
+        REGISTRY.register(SPRING_ARM, SpringArmComponentHolder.class,
+            _ -> new SpringArmComponentHolder(() -> REGISTRY), SpringArmComponentHolder.editorCodec(() -> REGISTRY));
     }
 }
