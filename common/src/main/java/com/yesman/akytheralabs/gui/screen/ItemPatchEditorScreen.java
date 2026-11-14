@@ -182,7 +182,7 @@ public final class ItemPatchEditorScreen extends Screen
         model3DViewer.addComponent(new CameraComponent(true));
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
-        buildPreview();
+        buildPreview(true);
 
         centerTabs = new TabPanel(
             minecraft.font,
@@ -256,8 +256,9 @@ public final class ItemPatchEditorScreen extends Screen
 
     /// Installs the preview: the player model [EntityPreviewModelMapping] binds, with this patch's
     /// item at the socket the project's `minecraft:player` entity patch equips the main hand from.
-    /// An unbound player raises the mapping's own card; a missing socket raises the warning card.
-    private void buildPreview() {
+    /// An unbound player raises the mapping's own card; with `warnMissing`, a missing patch or socket raises the
+    /// warning popup.
+    private void buildPreview(final boolean warnMissing) {
         EntityModelComponent model = EntityPreviewModelMapping.displayOrWarn(
             model3DViewer, font, BuiltInRegistries.ENTITY_TYPE.getKey(EntityTypes.PLAYER), true, false);
 
@@ -268,17 +269,21 @@ public final class ItemPatchEditorScreen extends Screen
             .orElse(null);
 
         if (patch == null) {
-            showPreviewWarning(
-                Component.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_MISSING_PATCH),
-                LocalizedMessage.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_CREATE_PATCH),
-                this::createPlayerPatch);
+            if (warnMissing) {
+                showPreviewWarning(
+                    Component.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_MISSING_PATCH),
+                    LocalizedMessage.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_CREATE_PATCH),
+                    this::createPlayerPatch);
+            }
+
             return;
         }
 
         ArmatureComponentHolder armature = rootComponent(patch, ArmatureComponentHolder.class);
 
         if (armature == null) {
-            showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_ARMATURE);
+            if (warnMissing) showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_ARMATURE);
+
             return;
         }
 
@@ -302,7 +307,8 @@ public final class ItemPatchEditorScreen extends Screen
         }
 
         if (socket == null || equipment == null) {
-            showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_EQUIPMENT_SOCKET);
+            if (warnMissing) showMissingComponent(LangKeys.GUI_ITEM_PATCH_SCREEN_PREVIEW_COMPONENT_EQUIPMENT_SOCKET);
+
             return;
         }
 
@@ -948,7 +954,7 @@ public final class ItemPatchEditorScreen extends Screen
     @Override
     public void refreshPreviewModel() {
         model3DViewer.removeAllComponents(ItemModelComponent.class);
-        buildPreview();
+        buildPreview(false);
     }
 
     @Override
