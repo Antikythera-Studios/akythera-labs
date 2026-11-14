@@ -13,7 +13,6 @@ import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.asset.armature.Armature;
-import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.asset.loader.ArmatureLoader;
 import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akythera.core.util.helper.ParseUtils;
@@ -21,7 +20,6 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.InMemoryAssetAccessor;
-import com.yesman.akytheralabs.SingleFileResourceManager;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.*;
@@ -697,7 +695,7 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
 
     /// Project root subdirectory where templates live.
     private Path templatesDir() {
-        return AkytheraProject.getCurrentProject().getProjectRoot().resolve("retargeter_templates");
+        return AssetExportManager.INSTANCE.templateDirectory(AkytheraProject.getCurrentProject());
     }
 
     /// Refresh `templateEntries` from disk. Cheap enough to call on armature swap / import.
@@ -826,13 +824,9 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
             String name = src.getFileName().toString();
             if (!name.endsWith(".json") && !name.endsWith("." + AssetLoader.BINARY_EXTENSION)) continue;
 
-            Identifier id = synthIdFromDropPath(src);
-            SingleFileResourceManager rm = new SingleFileResourceManager(src);
-
-            boolean armatureFirst = sourceArmature == null;
-            boolean ok = armatureFirst
-                ? tryLoadAsArmature(name, id, rm) || tryLoadAsAnimation(src, id, rm)
-                : tryLoadAsAnimation(src, id, rm) || tryLoadAsArmature(name, id, rm);
+            boolean ok = sourceArmature == null
+                ? tryLoadAsArmature(src) || tryLoadAsAnimation(src)
+                : tryLoadAsAnimation(src) || tryLoadAsArmature(src);
 
             if (!ok) {
                 AkytheraLabs.LOGGER.error("Drop {} matched neither armature nor animation loader", src);
@@ -843,31 +837,21 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
         animList.rebuild();
     }
 
-    private boolean tryLoadAsArmature(String filename, Identifier id, SingleFileResourceManager rm) {
+    private boolean tryLoadAsArmature(Path src) {
         try {
-            Armature arm = ArmatureLoader.getLoader(id, rm).loadArmature(Armature::new);
-            sourceArmature = InMemoryAssetAccessor.armature(id, arm);
-            sourceArmatureFilename = filename;
+            sourceArmature = AssetExportManager.INSTANCE.loadExternalArmature(src);
+            sourceArmatureFilename = src.getFileName().toString();
             return true;
         } catch (Exception e) {
             return false;
         }
     }
 
-    private boolean tryLoadAsAnimation(Path src, Identifier id, SingleFileResourceManager rm) {
+    private boolean tryLoadAsAnimation(Path src) {
         if (sourceArmature == null) return false;       // JsonAnimationLoader needs an armature
 
         try {
-            AnimationClip clip = AnimationLoader.getLoader(id, rm, AssetLoader::readMetadata)
-                .loadAnimationClip(sourceArmature);
-            Set<String> boneNames = new LinkedHashSet<>();
-            clip.visitBoneTracks((bone, _) -> boneNames.add(bone));
-
-            Identifier templateArmId = currentArmature == null ? null : currentArmature.identifier();
-            RetargetEntry entry = new RetargetEntry(
-                src, clip, boneNames,
-                new AssetExportManager.MappingTemplate(templateArmId)
-            );
+            RetargetEntry entry = AssetExportManager.INSTANCE.loadRetargetEntry(src, sourceArmature, currentArmature == null ? null : currentArmature.identifier());
 
             if (selectedTemplate != null) entry.template.copyFrom(selectedTemplate.template());
 
@@ -882,15 +866,6 @@ public final class AnimationRetargetModal extends OverlayingWindowModal
     private void showFailedReadMessage() {
         failedReadMessage = Component.translatable(LangKeys.GUI_ANIMATION_RETARGET_MODAL_MESSAGE_FAILED_TO_READ);
         failedReadMessageUntil = System.currentTimeMillis() + INCOMPAT_MESSAGE_DURATION_MS;
-    }
-
-    /// Drop files live outside the project resource manager — we only need a unique
-    /// identifier for the loader.
-    private static Identifier synthIdFromDropPath(Path src) {
-        String safe = src.getFileName().toString()
-            .replaceFirst("\\.(json|" + AssetLoader.BINARY_EXTENSION + ")$", "")
-            .toLowerCase().replaceAll("[^a-z0-9_/.-]", "_");
-        return AkytheraLabs.identifier("retarget_drop/" + safe);
     }
 
     /// Click rules: plain = clear-and-focus, Ctrl = toggle in selection with compat check,

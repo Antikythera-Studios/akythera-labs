@@ -88,23 +88,7 @@ public final class ExportModalGenerator {
             String resourceDir = resourcePathRow.getPath();
             if (dataDir.isBlank() && resourceDir.isBlank()) return;
 
-            project.saveExportPaths(dataDir, resourceDir);
-
-            Path opened = null;
-
-            if (!dataDir.isBlank()) {
-                Path dataPath = Path.of(dataDir);
-                boolean includeAssets = includeAssetsRow.isChecked();
-                String dataPackName = project.getProjectName() + (includeAssets ? "_datapack_with_assets.zip" : "_data.zip");
-                project.exportDataPack(dataPath.resolve(dataPackName), includeAssets);
-                opened = dataPath;
-            }
-
-            if (!resourceDir.isBlank()) {
-                Path resourcePath = Path.of(resourceDir);
-                project.exportResourcePack(resourcePath.resolve(project.getProjectName() + "_resources.zip"));
-                opened = resourcePath;
-            }
+            Path opened = exportAsPack(project, dataDir, resourceDir, includeAssetsRow.isChecked());
 
             ModalManager.getInstance().closeModal();
             if (opened != null) Util.getPlatform().openFile(opened.toFile());
@@ -165,22 +149,7 @@ public final class ExportModalGenerator {
             String resourceDir = resourcePathRow.getPath();
             if (dataDir.isBlank() && resourceDir.isBlank()) return;
 
-            project.saveSourceExportPaths(dataDir, resourceDir);
-
-            Path opened = null;
-
-            if (!dataDir.isBlank()) {
-                Path dataPath = Path.of(dataDir);
-                FreemarkerExporter.exportProject(project, dataPath, packageRow.getPackageName());
-                opened = dataPath;
-            }
-
-            if (!resourceDir.isBlank()) {
-                Path resourcePath = Path.of(resourceDir);
-                project.exportAssetsToDirectory(resourcePath);
-                // Show data pack directory first.
-                if (opened == null) opened = resourcePath;
-            }
+            Path opened = exportAsSourceCode(project, dataDir, resourceDir, packageRow.getPackageName());
 
             ModalManager.getInstance().closeModal();
             if (opened != null) Util.getPlatform().openFile(opened.toFile());
@@ -201,6 +170,52 @@ public final class ExportModalGenerator {
             .build();
 
         ModalManager.getInstance().openModalWidgetAtCenter(popup);
+    }
+
+    /// Exports the data pack into `dataDir` and the resource pack into `resourceDir`, a blank one skipped, and
+    /// remembers both. Returns the folder to show: the resource one when written, else the data one.
+    public static @Nullable Path exportAsPack(AkytheraProject project, String dataDir, String resourceDir, boolean includeAssets) {
+        project.saveExportPaths(dataDir, resourceDir);
+
+        Path opened = null;
+
+        if (!dataDir.isBlank()) {
+            Path dataPath = Path.of(dataDir);
+            String dataPackName = project.getProjectName() + (includeAssets ? "_datapack_with_assets.zip" : "_data.zip");
+            project.exportDataPack(dataPath.resolve(dataPackName), includeAssets);
+            opened = dataPath;
+        }
+
+        if (!resourceDir.isBlank()) {
+            Path resourcePath = Path.of(resourceDir);
+            project.exportResourcePack(resourcePath.resolve(project.getProjectName() + "_resources.zip"));
+            opened = resourcePath;
+        }
+
+        return opened;
+    }
+
+    /// Exports the generated `.java` into `dataDir` under `packageName` and the loose assets into `resourceDir`, a
+    /// blank one skipped, and remembers both. Returns the folder to show: the data one when written, else the
+    /// resource one.
+    public static @Nullable Path exportAsSourceCode(AkytheraProject project, String dataDir, String resourceDir, String packageName) {
+        project.saveSourceExportPaths(dataDir, resourceDir);
+
+        Path opened = null;
+
+        if (!dataDir.isBlank()) {
+            Path dataPath = Path.of(dataDir);
+            FreemarkerExporter.exportProject(project, dataPath, packageName);
+            opened = dataPath;
+        }
+
+        if (!resourceDir.isBlank()) {
+            Path resourcePath = Path.of(resourceDir);
+            project.exportAssetsToDirectory(resourcePath);
+            if (opened == null) opened = resourcePath;
+        }
+
+        return opened;
     }
 
     /// `Compile` on one data category, or on a content-browser selection: the `As Source Code` layout
@@ -289,7 +304,7 @@ public final class ExportModalGenerator {
     /// Mirrors java's package rule: take the path segment after `src/main/java/` and dot-join it.
     /// e.g. `common\src\main\java\com\yesman\epicfight\data\` -> `com.yesman.epicfight.data`.
     /// Returns `""` when the marker isn't present (caller leaves the package field blank).
-    static String derivePackageName(String path) {
+    public static String derivePackageName(String path) {
         String normalized = path.replace('\\', '/');
         int idx = normalized.indexOf(SOURCE_ROOT_MARKER);
         if (idx < 0) return "";

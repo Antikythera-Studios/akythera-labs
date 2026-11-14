@@ -6,7 +6,14 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.NativeImage;
+import com.yesman.akythera.api.asset.AssetAccessor;
+import com.yesman.akythera.client.api.gui.AkytheraEditBox;
+import com.yesman.akythera.client.api.gui.modal.Modal;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
+import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
+import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dev.ProjectReloader;
@@ -31,6 +38,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Util;
 import org.apache.logging.log4j.Level;
+import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Files;
@@ -273,7 +281,12 @@ public final class McpTools {
             "run_editor_action",
             "Runs a top menu action on the top editor screen, as picking it from the menu bar would: 'save', 'compile' and "
                 + "so on. 'undo' and 'redo' step the editor history. An action that opens a modal leaves it open; see "
-                + "get_editor_state.",
+                + "get_editor_state. A picker modal ('change_parent', 'select_preview_model', 'select_preview_animation', "
+                + "'select_preview_item', 'debug') is driven with get_modal and pick_in_modal. The other modals have "
+                + "tools of their own, which need no modal open: export_project, set_editor_preferences, "
+                + "edit_localization, edit_project_tags, set_project_settings, set_entity_preview_models, "
+                + "retarget_animations and transform_models. 'model_skinning' opens a screen that get_model_skinning "
+                + "and edit_model_skinning edit.",
             """
             {
               "type": "object",
@@ -308,6 +321,65 @@ public final class McpTools {
                         + (modal == null ? "" : ". A modal is open: " + modal.getClass().getSimpleName()));
                 });
             }
+        ));
+
+        register(McpTool.of(
+            "get_modal",
+            "Returns the open modal as JSON, or null: its 'type', its 'title', and for a modal with a search box its "
+                + "'search' text and 'results', the rows the search leaves in list order, which pick_in_modal confirms "
+                + "by index.",
+            """
+            {"type": "object", "properties": {}}
+            """,
+            _ -> onClient(() -> {
+                AbstractWidget modal = ModalManager.getInstance().getModal();
+
+                if (modal == null) return McpToolResult.text("null");
+
+                JsonObject json = new JsonObject();
+                json.addProperty("type", modal.getClass().getSimpleName());
+                json.addProperty("title", modal.getMessage().getString());
+
+                if (modal instanceof Modal picker && picker.searchBox() instanceof AkytheraEditBox<String> searchBox) {
+                    json.addProperty("search", searchBox.getText());
+                    json.add("results", PRETTY_GSON.toJsonTree(picker.results()));
+                }
+
+                return McpToolResult.text(PRETTY_GSON.toJson(json));
+            })
+        ));
+
+        register(McpTool.of(
+            "pick_in_modal",
+            "Confirms a row of the open picker modal, as a click would: types 'search' into its search box first when "
+                + "given, then confirms the row at 'index' of the results get_modal lists, or the only row left when "
+                + "'index' is absent.",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "search": {"type": "string"},
+                "index": {"type": "integer", "minimum": 0}
+              }
+            }
+            """,
+            arguments -> onClient(() -> {
+                AbstractWidget modal = ModalManager.getInstance().getModal();
+
+                if (!(modal instanceof Modal picker) || !(picker.searchBox() instanceof AkytheraEditBox<String> searchBox)) {
+                    return McpToolResult.error("No picker modal is open");
+                }
+
+                if (arguments.has("search")) searchBox.setValueByString(arguments.get("search").getAsString());
+
+                boolean confirmed = arguments.has("index") ? picker.confirmResult(arguments.get("index").getAsInt()) : picker.confirmSoleResult();
+
+                if (!confirmed) return McpToolResult.error("Nothing was confirmed. The results are: " + picker.results());
+
+                AbstractWidget now = ModalManager.getInstance().getModal();
+
+                return McpToolResult.text("Confirmed" + (now == null ? "" : ". A modal is open: " + now.getClass().getSimpleName()));
+            })
         ));
 
         register(McpTool.of(
@@ -425,11 +497,101 @@ public final class McpTools {
             }
         ));
 
+        register(McpTool.of(
+            "get_viewer_camera",
+            "Lists the 3D viewers on the top editor screen, then in the open modal, each with its 'index', its 'owner', its "
+                + "'rect' in GUI pixels, whether it shows an entity model, and its orbit 'camera': 'distance' to the focus in "
+                + "blocks, 'pitch' and 'yaw' in degrees (pitch > 0 looks down; yaw 180 looks at the front of a model facing "
+                + "-Z, 0 at its back, 90 and -90 at its sides), the 'focus' point in model space and the 'viewMode'.",
+            """
+            {"type": "object", "properties": {}}
+            """,
+            _ -> onClient(() -> {
+                JsonArray viewers = new JsonArray();
+                List<Model3DViewer> found = findViewers();
+
+                for (int index = 0; index < found.size(); index++) {
+                    Model3DViewer viewer = found.get(index);
+                    CameraComponent camera = viewer.getComponent(CameraComponent.class);
+                    JsonObject viewerJson = new JsonObject();
+                    viewerJson.addProperty("index", index);
+                    viewerJson.addProperty("owner", ownerOf(viewer));
+                    viewerJson.add("rect", PRETTY_GSON.toJsonTree(new int[] {viewer.getX(), viewer.getY(), viewer.getWidth(), viewer.getHeight()}));
+                    viewerJson.addProperty("showsEntityModel", viewer.getComponent(EntityModelComponent.class) != null);
+
+                    if (camera != null) {
+                        Vector3f focus = camera.getTargetFocus();
+                        JsonObject cameraJson = new JsonObject();
+                        cameraJson.addProperty("distance", camera.getTargetDistance());
+                        cameraJson.addProperty("pitch", camera.getTargetXRot());
+                        cameraJson.addProperty("yaw", camera.getTargetYRot());
+                        cameraJson.add("focus", PRETTY_GSON.toJsonTree(new float[] {focus.x, focus.y, focus.z}));
+                        cameraJson.addProperty("viewMode", camera.getViewMode().name().toLowerCase(Locale.ROOT));
+                        viewerJson.add("camera", cameraJson);
+                    }
+
+                    viewers.add(viewerJson);
+                }
+
+                return McpToolResult.text(PRETTY_GSON.toJson(viewers));
+            })
+        ));
+
+        register(McpTool.of(
+            "set_viewer_camera",
+            "Places the orbit camera of a 3D viewer get_viewer_camera lists, at once and without easing, so a screenshot "
+                + "taken next shows it. A value left out keeps the camera's own. To frame the preview model as the menu "
+                + "does, use run_editor_action 'frame_camera' instead.",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "viewer": {"type": "integer", "minimum": 0, "description": "The index get_viewer_camera lists. Default: 0."},
+                "distance": {"type": "number", "minimum": 0.5, "maximum": 100, "description": "Blocks from the camera to the focus."},
+                "pitch": {"type": "number", "minimum": -90, "maximum": 90},
+                "yaw": {"type": "number"},
+                "focus": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                "viewMode": {"type": "string", "enum": ["frustum", "orthographic"]}
+              }
+            }
+            """,
+            arguments -> onClient(() -> {
+                List<Model3DViewer> viewers = findViewers();
+                int index = arguments.has("viewer") ? arguments.get("viewer").getAsInt() : 0;
+
+                if (index < 0 || index >= viewers.size()) return McpToolResult.error("No viewer " + index + "; " + viewers.size() + " are open");
+
+                CameraComponent camera = viewers.get(index).getComponent(CameraComponent.class);
+
+                if (camera == null) return McpToolResult.error("Viewer " + index + " has no camera");
+
+                double distance = arguments.has("distance") ? Math.clamp(arguments.get("distance").getAsDouble(), 0.5, 100.0) : camera.getTargetDistance();
+                float pitch = arguments.has("pitch") ? Math.clamp(arguments.get("pitch").getAsFloat(), -90.0F, 90.0F) : camera.getTargetXRot();
+                float yaw = arguments.has("yaw") ? arguments.get("yaw").getAsFloat() : camera.getTargetYRot();
+                Vector3f focus = camera.getTargetFocus();
+
+                if (arguments.has("focus")) {
+                    JsonArray array = arguments.getAsJsonArray("focus");
+                    focus.set(array.get(0).getAsFloat(), array.get(1).getAsFloat(), array.get(2).getAsFloat());
+                }
+
+                if (arguments.has("viewMode")) camera.setViewMode(CameraComponent.ViewMode.valueOf(arguments.get("viewMode").getAsString().toUpperCase(Locale.ROOT)));
+
+                camera.setCameraTransform(-distance, pitch, yaw, focus);
+
+                return McpToolResult.text("Placed the camera of viewer " + index);
+            })
+        ));
+
         McpWorldTools.registerAll();
         McpScriptGraphTools.registerAll();
         McpBehaviorTools.registerAll();
         McpComponentTools.registerAll();
         McpTrackTools.registerAll();
+        McpConversionTools.registerAll();
+        McpProjectTools.registerAll();
+        McpPreferenceTools.registerAll();
+        McpModelSkinningTools.registerAll();
     }
 
     // ***************************************************************
@@ -484,6 +646,78 @@ public final class McpTools {
         if (!resolved.startsWith(root)) throw new IllegalArgumentException("The path leaves the project folder: " + relative);
 
         return resolved;
+    }
+
+    /// @param `path` as an absolute path, or relative to the project @param `root`. Unlike [#resolveInProject], it may
+    /// lie outside the project.
+    static Path resolveAgainstProject(final Path root, final String path) {
+        return root.resolve(path.replace('\\', '/')).toAbsolutePath().normalize();
+    }
+
+    /// The existing file [#resolveAgainstProject] gives for @param `path`.
+    static Path requireFile(final Path root, final String path) {
+        Path file = resolveAgainstProject(root, path);
+
+        if (!Files.isRegularFile(file)) throw new IllegalArgumentException("No such file: " + path);
+
+        return file;
+    }
+
+    /// @param `file` relative to the project @param `root`, joined with '/'.
+    static String relative(final Path root, final Path file) {
+        return root.relativize(file).toString().replace('\\', '/');
+    }
+
+    static AssetAccessor<? extends Armature> requireArmature(final AkytheraProject project, final String id) {
+        return project.listAllArmatureAccessors()
+            .filter(accessor -> accessor.identifier().toString().equals(id))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("No armature " + id + " in the project"));
+    }
+
+    static List<String> armatureIds(final AkytheraProject project) {
+        return project.listAllArmatureAccessors().map(accessor -> accessor.identifier().toString()).sorted().toList();
+    }
+
+    static List<String> skeletalMeshIds(final AkytheraProject project) {
+        return project.listAllMeshAccessors()
+            .filter(accessor -> accessor.checkType(AssetAccessor.Type.SKELETAL_MESH))
+            .map(accessor -> accessor.identifier().toString())
+            .sorted()
+            .toList();
+    }
+
+    /// Every [Model3DViewer] on the top editor screen, then in the open modal.
+    static List<Model3DViewer> findViewers() {
+        List<Model3DViewer> viewers = new ArrayList<>();
+        Screen top = AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen();
+
+        if (top != null) viewers.addAll(findWidgets(top, Model3DViewer.class));
+        if (ModalManager.getInstance().getModal() instanceof ContainerEventHandler modal) viewers.addAll(findWidgets(modal, Model3DViewer.class));
+
+        return viewers;
+    }
+
+    /// The type of the modal @param `viewer` sits in, or else of the top editor screen.
+    private static String ownerOf(final Model3DViewer viewer) {
+        AbstractWidget modal = ModalManager.getInstance().getModal();
+        Screen top = AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen();
+
+        return modal instanceof ContainerEventHandler container && findWidgets(container, Model3DViewer.class).contains(viewer)
+            ? modal.getClass().getSimpleName()
+            : top == null ? "" : top.getClass().getSimpleName();
+    }
+
+    /// Writes the project settings as File > Save of the main editor screen does. False when the editor layout is not
+    /// open.
+    static boolean saveProjectSettings(final AkytheraProject project) {
+        MainEditorScreen mainScreen = AkytheraEditorLayoutManager.getInstance().getMainScreen();
+
+        if (mainScreen == null) return false;
+
+        project.saveProjectMetadata(mainScreen.explorerPanel.collectFolderStates(), mainScreen.explorerPanel.getFocusedPath());
+
+        return true;
     }
 
     static Identifier requireId(final String id) {

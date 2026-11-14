@@ -9,14 +9,18 @@ import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.compat.CompatibleMod;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.platform.ModPlatformProvider;
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.gui.screen.PreviewModelScreen;
 import com.yesman.akytheralabs.gui.widget.viewer.PreviewMappingWarningCard;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
 import org.jspecify.annotations.Nullable;
@@ -68,6 +72,22 @@ public final class EntityPreviewModelMapping {
     public static void clear() {
         MESHES.clear();
         ComponentsFactory.getImpl().clearArmatureMappings();
+    }
+
+    /// Eases `previewer`'s camera to frame the entity type `entityTypeId` names, or a humanoid's footprint while it
+    /// names none.
+    public static void frame(Model3DViewer previewer, @Nullable Identifier entityTypeId) {
+        EntityType<?> entityType = typeOf(entityTypeId);
+        EntityDimensions dimensions = entityType == null ? Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS : entityType.getDimensions();
+
+        previewer.frameCamera(dimensions.width(), dimensions.height());
+    }
+
+    /// Shows every open [PreviewModelScreen]'s preview again, under the current bindings.
+    public static void refreshOpenPreviews() {
+        for (Screen screen : AkytheraEditorLayoutManager.getInstance().getOpenScreens()) {
+            if (screen instanceof PreviewModelScreen previewing) previewing.refreshPreviewModel();
+        }
     }
 
     /// Binds every previewable entity type to its own vanilla model. Player Animation Library is

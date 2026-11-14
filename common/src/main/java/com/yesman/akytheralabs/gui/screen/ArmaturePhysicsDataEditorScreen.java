@@ -89,7 +89,7 @@ import java.util.function.Supplier;
 ///
 /// The armature is the asset's own path (invariant 7), so this screen never picks one — it opens on
 /// whatever the file belongs to.
-public final class ArmaturePhysicsDataEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class ArmaturePhysicsDataEditorScreen extends Screen implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
     private static final int COMBO_H = 14;
@@ -258,7 +258,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
                         previewAnimator.setAnimation(clips.isEmpty() ? null : clips.getFirst())
                     )
                 ))
-                .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -476,10 +476,11 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         rebuildAll();
         fillIKTable();
         fillSimulationTable();
-        frameCamera();
+        framePreviewModel();
     }
 
-    private void frameCamera() {
+    @Override
+    public void framePreviewModel() {
         model3DViewer.frameCamera(Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.width(), Model3DViewer.DEFAULT_SKELETAL_DIMENSIONS.height());
     }
 
@@ -1000,5 +1001,14 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
         if (modal != null) return modal;
 
         return super.getFocused();
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        applyPreviewEntityType(holder.getPreviewEntityType());
     }
 }

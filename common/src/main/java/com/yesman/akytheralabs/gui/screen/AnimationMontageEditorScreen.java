@@ -90,7 +90,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
-public final class AnimationMontageEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
+public final class AnimationMontageEditorScreen extends Screen implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
 
@@ -157,6 +157,7 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
                 .on(TopMenuOption.SELECT_PREVIEW_ITEM, this::openPreviewItemSelectModal)
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -984,5 +985,19 @@ public final class AnimationMontageEditorScreen extends Screen implements ModalA
         public AnimationMontagePlayer getMontagePlayer(final ResourceKey<@NonNull AnimationMontage> animMontageKey) {
             throw new UnsupportedOperationException("MontageAnimator has no montage player");
         }
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        applyPreviewEntityType(holder.getPreviewEntityType());
+    }
+
+    @Override
+    public void framePreviewModel() {
+        EntityPreviewModelMapping.frame(model3DViewer, holder.getPreviewEntityType());
     }
 }

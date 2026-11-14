@@ -383,18 +383,30 @@ public final class CategorizedSelectModal<T> extends AbstractContainerWidget
     }
 
     @Override
-    public boolean confirmSoleResult() {
+    public List<String> results() {
+        return choiceRows().stream().map(row -> row.choice.label()).toList();
+    }
+
+    @Override
+    public boolean confirmResult(int index) {
+        List<EntryList.ChoiceEntry> rows = choiceRows();
+
+        if (index < 0 || index >= rows.size()) return false;
+
+        rows.get(index).confirm();
+
+        return true;
+    }
+
+    /// The choice rows the search leaves, without the category titles and edit rows between them.
+    private List<EntryList.ChoiceEntry> choiceRows() {
         List<EntryList.ChoiceEntry> rows = new ArrayList<>();
 
         for (EntryList.Entry entry : list.children()) {
             if (entry instanceof EntryList.ChoiceEntry row) rows.add(row);
         }
 
-        if (rows.size() != 1) return false;
-
-        rows.getFirst().confirm();
-
-        return true;
+        return rows;
     }
 
     @Override

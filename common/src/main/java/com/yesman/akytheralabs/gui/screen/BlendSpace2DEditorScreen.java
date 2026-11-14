@@ -76,7 +76,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /// Editor screen for the BlendSpace2D asset.
-public final class BlendSpace2DEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
+public final class BlendSpace2DEditorScreen extends Screen implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, DebuggableScreen {
     // Widget layout parameters
     private static final int TOP_BAR_H = 22;
 
@@ -144,6 +144,7 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -834,5 +835,19 @@ public final class BlendSpace2DEditorScreen extends Screen implements ModalAcces
         public AnimationMontagePlayer getMontagePlayer(final ResourceKey<@NonNull AnimationMontage> animMontageKey) {
             throw new UnsupportedOperationException("BlendSpaceAnimator has no montage player");
         }
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        applyPreviewEntityType(blendSpaceHolder.getPreviewEntityType());
+    }
+
+    @Override
+    public void framePreviewModel() {
+        EntityPreviewModelMapping.frame(model3DViewer, blendSpaceHolder.getPreviewEntityType());
     }
 }

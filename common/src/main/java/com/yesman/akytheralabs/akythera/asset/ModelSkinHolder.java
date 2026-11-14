@@ -36,6 +36,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /// A vanilla model being skinned onto an armature in the Model Skinning screen: what its Model Information
 /// panel picks, the mesh those picks make, and the bone weights painted on it.
@@ -113,6 +114,10 @@ public final class ModelSkinHolder {
     // Model Information rows
     // ***************************************************************
 
+    public @Nullable Object getModel() {
+        return model;
+    }
+
     /// Takes a model pick. A bake brings the armature it was baked on and the weights it was baked with.
     public void setModel(final @Nullable Object model) {
         this.model = model;
@@ -135,6 +140,10 @@ public final class ModelSkinHolder {
         rebuild(null);
     }
 
+    public ClientAsset.@Nullable Texture getTexture() {
+        return texture;
+    }
+
     public void setTexture(final ClientAsset.@Nullable Texture texture) {
         this.texture = texture;
 
@@ -150,7 +159,7 @@ public final class ModelSkinHolder {
     }
 
     /// Every model layer the entity model set holds by name, then every bake the game keeps.
-    private List<Object> models() {
+    public List<Object> models() {
         List<Object> models = new ArrayList<>(
             Minecraft.getInstance().getModelManager().entityModels().get().roots.keySet().stream()
                 .sorted(Comparator.comparing(ModelLayerLocation::toString))
@@ -160,6 +169,13 @@ public final class ModelSkinHolder {
         models.addAll(VanillaModelBaker.bakes());
 
         return models;
+    }
+
+    /// A name telling `model` apart from every other of [#models]: a layer's own name, or `<item id>#<slot>` for a bake.
+    public static String modelKey(final Object model) {
+        return model instanceof VanillaModelBaker.Bake bake
+            ? BuiltInRegistries.ITEM.getKey(bake.item()) + "#" + bake.slot().getName()
+            : model.toString();
     }
 
     private Component modelLabel(final Object model) {
@@ -200,6 +216,41 @@ public final class ModelSkinHolder {
 
     public boolean hasMesh() {
         return mesh != null;
+    }
+
+    /// The mesh parts, each with the positions its triangles use and their bounds. Empty while there is no mesh.
+    public List<Part> parts() {
+        if (geometry == null) return List.of();
+
+        List<Part> parts = new ArrayList<>();
+
+        for (Map.Entry<String, List<VertexBuilder>> part : geometry.partBuilders.entrySet()) {
+            Set<Integer> positions = new TreeSet<>();
+            Vector3f min = new Vector3f(Float.MAX_VALUE);
+            Vector3f max = new Vector3f(-Float.MAX_VALUE);
+
+            for (VertexBuilder vertex : part.getValue()) {
+                if (!positions.add(vertex.position())) continue;
+
+                Vector3f position = positionOf(vertex);
+                min.min(position);
+                max.max(position);
+            }
+
+            parts.add(new Part(part.getKey(), positions.stream().mapToInt(Integer::intValue).toArray(), min, max));
+        }
+
+        return parts;
+    }
+
+    /// The number of mesh positions, which the weights are indexed by.
+    public int positionCount() {
+        return weights.size();
+    }
+
+    /// Where the mesh position `index` sits in the bind pose.
+    public Vector3f position(final int index) {
+        return new Vector3f(geometry.positions[index * 3], geometry.positions[index * 3 + 1], geometry.positions[index * 3 + 2]);
     }
 
     /// Rebuilds the mesh from [#model] on [#armature], weighted by `reference` the way [VanillaModelBaker]
@@ -332,6 +383,22 @@ public final class ModelSkinHolder {
         pickedVertex.influences = vertex >= 0 && vertex < weights.size() ? weights.get(vertex) : new ArrayList<>();
     }
 
+    /// The bones deforming the mesh position `position`.
+    public List<Influence> influencesOf(final int position) {
+        return weights.get(position);
+    }
+
+    /// Replaces the bones deforming the mesh position `position` with `influences`, a bone to its weight. A weight of
+    /// 0 or less is left out.
+    public void setInfluences(final int position, final Map<Bone, Float> influences) {
+        List<Influence> replaced = weights.get(position);
+
+        replaced.clear();
+        influences.forEach((bone, weight) -> {
+            if (weight > 0.0F) replaced.add(new Influence(bone, Math.min(weight, 1.0F)));
+        });
+    }
+
     /// `bind` moved by `boneTransforms`, the skinning matrix of each bone by id, under the weights as they
     /// are painted. A position no bone weighs stays where it is.
     public Vector3f[] pose(final Vector3f[] bind, final Matrix4f[] boneTransforms) {
@@ -392,6 +459,18 @@ public final class ModelSkinHolder {
 
             if (weight > 0.0F) influences.add(new Influence(paintedBone, weight));
         }
+    }
+
+    /// Gives [#paintedBone] `weight` on each of `positions`, as a stroke reaching them would ([#paint]).
+    public void paintPositions(final int[] positions, final float weight) {
+        float[] before = paintedWeights();
+        float[] painted = before.clone();
+
+        for (int position : positions) {
+            if (position >= 0 && position < painted.length) painted[position] = weight;
+        }
+
+        paint(before, painted);
     }
 
     /// A copy of every weight, for [#restoreWeights].
@@ -496,6 +575,16 @@ public final class ModelSkinHolder {
         int axis = edgeAxis < 0 ? max.sub(min, new Vector3f()).maxComponent() : edgeAxis;
 
         return new Slice(hitPart, axis, hit.get(axis), min, max);
+    }
+
+    /// The plane across `axis` at `coordinate` through the part named `part`, as [#sliceAt] would make it. Null when
+    /// the mesh has no such part.
+    public @Nullable Slice sliceAcross(final String part, final int axis, final float coordinate) {
+        return parts().stream()
+            .filter(candidate -> candidate.name().equals(part))
+            .findFirst()
+            .map(candidate -> new Slice(part, axis, coordinate, candidate.min(), candidate.max()))
+            .orElse(null);
     }
 
     /// The position, the normal and the UV `vertex` draws with: eight elements.
@@ -740,6 +829,15 @@ public final class ModelSkinHolder {
     public record Slice(String part, int axis, float coordinate, Vector3f min, Vector3f max) {
     }
 
+    /// One part of the mesh.
+    ///
+    /// @param name      the part's name
+    /// @param positions the indices of the mesh positions its triangles use, ascending
+    /// @param min       the least coordinate those positions reach, per axis
+    /// @param max       the greatest coordinate those positions reach, per axis
+    public record Part(String name, int[] positions, Vector3f min, Vector3f max) {
+    }
+
     /// The vertex the Details panel lists.
     public static final class PickedVertex {
         /// The [#weights] entry of the vertex; a list of its own while none is picked.
@@ -767,6 +865,14 @@ public final class ModelSkinHolder {
         private Influence(final @Nullable Bone bone, final float weight) {
             this.bone = bone;
             this.weight = weight;
+        }
+
+        public @Nullable Bone getBone() {
+            return bone;
+        }
+
+        public float getWeight() {
+            return weight;
         }
 
         private static List<Bone> bones(final ModelSkinHolder holder) {

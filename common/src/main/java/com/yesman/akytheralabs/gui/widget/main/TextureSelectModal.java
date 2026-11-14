@@ -138,10 +138,15 @@ public final class TextureSelectModal extends OverlayingWindowModal implements C
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        if (grid.children().size() != 1) return false;
+    public List<String> results() {
+        return grid.children().stream().map(cell -> ((TextureCell) cell).textureId.toString()).toList();
+    }
 
-        ((TextureCell) grid.children().getFirst()).pick();
+    @Override
+    public boolean confirmResult(int index) {
+        if (index < 0 || index >= grid.children().size()) return false;
+
+        ((TextureCell) grid.children().get(index)).pick();
 
         return true;
     }

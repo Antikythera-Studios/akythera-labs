@@ -135,20 +135,24 @@ public final class LanguageSelectionModal extends OverlayingWindowModal {
         return ClientLanguage.loadFrom(Minecraft.getInstance().getResourceManager(), codes, rtl);
     }
 
-    /// Commits the previewed language: the standard vanilla switch (set selected, persist, reload
-    /// packs), then closes. A no-op switch (same as active) just closes.
+    /// Commits the previewed language through [#applyLanguage], then closes.
     private void applySelected() {
+        applyLanguage(selectedCode);
+        ModalManager.getInstance().closeModal();
+    }
+
+    /// Switches the game to `code` as vanilla's language screen does: selects it, saves the options and reloads the
+    /// packs. Nothing happens while `code` is already selected.
+    public static void applyLanguage(String code) {
         Minecraft minecraft = Minecraft.getInstance();
         LanguageManager languageManager = minecraft.getLanguageManager();
 
-        if (!selectedCode.equals(languageManager.getSelected())) {
-            languageManager.setSelected(selectedCode);
-            minecraft.options.languageCode = selectedCode;
+        if (!code.equals(languageManager.getSelected())) {
+            languageManager.setSelected(code);
+            minecraft.options.languageCode = code;
             minecraft.options.save();
             minecraft.reloadResourcePacks();
         }
-
-        ModalManager.getInstance().closeModal();
     }
 
     @Override

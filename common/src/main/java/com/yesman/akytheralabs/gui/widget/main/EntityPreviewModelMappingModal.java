@@ -212,6 +212,7 @@ public final class EntityPreviewModelMappingModal extends OverlayingWindowModal
     @Override
     public void destroy() {
         preview.destroy();
+        EntityPreviewModelMapping.refreshOpenPreviews();
     }
 
     @Override

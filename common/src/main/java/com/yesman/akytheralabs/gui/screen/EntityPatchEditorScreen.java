@@ -144,7 +144,7 @@ import java.util.stream.Stream;
 /// every canvas on the screen and re-opens it, or a source code [EntityPatchScript], which locks
 /// everything below the top menu.
 public final class EntityPatchEditorScreen extends Screen
-    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost, DebuggableScreen, GraphTabScreen
+    implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, NodeGraphTabHost, DebuggableScreen, GraphTabScreen
 {
     private static final int TOP_BAR_H = 22;
 
@@ -364,6 +364,7 @@ public final class EntityPatchEditorScreen extends Screen
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(minecraft.font))
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -1389,5 +1390,20 @@ public final class EntityPatchEditorScreen extends Screen
         var modal = getFocusOwningModal();
         if (modal != null) return modal;
         return super.getFocused();
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, holder.getPreviewEntityType(), true, true);
+        rebuildSocketPreviews();
+    }
+
+    @Override
+    public void framePreviewModel() {
+        EntityPreviewModelMapping.frame(model3DViewer, holder.getPreviewEntityType());
     }
 }

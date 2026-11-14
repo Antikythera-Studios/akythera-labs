@@ -332,7 +332,12 @@ public final class AkytheraMcpServer {
                     + "in-memory entries, so a file edit does not reach the world. set_component_rows takes the same JSON "
                     + "as the file in its 'declaration' argument. Read and edit the tracks of an animation sequence or "
                     + "montage (notifies), a particle system (emitter keys) or a cinema scene (actors, camera keys) with "
-                    + "get_tracks and edit_tracks.");
+                    + "get_tracks and edit_tracks. The modals of the top menu have tools that need no modal open "
+                    + "(export_project, set_editor_preferences, edit_localization, edit_project_tags, set_project_settings, "
+                    + "set_entity_preview_models, retarget_animations, transform_models); never edit the files behind them, "
+                    + "which the editor holds in memory. Drive an open picker modal with get_modal and pick_in_modal. Skin a "
+                    + "vanilla model on the Model Skinning screen with get_model_skinning and edit_model_skinning. Aim an editor "
+                    + "3D viewer with get_viewer_camera and set_viewer_camera before capture_screenshot.");
 
                 yield resultResponse(id, result);
             }

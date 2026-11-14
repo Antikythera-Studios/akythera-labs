@@ -89,8 +89,7 @@ public final class PerceptionPreviewPanel extends AdjustablePanelManager.PanelAr
         viewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         viewer.addComponent(new GridFloorComponent(2.0F, 50, 68, 68, 68, 255));
         viewer.addComponent(hearing);
-        EntityPreviewModelMapping.displayOrWarn(viewer, font, entityType(), true, true);
-        syncSight();
+        refreshPreviewModel();
 
         addWidget(header);
         addWidget(viewer);
@@ -99,6 +98,17 @@ public final class PerceptionPreviewPanel extends AdjustablePanelManager.PanelAr
     /// Releases the viewer's render target.
     public void destroy() {
         viewer.destroy();
+    }
+
+    /// Shows the previewed entity type again, under its current binding, with its sight cone.
+    public void refreshPreviewModel() {
+        EntityPreviewModelMapping.displayOrWarn(viewer, font, entityType(), true, true);
+        syncSight();
+    }
+
+    /// Eases the camera to frame the previewed entity type.
+    public void framePreviewModel() {
+        EntityPreviewModelMapping.frame(viewer, entityType());
     }
 
     /// Rebuilds [#sight] when the asset gained, lost or replaced its sight.

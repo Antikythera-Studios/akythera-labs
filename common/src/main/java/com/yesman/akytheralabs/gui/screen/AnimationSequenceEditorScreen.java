@@ -68,7 +68,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 
-public final class AnimationSequenceEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen {
+public final class AnimationSequenceEditorScreen extends Screen implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
 
@@ -111,6 +111,7 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
                 .on(TopMenuOption.SELECT_PREVIEW_ITEM, this::openPreviewItemSelectModal)
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -465,5 +466,19 @@ public final class AnimationSequenceEditorScreen extends Screen implements Modal
         if (modal != null) return modal;
 
         return super.getFocused();
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        applyPreviewEntityType(holder.getPreviewEntityType());
+    }
+
+    @Override
+    public void framePreviewModel() {
+        EntityPreviewModelMapping.frame(model3DViewer, holder.getPreviewEntityType());
     }
 }

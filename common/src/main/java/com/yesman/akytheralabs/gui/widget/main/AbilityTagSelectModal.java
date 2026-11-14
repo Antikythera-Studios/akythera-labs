@@ -241,20 +241,26 @@ public final class AbilityTagSelectModal extends AbstractContainerWidget
 
     /// Picks the only registered tag the search matches, when picking one.
     @Override
-    public boolean confirmSoleResult() {
-        if (multiple) return false;
+    public List<String> results() {
+        // A modal picking several tags only toggles on a press
+        if (multiple) return List.of();
 
         List<String> matches = new ArrayList<>();
 
         for (EntryList.Entry entry : list.children()) {
-            if (entry instanceof EntryList.TagEntry row && row.matched) {
-                matches.add(row.path);
-            }
+            if (entry instanceof EntryList.TagEntry row && row.matched) matches.add(row.path);
         }
 
-        if (matches.size() != 1) return false;
+        return matches;
+    }
 
-        press(matches.getFirst());
+    @Override
+    public boolean confirmResult(int index) {
+        List<String> matches = results();
+
+        if (index < 0 || index >= matches.size()) return false;
+
+        press(matches.get(index));
 
         return true;
     }

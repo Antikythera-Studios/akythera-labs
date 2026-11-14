@@ -134,17 +134,27 @@ public final class PreviewMeshSelectModal extends OverlayingWindowModal
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        List<ModelList.ModelEntry> rows = modelList.children().stream()
+    public List<String> results() {
+        return modelRows().stream().map(row -> row.row.label().getString()).toList();
+    }
+
+    @Override
+    public boolean confirmResult(int index) {
+        List<ModelList.ModelEntry> rows = modelRows();
+
+        if (index < 0 || index >= rows.size()) return false;
+
+        rows.get(index).confirm();
+
+        return true;
+    }
+
+    /// The model rows the search leaves, without the titles between them.
+    private List<ModelList.ModelEntry> modelRows() {
+        return modelList.children().stream()
             .filter(ModelList.ModelEntry.class::isInstance)
             .map(ModelList.ModelEntry.class::cast)
             .toList();
-
-        if (rows.size() != 1) return false;
-
-        rows.getFirst().confirm();
-
-        return true;
     }
 
     @Override

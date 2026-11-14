@@ -71,10 +71,15 @@ public final class LocalizedMessageSelectModal extends OverlayingWindowModal {
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        if (keyList.children().size() != 1) return false;
+    public List<String> results() {
+        return keyList.children().stream().map(row -> row.key).toList();
+    }
 
-        onKeySelected.accept(keyList.children().getFirst().key);
+    @Override
+    public boolean confirmResult(int index) {
+        if (index < 0 || index >= keyList.children().size()) return false;
+
+        onKeySelected.accept(keyList.children().get(index).key);
 
         return true;
     }

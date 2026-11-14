@@ -103,7 +103,7 @@ import java.util.stream.Stream;
 /// Design stage only: every panel except the [Model3DViewer] is a text placeholder, and no value editing is
 /// wired up. The preview model is chosen *before* the screen opens (see
 /// [ContentWidget.AnimatorScriptContent]) and stored on the holder, so the previewer shows it here.
-public final class AnimatorScriptEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, DebuggableScreen, GraphTabScreen {
+public final class AnimatorScriptEditorScreen extends Screen implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, DebuggableScreen, GraphTabScreen {
     private static final int TOP_BAR_H = 22;
 
     /// Seed position of the Anim Graph's [OutputPoseNodeWidget] — set well to the right so dragged-in
@@ -225,6 +225,7 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.DEBUG, () -> DebuggableScreen.openDebugSelector(font))
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -1878,5 +1879,19 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
         if (modal != null) return modal;
 
         return super.getFocused();
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        EntityPreviewModelMapping.displayOrWarn(model3DViewer, font, holder.getPreviewEntityType(), true, true);
+    }
+
+    @Override
+    public void framePreviewModel() {
+        EntityPreviewModelMapping.frame(model3DViewer, holder.getPreviewEntityType());
     }
 }

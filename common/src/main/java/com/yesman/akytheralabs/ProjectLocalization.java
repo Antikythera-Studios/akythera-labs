@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
@@ -102,6 +103,24 @@ public final class ProjectLocalization {
             texts.remove(language);
         } else {
             texts.put(language, text);
+        }
+    }
+
+    /// Fills keys from the lang file at `file`. A file named after one of `languageCodes` (`ko_kr.json`) fills that
+    /// language and makes it [#language]; any other fills [#language]. A file that is no JSON object fills nothing.
+    public void importLangFile(Path file, Set<String> languageCodes) {
+        JsonObject langFile = FileSystemHelper.readJsonObject(file);
+
+        if (langFile == null) return;
+
+        String code = FileSystemHelper.stem(file.getFileName().toString()).toLowerCase(Locale.ROOT);
+
+        if (languageCodes.contains(code)) setLanguage(code);
+
+        for (Map.Entry<String, JsonElement> entry : langFile.entrySet()) {
+            if (isValidKey(entry.getKey()) && entry.getValue().isJsonPrimitive()) {
+                setText(entry.getKey(), getLanguage(), entry.getValue().getAsString());
+            }
         }
     }
 

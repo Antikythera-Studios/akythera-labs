@@ -172,16 +172,26 @@ public final class NodeSuggestModal<T> extends AbstractContainerWidget implement
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        List<EntryList.Entry> leaves = list.children().stream()
-            .filter(entry -> entry.suggestion != null && entry.suggestion.enabled())
-            .toList();
+    public List<String> results() {
+        return leaves().stream().map(entry -> entry.suggestion.label().getString()).toList();
+    }
 
-        if (leaves.size() != 1) return false;
+    @Override
+    public boolean confirmResult(int index) {
+        List<EntryList.Entry> leaves = leaves();
 
-        leaves.getFirst().confirm();
+        if (index < 0 || index >= leaves.size()) return false;
+
+        leaves.get(index).confirm();
 
         return true;
+    }
+
+    /// The enabled suggestion rows the search leaves, without the folders above them.
+    private List<EntryList.Entry> leaves() {
+        return list.children().stream()
+            .filter(entry -> entry.suggestion != null && entry.suggestion.enabled())
+            .toList();
     }
 
     @Override

@@ -205,18 +205,30 @@ public final class RegistryLookupModal<T> extends AbstractContainerWidget
     }
 
     @Override
-    public boolean confirmSoleResult() {
+    public List<String> results() {
+        return keyRows().stream().map(row -> ResourceProcessor.displayId(row.key)).toList();
+    }
+
+    @Override
+    public boolean confirmResult(int index) {
+        List<EntryList.KeyEntry> rows = keyRows();
+
+        if (index < 0 || index >= rows.size()) return false;
+
+        rows.get(index).confirm();
+
+        return true;
+    }
+
+    /// The key rows the search leaves, without the category titles between them.
+    private List<EntryList.KeyEntry> keyRows() {
         List<EntryList.KeyEntry> rows = new ArrayList<>();
 
         for (EntryList.Entry entry : list.children()) {
             if (entry instanceof EntryList.KeyEntry row) rows.add(row);
         }
 
-        if (rows.size() != 1) return false;
-
-        rows.getFirst().confirm();
-
-        return true;
+        return rows;
     }
 
     @Override

@@ -1,7 +1,5 @@
 package com.yesman.akytheralabs.gui.widget.main;
 
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.client.api.gui.AkytheraButton;
 import com.yesman.akythera.client.api.gui.BuiltInEditBoxTheme;
@@ -334,23 +332,10 @@ public final class LocalizationManagerModal extends OverlayingWindowModal implem
     /// Fills the project's keys from lang files. A file named after a language (`ko_kr.json`) fills
     /// that language and selects it; any other fills the selected language.
     private void importLangFiles(List<Path> paths) {
-        Map<String, LanguageInfo> languages = Minecraft.getInstance().getLanguageManager().getLanguages();
+        Set<String> languages = Minecraft.getInstance().getLanguageManager().getLanguages().keySet();
 
         for (Path path : paths) {
-            String fileName = path.getFileName().toString();
-            if (!fileName.endsWith(".json")) continue;
-
-            JsonObject langFile = FileSystemHelper.readJsonObject(path);
-            if (langFile == null) continue;
-
-            String code = FileSystemHelper.stem(fileName).toLowerCase(Locale.ROOT);
-            if (languages.containsKey(code)) localization.setLanguage(code);
-
-            for (Map.Entry<String, JsonElement> entry : langFile.entrySet()) {
-                if (ProjectLocalization.isValidKey(entry.getKey()) && entry.getValue().isJsonPrimitive()) {
-                    localization.setText(entry.getKey(), localization.getLanguage(), entry.getValue().getAsString());
-                }
-            }
+            if (path.getFileName().toString().endsWith(".json")) localization.importLangFile(path, languages);
         }
 
         languageCombo.setValueQuiet(localization.getLanguage());

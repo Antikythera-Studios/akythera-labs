@@ -41,6 +41,16 @@ public final class BendingSettings {
     @EditorEditable(label = LangKeys.GUI_MODEL_SKINNING_SCREEN_BENDING_DIRECTION, order = 3)
     private Direction direction = Direction.FRONT;
 
+    public BendingSettings() {
+    }
+
+    public BendingSettings(final @Nullable Bone rootBone, final @Nullable Bone bendingBone, final @Nullable Bone inflationBone, final Direction direction) {
+        this.rootBone = rootBone;
+        this.bendingBone = bendingBone;
+        this.inflationBone = inflationBone;
+        this.direction = direction;
+    }
+
     public @Nullable Bone getRootBone() {
         return rootBone;
     }

@@ -111,10 +111,15 @@ public final class ItemSelectModal extends OverlayingWindowModal {
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        if (itemList.children().size() != 1) return false;
+    public List<String> results() {
+        return itemList.children().stream().map(row -> BuiltInRegistries.ITEM.getKey(row.item).toString()).toList();
+    }
 
-        onItemSelected.accept(itemList.children().getFirst().item);
+    @Override
+    public boolean confirmResult(int index) {
+        if (index < 0 || index >= itemList.children().size()) return false;
+
+        onItemSelected.accept(itemList.children().get(index).item);
 
         return true;
     }

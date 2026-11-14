@@ -67,7 +67,7 @@ import java.util.concurrent.CompletableFuture;
 /// all laid out by the holder's layout with [ScriptBlueprintHolder#scriptOwner] as the graphs' Self.
 /// The Details panel shows the cue's properties, the signature of the declared function picked in the
 /// Functions panel, or the default value of the picked variable.
-public final class ScriptBlueprintEditorScreen<T> extends Screen implements ModalAccessibleScreen, SafeCloseScreen, GraphTabScreen, DebuggableScreen {
+public final class ScriptBlueprintEditorScreen<T> extends Screen implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, GraphTabScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
 
     private final AdjustablePanelManager panelManager;
@@ -467,6 +467,14 @@ public final class ScriptBlueprintEditorScreen<T> extends Screen implements Moda
         /// Releases what [#install] built, as the screen closes.
         default void close() {
         }
+
+        /// Shows the tabs' preview again, see [PreviewModelScreen#refreshPreviewModel].
+        default void refreshPreviewModel() {
+        }
+
+        /// Frames the tabs' preview, see [PreviewModelScreen#framePreviewModel].
+        default void framePreviewModel() {
+        }
     }
 
     public @Nullable Extension getExtension() {
@@ -492,5 +500,19 @@ public final class ScriptBlueprintEditorScreen<T> extends Screen implements Moda
         var modal = ModalManager.getInstance().getInputModal();
 
         return modal != null ? modal : super.getFocused();
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        if (extension != null) extension.refreshPreviewModel();
+    }
+
+    @Override
+    public void framePreviewModel() {
+        if (extension != null) extension.framePreviewModel();
     }
 }

@@ -165,10 +165,17 @@ public final class AccessorSelectionModal extends OverlayingWindowModal {
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        if (accessorList.children().size() != 1) return false;
+    public List<String> results() {
+        return accessorList.children().stream()
+            .map(entry -> entry.accessor == null ? NONE_LABEL : displayName(entry.accessor))
+            .toList();
+    }
 
-        accessorList.children().getFirst().confirm();
+    @Override
+    public boolean confirmResult(int index) {
+        if (index < 0 || index >= accessorList.children().size()) return false;
+
+        accessorList.children().get(index).confirm();
 
         return true;
     }

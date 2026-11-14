@@ -22,8 +22,8 @@ import java.util.List;
 
 public final class EditorPreferencesModalGenerator {
     private static final int POPUP_W = 320;
-    private static final int MIN_SCALE = 1;
-    private static final int MAX_SCALE = 6;
+    public static final int MIN_SCALE = 1;
+    public static final int MAX_SCALE = 6;
 
     private EditorPreferencesModalGenerator() {
     }

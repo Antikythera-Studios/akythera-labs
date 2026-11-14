@@ -731,21 +731,6 @@ public final class ModelTransformerModal extends OverlayingWindowModal
         );
     }
 
-    /// The export name a freshly imported `source` starts with: its stem, lowercased with anything
-    /// outside `[a-z0-9_.-]` folded to `_`. A seed is folded rather than refused because the author
-    /// has typed nothing to correct — a typed name is refused, see [ExportNameRow].
-    private static String seedExportName(Path source) {
-        return FileSystemHelper.stem(source.getFileName().toString())
-            .toLowerCase().replaceAll("[^a-z0-9_.-]", "_");
-    }
-
-    /// Whether `name` is one file the export could write: a path the resource system accepts, and a
-    /// single component — a `/` passes [Identifier#isValidPath], which grades whole paths, but would
-    /// nest a directory under `meshes/`.
-    private static boolean isValidExportName(String name) {
-        return !name.isEmpty() && !name.contains("/") && Identifier.isValidPath(name);
-    }
-
     /// Whether a model other than `self` already exports under `name`.
     private boolean isExportNameTaken(ModelEntry self, String name) {
         for (ModelEntry entry : entries) {
@@ -1000,7 +985,7 @@ public final class ModelTransformerModal extends OverlayingWindowModal
             this.mesh = mesh;
             this.originalArmature = originalArmature;
             this.highestWeightBoneId = highestWeightBoneId;
-            this.exportName = seedExportName(source);
+            this.exportName = AssetExportManager.seedExportName(source);
         }
 
         Path source() {
@@ -1048,17 +1033,8 @@ public final class ModelTransformerModal extends OverlayingWindowModal
         Map<Integer, Integer> resolvedWeightRemap() {
             AssetAccessor<? extends Armature> accessor = armature();
             Armature armature = accessor == null ? null : accessor.getOrHandleException(AkytheraLabs.LOGGER::error);
-            Map<Integer, Integer> resolved = new LinkedHashMap<>();
 
-            if (armature == null) return resolved;
-
-            weightRemap.forEach((sourceId, boneName) -> {
-                Bone bone = armature.getBoneByName(boneName);
-
-                if (bone != null) resolved.put(sourceId, bone.getId());
-            });
-
-            return resolved;
+            return armature == null ? new LinkedHashMap<>() : AssetExportManager.INSTANCE.resolveWeightRemap(weightRemap, armature);
         }
 
         Map<String, String> renames() {
@@ -1163,7 +1139,7 @@ public final class ModelTransformerModal extends OverlayingWindowModal
 
             if (trimmed.equals(entry.exportName())) return;
 
-            if (!isValidExportName(trimmed)) {
+            if (!AssetExportManager.isValidExportName(trimmed)) {
                 nameBox.setValue(entry.exportName());
                 openNameRefusedPopup(
                     LangKeys.GUI_MODEL_TRANSFORMER_MODAL_INVALID_NAME_TITLE,

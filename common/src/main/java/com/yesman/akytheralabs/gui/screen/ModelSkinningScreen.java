@@ -89,7 +89,7 @@ import java.util.stream.Stream;
 ///
 /// Add Bending turns the next left press on the mesh into a slice of the part under it, see
 /// [ModelSkinHolder#addBending]; a right click gives it up.
-public final class ModelSkinningScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class ModelSkinningScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, PreviewModelScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
     private static final int OVERLAY_PAD = 4; // gap between an overlay widget and the viewer's edge
@@ -185,7 +185,7 @@ public final class ModelSkinningScreen extends Screen implements ModalAccessible
                         rebuildPreviewModel();
                     })
                 ))
-                .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -203,7 +203,8 @@ public final class ModelSkinningScreen extends Screen implements ModalAccessible
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(1.0F, 16, 68, 68, 68, 255));
 
-        painter = new WeightPaintComponent(holder.getMesh(), holder::paintedWeights, () -> NO_PAIRS, brush, this::commitStroke);
+        painter = new WeightPaintComponent(holder.getMesh(), holder::paintedWeights, () -> NO_PAIRS, brush,
+            (before, after) -> editWeights(() -> holder.paint(before, after)));
         painter.setHeatColors(true);
         painter.setPaintable(() -> holder.getPaintedBone() != null);
         // The slice is picked on the bind pose, which is what the mesh is cut in
@@ -376,10 +377,11 @@ public final class ModelSkinningScreen extends Screen implements ModalAccessible
         addRenderableWidget(detailsHeader);
         addRenderableWidget(detailsTable);
 
-        frameCamera();
+        framePreviewModel();
     }
 
-    private void frameCamera() {
+    @Override
+    public void framePreviewModel() {
         SkeletalMesh mesh = holder.getMesh().get();
 
         if (mesh == null) {
@@ -402,7 +404,7 @@ public final class ModelSkinningScreen extends Screen implements ModalAccessible
 
     /// Brings the bone overlay, the buttons and both panels in step with the holder. A bone picked in the
     /// viewer becomes the painted one, and the focus goes back to the tool that held it.
-    private void refresh() {
+    public void refresh() {
         AssetAccessor<? extends Armature> armature = holder.getArmature();
 
         if (armatureView == null || shownArmature != armature) {
@@ -532,11 +534,16 @@ public final class ModelSkinningScreen extends Screen implements ModalAccessible
         );
     }
 
-    /// Applies a finished stroke to the painted bone and files the weights before and after it on the history.
-    private void commitStroke(final float[] before, final float[] after) {
+    /// The model this screen skins.
+    public ModelSkinHolder getHolder() {
+        return holder;
+    }
+
+    /// Runs `edit` on the weights as one step of the history, and lists the picked vertex again.
+    public void editWeights(final Runnable edit) {
         List<List<ModelSkinHolder.Influence>> previous = holder.copyWeights();
 
-        holder.paint(before, after);
+        edit.run();
         HistoryManager.getInstance().pushHistory(new DataChange<>(previous, holder.copyWeights(), weights -> {
             holder.restoreWeights(weights);
             fillDetails();
@@ -565,16 +572,31 @@ public final class ModelSkinningScreen extends Screen implements ModalAccessible
             .thenAcceptAsync(folder -> {
                 if (folder == null || !holder.hasMesh()) return;
 
-                Path file = Path.of(folder).resolve(holder.exportName() + "." + AssetLoader.BINARY_EXTENSION);
-
                 try {
-                    Files.createDirectories(file.getParent());
-                    Files.write(file, AssetExportManager.INSTANCE.encodeMesh(holder.toBuilder()));
-                    FileSystemHelper.openInFileExplorer(file);
+                    FileSystemHelper.openInFileExplorer(exportTo(Path.of(folder), holder.exportName()));
                 } catch (IOException e) {
-                    AkytheraLabs.LOGGER.error("Failed to export the skinned model to {}", file, e);
+                    AkytheraLabs.LOGGER.error("Failed to export the skinned model to {}", folder, e);
                 }
             }, minecraft);
+    }
+
+    /// Writes the mesh as it is painted into `folder`, as `<name>.akasset`, and returns the file.
+    public Path exportTo(final Path folder, final String name) throws IOException {
+        Path file = folder.resolve(name + "." + AssetLoader.BINARY_EXTENSION);
+
+        Files.createDirectories(file.getParent());
+        Files.write(file, AssetExportManager.INSTANCE.encodeMesh(holder.toBuilder()));
+
+        return file;
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        rebuildPreviewModel();
     }
 
     // ***************************************************************

@@ -70,7 +70,7 @@ import java.util.function.Consumer;
 /// Edits an animation asset's sidecar metadata: its [AnimationLoader.ImportType], for an additive import the reference
 /// pose the keyframes are read relative to, and the [IKCurves] of the vendor armature's IK chains. The IK Curves panel
 /// lists one row per chain and curve; the picked one is edited in the Curve Editor under the preview.
-public final class AnimationAssetEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class AnimationAssetEditorScreen extends Screen implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
 
@@ -133,6 +133,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -603,4 +604,18 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
     /// One curve of one IK chain: the chain's tip bone, and whether the curve is its Plant curve rather than its IK
     /// Alpha.
     private record CurvePick(String tipBone, boolean plant) {}
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        applyPreviewEntityType(holder.getPreviewEntityType());
+    }
+
+    @Override
+    public void framePreviewModel() {
+        EntityPreviewModelMapping.frame(model3DViewer, holder.getPreviewEntityType());
+    }
 }

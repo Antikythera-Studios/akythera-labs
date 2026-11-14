@@ -90,7 +90,7 @@ import java.util.function.Supplier;
 /// property holding a canvas ([#openResultGraphTab]). With no component focused, the Details panel
 /// shows the blueprint's own fields (the parent reference).
 public final class ItemPatchEditorScreen extends Screen
-    implements ModalAccessibleScreen, SafeCloseScreen, NodeGraphTabHost, AnimationPreviewHost, GraphTabScreen
+    implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, NodeGraphTabHost, AnimationPreviewHost, GraphTabScreen
 {
     private static final int TOP_BAR_H = 22;
 
@@ -163,6 +163,7 @@ public final class ItemPatchEditorScreen extends Screen
                 .on(TopMenuOption.COMPILE, this::compile)
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.SELECT_PREVIEW_ITEM, this::isMetaPatch, this::openPreviewItemSelectModal)
@@ -938,5 +939,20 @@ public final class ItemPatchEditorScreen extends Screen
         var modal = ModalManager.getInstance().getInputModal();
         if (modal != null) return modal;
         return super.getFocused();
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        model3DViewer.removeAllComponents(ItemModelComponent.class);
+        buildPreview();
+    }
+
+    @Override
+    public void framePreviewModel() {
+        EntityPreviewModelMapping.frame(model3DViewer, BuiltInRegistries.ENTITY_TYPE.getKey(EntityTypes.PLAYER));
     }
 }

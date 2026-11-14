@@ -112,10 +112,15 @@ public final class EntityTypeSelectModal extends OverlayingWindowModal
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        if (typeList.children().size() != 1) return false;
+    public List<String> results() {
+        return typeList.children().stream().map(row -> EntityPreviewModelMapping.label(row.type)).toList();
+    }
 
-        typeList.children().getFirst().confirm();
+    @Override
+    public boolean confirmResult(int index) {
+        if (index < 0 || index >= typeList.children().size()) return false;
+
+        typeList.children().get(index).confirm();
 
         return true;
     }

@@ -79,7 +79,7 @@ import java.util.Optional;
 /// With one of this project's armature physics assets picked, the viewer also shows that asset's preview
 /// model and collider boxes, and Simulate runs the cloth on them. The brush and the pairing tool are off
 /// while the cloth runs.
-public final class ClothPhysicsDataEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
+public final class ClothPhysicsDataEditorScreen extends Screen implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen {
     private static final int TOP_BAR_H = 22;
     private static final int ROW_H = 20;
     private static final int OVERLAY_PAD = 4; // gap between an overlay widget and the viewer's edge
@@ -155,7 +155,7 @@ public final class ClothPhysicsDataEditorScreen extends Screen implements ModalA
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(font))
                 .on(TopMenuOption.SELECT_PREVIEW_ANIMATION, this::openPreviewAnimationSelect)
-                .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
+                .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
@@ -337,10 +337,11 @@ public final class ClothPhysicsDataEditorScreen extends Screen implements ModalA
         addRenderableWidget(parametersHeader);
         addRenderableWidget(parametersTable);
 
-        frameCamera();
+        framePreviewModel();
     }
 
-    private void frameCamera() {
+    @Override
+    public void framePreviewModel() {
         SkeletalMesh mesh = holder.getMesh().getOrHandleException(AkytheraLabs.LOGGER::error);
 
         if (mesh == null) {
@@ -598,5 +599,14 @@ public final class ClothPhysicsDataEditorScreen extends Screen implements ModalA
         if (modal != null) return modal;
 
         return super.getFocused();
+    }
+
+    // ***************************************************************
+    // [PreviewModelScreen]
+    // ***************************************************************
+
+    @Override
+    public void refreshPreviewModel() {
+        rebuildPreview();
     }
 }

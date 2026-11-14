@@ -103,10 +103,17 @@ public final class EntitySelectModal extends OverlayingWindowModal {
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        if (entityList.children().size() != 1) return false;
+    public List<String> results() {
+        return entityList.children().stream()
+            .map(row -> row.entity.getPlainTextName() + " (" + EntityList.typeId(row.entity) + ", id " + row.entity.getId() + ")")
+            .toList();
+    }
 
-        onSelect(entityList.children().getFirst().entity);
+    @Override
+    public boolean confirmResult(int index) {
+        if (index < 0 || index >= entityList.children().size()) return false;
+
+        onSelect(entityList.children().get(index).entity);
 
         return true;
     }

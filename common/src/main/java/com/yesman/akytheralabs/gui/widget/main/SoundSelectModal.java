@@ -100,10 +100,15 @@ public final class SoundSelectModal extends OverlayingWindowModal implements Clo
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        if (soundList.children().size() != 1) return false;
+    public List<String> results() {
+        return soundList.children().stream().map(row -> row.eventId.toString()).toList();
+    }
 
-        onSoundSelected.accept(AkytheraProject.soundEventOf(soundList.children().getFirst().eventId));
+    @Override
+    public boolean confirmResult(int index) {
+        if (index < 0 || index >= soundList.children().size()) return false;
+
+        onSoundSelected.accept(AkytheraProject.soundEventOf(soundList.children().get(index).eventId));
 
         return true;
     }

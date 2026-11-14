@@ -8,6 +8,7 @@ import com.google.gson.JsonPrimitive;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.client.core.asset.loader.MeshLoader;
 import com.yesman.akythera.client.core.asset.loader.VertexBuilder;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
@@ -15,8 +16,11 @@ import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.animation.keyframe.BoneAnimationTrack;
 import com.yesman.akythera.core.animation.keyframe.Keyframe;
 import com.yesman.akythera.core.asset.armature.Armature;
+import com.yesman.akythera.core.asset.armature.Bone;
+import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.asset.loader.ArmatureLoader;
 import com.yesman.akythera.core.asset.loader.AssetLoader;
+import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
 import com.yesman.akythera.core.asset.loader.binary.BinaryAssetLoader;
 import com.yesman.akythera.core.asset.loader.binary.BinaryAssetLoader.DataType;
 import com.yesman.akythera.core.asset.loader.json.JsonAssetLoader;
@@ -24,7 +28,10 @@ import com.yesman.akythera.core.asset.loader.json.JsonAssetLoader.TransformForma
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraLabs;
+import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
+import com.yesman.akytheralabs.InMemoryAssetAccessor;
+import com.yesman.akytheralabs.SingleFileResourceManager;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.GsonHelper;
 import net.minecraft.world.phys.Vec3;
@@ -42,6 +49,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -77,6 +85,40 @@ public final class AssetExportManager {
         });
 
         return builder.build();
+    }
+
+    /// The folder of @param `project` that holds the retarget templates.
+    public Path templateDirectory(AkytheraProject project) {
+        return project.getProjectRoot().resolve("retargeter_templates");
+    }
+
+    /// Loads the armature in the file at @param `file`, which may lie outside the project: an armature asset, or the
+    /// `armature` block of a legacy model.
+    public AssetAccessor<Armature> loadExternalArmature(Path file) throws ResourceLoadingFailureException {
+        Identifier id = externalFileId(file);
+        Armature armature = ArmatureLoader.getLoader(id, new SingleFileResourceManager(file)).loadArmature(Armature::new);
+
+        return InMemoryAssetAccessor.armature(id, armature);
+    }
+
+    /// Loads the animation file at @param `file`, baked against @param `sourceArmature`, with an empty mapping onto
+    /// @param `targetArmatureId`.
+    public RetargetEntry loadRetargetEntry(Path file, AssetAccessor<Armature> sourceArmature, @Nullable Identifier targetArmatureId) throws ResourceLoadingFailureException {
+        AnimationClip clip = AnimationLoader.getLoader(externalFileId(file), new SingleFileResourceManager(file), AssetLoader::readMetadata)
+            .loadAnimationClip(sourceArmature);
+        Set<String> boneNames = new LinkedHashSet<>();
+        clip.visitBoneTracks((bone, _) -> boneNames.add(bone));
+
+        return new RetargetEntry(file, clip, boneNames, new MappingTemplate(targetArmatureId));
+    }
+
+    /// A unique id for a file outside the project resource manager, which the loaders need.
+    private static Identifier externalFileId(Path file) {
+        String safe = ParseUtils.toLowerCase(file.getFileName().toString()
+            .replaceFirst("\\.(json|" + AssetLoader.BINARY_EXTENSION + ")$", ""))
+            .replaceAll("[^a-z0-9_/.-]", "_");
+
+        return AkytheraLabs.identifier("external/" + safe);
     }
 
     /// Decode every `.json` file under `dir` as a `MappingTemplate`. Files that fail to
@@ -267,6 +309,32 @@ public final class AssetExportManager {
         }
 
         return new ModelProbe(root.has("armature"), highest);
+    }
+
+    /// The export name a model read from `source` starts with: its stem, lowercased with anything outside
+    /// `[a-z0-9_.-]` folded to `_`.
+    public static String seedExportName(Path source) {
+        return ParseUtils.toLowerCase(FileSystemHelper.stem(source.getFileName().toString())).replaceAll("[^a-z0-9_.-]", "_");
+    }
+
+    /// Whether `name` is one file a model export could write: a path the resource system accepts, and a single
+    /// component — a `/` passes [Identifier#isValidPath], which grades whole paths, but would nest a directory under
+    /// `meshes/`.
+    public static boolean isValidExportName(String name) {
+        return !name.isEmpty() && !name.contains("/") && Identifier.isValidPath(name);
+    }
+
+    /// `remap`'s bone names resolved to `armature`'s bone ids, leaving out a name it lacks.
+    public Map<Integer, Integer> resolveWeightRemap(Map<Integer, String> remap, Armature armature) {
+        Map<Integer, Integer> resolved = new LinkedHashMap<>();
+
+        remap.forEach((sourceId, boneName) -> {
+            Bone bone = armature.getBoneByName(boneName);
+
+            if (bone != null) resolved.put(sourceId, bone.getId());
+        });
+
+        return resolved;
     }
 
     /// Rewrites the bone ids `root`'s weight blocks address through `remap` — old id to new, an id it

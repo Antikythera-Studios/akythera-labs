@@ -137,6 +137,16 @@ public final class BehaviorTreeEditorExtension implements ScriptBlueprintEditorS
         if (preview != null) preview.destroy();
     }
 
+    @Override
+    public void refreshPreviewModel() {
+        if (preview != null) preview.refreshPreviewModel();
+    }
+
+    @Override
+    public void framePreviewModel() {
+        if (preview != null) preview.framePreviewModel();
+    }
+
     // ***************************************************************
     // Debugging
     // ***************************************************************

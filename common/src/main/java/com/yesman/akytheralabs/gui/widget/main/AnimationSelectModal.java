@@ -194,19 +194,29 @@ public final class AnimationSelectModal extends OverlayingWindowModal
     }
 
     @Override
-    public boolean confirmSoleResult() {
-        List<AnimList.AnimEntry> rows = animList.children().stream()
-            .filter(AnimList.AnimEntry.class::isInstance)
-            .map(AnimList.AnimEntry.class::cast)
-            .toList();
+    public List<String> results() {
+        return animRows().stream().map(row -> row.accessor().identifier().toString().replace(AnimationManager.DIRECTORY, "")).toList();
+    }
 
-        if (rows.size() != 1) return false;
+    @Override
+    public boolean confirmResult(int index) {
+        List<AnimList.AnimEntry> rows = animRows();
+
+        if (index < 0 || index >= rows.size()) return false;
 
         selectedAnimations.clear();
-        selectedAnimations.add(rows.getFirst().accessor());
+        selectedAnimations.add(rows.get(index).accessor());
         confirm();
 
         return true;
+    }
+
+    /// The animation rows the search leaves, without the titles between them.
+    private List<AnimList.AnimEntry> animRows() {
+        return animList.children().stream()
+            .filter(AnimList.AnimEntry.class::isInstance)
+            .map(AnimList.AnimEntry.class::cast)
+            .toList();
     }
 
     @Override
