@@ -45,8 +45,8 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
     private static final float EDGE_HALF = 0.09F;
     private static final float GIZMO_HALF = 0.11F;
 
-    /// Ordered polyline points of the trajectory, in the previewed armature's own space, which the preview model's
-    /// armature transform places like the body. Built by the editor screen —
+    /// Ordered polyline points of the trajectory, in the previewed armature's own space, which [#armatureSupplier]
+    /// places like the body. Built by the editor screen —
     /// a sequence/blendspace samples its root over time; a montage runs a section-ordered playback
     /// simulation. Re-fetched each frame so edits show up live.
     private final Supplier<List<Vec3>> pathSupplier;
@@ -58,14 +58,24 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
     /// Fetched after [#pathSupplier] each frame.
     private final Supplier<BitSet> highlightSupplier;
 
+    /// Where the previewed armature sits in viewer space. Null reads it off the viewer's first [EntityModelComponent].
+    private final @Nullable Supplier<Transform> armatureSupplier;
+
     public RootMotionTrajectoryComponent(Supplier<List<Vec3>> pathSupplier, Supplier<Vec3> gizmoSupplier) {
         this(pathSupplier, gizmoSupplier, BitSet::new);
     }
 
     public RootMotionTrajectoryComponent(Supplier<List<Vec3>> pathSupplier, Supplier<Vec3> gizmoSupplier, Supplier<BitSet> highlightSupplier) {
+        this(pathSupplier, gizmoSupplier, highlightSupplier, null);
+    }
+
+    public RootMotionTrajectoryComponent(
+        Supplier<List<Vec3>> pathSupplier, Supplier<Vec3> gizmoSupplier, Supplier<BitSet> highlightSupplier, @Nullable Supplier<Transform> armatureSupplier
+    ) {
         this.pathSupplier = pathSupplier;
         this.gizmoSupplier = gizmoSupplier;
         this.highlightSupplier = highlightSupplier;
+        this.armatureSupplier = armatureSupplier;
     }
 
     /// `clip`'s root path sampled every [#SAMPLE_STEP], the end point included. Empty for no clip.
@@ -93,7 +103,9 @@ public final class RootMotionTrajectoryComponent implements Model3DViewerCompone
         if (sampled == null || sampled.isEmpty()) return;
 
         EntityModelComponent model = model3DViewer.getComponent(EntityModelComponent.class);
-        Transform armature = model == null ? Transform.IDENTITY : model.getArmatureComponent().modelTransform();
+        Transform armature = armatureSupplier != null
+            ? armatureSupplier.get()
+            : model == null ? Transform.IDENTITY : model.getArmatureComponent().modelTransform();
         List<Vec3> path = sampled.stream().map(armature::mul).toList();
         BitSet highlighted = highlightSupplier.get();
 

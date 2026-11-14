@@ -23,6 +23,7 @@ import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleSystemBlueprint;
+import com.yesman.akythera.core.cinema.CinemaScene;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.blueprint.warping.MotionWarpTargetScriptBlueprint;
 import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
@@ -42,6 +43,7 @@ import com.yesman.akytheralabs.akythera.ability.AbilityCueBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityEffectHolder;
 import com.yesman.akytheralabs.akythera.ability.InputActionHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleBlueprintHolder;
+import com.yesman.akytheralabs.akythera.cinema.CinemaSceneHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
@@ -65,6 +67,7 @@ import com.yesman.akytheralabs.gui.panel.main.processors.EntityPatchResourceProc
 import com.yesman.akytheralabs.gui.panel.main.processors.ItemPatchResourceProcessor;
 import com.yesman.akytheralabs.gui.screen.ScriptBlueprintEditorScreen;
 import com.yesman.akytheralabs.gui.screen.ParticleEditorScreen;
+import com.yesman.akytheralabs.gui.screen.CinemaSceneEditorScreen;
 import com.yesman.akytheralabs.gui.screen.ParticleSystemScreen;
 import com.yesman.akytheralabs.gui.screen.AbilityEditorScreen;
 import com.yesman.akytheralabs.gui.screen.AbilityPropertiesEditorScreen;
@@ -1237,6 +1240,25 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
         @Override
         public void onDoubleClicked() {
             AkytheraEditorLayoutManager.getInstance().openNewScreen(new ParticleSystemScreen(
+                resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class CinemaSceneContent extends DataDrivenObjectContent<CinemaScene, CinemaSceneHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/anim_montage");
+
+        public CinemaSceneContent(Font font, ResourceKey<@NonNull CinemaScene> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new CinemaSceneEditorScreen(
                 resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
         }
 

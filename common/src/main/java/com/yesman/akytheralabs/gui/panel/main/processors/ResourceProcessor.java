@@ -73,7 +73,9 @@ public interface ResourceProcessor<T> {
         Map.entry(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY,
             new NewEntryResourceProcessor<>(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY, "condition", ContentWidget.BehaviorScriptContent::new)),
         Map.entry(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY,
-            new NewEntryResourceProcessor<>(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, "target", ContentWidget.MotionWarpTargetContent::new))
+            new NewEntryResourceProcessor<>(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, "target", ContentWidget.MotionWarpTargetContent::new)),
+        Map.entry(AkytheraRegistries.DataPack.CINEMA_SCENE_KEY,
+            new NewEntryResourceProcessor<>(AkytheraRegistries.DataPack.CINEMA_SCENE_KEY, "cinema_scene", ContentWidget.CinemaSceneContent::new))
     );
 
     static @Nullable ResourceProcessor<?> forTag(@Nullable Object tag) {

@@ -162,6 +162,9 @@ public final class FreemarkerExporter {
         Map.entry(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY,
             new SourceTemplate("particle_piece_template.ftl", "particle_pieces", "ParticlePieces")),
 
+        Map.entry(AkytheraRegistries.DataPack.CINEMA_SCENE_KEY,
+            new SourceTemplate("cinema_scene_template.ftl", "cinema_scenes", "CinemaScenes")),
+
         Map.entry(AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY,
             new SourceTemplate("behavior_tree_blueprint_template.ftl", "behavior_trees", "BehaviorTrees")),
 

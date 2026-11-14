@@ -54,6 +54,7 @@ import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleBlueprintHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleInitializerScriptHolder;
+import com.yesman.akytheralabs.akythera.cinema.CinemaSceneHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleUpdaterScriptHolder;
 import com.yesman.akytheralabs.akythera.physics.ArmaturePhysicsDataHolder;
@@ -402,6 +403,7 @@ public final class AkytheraProject {
         loadDatapackRegistry(AkytheraRegistries.DataPack.WIDGET_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.CINEMA_SCENE_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.BEHAVIOR_TASK_KEY);
@@ -686,7 +688,8 @@ public final class AkytheraProject {
         AkytheraRegistries.DataPack.BEHAVIOR_TASK_KEY,
         AkytheraRegistries.DataPack.BEHAVIOR_SUBTASK_KEY,
         AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY,
-        AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY
+        AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY,
+        AkytheraRegistries.DataPack.CINEMA_SCENE_KEY
     );
 
     /// The [#DATAPACK_REGISTRIES] the explorer does not list. Their entries are reached from the editors that use them.
@@ -1604,6 +1607,7 @@ public final class AkytheraProject {
         createProjectRegistry(AkytheraRegistries.DataPack.BEHAVIOR_CONDITION_KEY, () -> new BehaviorScriptHolder<>(BehaviorScriptHolder.CONDITION), BehaviorScriptHolder.CONDITION.codec());
         createProjectRegistry(AkytheraRegistries.DataPack.BEHAVIOR_TREE_KEY, BehaviorTreeBlueprintHolder::new, BehaviorTreeBlueprintHolder.EDITOR_CODEC);
         createProjectRegistry(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, MotionWarpTargetScriptHolder::new, MotionWarpTargetScriptHolder.EDITOR_CODEC);
+        createProjectRegistry(AkytheraRegistries.DataPack.CINEMA_SCENE_KEY, CinemaSceneHolder::new, CinemaSceneHolder.EDITOR_CODEC);
 
         // Editor-editable EnumerableDataBlock types (FSMAnimationState, AnimationLayerSignature, …):
         // one registry each, value type = the engine enum type. These never enter the engine
