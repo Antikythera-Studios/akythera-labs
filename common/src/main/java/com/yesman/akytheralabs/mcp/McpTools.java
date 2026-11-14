@@ -429,6 +429,7 @@ public final class McpTools {
         McpScriptGraphTools.registerAll();
         McpBehaviorTools.registerAll();
         McpComponentTools.registerAll();
+        McpTrackTools.registerAll();
     }
 
     // ***************************************************************

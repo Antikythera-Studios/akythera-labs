@@ -557,6 +557,7 @@ public final class ParticleSystemScreen extends Screen implements ModalAccessibl
                     return;
                 }
 
+                trackPanel.emitterIndexes().rebuild();
                 savePoint = HistoryManager.getInstance().currentSavePoint();
             }, minecraft);
     }

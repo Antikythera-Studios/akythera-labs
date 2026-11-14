@@ -199,6 +199,10 @@ public final class CinemaTrackPanel extends AdjustablePanelManager.PanelArea imp
             .build();
     }
 
+    public CinemaSceneHolder holder() {
+        return holder;
+    }
+
     public void rebuildEntries() {
         trackList.rebuild(holder.getActors().stream().<TimelineTrackEntry>flatMap(actor -> Stream.of(
             new CinemaActorRow(this, actor),
@@ -260,7 +264,9 @@ public final class CinemaTrackPanel extends AdjustablePanelManager.PanelArea imp
     }
 
     /// Pushes the change from `before` to each actor's camera keys now as one undo step.
-    private void pushKeysChange(final Map<CinemaActorHolder, KeyframeTrack<Transform>> before) {
+    ///
+    /// Opened for editing the track from outside the panel.
+    public void pushKeysChange(final Map<CinemaActorHolder, KeyframeTrack<Transform>> before) {
         Map<CinemaActorHolder, KeyframeTrack<Transform>> after = new IdentityHashMap<>();
 
         before.keySet().forEach(actor -> after.put(actor, actor.getCameraKeys()));

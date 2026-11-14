@@ -11,6 +11,7 @@ import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.core.util.helper.MathUtils;
 import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.akythera.animation.PlayableAnimationHolder;
+import com.yesman.akytheralabs.editor.StableIndexes;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ListInsert;
 import com.yesman.akytheralabs.editor.historytrack.ListRemove;
@@ -72,6 +73,11 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
     /// or sections + segments + notify).
     private final Function<AnimationTrackEditorPanel, List<TimelineTrackEntry>> rowBuilderFn;
 
+    /// Indexes of the notify rows, the notifies and the notify states, held from when the screen opened or last saved.
+    private final StableIndexes<NotifyTrackHolder.Track> trackIndexes;
+    private final StableIndexes<NotifyTrackHolder.MutableNotify> notifyIndexes;
+    private final StableIndexes<NotifyTrackHolder.MutableNotifyState> notifyStateIndexes;
+
     private final TimelineList trackList;
     private final CurrentFrameIndicator frameIndicator;
     private final AkytheraButton addTrackButton;
@@ -124,6 +130,9 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
         this.playableAnimationHolder = playableAnimationHolder;
         this.onSelectionChanged = onSelectionChanged;
         this.rowBuilderFn = rowBuilderFn;
+        this.trackIndexes = new StableIndexes<>(holder::getTracks);
+        this.notifyIndexes = new StableIndexes<>(() -> holder.getTracks().stream().flatMap(track -> track.notifies.stream()).toList());
+        this.notifyStateIndexes = new StableIndexes<>(() -> holder.getTracks().stream().flatMap(track -> track.notifyStates.stream()).toList());
 
         fitFrameWindowToClip();
 
@@ -205,6 +214,25 @@ public final class AnimationTrackEditorPanel extends AdjustablePanelManager.Pane
 
     public NotifyTrackHolder holder() {
         return holder;
+    }
+
+    public StableIndexes<NotifyTrackHolder.Track> trackIndexes() {
+        return trackIndexes;
+    }
+
+    public StableIndexes<NotifyTrackHolder.MutableNotify> notifyIndexes() {
+        return notifyIndexes;
+    }
+
+    public StableIndexes<NotifyTrackHolder.MutableNotifyState> notifyStateIndexes() {
+        return notifyStateIndexes;
+    }
+
+    /// Indexes the notify rows, the notifies and the notify states again from 0.
+    public void rebuildIndexes() {
+        trackIndexes.rebuild();
+        notifyIndexes.rebuild();
+        notifyStateIndexes.rebuild();
     }
 
     @Override

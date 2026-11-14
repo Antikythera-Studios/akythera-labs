@@ -9,6 +9,7 @@ import com.yesman.akythera.core.blueprint.particle.KeyframeTrack;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akytheralabs.akythera.particle.ParticleEmitterHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
+import com.yesman.akytheralabs.editor.StableIndexes;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.ListInsert;
 import com.yesman.akytheralabs.editor.historytrack.ListRemove;
@@ -106,6 +107,9 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
     /// Emitters with no particle when the screen opened or last saved, marked as errors while they still have none.
     private final Set<ParticleEmitterHolder> flagged = Collections.newSetFromMap(new IdentityHashMap<>());
 
+    /// Indexes of the emitters, held from when the screen opened or last saved.
+    private final StableIndexes<ParticleEmitterHolder> emitterIndexes;
+
     private final Set<KeyRef> selectedKeys = new HashSet<>();
 
     /// The key a shift-press selects a range from.
@@ -140,6 +144,7 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
         this.preview = preview;
         this.onSelectionChanged = onSelectionChanged;
         this.onEmittersChanged = onEmittersChanged;
+        this.emitterIndexes = new StableIndexes<>(holder::getEmitters);
         this.frameIndicator = new CurrentFrameIndicator(this);
         this.scrollBar = new FrameScrollBar(this);
         this.endMarker = new PreviewEndMarker(this, holder);
@@ -221,6 +226,14 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
             .verticalAnchorType(AnchoredWidget.VerticalAnchorType.CENTER_HEIGHT)
             .theme(theme)
             .build();
+    }
+
+    public ParticleSystemHolder holder() {
+        return holder;
+    }
+
+    public StableIndexes<ParticleEmitterHolder> emitterIndexes() {
+        return emitterIndexes;
     }
 
     public void rebuildEntries() {
@@ -307,7 +320,9 @@ public final class EmitterTrackPanel extends AdjustablePanelManager.PanelArea im
     }
 
     /// Pushes the change from `before` to each emitter's timeline now as one undo step.
-    private void pushTimelineChange(final Map<ParticleEmitterHolder, ParticleEmitterHolder.Timeline> before) {
+    ///
+    /// Opened for editing the track from outside the panel.
+    public void pushTimelineChange(final Map<ParticleEmitterHolder, ParticleEmitterHolder.Timeline> before) {
         Map<ParticleEmitterHolder, ParticleEmitterHolder.Timeline> after = new IdentityHashMap<>();
 
         before.keySet().forEach(emitter -> after.put(emitter, emitter.getTimeline()));

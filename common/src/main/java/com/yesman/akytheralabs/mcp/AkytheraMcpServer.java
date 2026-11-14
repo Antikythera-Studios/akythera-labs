@@ -330,7 +330,9 @@ public final class AkytheraMcpServer {
                     + "screen, closed tabs included. Read and edit a component with get_component_rows and "
                     + "set_component_rows, never by writing the entry's .json file: a project reload exports the editor's "
                     + "in-memory entries, so a file edit does not reach the world. set_component_rows takes the same JSON "
-                    + "as the file in its 'declaration' argument.");
+                    + "as the file in its 'declaration' argument. Read and edit the tracks of an animation sequence or "
+                    + "montage (notifies), a particle system (emitter keys) or a cinema scene (actors, camera keys) with "
+                    + "get_tracks and edit_tracks.");
 
                 yield resultResponse(id, result);
             }
