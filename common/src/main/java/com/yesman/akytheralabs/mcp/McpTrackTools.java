@@ -12,6 +12,7 @@ import com.yesman.akytheralabs.akythera.animation.NotifyTrackHolder;
 import com.yesman.akytheralabs.akythera.cinema.CinemaActorHolder;
 import com.yesman.akytheralabs.akythera.cinema.CinemaSceneHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleEmitterHolder;
+import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.editor.StableIndexes;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -142,6 +143,17 @@ final class McpTrackTools {
         return element;
     }
 
+    /// `holder`, decoded from the op's notify or notify state JSON.
+    ///
+    /// @throws IllegalArgumentException when the JSON failed to decode into a working holder
+    private static <H extends DataHolder<?>> H decoded(final H holder) {
+        Exception failure = holder.getDeserializationFailureException();
+
+        if (failure != null) throw new IllegalArgumentException("Invalid notify JSON: " + failure.getMessage(), failure);
+
+        return holder;
+    }
+
     /// `value` encoded by `codec`, with its stable `index`.
     private static <T> JsonObject indexed(final Codec<T> codec, final T value, final int index) {
         JsonObject json = codec.encodeStart(JsonOps.INSTANCE, value).getOrThrow().getAsJsonObject();
@@ -268,6 +280,7 @@ final class McpTrackTools {
                     NotifyTrackHolder.MutableNotify added = NotifyTrackHolder.MutableNotify.CODEC.parse(JsonOps.INSTANCE, op)
                         .getOrThrow(IllegalArgumentException::new);
 
+                    decoded(added.holder);
                     track.notifies.add(added);
                     history.pushHistory(new ListInsert<>(track.notifies, track.notifies.size() - 1, added, panel::rebuildEntries));
                     panel.rebuildEntries();
@@ -279,6 +292,7 @@ final class McpTrackTools {
                     NotifyTrackHolder.MutableNotifyState added = NotifyTrackHolder.MutableNotifyState.CODEC.parse(JsonOps.INSTANCE, op)
                         .getOrThrow(IllegalArgumentException::new);
 
+                    decoded(added.holder);
                     track.notifyStates.add(added);
                     history.pushHistory(new ListInsert<>(track.notifyStates, track.notifyStates.size() - 1, added, panel::rebuildEntries));
                     panel.rebuildEntries();
@@ -290,7 +304,7 @@ final class McpTrackTools {
                     JsonObject json = NotifyTrackHolder.MutableNotify.CODEC.encodeStart(JsonOps.INSTANCE, notify).getOrThrow().getAsJsonObject();
                     NotifyTrackHolder.MutableNotify parsed = NotifyTrackHolder.MutableNotify.CODEC.parse(JsonOps.INSTANCE, merge(json, op, "notify", "time"))
                         .getOrThrow(IllegalArgumentException::new);
-                    NotifyTrackHolder.MutableNotify edited = new NotifyTrackHolder.MutableNotify(op.has("notify") ? parsed.holder : notify.holder, parsed.time);
+                    NotifyTrackHolder.MutableNotify edited = new NotifyTrackHolder.MutableNotify(op.has("notify") ? decoded(parsed.holder) : notify.holder, parsed.time);
                     Consumer<NotifyTrackHolder.MutableNotify> set = value -> {
                         notify.holder = value.holder;
                         notify.time = value.time;
@@ -308,7 +322,7 @@ final class McpTrackTools {
                         .parse(JsonOps.INSTANCE, merge(json, op, "notify_state", "from", "to"))
                         .getOrThrow(IllegalArgumentException::new);
                     NotifyTrackHolder.MutableNotifyState edited = new NotifyTrackHolder.MutableNotifyState(
-                        op.has("notify_state") ? parsed.holder : state.holder, parsed.from, parsed.to
+                        op.has("notify_state") ? decoded(parsed.holder) : state.holder, parsed.from, parsed.to
                     );
                     Consumer<NotifyTrackHolder.MutableNotifyState> set = value -> {
                         state.holder = value.holder;
