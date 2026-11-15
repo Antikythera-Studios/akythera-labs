@@ -824,7 +824,7 @@ public final class ArmaturePhysicsDataEditorScreen extends Screen implements Mod
             procedural.setIKChannels(IKChannels.PROCEDURAL);
 
             ArmaturePhysicsData physics = holder.makeObject();
-            Pose placed = ikPreview.apply(procedural, holder.getArmature(), physics, ikPreviewBody, Terrain.floor(0.0D), System.nanoTime() / 1.0E9D);
+            Pose placed = ikPreview.apply(procedural, holder.getArmature(), physics, ikPreviewBody, Terrain.floor(0.0D), true, System.nanoTime() / 1.0E9D);
             ikPose = armature.applyBoneConstraints(placed, physics, false);
             collectModelTransforms(armature.getRootBone(), sceneTransform().toMatrix(), ikPose, scenePlacements);
         }

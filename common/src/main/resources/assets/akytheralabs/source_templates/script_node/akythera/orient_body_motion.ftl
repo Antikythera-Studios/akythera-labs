@@ -1,0 +1,2 @@
+<#-- akythera:orient_body_motion (animator, base, pivotBoneName, limits, weight) -> AnimationDriver --><#t>
+new OrientBodyDriver(${params[0]}, ${params[1]}, ${params[2]}, OrientBodyDriver.PitchSource.MOTION, ${params[3]}, ${params[4]})<#t>

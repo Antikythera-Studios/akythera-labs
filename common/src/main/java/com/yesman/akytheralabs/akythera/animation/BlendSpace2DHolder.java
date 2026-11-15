@@ -1,6 +1,7 @@
 package com.yesman.akytheralabs.akythera.animation;
 
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
 import com.yesman.akythera.core.math.algorithm.DelaunayTriangulation;
@@ -31,8 +32,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         instance -> instance.group(
             Codec.FLOAT.fieldOf("fade_in_time").forGetter(BlendSpace2DHolder::getFadeInTime),
             Codec.FLOAT.fieldOf("fade_out_time").forGetter(BlendSpace2DHolder::getFadeOutTime),
-            Codec.FLOAT.fieldOf("smooth_x").forGetter(BlendSpace2DHolder::getSmoothX),
-            Codec.FLOAT.fieldOf("smooth_y").forGetter(BlendSpace2DHolder::getSmoothY),
+            Smoothing.MAP_CODEC.forGetter(h -> new Smoothing(h.smoothX, h.smoothY, h.weightSpeed)),
             Codec.FLOAT.fieldOf("min_x").forGetter(BlendSpace2DHolder::getMinX),
             Codec.FLOAT.fieldOf("min_y").forGetter(BlendSpace2DHolder::getMinY),
             Codec.FLOAT.fieldOf("max_x").forGetter(BlendSpace2DHolder::getMaxX),
@@ -51,12 +51,13 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
                 .forGetter(h -> new AxisNames(h.axisNameX, h.axisNameY)),
             AxisWraps.CODEC.optionalFieldOf("axis_wraps", AxisWraps.DEFAULT)
                 .forGetter(h -> new AxisWraps(h.wrapX, h.wrapY))
-        ).apply(instance, (fadeIn, fadeOut, sx, sy, mnX, mnY, mxX, mxY, lp, ns, prevModel, hDiv, vDiv, snap, axisNames, axisWraps) -> {
+        ).apply(instance, (fadeIn, fadeOut, smoothing, mnX, mnY, mxX, mxY, lp, ns, prevModel, hDiv, vDiv, snap, axisNames, axisWraps) -> {
             BlendSpace2DHolder h = new BlendSpace2DHolder();
             h.fadeInTime = fadeIn;
             h.fadeOutTime = fadeOut;
-            h.smoothX = sx;
-            h.smoothY = sy;
+            h.smoothX = smoothing.x();
+            h.smoothY = smoothing.y();
+            h.weightSpeed = smoothing.weightSpeed();
             h.minX = mnX;
             h.minY = mnY;
             h.maxX = mxX;
@@ -130,6 +131,9 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
     @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_SNAP_TO_GRID, order = 15)
     private boolean snapToGrid = true;
 
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_WEIGHT_SPEED, min = 0F, order = 16)
+    private float weightSpeed;
+
     @Nullable
     private Identifier previewEntityType;
 
@@ -160,7 +164,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         BlendSpace2D.BlendSpace2DBuilder b =
             BlendSpace2D.builder()
                 .fadeInTime(fadeInTime).fadeOutTime(fadeOutTime)
-                .smoothX(smoothX).smoothY(smoothY)
+                .smoothX(smoothX).smoothY(smoothY).weightSpeed(weightSpeed)
                 .wrapX(wrapX).wrapY(wrapY)
                 .loops(loops)
                 .minX(nodeSpace.minX()).maxX(nodeSpace.maxX()).minY(nodeSpace.minY()).maxY(nodeSpace.maxY());
@@ -217,6 +221,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         dto.put("fade_out_time", SourceTemplateEngine.floatLiteral(fadeOutTime));
         dto.put("smooth_x", SourceTemplateEngine.floatLiteral(smoothX));
         dto.put("smooth_y", SourceTemplateEngine.floatLiteral(smoothY));
+        dto.put("weight_speed", SourceTemplateEngine.floatLiteral(weightSpeed));
         dto.put("wrap_x", Boolean.toString(wrapX));
         dto.put("wrap_y", Boolean.toString(wrapY));
         dto.put("min_x", SourceTemplateEngine.floatLiteral(minX));
@@ -332,6 +337,15 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
 
     public void setSmoothX(float smoothX) {
         this.smoothX = smoothX;
+        markBuiltObjectDirty();
+    }
+
+    public float getWeightSpeed() {
+        return weightSpeed;
+    }
+
+    public void setWeightSpeed(float weightSpeed) {
+        this.weightSpeed = weightSpeed;
         markBuiltObjectDirty();
     }
 
@@ -573,6 +587,17 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
                 Codec.STRING.optionalFieldOf("x", "X").forGetter(AxisNames::x),
                 Codec.STRING.optionalFieldOf("y", "Y").forGetter(AxisNames::y)
             ).apply(i, AxisNames::new)
+        );
+    }
+
+    /// Codec-only intermediate carrying the smoothing fields, flat in the wire shape.
+    private record Smoothing(float x, float y, float weightSpeed) {
+        static final MapCodec<Smoothing> MAP_CODEC = RecordCodecBuilder.mapCodec(
+            i -> i.group(
+                Codec.FLOAT.fieldOf("smooth_x").forGetter(Smoothing::x),
+                Codec.FLOAT.fieldOf("smooth_y").forGetter(Smoothing::y),
+                Codec.FLOAT.optionalFieldOf("weight_speed", 0.0F).forGetter(Smoothing::weightSpeed)
+            ).apply(i, Smoothing::new)
         );
     }
 

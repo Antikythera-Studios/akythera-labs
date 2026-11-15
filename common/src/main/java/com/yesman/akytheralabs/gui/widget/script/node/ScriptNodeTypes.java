@@ -88,6 +88,7 @@ public final class ScriptNodeTypes {
         register("play_rate", PlayRateNodeData.CODEC);
         register("modify_bone", ModifyBoneNodeData.CODEC);
         register("orientation_warp", OrientationWarpNodeData.CODEC);
+        register("orient_body", OrientBodyNodeData.CODEC);
         register("play_ability_cue", PlayAbilityCueNodeData.CODEC);
         register("play_ability_cue_script", PlayAbilityCueScriptNodeData.CODEC);
     }
