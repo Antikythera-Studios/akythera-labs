@@ -4,9 +4,11 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.yesman.akythera.client.api.component.impl.OverlayRendererComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.api.particle.AkytheraMeshParticle;
 import com.yesman.akythera.client.api.particle.AkytheraMeshParticleGroup;
+import com.yesman.akythera.client.api.particle.AkytheraOverlayParticle;
 import com.yesman.akythera.client.api.particle.AkytheraParticle;
 import com.yesman.akythera.client.api.particle.AkytheraParticleSystem;
 import com.yesman.akythera.client.api.particle.AkytheraSpriteParticle;
@@ -39,7 +41,8 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /// The particles a [Model3DViewer] plays with no level: they tick and draw here, not in the particle engine. Physics
-/// collides with the `y = 0` floor only, and a particle is tinted gray by its brightness ([#brightnessTint]).
+/// collides with the `y = 0` floor only, and a particle is tinted gray by its brightness ([#brightnessTint]). An overlay
+/// particle is drawn by the previewed model it spawned over ([#setOverlayRenderer]).
 ///
 /// A texture or sprite in the open project is drawn from its file, since the game holds only what the loaded resource
 /// packs carry.
@@ -52,6 +55,9 @@ public final class PreviewParticles implements ParticleHost {
 
     private final List<Particle> particles = new ArrayList<>();
     private final PreviewTextureCache projectTextures = new PreviewTextureCache();
+
+    /// Where overlay particles spawn, or null while no model is previewed.
+    private @Nullable OverlayRendererComponent overlayRenderer;
 
     public PreviewParticles(final Function<ResourceKey<ParticleBlueprint>, @Nullable ParticleBlueprint> pieces) {
         this.pieces = pieces;
@@ -92,8 +98,17 @@ public final class PreviewParticles implements ParticleHost {
         return particles.isEmpty();
     }
 
+    /// Drops every particle, and takes the overlays off the model they spawned over.
     public void clear() {
+        for (Particle particle : particles) {
+            if (particle instanceof AkytheraOverlayParticle overlay) overlay.remove();
+        }
+
         particles.clear();
+    }
+
+    public void setOverlayRenderer(final @Nullable OverlayRendererComponent overlayRenderer) {
+        this.overlayRenderer = overlayRenderer;
     }
 
     /// Frees the project textures read so far.
@@ -113,7 +128,7 @@ public final class PreviewParticles implements ParticleHost {
         boolean trailQueued = false;
 
         for (Particle particle : particles) {
-            if (!(particle instanceof AkytheraParticle akytheraParticle)) continue;
+            if (!(particle instanceof AkytheraParticle akytheraParticle) || particle instanceof AkytheraOverlayParticle) continue;
 
             int tint = brightnessTint(akytheraParticle.state().getBrightness());
 
@@ -246,7 +261,14 @@ public final class PreviewParticles implements ParticleHost {
 
     @Override
     public void add(final AkytheraParticle particle) {
+        if (particle instanceof AkytheraOverlayParticle overlay) overlay.setTextures(this::projectTexture);
+
         particles.add((Particle)particle);
+    }
+
+    @Override
+    public @Nullable OverlayRendererComponent overlayRenderer(final AkytheraParticleSystem system) {
+        return overlayRenderer;
     }
 
     @Override

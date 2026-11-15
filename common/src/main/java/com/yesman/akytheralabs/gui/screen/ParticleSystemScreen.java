@@ -24,7 +24,9 @@ import com.yesman.akytheralabs.akythera.particle.ParticleModuleScriptHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleModulesProducer;
 import com.yesman.akytheralabs.akythera.particle.ParticleSystemHolder;
 import com.yesman.akytheralabs.config.AkytheraLabsConfig;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.editor.NodeClipboard;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -41,6 +43,7 @@ import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
+import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.ProjectTagsModal;
@@ -79,6 +82,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -161,6 +165,7 @@ public final class ParticleSystemScreen extends Screen implements ModalAccessibl
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
+                .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
                 .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
@@ -184,6 +189,8 @@ public final class ParticleSystemScreen extends Screen implements ModalAccessibl
         model3DViewer.addComponent(new BackgroundComponent(16, 16, 16, 255));
         model3DViewer.addComponent(new GridFloorComponent(1.0F, 16, 68, 68, 68, 255));
         model3DViewer.addComponent(preview);
+
+        EntityPreviewModelMapping.display(model3DViewer, holder.getPreviewEntityType(), true, false);
 
         detailsPanel = new ComponentDetailsPanel(minecraft.font, this).viewer(model3DViewer);
 
@@ -367,6 +374,26 @@ public final class ParticleSystemScreen extends Screen implements ModalAccessibl
 
     private void frameCamera() {
         model3DViewer.frameCamera(FRAMED_WIDTH, FRAMED_HEIGHT);
+    }
+
+    private void openPreviewModelSelectModal() {
+        EntityTypeSelectModal modal = new EntityTypeSelectModal(minecraft.font, holder.getPreviewEntityType(), newEntityType -> {
+            Identifier oldEntityType = holder.getPreviewEntityType();
+
+            if (Objects.equals(oldEntityType, newEntityType)) return;
+
+            applyPreviewEntityType(newEntityType);
+            HistoryManager.getInstance().pushHistory(
+                new DataChange<>(oldEntityType, newEntityType, this::applyPreviewEntityType));
+        });
+
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
+    }
+
+    /// Installs `entityType` as the previewed entity: the holder field and the viewer. Undo and redo replay it.
+    private void applyPreviewEntityType(@Nullable Identifier entityType) {
+        holder.setPreviewEntityType(entityType);
+        EntityPreviewModelMapping.displayOrWarn(model3DViewer, minecraft.font, entityType, true, false);
     }
 
     // ***************************************************************

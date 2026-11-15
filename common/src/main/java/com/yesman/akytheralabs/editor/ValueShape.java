@@ -7,6 +7,7 @@ import com.google.gson.JsonPrimitive;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import com.yesman.akythera.api.data.modularize.ScriptType;
+import com.yesman.akythera.api.data.serializable.RGBA;
 import com.yesman.akythera.api.world.ability.AbilityTagSet;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
@@ -83,7 +84,7 @@ public sealed interface ValueShape {
             return null;
         }
 
-        /// The first enum constant or data block, zero, false, an empty string, the zero vector or an empty
+        /// The first enum constant or data block, zero, false, an empty string, the zero vector, white or an empty
         /// tag set. Null for any other type, and for a data block type with no entry yet.
         @Override
         public @Nullable Object blank() {
@@ -98,6 +99,7 @@ public sealed interface ValueShape {
             if (type == String.class) return "";
             if (type == Vec3.class) return Vec3.ZERO;
             if (type == Quaterniond.class) return new Quaterniond();
+            if (type == RGBA.class) return new RGBA(1.0F, 1.0F, 1.0F);
             if (type == AbilityTagSet.class) return AbilityTagSet.EMPTY;
 
             if (EnumerableDataBlock.class.isAssignableFrom(type)) {

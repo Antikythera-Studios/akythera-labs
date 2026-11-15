@@ -1172,6 +1172,36 @@ public final class AkytheraProject {
         registry.register(key, holder);
     }
 
+    /// The key of the data entry `file` stores, or null when it is no `.json` under a registry folder of this
+    /// project. The entry need not exist.
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public @Nullable ResourceKey<?> entryKeyOf(final Path file) {
+        Path data = projectRoot.resolve("data").toAbsolutePath().normalize();
+        Path absolute = file.toAbsolutePath().normalize();
+
+        if (!absolute.startsWith(data) || !absolute.getFileName().toString().endsWith(".json")) return null;
+
+        String relative = data.relativize(absolute).toString().replace('\\', '/');
+        String entryPath = relative.substring(0, relative.length() - ".json".length());
+
+        ResourceKey<? extends Registry<?>> folder = null;
+
+        // The longest registry folder wins, so 'particle/piece' is not read as an entry of 'particle'
+        for (ResourceKey<? extends Registry<?>> registryKey : modifiableRegistries.keySet()) {
+            String registryPath = registryKey.identifier().getPath();
+
+            if (entryPath.startsWith(registryPath + "/") && (folder == null || registryPath.length() > folder.identifier().getPath().length())) {
+                folder = registryKey;
+            }
+        }
+
+        if (folder == null) return null;
+
+        Identifier id = Identifier.tryBuild(projectName, entryPath.substring(folder.identifier().getPath().length() + 1));
+
+        return id == null ? null : ResourceKey.create((ResourceKey) folder, id);
+    }
+
     /// On-disk file path for a data-entry [ResourceKey].
     public <T> Path getEntryFilePath(ResourceKey<T> key) {
         String idPath = key.identifier().getPath();

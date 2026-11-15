@@ -12,6 +12,8 @@ import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
 import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorReference;
+import net.minecraft.resources.Identifier;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,7 +24,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /// Modifiable data holder for a [ParticleSystemBlueprint]: its emitters and its parameters. It also keeps
-/// when the editor's preview ends, which is no part of the system.
+/// when the editor's preview ends and the entity type it previews on, which are no part of the system.
 public final class ParticleSystemHolder extends AbstractDataHolder<ParticleSystemBlueprint> implements DTOProvider {
     private static final String NEW_EMITTER_NAME = "emitter";
 
@@ -38,12 +40,14 @@ public final class ParticleSystemHolder extends AbstractDataHolder<ParticleSyste
             instance.group(
                 ParticleEmitterHolder.CODEC.listOf().optionalFieldOf("emitters", List.of()).forGetter(holder -> holder.emitters),
                 BlueprintScriptData.Variable.CODEC.listOf().optionalFieldOf("variables", List.of()).forGetter(holder -> holder.variables),
-                Codec.FLOAT.optionalFieldOf("preview_end").forGetter(holder -> Optional.of(holder.previewEnd))
-            ).apply(instance, (emitters, variables, previewEnd) -> {
+                Codec.FLOAT.optionalFieldOf("preview_end").forGetter(holder -> Optional.of(holder.previewEnd)),
+                Identifier.CODEC.optionalFieldOf("preview_entity_type").forGetter(holder -> Optional.ofNullable(holder.previewEntityType))
+            ).apply(instance, (emitters, variables, previewEnd, previewEntityType) -> {
                 ParticleSystemHolder holder = new ParticleSystemHolder();
                 holder.emitters.addAll(emitters);
                 holder.variables.addAll(variables);
                 holder.previewEnd = previewEnd.orElse(holder.previewEnd);
+                holder.previewEntityType = previewEntityType.orElse(null);
                 if (previewEnd.isEmpty() && !emitters.isEmpty()) holder.setPreviewEnd(holder.getLength());
 
                 return holder;
@@ -59,6 +63,9 @@ public final class ParticleSystemHolder extends AbstractDataHolder<ParticleSyste
     /// When the editor's preview ends, in seconds since it started. A system with emitters that is read without one
     /// gets [#getLength].
     private float previewEnd = DEFAULT_PREVIEW_END;
+
+    /// The entity type whose model the preview draws overlay particles over, or null for no model. Editor-only.
+    private @Nullable Identifier previewEntityType;
 
     @Override
     public void readFrom(final ParticleSystemBlueprint object) {
@@ -115,6 +122,14 @@ public final class ParticleSystemHolder extends AbstractDataHolder<ParticleSyste
 
     public List<ParticleEmitterHolder> getEmitters() {
         return emitters;
+    }
+
+    public @Nullable Identifier getPreviewEntityType() {
+        return previewEntityType;
+    }
+
+    public void setPreviewEntityType(final @Nullable Identifier previewEntityType) {
+        this.previewEntityType = previewEntityType;
     }
 
     public List<BlueprintScriptData.Variable> getVariables() {

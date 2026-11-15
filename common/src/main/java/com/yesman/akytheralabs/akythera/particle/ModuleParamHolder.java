@@ -6,7 +6,6 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.LiteralNode;
 import com.yesman.akythera.api.data.modularize.node.PureNode;
-import com.yesman.akythera.api.data.serializable.RGBA;
 import com.yesman.akythera.client.api.particle.AkytheraParticle;
 import com.yesman.akythera.client.api.particle.module.ModuleParameter;
 import com.yesman.akythera.client.api.particle.module.ParticleModuleContext;
@@ -61,7 +60,7 @@ public final class ModuleParamHolder {
         this.type = type;
         // One row per parameter: a record value is edited whole, by its type's own widget
         this.shape = ValueShape.of(type) instanceof ValueShape.RecordShape ? new ValueShape.Leaf(type.type(), type.codec()) : ValueShape.of(type);
-        setLiteral(declared.value() == RGBA.class ? new RGBA(1.0F, 1.0F, 1.0F) : Objects.requireNonNull(shape.blank()));
+        setLiteral(Objects.requireNonNull(shape.blank()));
     }
 
     /// The record component's name, which is also the parameter's json field in camel case.

@@ -588,6 +588,8 @@ public final class McpTools {
         McpBehaviorTools.registerAll();
         McpComponentTools.registerAll();
         McpTrackTools.registerAll();
+        McpEntryTools.registerAll();
+        McpParticleTools.registerAll();
         McpConversionTools.registerAll();
         McpProjectTools.registerAll();
         McpPreferenceTools.registerAll();

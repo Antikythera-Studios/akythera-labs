@@ -1268,6 +1268,45 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
             : ComponentAttachableHolder.uniqueName(fixed, host.getComponents().keySet()));
     }
 
+    /// Attaches a default component of `typeId` under the component at `hostPath`, or under the patch root for an
+    /// empty path, as a pick in the attach menu does. It takes `name`, unless that is null or the component names
+    /// itself. Answers the new component's path.
+    ///
+    /// @throws IllegalArgumentException when no host sits at `hostPath`, the host takes no such type, the editor
+    ///                                  refuses the type there, or a sibling holds `name`
+    public String attachAt(final String hostPath, final Identifier typeId, final @Nullable String name) {
+        ComponentDataHolder<?> hostHolder = hostPath.isEmpty() ? null : focusPath(hostPath);
+
+        if (!hostPath.isEmpty() && !(hostHolder instanceof ComponentAttachableHolder)) {
+            throw new IllegalArgumentException("No component that takes components at '" + hostPath + "'");
+        }
+
+        ComponentAttachableHolder host = hostHolder instanceof ComponentAttachableHolder attachable ? attachable : root;
+
+        if (!attachableTypes(host).contains(typeId)) throw new IllegalArgumentException("The host takes no " + typeId + ": " + attachableTypes(host));
+
+        Component refusal = registry.attachRefusal(typeId, host, root);
+
+        if (refusal != null) throw new IllegalArgumentException(refusal.getString());
+
+        ComponentDataHolder<?> holder = registry.createDefault(typeId, host, root);
+
+        if (holder == null) throw new IllegalArgumentException("No editor holder for " + typeId);
+
+        String fixed = holder.fixedName();
+        Set<String> taken = host.getComponents().keySet();
+
+        if (fixed == null && name != null && taken.contains(name)) throw new IllegalArgumentException("A component named '" + name + "' is attached there");
+
+        String attached = fixed != null
+            ? ComponentAttachableHolder.uniqueName(fixed, taken)
+            : name != null ? name : ComponentAttachableHolder.defaultName(typeId, taken);
+
+        attach(host, holder, attached);
+
+        return hostPath.isEmpty() ? attached : hostPath + ComponentAttachable.PATH_SEPARATOR + attached;
+    }
+
     /// Attaches `holder` under `host` as `name`, as one undo step, and focuses it.
     private void attach(ComponentAttachableHolder host, ComponentDataHolder<?> holder, String name) {
         host.getComponents().put(name, holder);

@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.gui.widget.viewer;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.serialization.MapCodec;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.client.api.particle.AkytheraParticleEmitter;
@@ -37,7 +38,8 @@ import java.util.List;
 import java.util.Optional;
 
 /// Plays the system a [ParticleSystemHolder] builds in [Model3DViewer], with no level, at the world's origin, along a
-/// playhead in seconds. The particles play in a [PreviewParticles].
+/// playhead in seconds. The particles play in a [PreviewParticles]. An overlay emitter plays only while the viewer
+/// holds an [EntityModelComponent], which its particles are drawn over.
 ///
 /// Nothing plays until [#play], and the playhead stays between zero and [ParticleSystemHolder#getPreviewEnd].
 /// [#pause] and [#seek] freeze the particles and remove the orphans: those whose emitter is not in the track, or whose
@@ -197,6 +199,10 @@ public final class ParticleSystemPreviewComponent implements Model3DViewerCompon
     public void extractComponent(
         GuiGraphicsExtractor graphics, Model3DViewer model3DViewer, PoseStack poseStack, ByteBufferBuilder byteBuffer, int mouseX, int mouseY, float a
     ) {
+        EntityModelComponent model = model3DViewer.getComponent(EntityModelComponent.class);
+
+        particles.setOverlayRenderer(model == null ? null : model.getOverlayRenderer());
+
         Source edited = playing ? Source.of(holder) : null;
 
         if (edited != null && !edited.equals(source)) {

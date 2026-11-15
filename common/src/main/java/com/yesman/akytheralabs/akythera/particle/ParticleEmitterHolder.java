@@ -119,9 +119,9 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
     @EditorEditable(label = LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_LOOP, order = 7, visibleWhen = "isSpawnRate")
     private boolean loop;
 
-    /// Shown for a spawn rate emitter only: an instant emitter finishes on the tick after it spawns, and a trail stays
-    /// after its emitter finishes.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_HIDE_PARTICLES_ON_FINISH, order = 8, visibleWhen = "isSpawnRate")
+    /// Not shown for a trail, which stays after its emitter finishes. An instant emitter that hides its particles
+    /// runs until they are gone or its system stops.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_SYSTEM_SCREEN_WIDGET_HIDE_PARTICLES_ON_FINISH, order = 8, visibleWhen = "hidesParticles")
     private boolean hideParticlesOnFinish;
 
     /// The space [#transform] is in, in the system's space.
@@ -155,6 +155,10 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
 
     boolean isInstant() {
         return !isTrail() && spawnType == SpawnType.INSTANT;
+    }
+
+    boolean hidesParticles() {
+        return isInstant() || isSpawnRate();
     }
 
     boolean isSpawnRate() {
@@ -213,7 +217,7 @@ public final class ParticleEmitterHolder extends AbstractDataHolder<ParticleEmit
             },
             start,
             spawnRule(),
-            isSpawnRate() && hideParticlesOnFinish,
+            hidesParticles() && hideParticlesOnFinish,
             playedPivotKeys.isEmpty() ? pivot.makeObject() : playedPivotKeys.keys().getFirst().value(),
             playedTransformKeys.isEmpty() ? transform.makeObject() : playedTransformKeys.keys().getFirst().value(),
             playedPivotKeys,

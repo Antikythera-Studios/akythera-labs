@@ -5,6 +5,7 @@ import com.yesman.akythera.api.data.modularize.node.PureNode;
 import com.yesman.akythera.core.blueprint.ArmatureComponentBlueprint;
 import com.yesman.akythera.core.blueprint.particle.InstantSpawnRule;
 import com.yesman.akythera.core.blueprint.particle.KeyframeTrack;
+import com.yesman.akythera.core.blueprint.particle.OverlayParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleEmitterBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleInitializerBlueprint;
@@ -103,6 +104,17 @@ public final class ParticleSourceWriter {
                 SourceTemplateEngine.floatLiteral(trail.edgeSpacing()),
                 String.valueOf(trail.trailLifetime()),
                 identifier(trail.texture())
+            ));
+            case OverlayParticleBlueprint overlay -> ctor("OverlayParticleBlueprint", indent, List.of(
+                String.valueOf(overlay.lifetime()),
+                SourceTemplateEngine.floatLiteral(overlay.brightness()),
+                identifier(overlay.texture()),
+                ScriptNodeSourceCompiler.valueLiteral(overlay.color()),
+                "OverlayParticleBlueprint.Blend." + overlay.blend().name(),
+                SourceTemplateEngine.floatLiteral(overlay.uvScale()),
+                SourceTemplateEngine.floatLiteral(overlay.uvRotation()),
+                SourceTemplateEngine.floatLiteral(overlay.uScroll()),
+                SourceTemplateEngine.floatLiteral(overlay.vScroll())
             ));
             default -> throw new IllegalStateException("No source form for the particle piece " + piece.getClass().getSimpleName());
         };

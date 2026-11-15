@@ -60,6 +60,8 @@ public final class NotifyParticlePreviewComponent implements Model3DViewerCompon
     ) {
         EntityModelComponent model = model3DViewer.getComponent(EntityModelComponent.class);
 
+        particles.setOverlayRenderer(model == null ? null : model.getOverlayRenderer());
+
         ArmatureComponent armature = model == null ? null : model.getArmatureComponent();
         EntityModelComponent.EditorScrubAnimator animator = model != null && model.getAnimator() instanceof EntityModelComponent.EditorScrubAnimator scrub ? scrub : null;
         AnimationClip clip = animator == null || animator.getPreviewAnimation() == null

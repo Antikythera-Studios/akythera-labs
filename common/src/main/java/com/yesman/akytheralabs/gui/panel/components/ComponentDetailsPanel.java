@@ -198,6 +198,11 @@ public final class ComponentDetailsPanel extends AdjustablePanelManager.PanelAre
         });
     }
 
+    /// The holder whose rows are on display, or null while the panel shows none or shows slots.
+    public @Nullable Object getShown() {
+        return shown instanceof List<?> ? null : shown;
+    }
+
     /// Whether the rows on display are the ones [#showRows] filled for `owner`.
     public boolean isShowing(Object owner) {
         return shown == owner;

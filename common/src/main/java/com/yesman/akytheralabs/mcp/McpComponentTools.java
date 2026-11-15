@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import com.yesman.akythera.core.util.helper.QuaternionUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
@@ -30,11 +31,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.SequencedMap;
+import java.util.function.Function;
 
 /// The [McpTool]s that read and write the Details rows of a component, on the top editor screen that lists components
 /// (an entity patch, an item patch, a widget blueprint). They focus the component the way a click on its row does,
 /// and write through [ComponentDetailsPanel#write], so a write claims an inherited component, records one undo step
-/// and refreshes the previews as a typed value does.
+/// and refreshes the previews as a typed value does. Two more attach and remove a component as its menus do.
 final class McpComponentTools {
     private McpComponentTools() {}
 
@@ -67,14 +69,8 @@ final class McpComponentTools {
                 }
 
                 ComponentDataHolder<?> holder = focus(components, arguments.get("path").getAsString());
-                JsonObject result = new JsonObject();
-                JsonArray rows = new JsonArray();
 
-                appendRows(rows, holder, "");
-                result.add("declaration", Objects.requireNonNullElse(components.registry().declarationOf(holder), JsonNull.INSTANCE));
-                result.add("rows", rows);
-
-                return McpToolResult.text(McpTools.PRETTY_GSON.toJson(result));
+                return McpToolResult.text(McpTools.PRETTY_GSON.toJson(readRows(holder, Declarations.of(components.registry()))));
             })
         ));
 
@@ -108,90 +104,167 @@ final class McpComponentTools {
                 Screen screen = editorScreen();
                 ComponentEditorPanel components = McpTools.findWidgets(screen, ComponentEditorPanel.class).getFirst();
                 ComponentDetailsPanel details = McpTools.findWidgets(screen, ComponentDetailsPanel.class).getFirst();
-                ComponentHolderRegistry registry = components.registry();
                 String path = arguments.get("path").getAsString();
                 ComponentDataHolder<?> holder = focus(components, path);
-                SequencedMap<EditorWidgetFactory.ValueSlot, @Nullable Object> writes = new LinkedHashMap<>();
-                JsonElement requested = null;
 
-                if (!details.isShowing(holder)) throw new IllegalStateException("The Details panel does not show " + path);
-                if (!(registry.declarationOf(holder) instanceof JsonObject declaration) || !(registry.copyOf(holder) instanceof ComponentDataHolder<?> trial)) {
-                    throw new IllegalStateException(path + " has no declaration this editor reads");
-                }
+                return McpToolResult.text(McpTools.PRETTY_GSON.toJson(writeRows(details, holder, Declarations.of(components.registry()), arguments, path)));
+            })
+        ));
 
-                if (arguments.has("declaration")) {
-                    JsonObject merged = declaration.deepCopy();
-                    arguments.getAsJsonObject("declaration").entrySet().forEach(entry -> merged.add(entry.getKey(), entry.getValue()));
-
-                    ComponentDataHolder<?> decoded = registry.codec().parse(JsonOps.INSTANCE, merged)
-                        .getOrThrow(message -> new IllegalArgumentException("The declaration does not decode: " + message));
-
-                    if (decoded.getClass() != holder.getClass()) throw new IllegalArgumentException("The declaration changes the component type");
-
-                    // Again until a pass adds nothing, so the rows a written toggle shows are written too.
-                    while (collectChanges(writes, registry, trial, holder, trial, decoded)) {}
-
-                    requested = registry.declarationOf(decoded);
-                }
-
-                if (arguments.has("values")) {
-                    Map<String, JsonElement> pending = new LinkedHashMap<>(arguments.getAsJsonObject("values").asMap());
-                    boolean progress = true;
-
-                    while (!pending.isEmpty() && progress) {
-                        progress = false;
-
-                        for (Iterator<Map.Entry<String, JsonElement>> it = pending.entrySet().iterator(); it.hasNext(); ) {
-                            Map.Entry<String, JsonElement> entry = it.next();
-                            EditorWidgetFactory.FieldSlot tried = slotAt(trial, entry.getKey(), true);
-
-                            if (tried == null) continue;
-
-                            Object value = decode(entry.getValue(), tried.type());
-
-                            tried.set(value);
-                            writes.put(slotAt(holder, entry.getKey(), false), value);
-                            it.remove();
-                            progress = true;
-                        }
-                    }
-
-                    if (!pending.isEmpty()) throw new IllegalArgumentException("Hidden rows: " + pending.keySet());
-                }
-
-                details.write(writes);
-
-                JsonElement written = registry.declarationOf(holder);
+        McpTools.register(McpTool.of(
+            "attach_component",
+            "Attaches a new component on the top editor screen that lists components, as one undo step, the same as "
+                + "picking its type in the attach menu. 'host' is the path of the component to attach under, left out "
+                + "for the patch root. 'type' is the component type id, e.g. 'akythera:overlay_renderer'. 'name' is the "
+                + "name it is attached under; left out, or for a component that names itself, the editor picks it. A "
+                + "type the host does not take, or one the editor refuses there, is an error that says why. Returns "
+                + "the new component's 'path' for get_component_rows and set_component_rows. The entry stays unsaved.",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "host": {"type": "string", "description": "A component path, names joined by '/'. Default: the patch root."},
+                "type": {"type": "string", "description": "A component type id."},
+                "name": {"type": "string", "description": "The name to attach it under."}
+              },
+              "required": ["type"]
+            }
+            """,
+            arguments -> McpTools.onClient(() -> {
+                ComponentEditorPanel components = McpTools.findWidgets(editorScreen(), ComponentEditorPanel.class).getFirst();
                 JsonObject result = new JsonObject();
-                JsonArray rows = new JsonArray();
 
-                appendRows(rows, holder, "");
-                result.add("declaration", Objects.requireNonNullElse(written, JsonNull.INSTANCE));
-                result.add("rows", rows);
-
-                if (requested instanceof JsonObject asked && written instanceof JsonObject now) {
-                    JsonArray unwritten = new JsonArray();
-
-                    asked.keySet().forEach(key -> {
-                        if (!Objects.equals(asked.get(key), now.get(key))) unwritten.add(key);
-                    });
-
-                    if (!unwritten.isEmpty()) result.add("unwritten", unwritten);
-                }
-
-                if (arguments.has("declaration") && written instanceof JsonObject now) {
-                    JsonArray dropped = new JsonArray();
-
-                    arguments.getAsJsonObject("declaration").keySet().forEach(key -> {
-                        if (!declaration.has(key) && !now.has(key)) dropped.add(key);
-                    });
-
-                    if (!dropped.isEmpty()) result.add("dropped", dropped);
-                }
+                result.addProperty("path", components.attachAt(
+                    arguments.has("host") ? arguments.get("host").getAsString() : "",
+                    McpTools.requireId(arguments.get("type").getAsString()),
+                    arguments.has("name") ? arguments.get("name").getAsString() : null
+                ));
 
                 return McpToolResult.text(McpTools.PRETTY_GSON.toJson(result));
             })
         ));
+
+        McpTools.register(McpTool.of(
+            "detach_component",
+            "Removes the component at 'path', and everything attached under it, on the top editor screen that lists "
+                + "components, as one undo step, the same as Remove in its row menu. A component another patch declares, "
+                + "or one overriding it, can't be removed. The entry stays unsaved.",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "path": {"type": "string", "description": "A component path, names joined by '/'."}
+              },
+              "required": ["path"]
+            }
+            """,
+            arguments -> McpTools.onClient(() -> {
+                ComponentEditorPanel components = McpTools.findWidgets(editorScreen(), ComponentEditorPanel.class).getFirst();
+                String path = arguments.get("path").getAsString();
+
+                components.removeListedComponent(focus(components, path));
+
+                if (components.rowPaths().contains(path)) {
+                    return McpToolResult.error("'" + path + "' is declared by another patch, or overrides one, and stays");
+                }
+
+                return McpToolResult.text("Removed " + path);
+            })
+        ));
+    }
+
+    /// The `declaration` and the shown `rows` of `holder`, as get_component_rows answers.
+    static JsonObject readRows(final Object holder, final Declarations declarations) {
+        JsonObject result = new JsonObject();
+        JsonArray rows = new JsonArray();
+
+        appendRows(rows, holder, "");
+        result.add("declaration", Objects.requireNonNullElse(declarations.encode().apply(holder), JsonNull.INSTANCE));
+        result.add("rows", rows);
+
+        return result;
+    }
+
+    /// Writes the `declaration` and `values` of `arguments` into `holder`, which `details` shows, as one undo step,
+    /// and answers as set_component_rows does. `what` names the holder in an error.
+    static JsonObject writeRows(
+        final ComponentDetailsPanel details, final Object holder, final Declarations declarations, final JsonObject arguments, final String what
+    ) {
+        SequencedMap<EditorWidgetFactory.ValueSlot, @Nullable Object> writes = new LinkedHashMap<>();
+        JsonElement requested = null;
+
+        if (!details.isShowing(holder)) throw new IllegalStateException("The Details panel does not show " + what);
+        if (!(declarations.encode().apply(holder) instanceof JsonObject declaration)) {
+            throw new IllegalStateException(what + " has no declaration this editor reads");
+        }
+
+        Object trial = declarations.decode().apply(declaration);
+
+        if (arguments.has("declaration")) {
+            JsonObject merged = declaration.deepCopy();
+            arguments.getAsJsonObject("declaration").entrySet().forEach(entry -> merged.add(entry.getKey(), entry.getValue()));
+
+            Object decoded = declarations.decode().apply(merged);
+
+            if (decoded.getClass() != holder.getClass()) throw new IllegalArgumentException("The declaration changes the type of " + what);
+
+            // Again until a pass adds nothing, so the rows a written toggle shows are written too.
+            while (collectChanges(writes, declarations, trial, holder, trial, decoded)) {}
+
+            requested = declarations.encode().apply(decoded);
+        }
+
+        if (arguments.has("values")) {
+            Map<String, JsonElement> pending = new LinkedHashMap<>(arguments.getAsJsonObject("values").asMap());
+            boolean progress = true;
+
+            while (!pending.isEmpty() && progress) {
+                progress = false;
+
+                for (Iterator<Map.Entry<String, JsonElement>> it = pending.entrySet().iterator(); it.hasNext(); ) {
+                    Map.Entry<String, JsonElement> entry = it.next();
+                    EditorWidgetFactory.FieldSlot tried = slotAt(trial, entry.getKey(), true);
+
+                    if (tried == null) continue;
+
+                    Object value = decode(entry.getValue(), tried.type());
+
+                    tried.set(value);
+                    writes.put(slotAt(holder, entry.getKey(), false), value);
+                    it.remove();
+                    progress = true;
+                }
+            }
+
+            if (!pending.isEmpty()) throw new IllegalArgumentException("Hidden rows: " + pending.keySet());
+        }
+
+        details.write(writes);
+
+        JsonElement written = declarations.encode().apply(holder);
+        JsonObject result = readRows(holder, declarations);
+
+        if (requested instanceof JsonObject asked && written instanceof JsonObject now) {
+            JsonArray unwritten = new JsonArray();
+
+            asked.keySet().forEach(key -> {
+                if (!Objects.equals(asked.get(key), now.get(key))) unwritten.add(key);
+            });
+
+            if (!unwritten.isEmpty()) result.add("unwritten", unwritten);
+        }
+
+        if (arguments.has("declaration") && written instanceof JsonObject now) {
+            JsonArray dropped = new JsonArray();
+
+            arguments.getAsJsonObject("declaration").keySet().forEach(key -> {
+                if (!declaration.has(key) && !now.has(key)) dropped.add(key);
+            });
+
+            if (!dropped.isEmpty()) result.add("dropped", dropped);
+        }
+
+        return result;
     }
 
     private static Screen editorScreen() {
@@ -247,8 +320,8 @@ final class McpComponentTools {
     /// after the write. `owner` sits in `trial`, and `live` is its counterpart in the component.
     private static boolean collectChanges(
         final SequencedMap<EditorWidgetFactory.ValueSlot, @Nullable Object> writes,
-        final ComponentHolderRegistry registry,
-        final ComponentDataHolder<?> trial,
+        final Declarations declarations,
+        final Object trial,
         final Object live,
         final Object owner,
         final Object decoded
@@ -268,15 +341,15 @@ final class McpComponentTools {
             if (EditorWidgetFactory.isNestedObject(editorField, now) && next != null && next.getClass() == now.getClass()
                 && liveNested != null && liveNested.getClass() == now.getClass()
             ) {
-                added |= collectChanges(writes, registry, trial, liveNested, now, next);
+                added |= collectChanges(writes, declarations, trial, liveNested, now, next);
                 continue;
             }
 
-            JsonElement before = registry.declarationOf(trial);
+            JsonElement before = declarations.encode().apply(trial);
 
             new EditorWidgetFactory.FieldSlot(editorField, owner).set(next);
 
-            if (!Objects.equals(before, registry.declarationOf(trial))) {
+            if (!Objects.equals(before, declarations.encode().apply(trial))) {
                 writes.put(new EditorWidgetFactory.FieldSlot(editorField, live), next);
                 added = true;
             }
@@ -427,5 +500,30 @@ final class McpComponentTools {
         array.add(z);
 
         return array;
+    }
+
+    /// How the holder a Details panel shows turns into its editor JSON and back.
+    ///
+    /// @param encode the holder's declaration, or null for a holder that has none
+    /// @param decode a detached holder of a declaration
+    record Declarations(Function<Object, @Nullable JsonElement> encode, Function<JsonElement, Object> decode) {
+        /// A component's, without its children.
+        static Declarations of(final ComponentHolderRegistry registry) {
+            return new Declarations(
+                holder -> registry.declarationOf((ComponentDataHolder<?>) holder),
+                json -> registry.codec().parse(JsonOps.INSTANCE, json)
+                    .getOrThrow(message -> new IllegalArgumentException("The declaration does not decode: " + message))
+            );
+        }
+
+        /// A holder's that `codec` reads and writes whole.
+        @SuppressWarnings("unchecked")
+        static <H> Declarations of(final Codec<H> codec) {
+            return new Declarations(
+                holder -> codec.encodeStart(JsonOps.INSTANCE, (H) holder).result().orElse(null),
+                json -> codec.parse(JsonOps.INSTANCE, json)
+                    .getOrThrow(message -> new IllegalArgumentException("The declaration does not decode: " + message))
+            );
+        }
     }
 }

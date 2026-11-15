@@ -13,6 +13,7 @@ import com.yesman.akythera.client.api.mesh.MeshManager;
 import com.yesman.akythera.client.core.asset.mesh.Mesh;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.blueprint.ArmatureComponentBlueprint;
+import com.yesman.akythera.core.blueprint.particle.OverlayParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleProperties;
 import com.yesman.akythera.core.blueprint.particle.SkeletalMeshParticleBlueprint;
@@ -109,10 +110,24 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             ).apply(instance, MeshAndTrail::new)
     );
 
-    public static final Codec<ParticleBlueprintHolder> EDITOR_CODEC = Codec.mapPair(SHARED_AND_SPRITE, MESH_AND_TRAIL).xmap(
+    private static final MapCodec<Overlay> OVERLAY = RecordCodecBuilder.mapCodec(
+        instance ->
+            instance.group(
+                OverlayParticleBlueprint.Blend.CODEC.optionalFieldOf("blend", OverlayParticleBlueprint.Blend.TRANSLUCENT).forGetter(Overlay::blend),
+                Codec.BOOL.optionalFieldOf("endless", false).forGetter(Overlay::endless),
+                Codec.FLOAT.optionalFieldOf("uv_scale", 1.0F).forGetter(Overlay::uvScale),
+                Codec.FLOAT.optionalFieldOf("uv_rotation", 0.0F).forGetter(Overlay::uvRotation),
+                Codec.FLOAT.optionalFieldOf("u_scroll", 0.0F).forGetter(Overlay::uScroll),
+                Codec.FLOAT.optionalFieldOf("v_scroll", 0.0F).forGetter(Overlay::vScroll),
+                Identifier.CODEC.optionalFieldOf("preview_entity_type").forGetter(Overlay::previewEntityType)
+            ).apply(instance, Overlay::new)
+    );
+
+    public static final Codec<ParticleBlueprintHolder> EDITOR_CODEC = Codec.mapPair(Codec.mapPair(SHARED_AND_SPRITE, MESH_AND_TRAIL), OVERLAY).xmap(
         pair -> {
-            ParticleBlueprintHolder holder = pair.getFirst();
-            MeshAndTrail rest = pair.getSecond();
+            ParticleBlueprintHolder holder = pair.getFirst().getFirst();
+            MeshAndTrail rest = pair.getFirst().getSecond();
+            Overlay overlay = pair.getSecond();
 
             rest.mesh().ifPresent(mesh -> holder.mesh = mesh);
             holder.texture = rest.texture().map(AkytheraProject::textureOf).orElse(null);
@@ -126,10 +141,17 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             holder.edgeSpacing = rest.edgeSpacing();
             holder.trailLifetime = rest.trailLifetime();
             holder.setFadeOut(rest.fadeOut());
+            holder.blend = overlay.blend();
+            holder.endless = overlay.endless();
+            holder.uvScale = overlay.uvScale();
+            holder.uvRotation = overlay.uvRotation();
+            holder.uScroll = overlay.uScroll();
+            holder.vScroll = overlay.vScroll();
+            holder.previewEntityType = overlay.previewEntityType().orElse(null);
 
             return holder;
         },
-        holder -> Pair.of(holder, new MeshAndTrail(
+        holder -> Pair.of(Pair.of(holder, new MeshAndTrail(
             Optional.of(holder.mesh),
             Optional.ofNullable(holder.texture).map(ClientAsset.Texture::texturePath),
             Optional.of(holder.transform),
@@ -142,6 +164,8 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
             holder.maxEdgesPerFrame,
             holder.edgeSpacing,
             holder.trailLifetime
+        )), new Overlay(
+            holder.blend, holder.endless, holder.uvScale, holder.uvRotation, holder.uScroll, holder.vScroll, Optional.ofNullable(holder.previewEntityType)
         ))
     ).codec();
 
@@ -150,102 +174,131 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
 
     // Every type
 
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_HAS_PHYSICS, order = 1)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_HAS_PHYSICS, order = 1, visibleWhen = "hasBody")
     private boolean hasPhysics = ParticleProperties.DEFAULT.hasPhysics();
 
     /// In blocks.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_BB_WIDTH, order = 2, min = 0, viewerFocus = ParticlePreviewComponent.class)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_BB_WIDTH, order = 2, min = 0, visibleWhen = "hasBody", viewerFocus = ParticlePreviewComponent.class)
     private float bbWidth = ParticleProperties.DEFAULT.bbWidth();
 
     /// In blocks.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_BB_HEIGHT, order = 3, min = 0, viewerFocus = ParticlePreviewComponent.class)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_BB_HEIGHT, order = 3, min = 0, visibleWhen = "hasBody", viewerFocus = ParticlePreviewComponent.class)
     private float bbHeight = ParticleProperties.DEFAULT.bbHeight();
 
     /// In ticks.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_LIFETIME, order = 4, min = 1, visibleWhen = "hasLifetime")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_LIFETIME, order = 5, min = 1, visibleWhen = "hasLifetime")
     private int lifetime = ParticleProperties.DEFAULT.lifetime();
 
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_GRAVITY, order = 5)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_GRAVITY, order = 6, visibleWhen = "hasBody")
     private float gravity = ParticleProperties.DEFAULT.gravity();
 
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_FRICTION, order = 6, min = 0, max = 1)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_FRICTION, order = 7, min = 0, max = 1, visibleWhen = "hasBody")
     private float friction = ParticleProperties.DEFAULT.friction();
 
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_BRIGHTNESS, order = 7, min = 0, max = 1)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_BRIGHTNESS, order = 8, min = 0, max = 1)
     private float brightness = ParticleProperties.DEFAULT.brightness();
 
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_COLOR, order = 8)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_COLOR, order = 9)
     private RGBA color = WHITE;
 
     // Sprite
 
     /// The quad's half extent, in blocks.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_SIZE, order = 9, min = 0, visibleWhen = "isSprite")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_SIZE, order = 10, min = 0, visibleWhen = "isSprite")
     private float size = DEFAULT_SIZE;
 
     /// In degrees.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_ROLL, order = 10, visibleWhen = "isSprite")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_ROLL, order = 11, visibleWhen = "isSprite")
     private float roll;
 
     /// In animation order.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_SPRITES, order = 11, defaultElement = "defaultSprite", visibleWhen = "isSprite")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_SPRITES, order = 12, defaultElement = "defaultSprite", visibleWhen = "isSprite")
     private final List<ParticleSprite> sprites = new ArrayList<>(List.of(defaultSprite()));
 
     // Static and skeletal mesh
 
     /// The [DataHolder#EMPTY_REFERENCE] placeholder displays as `<none>` and builds no particle.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_MESH, order = 12, visibleWhen = "isMesh")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_MESH, order = 13, visibleWhen = "isMesh")
     private AssetAccessor<? extends Mesh<?>> mesh = EditorAssetAccessors.mesh(DataHolder.EMPTY_REFERENCE);
 
     /// The model's offset from the emitter, its starting rotation and its starting scale, in the emitter's space.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_TRANSFORM, order = 13, visibleWhen = "isMesh", viewerFocus = ParticleTransformComponent.class)
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_TRANSFORM, order = 14, visibleWhen = "isMesh", viewerFocus = ParticleTransformComponent.class)
     private TransformHolder transform = TransformHolder.identity();
 
     /// The particle's own armature, posed by [#animatorScript]. Left on the `<none>` placeholder, the model is drawn
     /// as authored.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_ARMATURE, order = 14, visibleWhen = "isSkeletal")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_ARMATURE, order = 15, visibleWhen = "isSkeletal")
     private AssetAccessor<? extends Armature> armature = EditorAssetAccessors.armature(DataHolder.EMPTY_REFERENCE);
 
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_ANIMATOR_SCRIPT, order = 15, visibleWhen = "isSkeletal")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_ANIMATOR_SCRIPT, order = 16, visibleWhen = "isSkeletal")
     private AnimatorScriptRef animatorScript = AnimatorScriptRef.none();
 
     /// Where the skeleton sits in the particle's space.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_ARMATURE_TRANSFORM, order = 16, visibleWhen = "isSkeletal")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_ARMATURE_TRANSFORM, order = 17, visibleWhen = "isSkeletal")
     private TransformHolder armatureTransform = TransformHolder.identity();
 
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_COPY_ATTACHED_POSE, order = 17, visibleWhen = "isSkeletal")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_COPY_ATTACHED_POSE, order = 18, visibleWhen = "isSkeletal")
     private boolean copyAttachedPose;
 
-    // Mesh and trail
+    // Mesh, trail and overlay
 
-    /// A mesh draws with the texture its metadata names when this is null. A trail needs one.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_TEXTURE, order = 18, visibleWhen = "usesTexture")
+    /// A mesh draws with the texture its metadata names when this is null. A trail needs one. An overlay is a flat tint
+    /// when this is null.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_TEXTURE, order = 19, visibleWhen = "usesTexture")
     private ClientAsset.@Nullable Texture texture;
 
     // Trail
 
     /// In blocks, from the emitter's origin to the trail's far side along its +Z axis.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_LENGTH, order = 19, min = 0, visibleWhen = "isTrail")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_LENGTH, order = 20, min = 0, visibleWhen = "isTrail")
     private float length = DEFAULT_LENGTH;
 
     /// In ticks, at most [#trailLifetime]. A point with less lifetime left fades by `lifetime left / fadeOut`. 0 never
     /// fades.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_FADE_OUT, order = 20, min = 0, visibleWhen = "isTrail")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_FADE_OUT, order = 21, min = 0, visibleWhen = "isTrail")
     private int fadeOut;
 
     /// At most this many edges sampled in a frame, and poses sampled for them. Fewer edges when fewer keep two edges at
     /// most [#length] × [#edgeSpacing] apart.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_MAX_EDGES_PER_FRAME, order = 21, min = 1, max = 32, visibleWhen = "isTrail")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_MAX_EDGES_PER_FRAME, order = 22, min = 1, max = 32, visibleWhen = "isTrail")
     private int maxEdgesPerFrame = DEFAULT_MAX_EDGES_PER_FRAME;
 
     /// The longest gap between two edges that needs no more edges between, as a share of [#length]. 0 always samples
     /// [#maxEdgesPerFrame] edges.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_EDGE_SPACING, order = 22, min = 0, visibleWhen = "isTrail")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_EDGE_SPACING, order = 23, min = 0, visibleWhen = "isTrail")
     private float edgeSpacing = DEFAULT_EDGE_SPACING;
 
     /// In ticks, how long one sampled point stays.
-    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_TRAIL_LIFETIME, order = 23, min = 1, visibleWhen = "isTrail")
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_TRAIL_LIFETIME, order = 24, min = 1, visibleWhen = "isTrail")
     private int trailLifetime = DEFAULT_TRAIL_LIFETIME;
+
+    // Overlay
+
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_BLEND, order = 25, visibleWhen = "isOverlay")
+    private OverlayParticleBlueprint.Blend blend = OverlayParticleBlueprint.Blend.TRANSLUCENT;
+
+    /// Whether the overlay stays until it is removed, in place of living [#lifetime] ticks.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_ENDLESS, order = 4, rebuildOnWrite = true, visibleWhen = "isOverlay")
+    private boolean endless;
+
+    /// How many times the texture repeats over the model's UVs.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_UV_SCALE, order = 26, visibleWhen = "isOverlay")
+    private float uvScale = 1.0F;
+
+    /// In degrees.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_UV_ROTATION, order = 27, visibleWhen = "isOverlay")
+    private float uvRotation;
+
+    /// In texture lengths per second.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_U_SCROLL, order = 28, visibleWhen = "isOverlay")
+    private float uScroll;
+
+    /// In texture lengths per second.
+    @EditorEditable(label = LangKeys.GUI_PARTICLE_EDITOR_SCREEN_WIDGET_V_SCROLL, order = 29, visibleWhen = "isOverlay")
+    private float vScroll;
+
+    /// The entity type whose model the preview draws an overlay over. Editor-only.
+    private @Nullable Identifier previewEntityType;
 
     /// The sprite a new particle and a new list element start with, see [EditorEditable#defaultElement].
     static ParticleSprite defaultSprite() {
@@ -270,13 +323,22 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
         return type == Type.TRAIL;
     }
 
-    /// A trail lives as long as its emitter's time span.
+    boolean isOverlay() {
+        return type == Type.OVERLAY;
+    }
+
+    /// An overlay is drawn over a model, and does not move or collide.
+    boolean hasBody() {
+        return !isOverlay();
+    }
+
+    /// A trail lives as long as its emitter's time span, and an endless overlay until it is removed.
     boolean hasLifetime() {
-        return !isTrail();
+        return !isTrail() && !(isOverlay() && endless);
     }
 
     boolean usesTexture() {
-        return isMesh() || isTrail();
+        return isMesh() || isTrail() || isOverlay();
     }
 
     /// @throws IllegalArgumentException for a sprite particle that borrows a vanilla particle type's sprites, which the
@@ -334,6 +396,19 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 this.edgeSpacing = trail.edgeSpacing();
                 this.trailLifetime = trail.trailLifetime();
             }
+            case OverlayParticleBlueprint overlay -> {
+                this.type = Type.OVERLAY;
+                this.color = overlay.color();
+                this.texture = overlay.texture().equals(OverlayParticleBlueprint.WHITE_TEXTURE) ? null : AkytheraProject.textureOf(overlay.texture());
+                this.blend = overlay.blend();
+                this.endless = overlay.lifetime() == OverlayParticleBlueprint.ENDLESS;
+                this.uvScale = overlay.uvScale();
+                this.uvRotation = overlay.uvRotation();
+                this.uScroll = overlay.uScroll();
+                this.vScroll = overlay.vScroll();
+
+                if (endless) this.lifetime = ParticleProperties.DEFAULT.lifetime();
+            }
             default -> throw new IllegalArgumentException("The editor can't edit " + object.getClass().getSimpleName());
         }
     }
@@ -372,6 +447,17 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
                 edgeSpacing,
                 trailLifetime,
                 texturePath.orElseThrow(() -> new IllegalStateException("A trail particle needs a texture"))
+            );
+            case OVERLAY -> new OverlayParticleBlueprint(
+                endless ? OverlayParticleBlueprint.ENDLESS : lifetime,
+                brightness,
+                texturePath.orElse(OverlayParticleBlueprint.WHITE_TEXTURE),
+                color,
+                blend,
+                uvScale,
+                uvRotation,
+                uScroll,
+                vScroll
             );
         };
     }
@@ -454,9 +540,17 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
         return type;
     }
 
+    public @Nullable Identifier getPreviewEntityType() {
+        return previewEntityType;
+    }
+
+    public void setPreviewEntityType(final @Nullable Identifier previewEntityType) {
+        this.previewEntityType = previewEntityType;
+    }
+
     /// The particle classes the editor builds.
     public enum Type implements StringRepresentable {
-        SPRITE, STATIC_MESH, SKELETAL_MESH, TRAIL;
+        SPRITE, STATIC_MESH, SKELETAL_MESH, TRAIL, OVERLAY;
 
         public static final Codec<Type> CODEC = StringRepresentable.fromEnum(Type::values);
 
@@ -480,6 +574,18 @@ public final class ParticleBlueprintHolder extends AbstractDataHolder<ParticleBl
         int maxEdgesPerFrame,
         float edgeSpacing,
         int trailLifetime
+    ) {
+    }
+
+    /// The overlay fields of [#EDITOR_CODEC].
+    private record Overlay(
+        OverlayParticleBlueprint.Blend blend,
+        boolean endless,
+        float uvScale,
+        float uvRotation,
+        float uScroll,
+        float vScroll,
+        Optional<Identifier> previewEntityType
     ) {
     }
 }

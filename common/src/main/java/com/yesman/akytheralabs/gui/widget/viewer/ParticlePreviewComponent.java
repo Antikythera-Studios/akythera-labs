@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.gui.widget.viewer;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.datafixers.util.Either;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewerComponent;
 import com.yesman.akythera.client.api.gui.viewer.Ray;
@@ -40,7 +41,8 @@ import java.util.Set;
 /// Plays the piece a [ParticleBlueprintHolder] builds in [Model3DViewer], with no level: a system with one
 /// [InstantSpawnRule] emitter spawns it at [#ORIGIN], and a new system starts [#REPLAY_DELAY] after the particle is
 /// gone. A trail spawns by a [TrailSpawnRule] instead, and its system turns once about the Z axis over [#SWEEP_TICKS],
-/// so the trail sweeps a disc standing on the floor. The particles play in a [PreviewParticles].
+/// so the trail sweeps a disc standing on the floor. An overlay is drawn over the viewer's [EntityModelComponent], which
+/// is shown for an overlay piece only. The particles play in a [PreviewParticles].
 ///
 /// Focused, by a press on a particle or by a row that names it in [EditorEditable#viewerFocus], it outlines each
 /// particle's bounding box, and a scale gizmo on the first one resizes the box: X and Z both set its width.
@@ -113,6 +115,12 @@ public final class ParticlePreviewComponent implements LocatableComponent {
     public void extractComponent(
         GuiGraphicsExtractor graphics, Model3DViewer model3DViewer, PoseStack poseStack, ByteBufferBuilder byteBuffer, int mouseX, int mouseY, float a
     ) {
+        EntityModelComponent model = model3DViewer.getComponent(EntityModelComponent.class);
+
+        if (model != null) model.setModelVisible(holder.getType() == ParticleBlueprintHolder.Type.OVERLAY);
+
+        particles.setOverlayRenderer(model == null ? null : model.getOverlayRenderer());
+
         ParticleBlueprint current;
 
         try {

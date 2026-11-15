@@ -1,10 +1,12 @@
 package com.yesman.akytheralabs.akythera.particle;
 
 import com.yesman.akythera.client.api.particle.AkytheraMeshParticle;
+import com.yesman.akythera.client.api.particle.AkytheraOverlayParticle;
 import com.yesman.akythera.client.api.particle.AkytheraParticle;
 import com.yesman.akythera.client.api.particle.AkytheraSpriteParticle;
 import com.yesman.akythera.client.api.particle.AkytheraTrailParticle;
 import com.yesman.akythera.client.api.particle.ParticleHost;
+import com.yesman.akythera.core.blueprint.particle.OverlayParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.SpriteParticleBlueprint;
 import com.yesman.akythera.core.blueprint.particle.TrailParticleBlueprint;
@@ -61,6 +63,7 @@ public sealed interface ParticleRef {
                     case SPRITE -> AkytheraSpriteParticle.class;
                     case STATIC_MESH, SKELETAL_MESH -> AkytheraMeshParticle.class;
                     case TRAIL -> AkytheraTrailParticle.class;
+                    case OVERLAY -> AkytheraOverlayParticle.class;
                 };
             }
 
@@ -68,6 +71,7 @@ public sealed interface ParticleRef {
                 case null -> null;
                 case SpriteParticleBlueprint _ -> AkytheraSpriteParticle.class;
                 case TrailParticleBlueprint _ -> AkytheraTrailParticle.class;
+                case OverlayParticleBlueprint _ -> AkytheraOverlayParticle.class;
                 default -> AkytheraMeshParticle.class;
             };
         }

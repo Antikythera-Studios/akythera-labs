@@ -5,13 +5,17 @@ import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
 import com.yesman.akythera.client.api.gui.viewer.BackgroundComponent;
 import com.yesman.akythera.client.api.gui.viewer.CameraComponent;
+import com.yesman.akythera.client.api.gui.viewer.EntityModelComponent;
 import com.yesman.akythera.client.api.gui.viewer.GridFloorComponent;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
+import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.particle.ParticleBlueprintHolder;
+import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -22,6 +26,7 @@ import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
+import com.yesman.akytheralabs.gui.widget.main.EntityTypeSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
 import com.yesman.akytheralabs.gui.widget.main.LocalizationManagerModal;
 import com.yesman.akytheralabs.gui.widget.main.ProjectTagsModal;
@@ -36,16 +41,21 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.entity.EntityTypes;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
-/// Edits one particle piece: a preview playing it on the left, and the holder's Details on the right.
+/// Edits one particle piece: a preview playing it on the left, and the holder's Details on the right. An overlay piece
+/// plays over the model of the holder's preview entity type, the player while none is picked.
 public final class ParticleEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen {
     private static final int TOP_BAR_H = 22;
 
@@ -57,6 +67,7 @@ public final class ParticleEditorScreen extends Screen implements ModalAccessibl
     private final TopMenuBar topMenuBar;
     private final Model3DViewer model3DViewer;
     private final ComponentDetailsPanel detailsPanel;
+    private final ParticleBlueprintHolder holder;
 
     private final ResourceKey<ParticleBlueprint> resourceKey;
 
@@ -67,6 +78,7 @@ public final class ParticleEditorScreen extends Screen implements ModalAccessibl
         super(Component.translatable(LangKeys.GUI_PARTICLE_EDITOR_SCREEN_TITLE));
 
         this.resourceKey = resourceKey;
+        this.holder = holder;
 
         topMenuBar = new TopMenuBar(
             minecraft.font,
@@ -82,6 +94,7 @@ public final class ParticleEditorScreen extends Screen implements ModalAccessibl
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
+                .on(TopMenuOption.SELECT_PREVIEW_MODEL, this::openPreviewModelSelectModal)
                 .on(TopMenuOption.FRAME_CAMERA, this::frameCamera)
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(minecraft.font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(minecraft.font))
@@ -106,6 +119,12 @@ public final class ParticleEditorScreen extends Screen implements ModalAccessibl
 
         model3DViewer.addComponent(new ParticlePreviewComponent(holder, () -> detailsPanel.showComponent(holder)));
         model3DViewer.addComponent(new ParticleTransformComponent(holder, () -> detailsPanel.showComponent(holder)));
+
+        EntityModelComponent previewModel = EntityPreviewModelMapping.display(
+            model3DViewer, ParseUtils.nvl(holder.getPreviewEntityType(), BuiltInRegistries.ENTITY_TYPE.getKey(EntityTypes.PLAYER)), true, false
+        );
+
+        if (previewModel != null) previewModel.setModelVisible(false);
 
         panelManager = new AdjustablePanelManager(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -144,6 +163,26 @@ public final class ParticleEditorScreen extends Screen implements ModalAccessibl
 
     private void frameCamera() {
         model3DViewer.frameCamera(FRAMED_WIDTH, FRAMED_HEIGHT);
+    }
+
+    private void openPreviewModelSelectModal() {
+        EntityTypeSelectModal modal = new EntityTypeSelectModal(minecraft.font, holder.getPreviewEntityType(), newEntityType -> {
+            Identifier oldEntityType = holder.getPreviewEntityType();
+
+            if (Objects.equals(oldEntityType, newEntityType)) return;
+
+            applyPreviewEntityType(newEntityType);
+            HistoryManager.getInstance().pushHistory(
+                new DataChange<>(oldEntityType, newEntityType, this::applyPreviewEntityType));
+        });
+
+        ModalManager.getInstance().openModalWidgetAtCenter(modal);
+    }
+
+    /// Installs `entityType` as the previewed entity: the holder field and the viewer. Undo and redo replay it.
+    private void applyPreviewEntityType(@Nullable Identifier entityType) {
+        holder.setPreviewEntityType(entityType);
+        EntityPreviewModelMapping.displayOrWarn(model3DViewer, minecraft.font, entityType, true, false);
     }
 
     // ***************************************************************
