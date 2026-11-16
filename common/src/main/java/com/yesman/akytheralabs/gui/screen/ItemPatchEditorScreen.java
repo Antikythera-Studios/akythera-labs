@@ -3,6 +3,8 @@ package com.yesman.akytheralabs.gui.screen;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
+import com.yesman.akythera.api.data.modularize.node.ScriptFailure;
+import com.yesman.akythera.api.data.modularize.node.ScriptRecorder;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.api.world.patch.item.ItemPatch;
 import com.yesman.akythera.client.api.gui.AkytheraButton;
@@ -17,6 +19,7 @@ import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
+import com.yesman.akythera.core.blueprint.script.ItemPatchScript;
 import com.yesman.akythera.core.math.Transform;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.helper.ParseUtils;
@@ -36,6 +39,7 @@ import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHo
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
+import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
@@ -44,6 +48,8 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.panel.components.ComponentDetailsPanel;
 import com.yesman.akytheralabs.gui.panel.components.ComponentEditorPanel;
+import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
+import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
@@ -82,13 +88,15 @@ import org.jspecify.annotations.Nullable;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /// Editor screen for an [ItemPatchBlueprintHolder] (an [ItemPatchBlueprint]): two side columns —
 /// Components (left), Details (right) — around a center Preview / graph [TabPanel].
 ///
-/// Item patches have no flows or variables, so no Event Graph is seeded; graph tabs open per component
-/// property holding a canvas ([#openResultGraphTab]). With no component focused, the Details panel
-/// shows the blueprint's own fields (the parent reference).
+/// The [BlueprintEditorSession] lays the Event Graph and the Functions panel out of the [ItemPatchScript]
+/// layout. An item patch is shared by every stack of its item, so it has no Variables panel. Graph tabs also
+/// open per component property holding a canvas ([#openResultGraphTab]). With no component focused, the
+/// Details panel shows the blueprint's own fields (the parent reference).
 public final class ItemPatchEditorScreen extends Screen
     implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, NodeGraphTabHost, AnimationPreviewHost, GraphTabScreen
 {
@@ -119,6 +127,13 @@ public final class ItemPatchEditorScreen extends Screen
     private final Model3DViewer model3DViewer;
     private final TabPanel centerTabs;
 
+    /// The Event Graph, the function canvases and the Functions panel, flushed to the holder on save and
+    /// compile.
+    private final BlueprintEditorSession session;
+
+    /// The node palette of the Event Graph and the function canvases.
+    private final ScriptNodeSuggestions nodeSuggestions = new ScriptNodeSuggestions(() -> OWNER_TYPE, List.of());
+
     private final ComponentEditorPanel componentPanel;
     private final ComponentDetailsPanel detailsPanel;
 
@@ -129,6 +144,14 @@ public final class ItemPatchEditorScreen extends Screen
 
     private final ItemPatchBlueprintHolder holder;
     private final ResourceKey<ItemPatchBlueprint> resourceKey;
+
+    /// The key the exported blueprint is registered under in game, the patched item's id
+    /// (`minecraft:diamond_sword`). The failures [ScriptRecorder] keeps are keyed by it.
+    private final ResourceKey<ItemPatchBlueprint> runtimeKey;
+
+    /// Whether the canvases carry [ScriptRecorder] failure marks, so they are cleared once the failures
+    /// are gone.
+    private boolean failuresMarked;
 
     /// History stack top at the last save (or screen open); the title shows a `*` while the live
     /// top differs from it.
@@ -147,6 +170,7 @@ public final class ItemPatchEditorScreen extends Screen
 
         this.resourceKey = resourceKey;
         this.holder = holder;
+        this.runtimeKey = ResourceKey.create(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, ResourceProcessor.exportedId(resourceKey));
 
         topMenuBar = new TopMenuBar(
             minecraft.font,
@@ -191,7 +215,13 @@ public final class ItemPatchEditorScreen extends Screen
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
-        centerTabs.addTab(Component.literal("Preview"), model3DViewer);
+        session = new BlueprintEditorSession(
+            minecraft.font, this, ItemPatchBlueprintHolder.layout(), OWNER_TYPE, holder.getScript(), centerTabs, List.of(),
+            nodeSuggestions::build, this::onNodeSelected, ScriptFunction.Usage.SCRIPT);
+
+        centerTabs
+            .addTab(Component.literal("Preview"), model3DViewer)
+            .addTab(Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_TAB_EVENT_GRAPH), session.eventGraph());
 
         AdjustablePanelManager.PanelArea centerHostArea = new AdjustablePanelManager.PanelArea() {
             {
@@ -227,6 +257,13 @@ public final class ItemPatchEditorScreen extends Screen
         detailsPanel = new ComponentDetailsPanel(minecraft.font, this, this::onDetailsChanged);
         // Nothing focused yet: the blueprint's own fields
         detailsPanel.showComponent(holder);
+        session.setFunctionSelectionHandler(function -> {
+            if (function != null) {
+                detailsPanel.showComponent(function);
+            } else {
+                componentPanel.refocusDetails();
+            }
+        });
 
         panelManager = new AdjustablePanelManager(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
@@ -235,12 +272,15 @@ public final class ItemPatchEditorScreen extends Screen
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
 
-        // Layout: three columns [Components | center tabs | Details].
-        // Divider order (== serialize order): col-left(0), col-right(1).
-        List<Integer> r = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 22, 76);
+        // Layout: three columns [left | center tabs | Details]; the left column splits top to bottom
+        // (Components / Functions). Divider order (== serialize order): col-left(0), col-right(1), left-split(2).
+        List<Integer> r = AkytheraProject.getCurrentProject().getLayoutRatioOrDefault(getClass(), 22, 76, 60);
 
         var columns = panelManager.getRoot().subdivide(2, AdjustablePanelManager.PanelDivider.Orientation.VERTICAL, r.get(0), r.get(1));
-        columns.get(0).area(componentPanel);
+        var leftSplit = columns.get(0).subdivide(1, AdjustablePanelManager.PanelDivider.Orientation.HORIZONTAL, r.get(2));
+
+        leftSplit.get(0).area(componentPanel);
+        leftSplit.get(1).area(session.functionPanel());
         columns.get(1).area(centerHostArea);
         // Keep the previewer's render target sized to the (possibly hidden) Preview tab after a resize.
         columns.get(1).resizeFinishCallback(_ -> model3DViewer.onResizeCompleted());
@@ -664,6 +704,22 @@ public final class ItemPatchEditorScreen extends Screen
         return graph;
     }
 
+    /// Selection handler of the Event Graph and the function canvases: a single node shows its own rows, and no
+    /// selection goes back to the focused component.
+    private void onNodeSelected(List<AbstractNodeWidget> selection) {
+        if (selection.isEmpty()) {
+            componentPanel.refocusDetails();
+            return;
+        }
+
+        if (selection.size() == 1 && selection.getFirst() instanceof MeshLiteralNodeWidget meshLiteral) {
+            detailsPanel.showComponent(meshLiteral);
+            return;
+        }
+
+        detailsPanel.showSlots(session.detailsOf(selection));
+    }
+
     /// Pure-only suggestions: literals, pure SCRIPT functions and the Math / Logic nodes.
     private List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> buildNodeSuggestions(ScriptNodeGraphWidget graph, NodeSuggestContext context) {
         List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions = new ArrayList<>();
@@ -789,15 +845,18 @@ public final class ItemPatchEditorScreen extends Screen
     /// bad modifier ids before export, and pops a toast with the outcome. The nodes the compile flags are marked
     /// by [#extractRenderState].
     private void compile() {
+        ScriptRecorder.removeFailures(runtimeKey);
         flushToHolder();
+        session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
         openGraphs.values().forEach(ScriptNodeGraphWidget::clearValidationErrors);
-        Compilation.compileInEditor(holder, _ -> {});
+        Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
     }
 
-    /// Flushes any open graph tabs. Components and the parent reference are edited on the holder in
-    /// place and need no flush. An override that matches what it overrides is dropped here rather than
-    /// written out.
+    /// Writes the session's canvases and any open graph tab back onto the holder. Components and the parent
+    /// reference are edited on the holder in place and need no flush. An override that matches what it
+    /// overrides is dropped here rather than written out.
     private void flushToHolder() {
+        session.flush();
         graphFlushes.forEach(Runnable::run);
         componentPanel.dropUnchangedOverrides();
     }
@@ -822,9 +881,10 @@ public final class ItemPatchEditorScreen extends Screen
     }
 
     /// The Details panel re-rendered itself: an override that matches what it overrides again is no
-    /// override.
+    /// override, and an edited function signature rebuilds the canvases.
     private void onDetailsChanged() {
         componentPanel.dropUnchangedOverrides();
+        session.onSignaturesEdited();
     }
 
     // ***************************************************************
@@ -833,7 +893,7 @@ public final class ItemPatchEditorScreen extends Screen
 
     @Override
     public List<GraphTab> graphTabs() {
-        return EditorWidgetFactory.nodeGraphTabs(this, holder);
+        return Stream.concat(session.graphTabs().stream(), EditorWidgetFactory.nodeGraphTabs(this, holder).stream()).toList();
     }
 
     private boolean hasUnsavedChanges() {
@@ -878,13 +938,23 @@ public final class ItemPatchEditorScreen extends Screen
         // Draw nothing
     }
 
-    /// Re-shows the marks of a failed compile every frame, so they reach graph tabs opened after it.
+    /// Re-shows the marks of a failed compile and of the [ScriptRecorder] failures every frame, so they reach
+    /// graph tabs opened after them.
     @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        Map<String, ScriptFailure> failures = ScriptRecorder.failures(runtimeKey);
+
+        if (!failures.isEmpty() || failuresMarked) {
+            failuresMarked = !failures.isEmpty();
+            session.canvases().forEach(ScriptNodeGraphWidget::clearRuntimeErrors);
+            failures.forEach(session::markRuntimeError);
+        }
+
         CompileFailure failure = holder.getCompileFailure();
         Set<ComponentDataHolder<?>> compileFailed = Collections.newSetFromMap(new IdentityHashMap<>());
 
         if (failure != null) {
+            session.showCompileFailure(failure);
             openGraphs.forEach(failure::showOn);
 
             ComponentAttachableHolder.flatten(holder)
@@ -905,6 +975,8 @@ public final class ItemPatchEditorScreen extends Screen
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        if (NodeClipboard.getInstance().keyPressed(event, this, centerTabs.getActiveContent())) return true;
+
         if (event.isEscape() && shouldCloseOnEsc()) {
             handleQuitRequest();
             return true;

@@ -12,8 +12,12 @@ import java.util.List;
 /// A method or function of the blueprint being edited, as its canvases draw it: the pins of its entry, call,
 /// parent and return nodes.
 ///
-/// @param returnType null when it returns nothing
-public record BlueprintSignature(String name, Kind kind, List<Parameter> parameters, @Nullable Class<?> returnType) {
+/// @param returnType     null when it returns nothing
+/// @param parentCallable whether a Parent node may call the implementation it overrides: an overridden function, or
+///                       an event a class declares with a body
+public record BlueprintSignature(
+    String name, Kind kind, List<Parameter> parameters, @Nullable Class<?> returnType, boolean parentCallable
+) {
     public enum Kind {
         /// A [ScriptFunction.BlueprintGraphType#EVENT_GRAPH] method, entered on the Event Graph.
         EVENT,
@@ -32,6 +36,11 @@ public record BlueprintSignature(String name, Kind kind, List<Parameter> paramet
         parameters = List.copyOf(parameters);
     }
 
+    /// A signature that is [#parentCallable] when it is an overridden function.
+    public BlueprintSignature(final String name, final Kind kind, final List<Parameter> parameters, final @Nullable Class<?> returnType) {
+        this(name, kind, parameters, returnType, kind == Kind.OVERRIDE);
+    }
+
     /// `method` of the parent's [BlueprintLayout].
     public static BlueprintSignature of(final BlueprintLayout.Signature method, final Kind kind) {
         List<Parameter> parameters = new ArrayList<>();
@@ -40,7 +49,10 @@ public record BlueprintSignature(String name, Kind kind, List<Parameter> paramet
             parameters.add(new Parameter(method.parameterNames().get(i), method.parameterTypes().get(i)));
         }
 
-        return new BlueprintSignature(method.name(), kind, parameters, method.returnsValue() ? method.returnType() : null);
+        boolean parentCallable = kind == Kind.OVERRIDE
+            || kind == Kind.EVENT && !method.isAbstract() && !method.method().getDeclaringClass().isInterface();
+
+        return new BlueprintSignature(method.name(), kind, parameters, method.returnsValue() ? method.returnType() : null, parentCallable);
     }
 
     /// The name as spaced words, e.g. `On Join World` for `onJoinWorld` or `on_join_world`.

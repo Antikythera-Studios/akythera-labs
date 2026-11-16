@@ -187,19 +187,34 @@ public final class BlueprintEditorSession {
         });
 
         eventGraph = newCanvas(null, members);
-        eventGraph.importGraph(data.getEventGraph(), NO_ENTRY);
 
-        // A new Event Graph starts with the entry of every event but the hidden ones. Past that, an entry the
-        // user deleted stays deleted, and the node suggestions place it again.
+        // A new Event Graph starts with the entry of every event but the hidden ones, wired into a Parent call
+        // where the event has one. Past that, a node the user deleted stays deleted, and the node suggestions
+        // place it again.
         if (data.getEventGraph().isEmpty()) {
+            List<GraphNode> nodes = new ArrayList<>();
+            List<ScriptGraphData.WireData> wires = new ArrayList<>();
             int y = ENTRY_Y;
 
             for (BlueprintLayout.Signature event : layout.events()) {
                 if (event.isHidden()) continue;
 
-                eventGraph.addNode(new MethodEntryNodeWidget(font, event.name(), members.method(event.name()), ENTRY_X, y));
+                BlueprintSignature signature = members.method(event.name());
+                int entryId = nodes.size();
+
+                nodes.add(new GraphNode(entryId, ENTRY_X, y, new MethodEntryNodeData(event.name())));
+
+                if (signature != null && signature.parentCallable()) {
+                    nodes.add(new GraphNode(entryId + 1, ENTRY_X + NODE_GAP, y, new ParentCallNodeData(Optional.of(event.name()))));
+                    wires.add(new ScriptGraphData.WireData(entryId, 0, entryId + 1, 0));
+                }
+
                 y += ENTRY_GAP;
             }
+
+            eventGraph.importGraph(new ScriptGraphData(nodes, wires), NO_ENTRY);
+        } else {
+            eventGraph.importGraph(data.getEventGraph(), NO_ENTRY);
         }
 
         functionPanel = new FunctionPanel(font, screen, this);
@@ -600,6 +615,13 @@ public final class BlueprintEditorSession {
                         (nodeFont, x, y) -> new MethodEntryNodeWidget(nodeFont, name, signature, x, y),
                         EVENTS_CATEGORY,
                         !placed.contains(name)));
+
+                    if (signature != null && signature.parentCallable()) {
+                        suggestions.add(new NodeSuggestModal.Suggestion<>(
+                            Component.translatable(LangKeys.GUI_BLUEPRINT_NODE_PARENT_CALL, signature.title()),
+                            (nodeFont, x, y) -> new ParentCallNodeWidget(nodeFont, signature, name, x, y),
+                            EVENTS_CATEGORY));
+                    }
                 }
             }
 
@@ -627,7 +649,7 @@ public final class BlueprintEditorSession {
                     if (enclosing.kind() == BlueprintSignature.Kind.OVERRIDE) {
                         suggestions.add(new NodeSuggestModal.Suggestion<>(
                             Component.translatable(LangKeys.GUI_BLUEPRINT_NODE_PARENT_CALL, enclosing.title()),
-                            (nodeFont, x, y) -> new ParentCallNodeWidget(nodeFont, enclosing, x, y),
+                            (nodeFont, x, y) -> new ParentCallNodeWidget(nodeFont, enclosing, null, x, y),
                             FUNCTIONS_CATEGORY));
                     }
                 }

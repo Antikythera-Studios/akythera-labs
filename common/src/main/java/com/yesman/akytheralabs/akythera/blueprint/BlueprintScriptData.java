@@ -7,6 +7,7 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
+import com.yesman.akythera.api.data.modularize.node.ParentCallNode;
 import com.yesman.akythera.api.data.modularize.node.SequenceNode;
 import com.yesman.akythera.core.blueprint.script.BlueprintBody;
 import com.yesman.akythera.core.blueprint.script.FunctionGraph;
@@ -104,7 +105,7 @@ public final class BlueprintScriptData {
     }
 
     /// Lowers this data for a parent laid out by `layout`, whose script owner is `ownerType`. An event whose
-    /// entry node leads nowhere is left out, and so falls back to the parent.
+    /// entry node leads nowhere, or only into a Parent call, is left out, and so falls back to the parent.
     ///
     /// @throws IllegalStateException when two declared functions share a name, a canvas carries an unresolved
     ///                               node, or a variable's default value does not decode
@@ -115,7 +116,9 @@ public final class BlueprintScriptData {
         for (BlueprintLayout.Signature event : layout.events()) {
             FlowNode flow = ScriptGraphCompiler.compile(eventGraph, ownerType, entryOf(event.name()), members, null, event.name());
 
-            if (!(flow instanceof SequenceNode sequence && sequence.executionBlocks().isEmpty())) {
+            List<FlowNode> statements = flow instanceof SequenceNode sequence ? sequence.executionBlocks() : List.of(flow);
+
+            if (!statements.isEmpty() && !(statements.size() == 1 && statements.getFirst() instanceof ParentCallNode)) {
                 methods.put(event.key(), flow);
             }
         }

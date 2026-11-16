@@ -6,16 +6,19 @@ import com.yesman.akythera.api.world.ability.AbilityCue;
 import com.yesman.akythera.api.world.ability.AbilityCueScript;
 import com.yesman.akythera.api.animation.warping.MotionWarpTarget;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
+import com.yesman.akythera.api.world.patch.item.ItemPatch;
 import com.yesman.akythera.client.api.particle.AkytheraParticleEmitter;
 import com.yesman.akythera.core.animation.animator.BlendingAnimator;
 import com.yesman.akythera.core.blueprint.AbilityBlueprint;
 import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
 import com.yesman.akythera.core.blueprint.DataDrivenEntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
+import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.blueprint.script.AnimatorScript;
 import com.yesman.akythera.core.blueprint.script.BlueprintBody;
 import com.yesman.akythera.core.blueprint.script.DataDrivenAnimatorScript;
 import com.yesman.akythera.core.blueprint.script.EntityPatchScript;
+import com.yesman.akythera.core.blueprint.script.ItemPatchScript;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akythera.core.blueprint.widget.DataDrivenWidgetBlueprint;
 import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
@@ -41,6 +44,7 @@ import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.MotionWarpTargetScriptHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
+import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
 import freemarker.template.TemplateException;
 import net.minecraft.core.Holder;
@@ -80,6 +84,8 @@ public final class FreemarkerExporter {
     private static final String SCRIPTS_DIR = "scripts/animator";
     /// Sub-directory (and sub-package) the generated `*EntityPatchScript` classes land in.
     private static final String PATCHES_DIR = "scripts/entitypatches";
+    /// Sub-directory (and sub-package) the generated `*ItemPatchScript` classes land in.
+    private static final String ITEM_PATCHES_DIR = "scripts/itempatches";
     /// Sub-directory (and sub-package) the generated `*Ability` classes land in.
     private static final String ABILITIES_DIR = "scripts/abilities";
     /// Sub-directory (and sub-package) the generated `*CueScript` classes land in.
@@ -99,6 +105,7 @@ public final class FreemarkerExporter {
     private static final Map<ResourceKey<? extends Registry<?>>, Boolean> SCRIPT_TYPE_REGISTRIES = Map.of(
         AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, false,
         AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, false,
+        AkytheraRegistries.DataPack.ITEM_PATCH_KEY, false,
         AkytheraRegistries.DataPack.ABILITY_CUE_KEY, false,
         AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, false,
         AkytheraRegistries.DataPack.WIDGET_KEY, true,
@@ -112,6 +119,7 @@ public final class FreemarkerExporter {
     /// script's field is `animator`, an entity-patch script's is `owner`, and an ability is its own.
     private static final String ANIMATOR_SELF = "this.animator";
     private static final String ENTITY_PATCH_SELF = "this.owner";
+    private static final String ITEM_PATCH_SELF = "this.owner";
     private static final String ABILITY_SELF = "this";
     private static final String ABILITY_CUE_SELF = "this.cue";
     private static final String WIDGET_SELF = "this.owner";
@@ -195,6 +203,9 @@ public final class FreemarkerExporter {
     /// The modularized functions each data kind names by usage, compiled with the kind's provider by
     /// [#exportObjects] so the provider's references to them name their classes.
     private static final Map<ResourceKey<? extends Registry<?>>, List<ModularizedFunctions>> MODULARIZED_FUNCTIONS = Map.of(
+        AkytheraRegistries.DataPack.ITEM_PATCH_KEY, List.of(
+            new ModularizedFunctions(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, FreemarkerExporter::exportItemPatchScript)),
+
         AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, List.of(
             new ModularizedFunctions(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, FreemarkerExporter::exportMotionWarpTarget)),
 
@@ -221,6 +232,7 @@ public final class FreemarkerExporter {
 
             exportAnimatorScripts(project, sourceCodeRoot, packageName);
             exportEntityPatchScripts(project, sourceCodeRoot, packageName);
+            exportItemPatchScripts(project, sourceCodeRoot, packageName);
             exportAbilityScripts(project, sourceCodeRoot, packageName);
             exportAbilityCueScripts(project, sourceCodeRoot, packageName);
             exportWidgetScripts(project, sourceCodeRoot, packageName);
@@ -454,6 +466,49 @@ public final class FreemarkerExporter {
             render("entity_patch_script_template.ftl", model, patchesRoot.resolve(className + ".java"), entryKey.identifier());
         } catch (Exception e) {
             AkytheraLabs.LOGGER.error("Failed to export entity patch script {} as source", entryKey.identifier(), e);
+        }
+    }
+
+    /// Every item patch entry the project holds, through [#exportItemPatchScript].
+    private static void exportItemPatchScripts(AkytheraProject project, Path sourceCodeRoot, String packageName) {
+        for (var entry : project.<ItemPatchBlueprint, DataHolder<ItemPatchBlueprint>>getModifiableEntries(AkytheraRegistries.DataPack.ITEM_PATCH_KEY)) {
+            exportItemPatchScript(project, entry.getKey(), sourceCodeRoot, packageName);
+        }
+    }
+
+    /// The class [#exportItemPatchScript] writes the item patch `entryKey` as: the entry's leaf name, not its
+    /// directory, then `ItemPatchScript` (`minecraft/diamond_sword` -> `DiamondSwordItemPatchScript`).
+    public static String itemPatchScriptClass(ResourceKey<?> entryKey) {
+        return leafPascalCase(entryKey) + "ItemPatchScript";
+    }
+
+    /// An item patch's graphs as its own [#itemPatchScriptClass]: an [ItemPatchScript] whose events and declared
+    /// functions are methods, with `self` bound to the `owner` field. A patch authoring no event, and one already run
+    /// by a source code script, writes no class.
+    public static void exportItemPatchScript(AkytheraProject project, ResourceKey<?> entryKey, Path sourceCodeRoot, String packageName) {
+        @SuppressWarnings("unchecked")
+        DataHolder<?> holder = project.getDataHolderOrThrow((ResourceKey<Object>) entryKey);
+        if (!notBroken(entryKey, holder) || !(holder instanceof ItemPatchBlueprintHolder patchHolder)) return;
+
+        try {
+            if (!(patchHolder.makeObject().script() instanceof ItemPatchBlueprint.ByData(BlueprintBody body)) || body.methods().isEmpty()) return;
+
+            Path patchesRoot = sourceCodeRoot.resolve(ITEM_PATCHES_DIR);
+            if (!prepareDirectory(patchesRoot)) return;
+
+            String className = itemPatchScriptClass(entryKey);
+
+            Map<String, Object> model = new HashMap<>();
+            model.put("package", subPackage(packageName, ITEM_PATCHES_DIR));
+            model.put("modid", project.getProjectName());
+            model.put("entryId", entryKey.identifier().toString());
+            model.put("className", className);
+            model.put("methods", BlueprintSourceWriter.methods(
+                ItemPatchBlueprintHolder.layout(), body, ItemPatchScript.class, List.of(), null, ITEM_PATCH_SELF, ItemPatch.class, Map.of()));
+
+            render("item_patch_script_template.ftl", model, patchesRoot.resolve(className + ".java"), entryKey.identifier());
+        } catch (Exception e) {
+            AkytheraLabs.LOGGER.error("Failed to export item patch script {} as source", entryKey.identifier(), e);
         }
     }
 
@@ -760,6 +815,12 @@ public final class FreemarkerExporter {
 
         if (registry.equals(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY) && holder.makeObject() instanceof DataDrivenEntityPatchBlueprint) {
             return generated(PATCHES_DIR, entityPatchScriptClass(key));
+        }
+
+        if (registry.equals(AkytheraRegistries.DataPack.ITEM_PATCH_KEY) && holder instanceof ItemPatchBlueprintHolder itemPatch
+            && itemPatch.makeObject().script() instanceof ItemPatchBlueprint.ByData(BlueprintBody body) && !body.methods().isEmpty()
+        ) {
+            return generated(ITEM_PATCHES_DIR, itemPatchScriptClass(key));
         }
 
         if (registry.equals(AkytheraRegistries.DataPack.ABILITY_KEY) && holder instanceof AbilityBlueprintHolder ability

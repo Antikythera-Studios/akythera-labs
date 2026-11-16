@@ -67,8 +67,8 @@ public final class BlueprintSourceWriter {
     /// `annotations`, its `declaration` up to the opening brace, and its `body` lines.
     ///
     /// An event is written when the blueprint implements it or it has no body to fall back on, calling the
-    /// parent's first when there is one. A function override and a property are written when the blueprint
-    /// sets them.
+    /// parent's first when there is one and the graph does not call it itself. A function override and a property
+    /// are written when the blueprint sets them.
     ///
     /// @param base      the class the generated class extends or implements, against which the parent's
     ///                  generic member types resolve, see [#supertype]
@@ -88,14 +88,14 @@ public final class BlueprintSourceWriter {
             if (flow == null && !event.isAbstract()) continue;
 
             List<String> lines = new ArrayList<>(prologues.getOrDefault(event.name(), List.of()));
+            String parentCall = event.isAbstract() ? null : superCall(event, base);
+            List<String> statements = flow == null ? List.of() : ScriptNodeSourceCompiler.compileMethod(
+                flow, memberVariables, event.parameterNames(), selfExpr, selfType, parentCall, null,
+                memberOwner(event, baseToken, holder));
 
-            if (!event.isAbstract()) lines.add(superCall(event, base) + ";");
+            if (parentCall != null && statements.stream().noneMatch(line -> line.contains(parentCall))) lines.add(parentCall + ";");
 
-            if (flow != null) {
-                lines.addAll(ScriptNodeSourceCompiler.compileMethod(
-                    flow, memberVariables, event.parameterNames(), selfExpr, selfType, null, null,
-                    memberOwner(event, baseToken, holder)));
-            }
+            lines.addAll(statements);
 
             methods.add(row(List.of("@Override"), declaration(event, baseToken, arguments), lines));
         }

@@ -26,7 +26,7 @@ import java.nio.file.Path;
 /// [ResourceProcessor] for the item-patch datapack registry
 /// ([AkytheraRegistries.DataPack#ITEM_PATCH_KEY]). An item patch is keyed by the item it targets, so
 /// the green `+` first asks for the item, then creates the blueprint entry at
-/// `item_patch/<itemNs>/<itemPath>` and opens the [ItemPatchEditorScreen]. One patch per item.
+/// `script/item_patch/<itemNs>/<itemPath>` and opens the [ItemPatchEditorScreen]. One patch per item.
 ///
 /// The same modal creates a **meta** patch instead: one bound to no item, only ever reached through
 /// a child patch's parent reference. It lands under the browsed folder, and at

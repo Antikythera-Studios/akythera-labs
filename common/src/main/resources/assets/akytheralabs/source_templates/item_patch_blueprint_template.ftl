@@ -4,6 +4,10 @@
 /// Akythera Labs "File > Export > As Source Code" since your manual changes
 /// will always be overwritten by the action.
 ///
+/// Emits the item patch blueprints as datapack JSON at datagen. The events of an item patch are run by its
+/// compiled class, see the exported scripts/itempatches/*ItemPatchScript.java sources. registries/*ScriptTypes.java
+/// registers those classes; its registrar must be present before datagen runs.
+///
 /// Wire the provider through each mod loader's datagen register process.
 ///
 /// NeoForge
@@ -65,7 +69,8 @@ public final class ${className} extends ItemPatchBlueprintProvider {
 <#else>
                 Optional.empty(),
 </#if>
-                <@tpl.componentMap dto.components "                    "/>
+                <@tpl.componentMap dto.components "                    "/><#if dto.script??>,
+                new ItemPatchBlueprint.ByClass(${dto.script})</#if>
             )
         );
 </#list>

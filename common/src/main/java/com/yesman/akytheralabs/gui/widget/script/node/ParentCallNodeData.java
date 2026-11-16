@@ -1,6 +1,8 @@
 package com.yesman.akytheralabs.gui.widget.script.node;
 
+import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.data.modularize.node.ContextVariableAccessNode;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
 import com.yesman.akythera.api.data.modularize.node.ParentCallNode;
@@ -12,14 +14,28 @@ import com.yesman.akytheralabs.gui.widget.script.ParentCallNodeWidget;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.Optional;
 
-/// Calls the implementation the canvas' function overrides, with the arguments the function received.
-/// Input 0 and output 0 are execution, and output 1, present when the function returns a value, is the
+/// Calls the implementation the running method overrides, with the arguments the method received.
+/// Input 0 and output 0 are execution, and output 1, present when the method returns a value, is the
 /// parent's answer, held in the local [#localName].
-public record ParentCallNodeData() implements FlowNodeData {
-    public static final MapCodec<ParentCallNodeData> CODEC = MapCodec.unit(new ParentCallNodeData());
+///
+/// @param event the event whose flow the node sits in on an Event Graph, or empty on a function canvas, where the
+///              method is the canvas' own function
+public record ParentCallNodeData(Optional<String> event) implements FlowNodeData {
+    public static final MapCodec<ParentCallNodeData> CODEC = RecordCodecBuilder.mapCodec(
+        instance ->
+            instance.group(
+                Codec.STRING.optionalFieldOf("event").forGetter(ParentCallNodeData::event)
+            ).apply(instance, ParentCallNodeData::new)
+    );
 
     private static final int VALUE_PIN = 1;
+
+    /// A call on a function canvas.
+    public ParentCallNodeData() {
+        this(Optional.empty());
+    }
 
     /// The local the call on row `nodeId` holds its answer in.
     public static String localName(int nodeId) {
@@ -33,7 +49,8 @@ public record ParentCallNodeData() implements FlowNodeData {
 
     @Override
     public AbstractNodeWidget createWidget(NodeBuildContext ctx) {
-        return new ParentCallNodeWidget(ctx.font(), ctx.enclosingSignature(), ctx.x(), ctx.y());
+        return new ParentCallNodeWidget(
+            ctx.font(), event.map(ctx.members()::method).orElseGet(ctx::enclosingSignature), event.orElse(null), ctx.x(), ctx.y());
     }
 
     @Override

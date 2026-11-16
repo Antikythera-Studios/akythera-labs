@@ -304,6 +304,8 @@
   "gui.akytheralabs.collider.radius": "Radius",
   "gui.akytheralabs.collider.height": "Height",
   "gui.akytheralabs.item_patch_screen.row.parent": "Parent",
+  "gui.akytheralabs.item_patch_screen.row.script_class": "Script Class",
+  "gui.akytheralabs.item_patch_screen.empty.script_classes": "No item patch script class is registered",
   "gui.akytheralabs.item_patch_screen.row.attribute": "Attribute",
   "gui.akytheralabs.item_patch_screen.row.amount": "Amount",
   "gui.akytheralabs.item_patch_screen.row.operation": "Operation",
