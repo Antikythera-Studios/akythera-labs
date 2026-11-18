@@ -16,29 +16,45 @@ import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
+import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.StoredJson;
+import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.node.GraphNode;
 import com.yesman.akytheralabs.gui.widget.script.node.MethodEntryNodeData;
+import com.yesman.akytheralabs.gui.widget.script.node.ParentCallNodeData;
+import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.ExtraCodecs;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /// The editor form of a [BlueprintBody]: one Event Graph holding an entry node per event, one canvas per
 /// overridden function and per declared function, the property values and the member variables. [#compile]
 /// lowers it for a parent's [BlueprintLayout].
+///
+/// Data laid over a parent script, a [#dataParent], a [#sourceParent] or a [#holderParent], holds only what it
+/// changes: an event reaches the parent's through a Parent node, and a property, a variable default value or a
+/// function it leaves out is the data parent's.
 public final class BlueprintScriptData {
-    /// Writes the five fields beside the fields of the holder that holds the data.
+    /// Writes the five fields beside the fields of the holder that holds the data. Reads no data parent.
     public static final MapCodec<BlueprintScriptData> MAP_CODEC = RecordCodecBuilder.mapCodec(
         instance ->
             instance.group(
@@ -55,6 +71,9 @@ public final class BlueprintScriptData {
             ).apply(instance, BlueprintScriptData::new)
     );
 
+    /// Graph-space distance between an entry and the Parent node [#seedParentCalls] wires behind it.
+    private static final int PARENT_CALL_GAP = 240;
+
     private ScriptGraphData eventGraph;
 
     /// The canvas of each overridden function, by method name.
@@ -67,6 +86,16 @@ public final class BlueprintScriptData {
     private final Map<String, StoredJson> properties;
 
     private final List<Variable> variables;
+
+    /// The entry of the holder's own registry this data is laid over, as the shared live holder. Null for none.
+    private @Nullable Holder<?> dataParent;
+
+    /// The source code script the graphs are laid over. Null for none. The holder persists it.
+    private @Nullable ScriptType sourceParent;
+
+    /// Whether the graphs are laid over a parent script the holder resolves itself, as an item patch's are over
+    /// the script of its parent patch.
+    private boolean holderParent;
 
     public BlueprintScriptData() {
         this(ScriptGraphData.EMPTY, Map.of(), List.of(), Map.of(), List.of());
@@ -88,27 +117,198 @@ public final class BlueprintScriptData {
         properties.forEach((key, json) -> this.properties.put(key, new StoredJson.Plain(json)));
     }
 
+    /// [#MAP_CODEC] with a `data_parent` field beside it, naming an entry of `registry` by the id the engine
+    /// resolves it under.
+    @SuppressWarnings("unchecked")
+    public static <T> MapCodec<BlueprintScriptData> mapCodec(final ResourceKey<? extends Registry<T>> registry) {
+        return RecordCodecBuilder.mapCodec(
+            instance ->
+                instance.group(
+                    Identifier.CODEC.<Holder<T>>xmap(
+                            id -> dataParentOf(registry, id),
+                            holder -> ResourceProcessor.exportedId(holder.unwrapKey().orElseThrow()))
+                        .optionalFieldOf("data_parent")
+                        .forGetter(data -> Optional.ofNullable((Holder<T>) data.dataParent)),
+                    MAP_CODEC.forGetter(data -> data)
+                ).apply(instance, (parent, data) -> {
+                    data.dataParent = parent.orElse(null);
+
+                    return data;
+                })
+        );
+    }
+
+    /// The data of the compiled `body` of an entry of `registry` laid over `dataParent`: its values and its data
+    /// parent. A compiled body carries no canvas, so the graphs start empty.
+    public static <T> BlueprintScriptData of(
+        final ResourceKey<? extends Registry<T>> registry, final BlueprintBody body, final Optional<Identifier> dataParent
+    ) {
+        BlueprintScriptData data = new BlueprintScriptData(
+            ScriptGraphData.EMPTY, Map.of(), List.of(), body.properties(), body.variables().stream().map(Variable::of).toList());
+
+        data.dataParent = dataParent.map(parent -> dataParentOf(registry, parent)).orElse(null);
+
+        return data;
+    }
+
+    /// The shared live holder of the entry of `registry` the engine resolves under `exportedId`.
+    public static <T> Holder<T> dataParentOf(final ResourceKey<? extends Registry<T>> registry, final Identifier exportedId) {
+        return EditorHolderCodecs.resolve(registry, ResourceProcessor.projectId(registry, exportedId));
+    }
+
     /// Matches the entry node of the method or function `name`.
     public static Predicate<GraphNode> entryOf(final String name) {
         return row -> row.data() instanceof MethodEntryNodeData entry && entry.method().equals(name);
     }
 
-    /// What the canvases of this data know of a parent laid out by `layout`.
+    /// What the canvases of this data know of a parent laid out by `layout`: its members, the functions this data
+    /// declares, and the ones it inherits. A declared function named like an inherited one overrides it, and may
+    /// call it through a Parent node.
     public BlueprintMembers members(final BlueprintLayout layout) {
-        return BlueprintMembers.of(layout, name -> {
+        List<UserFunction> inherited = inheritedFunctions();
+
+        return BlueprintMembers.of(layout, hasParentScript(), name -> {
+            BlueprintSignature overridden = inherited.stream()
+                .filter(function -> function.name().equals(name))
+                .map(UserFunction::signature)
+                .findFirst()
+                .orElse(null);
+
             for (UserFunction function : functions) {
-                if (function.name().equals(name)) return function.signature();
+                if (function.name().equals(name)) return function.signature().withParentCallable(overridden != null);
             }
 
-            return null;
+            return overridden;
         });
+    }
+
+    // ***************************************************************
+    // Parent script
+    // ***************************************************************
+
+    public @Nullable Holder<?> getDataParent() {
+        return dataParent;
+    }
+
+    public void setDataParent(final @Nullable Holder<?> dataParent) {
+        this.dataParent = dataParent;
+    }
+
+    public @Nullable ScriptType getSourceParent() {
+        return sourceParent;
+    }
+
+    public void setSourceParent(final @Nullable ScriptType sourceParent) {
+        this.sourceParent = sourceParent;
+    }
+
+    public void setHolderParent(final boolean holderParent) {
+        this.holderParent = holderParent;
+    }
+
+    /// Whether the graphs are laid over a parent script, which a Parent node on the Event Graph calls.
+    public boolean hasParentScript() {
+        return dataParent != null || sourceParent != null || holderParent;
+    }
+
+    /// [#dataParent] as the id the engine resolves the entry under.
+    public Optional<Identifier> exportedDataParent() {
+        return Optional.ofNullable(dataParent).map(parent -> ResourceProcessor.exportedId(parent.unwrapKey().orElseThrow()));
+    }
+
+    /// Wires a Parent node behind every entry of the Event Graph that leads nowhere, so each such event runs the
+    /// parent script's.
+    public void seedParentCalls() {
+        List<GraphNode> nodes = new ArrayList<>(eventGraph.nodes());
+        List<ScriptGraphData.WireData> wires = new ArrayList<>(eventGraph.wires());
+        int nextId = Stream.concat(
+            eventGraph.nodes().stream().map(GraphNode::id), eventGraph.failedNodes().stream().map(ScriptGraphData.FailedNode::id)
+        ).mapToInt(Integer::intValue).max().orElse(-1) + 1;
+
+        for (GraphNode node : eventGraph.nodes()) {
+            if (!(node.data() instanceof MethodEntryNodeData entry)) continue;
+            if (eventGraph.wires().stream().anyMatch(wire -> wire.from() == node.id() && wire.fromPin() == 0)) continue;
+
+            nodes.add(new GraphNode(nextId, node.x() + PARENT_CALL_GAP, node.y(), new ParentCallNodeData(Optional.of(entry.method()))));
+            wires.add(new ScriptGraphData.WireData(node.id(), 0, nextId, 0));
+            nextId++;
+        }
+
+        eventGraph = new ScriptGraphData(nodes, wires, eventGraph.failedNodes());
+    }
+
+    /// The data of each data parent, nearest first. Ends at a parent the project does not hold, and at one met
+    /// twice.
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public List<BlueprintScriptData> ancestors() {
+        List<BlueprintScriptData> ancestors = new ArrayList<>();
+        Set<BlueprintScriptData> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        Holder<?> parent = dataParent;
+
+        visited.add(this);
+
+        while (parent != null) {
+            Optional<DataHolder<?>> holder = AkytheraProject.getCurrentProject().getDataHolder((ResourceKey) parent.unwrapKey().orElseThrow());
+            BlueprintScriptData data = holder.map(DataHolder::getScript).orElse(null);
+
+            if (data == null || !visited.add(data)) break;
+
+            ancestors.add(data);
+            parent = data.dataParent;
+        }
+
+        return ancestors;
+    }
+
+    /// The member variables of the data parents, the root's first. A parent declaring an ancestor's variable
+    /// again takes its place.
+    public List<Variable> inheritedVariables() {
+        Map<String, Variable> inherited = new LinkedHashMap<>();
+
+        for (BlueprintScriptData ancestor : ancestors().reversed()) {
+            ancestor.variables.forEach(variable -> inherited.put(variable.name(), variable));
+        }
+
+        return List.copyOf(inherited.values());
+    }
+
+    /// The property values the data parents set, by [BlueprintLayout.Property#key], each the nearest parent's.
+    public Map<String, JsonElement> inheritedProperties() {
+        Map<String, JsonElement> inherited = new LinkedHashMap<>();
+
+        for (BlueprintScriptData ancestor : ancestors().reversed()) {
+            inherited.putAll(ancestor.propertyJson());
+        }
+
+        return inherited;
+    }
+
+    /// The functions the data parents declare and do not keep private, each the nearest parent's.
+    public List<UserFunction> inheritedFunctions() {
+        Map<String, UserFunction> inherited = new LinkedHashMap<>();
+
+        for (BlueprintScriptData ancestor : ancestors().reversed()) {
+            ancestor.functions.forEach(function -> inherited.put(function.name(), function));
+        }
+
+        return inherited.values().stream().filter(function -> !function.isPrivate()).toList();
+    }
+
+    /// The names of the functions the data parents keep private, which this data may neither call nor declare.
+    public Set<String> privateInheritedFunctions() {
+        return ancestors().stream()
+            .flatMap(ancestor -> ancestor.functions.stream())
+            .filter(UserFunction::isPrivate)
+            .map(UserFunction::name)
+            .collect(Collectors.toSet());
     }
 
     /// Lowers this data for a parent laid out by `layout`, whose script owner is `ownerType`. An event whose
     /// entry node leads nowhere, or only into a Parent call, is left out, and so falls back to the parent.
     ///
-    /// @throws IllegalStateException when two declared functions share a name, a canvas carries an unresolved
-    ///                               node, or a variable's default value does not decode
+    /// @throws IllegalStateException when two declared functions share a name, one has the name of a function a
+    ///                               data parent keeps private, a canvas carries an unresolved node, or a
+    ///                               variable's default value does not decode
     public BlueprintBody compile(final BlueprintLayout layout, final Class<?> ownerType) {
         BlueprintMembers members = members(layout);
         Map<String, FlowNode> methods = new LinkedHashMap<>();
@@ -133,10 +333,15 @@ public final class BlueprintScriptData {
         }
 
         Map<String, FunctionGraph> declared = new LinkedHashMap<>();
+        Set<String> hidden = privateInheritedFunctions();
 
         for (UserFunction function : functions) {
             if (declared.containsKey(function.name())) {
                 throw new IllegalStateException("More than one function is named " + function.name());
+            }
+
+            if (hidden.contains(function.name())) {
+                throw new IllegalStateException("A data parent keeps a function named " + function.name() + " private");
             }
 
             declared.put(function.name(), new FunctionGraph(
@@ -169,6 +374,7 @@ public final class BlueprintScriptData {
     /// value names.
     public Stream<EditorReference> referencedReferences() {
         return Stream.of(
+            dataParent == null ? Stream.<EditorReference>empty() : EditorHolderCodecs.referenceOf(dataParent),
             canvases().flatMap(ScriptGraphData::referencedReferences),
             properties.values().stream().flatMap(StoredJson::referencedReferences),
             variables.stream().flatMap(Variable::referencedReferences)
@@ -300,8 +506,9 @@ public final class BlueprintScriptData {
     /// A function the blueprint declares.
     ///
     /// @param returnType empty for a function that returns nothing
+    /// @param isPrivate  whether the data laid over this one neither sees nor overrides the function
     public record UserFunction(
-        String name, List<FunctionGraph.Parameter> parameters, Optional<ScriptType> returnType, ScriptGraphData graph
+        String name, List<FunctionGraph.Parameter> parameters, Optional<ScriptType> returnType, boolean isPrivate, ScriptGraphData graph
     ) {
         public static final Codec<UserFunction> CODEC = RecordCodecBuilder.create(
             instance ->
@@ -311,6 +518,7 @@ public final class BlueprintScriptData {
                         .forGetter(UserFunction::parameters),
                     AkytheraRegistries.Frozen.SCRIPT_TYPE.byNameCodec().optionalFieldOf("return_type")
                         .forGetter(UserFunction::returnType),
+                    Codec.BOOL.optionalFieldOf("private", false).forGetter(UserFunction::isPrivate),
                     ScriptGraphData.CODEC.optionalFieldOf("graph", ScriptGraphData.EMPTY).forGetter(UserFunction::graph)
                 ).apply(instance, UserFunction::new)
         );
@@ -331,7 +539,7 @@ public final class BlueprintScriptData {
         }
 
         public UserFunction withGraph(final ScriptGraphData graph) {
-            return new UserFunction(name, parameters, returnType, graph);
+            return new UserFunction(name, parameters, returnType, isPrivate, graph);
         }
     }
 }

@@ -7,7 +7,10 @@
 /// A handwritten-style EntityPatchScript compiled from the "${modid}" project's
 /// node graphs. Every event, overridden function and declared function of the
 /// blueprint is a method, and componentsToAttach() returns the attached
-/// components as runtime ComponentBlueprints.
+/// components as runtime ComponentBlueprints. A blueprint laid over a data
+/// parent of the project extends that parent's class. A blueprint laid over a
+/// source code script holds one in `parent`, runs its events and starts from
+/// its components.
 ///
 /// Registered as a `ScriptType` by the generated registries/*ScriptTypes.java. Pick it as the entity patch's parent in Akythera Labs.
 
@@ -15,22 +18,58 @@
 <#import "method_list.ftl" as methodList>
 package ${package};
 
-public final class ${className} implements EntityPatchScript {
+public class ${className} <#if superclass??>extends ${superclass}<#else>implements EntityPatchScript</#if> {
 <#list fields as field>
     @ScriptField
-    private ${field.type} ${field.name}<#if field.defaultValue??> = ${field.defaultValue}</#if>;
+    protected ${field.type} ${field.name}<#if field.defaultValue??> = ${field.defaultValue}</#if>;
 
 </#list>
+<#if !superclass??>
     /// The patched entity this script drives (the node graphs' `self` / owner).
-    private final EntityPatch<?> owner;
+    protected final EntityPatch<?> owner;
+</#if>
+<#if parentScript??>
+
+    /// The source code script this one is laid over.
+    private final ${parentScript} parent;
+</#if>
 
     public ${className}(final EntityPatch<?> owner) {
+<#if superclass??>
+        super(owner);
+<#else>
         this.owner = owner;
+</#if>
+<#if parentScript??>
+        this.parent = new ${parentScript}(owner);
+</#if>
+<#list overriddenFields as field>
+<#if field.defaultValue??>
+        this.${field.name} = ${field.defaultValue};
+</#if>
+</#list>
     }
 <@methodList.methodList methods/>
 
     @Override
     public Map<String, ComponentBlueprint<?, ?>> componentsToAttach() {
+<#if superclass?? || parentScript?? || inheritedComponents?size != 0>
+        Map<String, ComponentBlueprint<?, ?>> components = new LinkedHashMap<>();
+
+<#if superclass??>
+        components.putAll(super.componentsToAttach());
+</#if>
+<#if parentScript??>
+        components.putAll(this.parent.componentsToAttach());
+</#if>
+<#list inheritedComponents as inherited>
+        components.putAll(<@tpl.componentMap inherited "                "/>);
+</#list>
+        components.putAll(<@tpl.componentMap components "                "/>);
+
+        return components;
+<#else>
         return <@tpl.componentMap components "            "/>;
+</#if>
     }
 }

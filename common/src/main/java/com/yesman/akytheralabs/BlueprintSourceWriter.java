@@ -29,6 +29,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /// Writes the methods of a class generated from a data-driven blueprint: the parent's events and overridden
@@ -48,6 +49,24 @@ public final class BlueprintSourceWriter {
     /// @param className the holder class's name as the generated class spells it
     public record MemberHolder(TypeVariable<?> slot, String className, String parameterName) {}
 
+    /// The parent script a generated class is laid over, which the Parent node of its root graphs calls.
+    ///
+    /// @param expression what the calls are made on: a field holding the script, or `super`
+    /// @param inherits   whether the generated class extends the parent script's class, so an event it leaves out
+    ///                   is the parent's already
+    /// @param functions  the declared functions the parent script's class has, which a declared function of the
+    ///                   same name overrides
+    public record ParentScript(String expression, boolean inherits, Collection<String> functions) {}
+
+    /// How a class whose subclasses replace its event graphs writes an event: the event runs the parent class's,
+    /// then a protected [#GRAPH_SUFFIX] method holding the graph, which a subclass overrides.
+    ///
+    /// @param inherited the [BlueprintLayout.Signature#key] of the events a superclass declares that method for
+    public record GraphMethods(Collection<String> inherited) {}
+
+    /// What follows an event's name in the method holding its graph, see [GraphMethods].
+    public static final String GRAPH_SUFFIX = "$graph";
+
     /// `base` as the generated class names it after `extends` or `implements`: the type parameter `holder`
     /// binds spelled as its class, every other bound to its bound, e.g. `SystematicAbility<AbilityState>`.
     public static String supertype(Class<?> base, @Nullable MemberHolder holder) {
@@ -63,56 +82,81 @@ public final class BlueprintSourceWriter {
                 + ">";
     }
 
-    /// The template rows of every method a class generated from `body` over `layout` declares: each with its
+    /// The template rows of every method a class generated from `chain` over `layout` declares: each with its
     /// `annotations`, its `declaration` up to the opening brace, and its `body` lines.
     ///
-    /// An event is written when the blueprint implements it or it has no body to fall back on, calling the
-    /// parent's first when there is one and the graph does not call it itself. A function override and a property
-    /// are written when the blueprint sets them.
+    /// An event is written when a body implements it, it has no body to fall back on, or the class holds its parent
+    /// script in a field. Over a parent class it calls the parent's first when no graph calls it itself; over a
+    /// parent script it calls the script's only where a graph does, or when no graph implements it. A function
+    /// override, a property, a declared function and a variable are each the nearest body's. A data parent's graph
+    /// of an event or an override is written as a private method, which the graph laid over it calls as its parent.
     ///
-    /// @param base      the class the generated class extends or implements, against which the parent's
-    ///                  generic member types resolve, see [#supertype]
-    /// @param holder    where the variables live, or null when they are fields of the generated class
-    /// @param prologues lines put ahead of a method's own body, by method name
+    /// @param chain        the blueprint's body, then the body of each data parent up to the root
+    /// @param base         the class the generated class extends or implements, against which the parent's
+    ///                     generic member types resolve, see [#supertype]
+    /// @param holder       where the variables live, or null when they are fields of the generated class
+    /// @param prologues    lines put ahead of a method's own body, by method name
+    /// @param parentScript the parent script the class is laid over, or null for a class laid over none
+    /// @param graphMethods how the class writes its events for its subclasses, or null for a class that writes
+    ///                     each graph into the event itself. With it, only the nearest body of `chain` is written
     public static List<Map<String, Object>> methods(
-        BlueprintLayout layout, BlueprintBody body, Class<?> base, Collection<String> memberVariables,
-        @Nullable MemberHolder holder, String selfExpr, Class<?> selfType, Map<String, List<String>> prologues
+        BlueprintLayout layout, List<BlueprintBody> chain, Class<?> base, Collection<String> memberVariables,
+        @Nullable MemberHolder holder, String selfExpr, Class<?> selfType, Map<String, List<String>> prologues,
+        @Nullable ParentScript parentScript, @Nullable GraphMethods graphMethods
     ) {
         Map<TypeVariable<?>, String> arguments = typeArguments(holder);
         TypeToken<?> baseToken = TypeToken.of(base);
+        BlueprintBody body = BlueprintBody.fold(chain);
         List<Map<String, Object>> methods = new ArrayList<>();
 
         for (BlueprintLayout.Signature event : layout.events()) {
-            FlowNode flow = body.methods().get(event.key());
+            List<FlowNode> flows = chain.stream().map(link -> link.methods().get(event.key())).filter(Objects::nonNull).toList();
 
-            if (flow == null && !event.isAbstract()) continue;
+            if (graphMethods != null) {
+                if (flows.isEmpty()) continue;
 
-            List<String> lines = new ArrayList<>(prologues.getOrDefault(event.name(), List.of()));
-            String parentCall = event.isAbstract() ? null : superCall(event, base);
-            List<String> statements = flow == null ? List.of() : ScriptNodeSourceCompiler.compileMethod(
-                flow, memberVariables, event.parameterNames(), selfExpr, selfType, parentCall, null,
-                memberOwner(event, baseToken, holder));
+                boolean overrides = graphMethods.inherited().contains(event.key());
+                String call = event.name() + GRAPH_SUFFIX + "(" + String.join(", ", event.parameterNames()) + ")";
+                String declared = declaration(event, 0, baseToken, arguments);
 
-            if (parentCall != null && statements.stream().noneMatch(line -> line.contains(parentCall))) lines.add(parentCall + ";");
+                if (!overrides) {
+                    List<String> lines = new ArrayList<>(prologues.getOrDefault(event.name(), List.of()));
 
-            lines.addAll(statements);
+                    if (!event.isAbstract()) lines.add(superCall(event, base) + ";");
 
-            methods.add(row(List.of("@Override"), declaration(event, baseToken, arguments), lines));
+                    lines.add(call + ";");
+                    methods.add(row(List.of("@Override"), declared, lines));
+                }
+
+                methods.add(row(
+                    overrides ? List.of("@Override") : List.of(),
+                    "protected " + declared.substring(declared.indexOf(' ') + 1).replace(" " + event.name() + "(", " " + event.name() + GRAPH_SUFFIX + "("),
+                    ScriptNodeSourceCompiler.compileMethod(
+                        flows.getFirst(), memberVariables, event.parameterNames(), selfExpr, selfType, overrides ? "super." + call : null, null,
+                        memberOwner(event, baseToken, holder))));
+
+                continue;
+            }
+
+            if (flows.isEmpty() && (parentScript == null ? !event.isAbstract() : parentScript.inherits())) continue;
+
+            String parentCall = parentScript != null
+                ? parentScript.expression() + "." + event.name() + "(" + String.join(", ", event.parameterNames()) + ")"
+                : event.isAbstract() ? null : superCall(event, base);
+
+            methods.addAll(implementations(
+                event, flows, parentCall, parentScript == null, prologues.getOrDefault(event.name(), List.of()), memberVariables, selfExpr, selfType,
+                baseToken, arguments, holder));
         }
 
         for (BlueprintLayout.Signature function : layout.functions()) {
-            FlowNode flow = body.methods().get(function.key());
+            List<FlowNode> flows = chain.stream().map(link -> link.methods().get(function.key())).filter(Objects::nonNull).toList();
 
-            if (flow == null) continue;
+            if (flows.isEmpty()) continue;
 
-            List<String> lines = new ArrayList<>(prologues.getOrDefault(function.name(), List.of()));
-
-            lines.addAll(ScriptNodeSourceCompiler.compileMethod(
-                flow, memberVariables, function.parameterNames(), selfExpr, selfType, superCall(function, base),
-                function.returnsValue() ? defaultLiteral(function.returnType()) : null,
-                memberOwner(function, baseToken, holder)));
-
-            methods.add(row(List.of("@Override"), declaration(function, baseToken, arguments), lines));
+            methods.addAll(implementations(
+                function, flows, superCall(function, base), false, prologues.getOrDefault(function.name(), List.of()), memberVariables,
+                selfExpr, selfType, baseToken, arguments, holder));
         }
 
         for (BlueprintLayout.Property property : layout.properties()) {
@@ -123,7 +167,7 @@ public final class BlueprintSourceWriter {
             ScriptType type = property.type();
             String literal = propertyLiteral(type, value);
             List<String> annotations = List.of("@Override");
-            String declaration = declaration(property.getter(), baseToken, arguments);
+            String declaration = declaration(property.getter(), 0, baseToken, arguments);
 
             // An object value is built once, at construction. A registry entry is read each time, since a reload replaces it.
             boolean cached = type.registry() == null && type.base().registry() == null && (type.element() == null || type.element().registry() == null)
@@ -143,6 +187,7 @@ public final class BlueprintSourceWriter {
 
         for (Map.Entry<String, FunctionGraph> function : body.functions().entrySet()) {
             FunctionGraph graph = function.getValue();
+            List<FunctionGraph> graphs = chain.stream().map(link -> link.functions().get(function.getKey())).filter(Objects::nonNull).toList();
             Class<?> returnType = graph.returnType().<Class<?>>map(type -> ParseUtils.unbox(type.type())).orElse(void.class);
             List<String> parameters = new ArrayList<>();
             List<String> parameterNames = new ArrayList<>();
@@ -157,17 +202,76 @@ public final class BlueprintSourceWriter {
                 parameterNames.add(parameter.name());
             }
 
-            methods.add(row(
-                List.of(),
-                "public " + SourceNames.typeName(returnType) + " " + function.getKey() + "(" + String.join(", ", parameters) + ")",
-                ScriptNodeSourceCompiler.compileMethod(
-                    graph.body(), memberVariables, parameterNames, selfExpr, selfType, null,
-                    returnType == void.class ? null : defaultLiteral(returnType),
-                    holder == null ? null : holder.parameterName())
-            ));
+            // The nearest body's graph is the function, and a data parent's graph of the same name a private method
+            for (int level = 0; level < graphs.size(); level++) {
+                String parentCall = level + 1 < graphs.size()
+                    ? inheritedName(function.getKey(), level + 1) + "(" + String.join(", ", parameterNames) + ")"
+                    : parentScript != null && parentScript.functions().contains(function.getKey())
+                        ? parentScript.expression() + "." + function.getKey() + "(" + String.join(", ", parameterNames) + ")"
+                        : null;
+
+                methods.add(row(
+                    List.of(),
+                    (level > 0 ? "private " : "public ") + SourceNames.typeName(returnType) + " " + inheritedName(function.getKey(), level)
+                        + "(" + String.join(", ", parameters) + ")",
+                    ScriptNodeSourceCompiler.compileMethod(
+                        graphs.get(level).body(), memberVariables, parameterNames, selfExpr, selfType, parentCall,
+                        returnType == void.class ? null : defaultLiteral(returnType),
+                        holder == null ? null : holder.parameterName())
+                ));
+            }
         }
 
         return methods;
+    }
+
+    /// The rows of `signature` implemented by `flows`, the nearest body's graph first: the override, then one
+    /// private method per data parent's graph, see [#inheritedName].
+    ///
+    /// @param parentCall       the call of what the root graph overrides, or null when it overrides nothing
+    /// @param callsParentFirst whether the override starts with `parentCall` when no graph calls it. With no graph
+    ///                         at all, the override is `parentCall` alone
+    private static List<Map<String, Object>> implementations(
+        BlueprintLayout.Signature signature, List<FlowNode> flows, @Nullable String parentCall, boolean callsParentFirst,
+        List<String> prologue, Collection<String> memberVariables, String selfExpr, Class<?> selfType,
+        TypeToken<?> base, Map<TypeVariable<?>, String> arguments, @Nullable MemberHolder holder
+    ) {
+        List<List<String>> bodies = new ArrayList<>();
+
+        for (int level = 0; level < flows.size(); level++) {
+            String levelParent = level + 1 < flows.size()
+                ? inheritedName(signature.name(), level + 1) + "(" + String.join(", ", signature.parameterNames()) + ")"
+                : parentCall;
+
+            bodies.add(ScriptNodeSourceCompiler.compileMethod(
+                flows.get(level), memberVariables, signature.parameterNames(), selfExpr, selfType, levelParent,
+                signature.returnsValue() ? defaultLiteral(signature.returnType()) : null,
+                memberOwner(signature, base, holder)));
+        }
+
+        List<String> lines = new ArrayList<>(prologue);
+
+        if ((callsParentFirst || bodies.isEmpty()) && parentCall != null && bodies.stream().flatMap(List::stream).noneMatch(line -> line.contains(parentCall))) {
+            lines.add(parentCall + ";");
+        }
+
+        if (!bodies.isEmpty()) lines.addAll(bodies.getFirst());
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+
+        rows.add(row(List.of("@Override"), declaration(signature, 0, base, arguments), lines));
+
+        for (int level = 1; level < bodies.size(); level++) {
+            rows.add(row(List.of(), declaration(signature, level, base, arguments), bodies.get(level)));
+        }
+
+        return rows;
+    }
+
+    /// The name of the method holding the graph the data parent `level` bodies up the chain implements `name`
+    /// with. Level 0 is the override itself.
+    private static String inheritedName(String name, int level) {
+        return level == 0 ? name : name + "$parent" + level;
     }
 
     private static Map<TypeVariable<?>, String> typeArguments(@Nullable MemberHolder holder) {
@@ -193,9 +297,10 @@ public final class BlueprintSourceWriter {
     }
 
     /// `signature`'s declaration, its member types resolved against the generated class's supertype and the
-    /// supertype's own type parameters spelled through `arguments`.
+    /// supertype's own type parameters spelled through `arguments`. Past level 0 it declares the private method
+    /// [#inheritedName] names.
     private static String declaration(
-        BlueprintLayout.Signature signature, TypeToken<?> base, Map<TypeVariable<?>, String> arguments
+        BlueprintLayout.Signature signature, int level, TypeToken<?> base, Map<TypeVariable<?>, String> arguments
     ) {
         List<Type> parameterTypes = signature.genericParameterTypes();
         List<String> parameters = new ArrayList<>();
@@ -208,8 +313,8 @@ public final class BlueprintSourceWriter {
 
         Type returnType = base.resolveType(signature.method().getGenericReturnType()).getType();
 
-        return (Modifier.isProtected(signature.method().getModifiers()) ? "protected " : "public ")
-            + SourceNames.typeName(returnType, arguments) + " " + signature.name()
+        return (level > 0 ? "private " : Modifier.isProtected(signature.method().getModifiers()) ? "protected " : "public ")
+            + SourceNames.typeName(returnType, arguments) + " " + inheritedName(signature.name(), level)
             + "(" + String.join(", ", parameters) + ")";
     }
 

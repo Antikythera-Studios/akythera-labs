@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.gui.screen;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.component.TransformInheritPolicy;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
+import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.ScriptFailure;
 import com.yesman.akythera.api.data.modularize.node.ScriptRecorder;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
@@ -36,6 +37,8 @@ import com.yesman.akytheralabs.akythera.entitypatch.component.TransformComponent
 import com.yesman.akytheralabs.akythera.entitypatch.component.TransformSocketHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.component.ItemPatchComponentHolders;
+import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.dataholder.EntityPreviewModelMapping;
 import com.yesman.akytheralabs.dataholder.TransformHolder;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
@@ -55,6 +58,7 @@ import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.NodeSuggestModal;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
+import com.yesman.akytheralabs.gui.widget.main.CategorizedSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.ItemSelectModal;
@@ -74,6 +78,7 @@ import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -86,6 +91,12 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -100,6 +111,9 @@ import java.util.stream.Stream;
 public final class ItemPatchEditorScreen extends Screen
     implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, NodeGraphTabHost, AnimationPreviewHost, GraphTabScreen
 {
+    /// Width of the parent picker, in screen pixels.
+    private static final int PARENT_PICKER_W = 240;
+
     private static final int TOP_BAR_H = 22;
 
     /// The script owner type of this screen's canvases: `self` and unwired owner ("Target") pins are
@@ -185,6 +199,77 @@ public final class ItemPatchEditorScreen extends Screen
                 .on(TopMenuOption.PROJECT_TAGS, () -> ProjectTagsModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.COMPILE, this::compile)
+                // Parent picker: the script classes, and the item patches not laid over this one, each with a row for none
+                .on(TopMenuOption.CHANGE_PARENT, () -> {
+                    AkytheraProject project = AkytheraProject.getCurrentProject();
+                    String none = Component.translatable(LangKeys.GUI_BLUEPRINT_PARENT_SELECT_MODAL_CHOICE_NO_DATA_PARENT).getString();
+                    List<CategorizedSelectModal.Choice<ParentPick>> scriptClasses = new ArrayList<>();
+                    List<CategorizedSelectModal.Choice<ParentPick>> dataParents = new ArrayList<>();
+
+                    scriptClasses.add(new CategorizedSelectModal.Choice<>(none, new ParentPick.ScriptClass(null)));
+                    ItemPatchBlueprintHolder.scriptClassCandidates().forEach(type ->
+                        scriptClasses.add(new CategorizedSelectModal.Choice<>(type.type().getSimpleName(), new ParentPick.ScriptClass(type))));
+
+                    for (Holder<ItemPatchBlueprint> entry : project.getMergedHolders(AkytheraRegistries.DataPack.ITEM_PATCH_KEY)) {
+                        ResourceKey<ItemPatchBlueprint> key = entry.unwrapKey().orElseThrow();
+                        Set<ItemPatchBlueprintHolder> lineage = new HashSet<>();
+                        ItemPatchBlueprintHolder ancestor = project.<ItemPatchBlueprint, ItemPatchBlueprintHolder>getDataHolder(key).orElse(null);
+
+                        while (ancestor != null && ancestor != holder && lineage.add(ancestor) && !ancestor.getParent().is(DataHolder.EMPTY_REFERENCE)) {
+                            ancestor = project.<ItemPatchBlueprint, ItemPatchBlueprintHolder>getDataHolder(ancestor.getParent().unwrapKey().orElseThrow()).orElse(null);
+                        }
+
+                        if (ancestor == holder) continue;
+
+                        dataParents.add(new CategorizedSelectModal.Choice<>(
+                            ResourceProcessor.displayId(key), new ParentPick.DataParent(project.getEntryHolderOrDangling(key))));
+                    }
+
+                    dataParents.sort(Comparator.comparing(CategorizedSelectModal.Choice::label));
+                    dataParents.addFirst(new CategorizedSelectModal.Choice<>(
+                        none, new ParentPick.DataParent(EditorHolderCodecs.resolve(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, DataHolder.EMPTY_REFERENCE))));
+
+                    CategorizedSelectModal<ParentPick> modal = new CategorizedSelectModal<>(
+                        minecraft.font,
+                        PARENT_PICKER_W,
+                        Component.translatable(LangKeys.GUI_ITEM_PATCH_SCREEN_ROW_PARENT),
+                        List.of(
+                            new CategorizedSelectModal.Category<>(Component.translatable(
+                                LangKeys.GUI_ENTITY_PATCH_PARENT_SELECT_MODAL_CATEGORY_SOURCE_CODE_SCRIPT), scriptClasses),
+                            new CategorizedSelectModal.Category<>(Component.translatable(
+                                LangKeys.GUI_BLUEPRINT_PARENT_SELECT_MODAL_CATEGORY_DATA_PARENT), dataParents)
+                        ),
+                        picked -> {
+                            switch (picked) {
+                                case ParentPick.ScriptClass(ScriptType type) -> {
+                                    Optional<ScriptType> previous = Optional.ofNullable(holder.getSourceCodeScript());
+                                    Optional<ScriptType> next = Optional.ofNullable(type);
+
+                                    if (next.equals(previous)) return;
+
+                                    Consumer<Optional<ScriptType>> writer = value -> reopenWith(() -> holder.setSourceCodeScript(value.orElse(null)));
+
+                                    HistoryManager.getInstance().pushHistory(new DataChange<>(previous, next, writer));
+                                    writer.accept(next);
+                                }
+                                case ParentPick.DataParent(Holder<ItemPatchBlueprint> parent) -> {
+                                    if (parent.equals(holder.getParent())) return;
+
+                                    Consumer<Holder<ItemPatchBlueprint>> writer = value -> reopenWith(() -> holder.setParent(value));
+
+                                    HistoryManager.getInstance().pushHistory(new DataChange<>(holder.getParent(), parent, writer));
+                                    writer.accept(parent);
+                                }
+                            }
+                        }
+                    );
+
+                    // The modal places itself by its units
+                    modal.setX1(AnchoredWidget.pixel((width - PARENT_PICKER_W) / 2));
+                    modal.setY1(AnchoredWidget.pixel((height - modal.getHeight()) / 2));
+
+                    ModalManager.getInstance().openModalWidgetAtCenter(modal);
+                })
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
                 .on(TopMenuOption.FRAME_CAMERA, this::framePreviewModel)
@@ -850,6 +935,37 @@ public final class ItemPatchEditorScreen extends Screen
         session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
         openGraphs.values().forEach(ScriptNodeGraphWidget::clearValidationErrors);
         Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
+    }
+
+    /// Runs `write` between flushing the screen showing the patch and re-opening it: a parent changes the inherited
+    /// components, and whether the canvases offer Parent nodes. Undo reaches the screen open at the time.
+    private void reopenWith(final Runnable write) {
+        ItemPatchEditorScreen current =
+            AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof ItemPatchEditorScreen open
+                && open.resourceKey.equals(resourceKey) ? open : null;
+
+        if (current != null) current.flushToHolder();
+
+        write.run();
+
+        if (current == null) return;
+
+        ItemPatchEditorScreen reopened = new ItemPatchEditorScreen(resourceKey, holder);
+
+        reopened.savePoint = current.savePoint;
+        current.onClose();
+        AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
+    }
+
+    /// A row of the parent picker.
+    private sealed interface ParentPick {
+        /// The [ItemPatchBlueprintHolder#getSourceCodeScript] to set, null for none.
+        record ScriptClass(@Nullable ScriptType type) implements ParentPick {
+        }
+
+        /// The [ItemPatchBlueprintHolder#getParent] to set, [DataHolder#EMPTY_REFERENCE] for none.
+        record DataParent(Holder<ItemPatchBlueprint> parent) implements ParentPick {
+        }
     }
 
     /// Writes the session's canvases and any open graph tab back onto the holder. Components and the parent

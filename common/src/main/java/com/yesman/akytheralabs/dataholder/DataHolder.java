@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.mojang.serialization.Codec;
 import com.yesman.akythera.core.Akythera;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.CompileFailure;
 import net.minecraft.resources.Identifier;
@@ -30,6 +31,11 @@ public interface DataHolder<T> {
 
     /// Overwrites this holder's state from `object`, discarding every unsaved change on it.
     void readFrom(final T object);
+
+    /// The graphs, property values and variables of a holder that is a script. Null for one that is none.
+    default @Nullable BlueprintScriptData getScript() {
+        return null;
+    }
 
     /// Builds the runtime object from the authored state, in the shape the data pack [Codec] reads
     /// and syncs.

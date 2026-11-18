@@ -28,16 +28,21 @@ public final class UserFunctionDraft {
     @EditorEditable(label = LangKeys.GUI_BLUEPRINT_FUNCTION_OUTPUT, rebuildOnWrite = true)
     private @Nullable ScriptType output;
 
+    /// Whether the data laid over this blueprint neither sees nor overrides the function.
+    @EditorEditable(label = LangKeys.GUI_BLUEPRINT_FUNCTION_PRIVATE)
+    private boolean isPrivate;
+
     /// Told `(oldName, newName)` on every rename.
     private final BiConsumer<String, String> onRenamed;
 
     public UserFunctionDraft(
-        final String name, final List<Parameter> inputs, final @Nullable ScriptType output,
+        final String name, final List<Parameter> inputs, final @Nullable ScriptType output, final boolean isPrivate,
         final BiConsumer<String, String> onRenamed
     ) {
         this.name = name;
         this.inputs = new ArrayList<>(inputs);
         this.output = output;
+        this.isPrivate = isPrivate;
         this.onRenamed = onRenamed;
     }
 
@@ -48,6 +53,7 @@ public final class UserFunctionDraft {
             function.name(),
             function.parameters().stream().map(parameter -> new Parameter(parameter.name(), parameter.type())).toList(),
             function.returnType().orElse(null),
+            function.isPrivate(),
             onRenamed
         );
     }
@@ -66,6 +72,7 @@ public final class UserFunctionDraft {
                 .map(parameter -> new FunctionGraph.Parameter(parameter.name, Objects.requireNonNull(parameter.type)))
                 .toList(),
             Optional.ofNullable(output),
+            isPrivate,
             graph
         );
     }

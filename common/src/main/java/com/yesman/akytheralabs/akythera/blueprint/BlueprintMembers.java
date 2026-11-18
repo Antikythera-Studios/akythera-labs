@@ -49,12 +49,19 @@ public interface BlueprintMembers {
 
     /// The members of a blueprint over a parent laid out by `layout`, which declares the functions
     /// `declared` answers for.
-    static BlueprintMembers of(final BlueprintLayout layout, final Function<String, @Nullable BlueprintSignature> declared) {
+    ///
+    /// @param parentScript whether the blueprint is laid over a parent script, which a Parent node of every event
+    ///                     calls
+    static BlueprintMembers of(
+        final BlueprintLayout layout, final boolean parentScript, final Function<String, @Nullable BlueprintSignature> declared
+    ) {
         return new BlueprintMembers() {
             @Override
             public @Nullable BlueprintSignature method(final String name) {
                 for (BlueprintLayout.Signature event : layout.events()) {
-                    if (event.name().equals(name)) return BlueprintSignature.of(event, BlueprintSignature.Kind.EVENT);
+                    if (!event.name().equals(name)) continue;
+
+                    return BlueprintSignature.of(event, BlueprintSignature.Kind.EVENT).withParentCallable(parentScript);
                 }
 
                 for (BlueprintLayout.Signature function : layout.functions()) {

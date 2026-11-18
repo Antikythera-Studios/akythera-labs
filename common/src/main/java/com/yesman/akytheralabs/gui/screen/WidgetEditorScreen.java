@@ -71,6 +71,7 @@ import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
@@ -112,8 +113,6 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
 
     /// Width of the parent picker, in screen pixels.
     private static final int PARENT_PICKER_W = 240;
-
-    private static final int LOCK_DIM_COLOR = 0xC0101010;
 
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
@@ -246,24 +245,41 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
                 .on(TopMenuOption.PROJECT_TAGS, () -> ProjectTagsModal.open(minecraft.font))
                 .on(TopMenuOption.SAVE, this::save)
                 .on(TopMenuOption.COMPILE, this::compile)
-                // Parent picker: every container class, and the source code scripts built on the current one
+                // Parent picker: the source code scripts built on the current container class, every container
+                // class, and the data parents
                 .on(TopMenuOption.CHANGE_PARENT, () -> {
                     ScriptFunction currentCtor = holder.getParent().ctor();
 
-                    List<CategorizedSelectModal.Choice<BlueprintParentRef>> sourceCodeScripts = AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
+                    List<CategorizedSelectModal.Choice<Object>> sourceCodeScripts = AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
                         .filter(entry -> WidgetContainerScript.class.isAssignableFrom(entry.getValue().type())
                             && Arrays.stream(entry.getValue().type().getConstructors()).anyMatch(constructor ->
                                 constructor.getParameterCount() == 1 && constructor.getParameterTypes()[0].isAssignableFrom(ownerType())))
-                        .map(entry -> new CategorizedSelectModal.Choice<BlueprintParentRef>(
+                        .map(entry -> new CategorizedSelectModal.Choice<Object>(
                             entry.getKey().identifier().toString(), new BlueprintParentRef.SourceCodeScript(currentCtor, entry.getValue())))
                         .toList();
 
-                    List<CategorizedSelectModal.Choice<BlueprintParentRef>> containerClasses = AkytheraRegistries.Frozen.SCRIPT_FUNCTION.stream()
+                    List<CategorizedSelectModal.Choice<Object>> containerClasses = AkytheraRegistries.Frozen.SCRIPT_FUNCTION.stream()
                         .filter(function -> function.metadata().usage() == ScriptFunction.Usage.WIDGET_CTOR)
-                        .map(ctor -> new CategorizedSelectModal.Choice<BlueprintParentRef>(ctor.metadata().label(), new BlueprintParentRef.ParentClass(ctor)))
+                        .map(ctor -> new CategorizedSelectModal.Choice<Object>(ctor.metadata().label(), new BlueprintParentRef.ParentClass(ctor)))
                         .toList();
 
-                    CategorizedSelectModal<BlueprintParentRef> modal = new CategorizedSelectModal<>(
+                    // A data parent builds the same kind of container
+                    CategorizedSelectModal.Category<Object> dataParents = BlueprintEditorSession.dataParentCategory(resourceKey, holder.getScript());
+                    List<CategorizedSelectModal.Choice<Object>> sameUsage = dataParents.choices().stream()
+                        .filter(choice -> {
+                            if (!(choice.value() instanceof Optional<?> picked) || picked.isEmpty()) return true;
+
+                            Holder<WidgetBlueprint> entry = (Holder<WidgetBlueprint>) picked.get();
+                            WidgetBlueprintHolder projectEntry = AkytheraProject.getCurrentProject()
+                                .<WidgetBlueprint, WidgetBlueprintHolder>getDataHolder(entry.unwrapKey().orElseThrow()).orElse(null);
+
+                            if (projectEntry != null) return projectEntry.usage() == holder.usage();
+
+                            return entry.isBound() && entry.value().usage() == holder.usage();
+                        })
+                        .toList();
+
+                    CategorizedSelectModal<Object> modal = new CategorizedSelectModal<>(
                         minecraft.font,
                         PARENT_PICKER_W,
                         Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_PARENT),
@@ -271,9 +287,16 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
                             new CategorizedSelectModal.Category<>(Component.translatable(
                                 LangKeys.GUI_ENTITY_PATCH_PARENT_SELECT_MODAL_CATEGORY_SOURCE_CODE_SCRIPT), sourceCodeScripts),
                             new CategorizedSelectModal.Category<>(Component.translatable(
-                                LangKeys.GUI_WIDGET_PARENT_SELECT_MODAL_CATEGORY_WIDGET_CLASS), containerClasses)
+                                LangKeys.GUI_WIDGET_PARENT_SELECT_MODAL_CATEGORY_WIDGET_CLASS), containerClasses),
+                            new CategorizedSelectModal.Category<>(dataParents.title(), sameUsage)
                         ),
-                        this::changeParent
+                        picked -> {
+                            if (picked instanceof Optional<?> dataParent) {
+                                BlueprintEditorSession.pickDataParent(holder.getScript(), dataParent, this::reopenWith);
+                            } else {
+                                changeParent((BlueprintParentRef) picked);
+                            }
+                        }
                     );
 
                     // The modal places itself by its units
@@ -301,14 +324,16 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
             }
         };
 
-        // Widgets (top-left): the blueprint's widget tree, edited in place, the blueprint being its root host
+        // Widgets (top-left): the blueprint's widget tree, edited in place, the blueprint being its root host, and
+        // the widgets of its data parents, read-only
         widgetPanel = new ComponentEditorPanel(
             minecraft.font, this, Component.translatable(LangKeys.GUI_WIDGET_SCREEN_PANEL_WIDGETS),
-            WidgetComponentHolders.REGISTRY, holder, null, Map::of, true,
+            WidgetComponentHolders.REGISTRY, holder, null, holder::inheritedComponents, true,
             // An open widget graph follows its widget's path, and closes with the widget
             () -> session.refreshExternalCanvases(key -> key instanceof WidgetGraphKey(WidgetComponentHolder<?> widget, String name)
                 && pathIn(holder, "", widget) instanceof String path ? Component.literal(path + "." + name) : null),
             this::onWidgetFocused);
+        widgetPanel.lockInherited();
         widgetPanel.setDropTarget(this::onWidgetDropped);
         widgetPanel.setRenameListener(this::onWidgetRenamed);
 
@@ -399,9 +424,28 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
         return holder.ownerType();
     }
 
-    /// Re-parents the blueprint on `picked` as one undo step. A container class re-opens the screen, whose layout
-    /// it may change, and a source code script re-locks it. A HUD parent is refused while widgets taking input
-    /// remain, naming them.
+    /// Runs `write` between flushing the screen showing the blueprint and re-opening it: a parent changes the
+    /// layout, and what the canvases and the Variables panel inherit.
+    private void reopenWith(final Runnable write) {
+        WidgetEditorScreen current =
+            AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof WidgetEditorScreen open
+                && open.resourceKey.equals(resourceKey) ? open : null;
+
+        if (current != null) current.flushToHolder();
+
+        write.run();
+
+        if (current == null) return;
+
+        WidgetEditorScreen reopened = new WidgetEditorScreen(resourceKey, holder);
+
+        reopened.savePoint = current.savePoint;
+        current.onClose();
+        AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
+    }
+
+    /// Re-parents the blueprint on `picked` as one undo step, re-opening the screen. A HUD parent is refused while
+    /// widgets taking input remain, naming them.
     private void changeParent(final BlueprintParentRef picked) {
         if (picked.equals(holder.getParent())) return;
 
@@ -420,28 +464,7 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
         }
 
         // Undo reaches the screen open at the time
-        Consumer<BlueprintParentRef> writer = value -> {
-            WidgetEditorScreen current =
-                AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof WidgetEditorScreen open
-                    && open.resourceKey.equals(resourceKey) ? open : null;
-
-            if (current != null) current.flushToHolder();
-
-            holder.setParent(value);
-
-            if (current == null) return;
-
-            if (value instanceof BlueprintParentRef.SourceCodeScript) {
-                current.rebuildWidgets();
-                return;
-            }
-
-            WidgetEditorScreen reopened = new WidgetEditorScreen(resourceKey, holder);
-
-            reopened.savePoint = current.savePoint;
-            current.onClose();
-            AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
-        };
+        Consumer<BlueprintParentRef> writer = value -> reopenWith(() -> holder.setParent(value));
 
         HistoryManager.getInstance().pushHistory(new DataChange<>(holder.getParent(), picked, writer));
 
@@ -604,22 +627,7 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
         topMenuBar.setMessage(menuBarTitle());
         addRenderableWidget(topMenuBar);
 
-        if (holder.getParent() instanceof BlueprintParentRef.SourceCodeScript sourceCode) {
-            // Locked: the panels take no input and draw without the cursor, under a dimmer
-            addRenderableOnly((graphics, _, _, a) -> panelManager.extractRenderState(graphics, -1, -1, a));
-            addRenderableOnly((graphics, _, _, _) -> {
-                graphics.fill(panelManager.getX(), panelManager.getY(), panelManager.getRight(), panelManager.getBottom(), LOCK_DIM_COLOR);
-                graphics.centeredText(
-                    font,
-                    Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MESSAGE_LOCKED, sourceCode.displayLabel()),
-                    panelManager.getX() + panelManager.getWidth() / 2,
-                    panelManager.getY() + (panelManager.getHeight() - font.lineHeight) / 2,
-                    0xFFCCCCCC
-                );
-            });
-        } else {
-            addRenderableWidget(panelManager);
-        }
+        addRenderableWidget(panelManager);
     }
 
     // ***************************************************************

@@ -5,6 +5,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.component.ComponentAttachable;
 import com.yesman.akythera.api.data.modularize.AkytheraScriptFunctions;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
+import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.core.blueprint.ComponentBlueprint;
 import com.yesman.akythera.core.blueprint.DataDrivenEntityPatchBlueprint;
@@ -33,7 +34,6 @@ import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
-import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
@@ -59,42 +59,39 @@ import java.util.stream.Stream;
 /// the whole tree through [ComponentAttachableHolder#componentsField], and [#makeObject] lowers each holder
 /// into its runtime [ComponentBlueprint].
 ///
-/// [#parent] is either an [EntityPatch] subclass, lowered into a [DataDrivenEntityPatchBlueprint], or a
-/// source code script, lowered into a [SourceCodeEntityPatchBlueprint] that carries nothing else. Its
-/// constructor's return type is [#ownerType], the script owner every canvas on this blueprint is typed against.
+/// [#ctor] builds an [EntityPatch] subclass, whose type is [#ownerType], the script owner every canvas on this
+/// blueprint is typed against. The data is laid over the source code script [BlueprintScriptData#getSourceParent]
+/// names, and over its data parent: the components, graphs, property values and variables here are what the
+/// blueprint adds to them or changes.
 public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityPatchBlueprint>
     implements DTOProvider, ComponentAttachableHolder
 {
     public static final Codec<EntityPatchBlueprintHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
             AkytheraRegistries.Frozen.SCRIPT_FUNCTION.byNameCodec().optionalFieldOf("parent")
-                .forGetter(h -> Optional.of(h.parent.ctor())),
+                .forGetter(h -> Optional.of(h.ctor)),
             AkytheraRegistries.Frozen.SCRIPT_TYPE.byNameCodec().optionalFieldOf("source_code_script")
-                .forGetter(h -> h.parent instanceof BlueprintParentRef.SourceCodeScript sourceCode
-                    ? Optional.of(sourceCode.script())
-                    : Optional.empty()),
+                .forGetter(h -> Optional.ofNullable(h.script.getSourceParent())),
             ComponentAttachableHolder.componentsField(() -> EntityPatchComponentHolders.REGISTRY)
                 .forGetter(ComponentAttachableHolder::componentsOf),
-            BlueprintScriptData.MAP_CODEC.forGetter(h -> h.script),
+            BlueprintScriptData.mapCodec(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY).forGetter(h -> h.script),
             Identifier.CODEC.optionalFieldOf("preview_entity_type")
                 .forGetter(ParseUtils.provideOptional(EntityPatchBlueprintHolder::getPreviewEntityType))
         ).apply(instance, (ctor, sourceCodeScript, components, scriptData, pm) -> {
             EntityPatchBlueprintHolder h = new EntityPatchBlueprintHolder();
-            ScriptFunction parentCtor = ctor.orElseGet(EntityPatchBlueprintHolder::defaultCtor);
-            h.parent = sourceCodeScript
-                .<BlueprintParentRef>map(script -> new BlueprintParentRef.SourceCodeScript(parentCtor, script))
-                .orElseGet(() -> new BlueprintParentRef.ParentClass(parentCtor));
+            h.ctor = ctor.orElseGet(EntityPatchBlueprintHolder::defaultCtor);
             ComponentAttachableHolder.applyComponents(h, components);
             h.script = scriptData;
+            scriptData.setSourceParent(sourceCodeScript.orElse(null));
             scriptData.typeProperties(h.layout());
             pm.ifPresent(h::setPreviewEntityType);
             return h;
         })
     );
 
-    /// What the engine builds this patch with. Its constructor's return type is the patch's class, and
-    /// so the script owner type of every flow on it.
-    private BlueprintParentRef parent = new BlueprintParentRef.ParentClass(defaultCtor());
+    /// What the engine builds this patch with. Its return type is the patch's class, and so the script owner
+    /// type of every flow on it.
+    private ScriptFunction ctor = defaultCtor();
 
     /// The attached components' editor holders, keyed by the name the engine attaches them under and
     /// insertion-ordered so the file is stable. Components that host children keep them on
@@ -114,19 +111,31 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
         return AkytheraScriptFunctions.ENTITY_PATCH_CONSTRUCTOR.value();
     }
 
+    /// [#ctor], with the source code script the data is laid over when it names one.
     public BlueprintParentRef getParent() {
-        return parent;
+        ScriptType sourceCodeScript = script.getSourceParent();
+
+        return sourceCodeScript == null
+            ? new BlueprintParentRef.ParentClass(ctor)
+            : new BlueprintParentRef.SourceCodeScript(ctor, sourceCodeScript);
     }
 
+    /// Sets [#ctor] and the source code script the data is laid over. A patch that had no parent script gets a
+    /// Parent node behind every event entry that leads nowhere, see [BlueprintScriptData#seedParentCalls].
     public void setParent(BlueprintParentRef parent) {
-        this.parent = parent;
+        boolean hadParentScript = script.hasParentScript();
+
+        this.ctor = parent.ctor();
+        script.setSourceParent(parent instanceof BlueprintParentRef.SourceCodeScript sourceCode ? sourceCode.script() : null);
         script.typeProperties(layout());
+
+        if (!hadParentScript && script.hasParentScript()) script.seedParentCalls();
     }
 
     /// The patch's own class — what `self` is, and what a member [ScriptFunction]'s receiver slot has
     /// to accept for the function to be callable here.
     public Class<?> ownerType() {
-        return parent.ctor().functionSignature().returnType();
+        return ctor.functionSignature().returnType();
     }
 
     /// The members [#ownerType] lays the editor out with.
@@ -146,33 +155,37 @@ public final class EntityPatchBlueprintHolder extends AbstractDataHolder<EntityP
         switch (object) {
             // The runtime blueprint carries no on-canvas layout, so only the values round-trip.
             case DataDrivenEntityPatchBlueprint dataDriven -> {
-                parent = new BlueprintParentRef.ParentClass(dataDriven.ctor());
-                script = new BlueprintScriptData(
-                    ScriptGraphData.EMPTY, Map.of(), List.of(), dataDriven.body().properties(),
-                    dataDriven.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
+                ctor = dataDriven.ctor();
+                script = BlueprintScriptData.of(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, dataDriven.body(), dataDriven.dataParent());
+                script.setSourceParent(dataDriven.parentScript().orElse(null));
                 script.typeProperties(layout());
             }
-            case SourceCodeEntityPatchBlueprint sourceCode ->
-                parent = new BlueprintParentRef.SourceCodeScript(sourceCode.ctor(), sourceCode.script());
+            case SourceCodeEntityPatchBlueprint sourceCode -> {
+                ctor = sourceCode.ctor();
+                script = new BlueprintScriptData();
+                script.setSourceParent(sourceCode.script());
+            }
         }
     }
 
+    /// A patch that adds nothing to the source code script it is laid over, and names no data parent, lowers into
+    /// a [SourceCodeEntityPatchBlueprint], which runs the script alone.
     @Override
     public EntityPatchBlueprint makeObject() {
-        return switch (parent) {
-            case BlueprintParentRef.ParentClass patchClass -> new DataDrivenEntityPatchBlueprint(
-                ComponentAttachableHolder.lowerComponents(components), patchClass.ctor(),
-                script.compile(layout(), ownerType()));
-            case BlueprintParentRef.SourceCodeScript sourceCode ->
-                new SourceCodeEntityPatchBlueprint(sourceCode.ctor(), sourceCode.script());
-        };
+        ScriptType sourceCodeScript = script.getSourceParent();
+        BlueprintBody body = script.compile(layout(), ownerType());
+
+        if (sourceCodeScript != null && script.getDataParent() == null && components.isEmpty() && body.equals(BlueprintBody.EMPTY)) {
+            return new SourceCodeEntityPatchBlueprint(ctor, sourceCodeScript);
+        }
+
+        return new DataDrivenEntityPatchBlueprint(
+            ComponentAttachableHolder.lowerComponents(components), ctor, Optional.ofNullable(sourceCodeScript),
+            script.exportedDataParent(), body);
     }
 
-    /// A source code script lowers nothing from the canvases, so it checks none.
     @Override
     public void compile(final Compilation compilation) {
-        if (parent instanceof BlueprintParentRef.SourceCodeScript) return;
-
         BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType(), this);
         EditorWidgetFactory.compileNodeGraphs(compilation, this, ownerType());
 

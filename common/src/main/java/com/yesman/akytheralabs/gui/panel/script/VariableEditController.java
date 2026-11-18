@@ -26,6 +26,9 @@ import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.*;
 import com.yesman.akytheralabs.gui.widget.script.TypeIcon;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.events.ContainerEventHandler;
+import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
@@ -263,6 +266,22 @@ public final class VariableEditController {
         rebuildAll.run();
     }
 
+    /// Puts the default value and sync direction of the data parent's variable back into `draft`, as one undo
+    /// step.
+    public void revertVariable(VariableDraft draft) {
+        BlueprintScriptData.Variable inherited = draft.inheritedData();
+
+        if (inherited == null || !draft.overrides()) return;
+
+        HistoryManager.getInstance().pushHistory(new DataChange<>(draft.toData(), inherited, state -> {
+            draft.load(state);
+            rebuildAll.run();
+        }));
+
+        draft.load(inherited);
+        rebuildAll.run();
+    }
+
     private String nextFreeName() {
         String base = "new_var";
         if (drafts.stream().noneMatch(d -> d.getName().equals(base))) return base;
@@ -468,8 +487,11 @@ public final class VariableEditController {
     // *****************************************************************
 
     /// The Details rows every variable shows: its name, its type and its default value. A type with no
-    /// codec has no default value to persist, so it shows none.
+    /// codec has no default value to persist, so it shows none. A variable standing for a data parent's takes no
+    /// input on its name and type, and its default value row is laid over the parent's.
     public void addSharedRows(WidgetTable table, VariableDraft draft) {
+        int firstRow = table.children().size();
+
         EditorEditBox<String> nameBox = nameBox(
             draft,
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(INDENT),
@@ -520,6 +542,16 @@ public final class VariableEditController {
             ));
         }
 
+        if (draft.isInherited()) {
+            for (GuiEventListener row : table.children().subList(firstRow, table.children().size())) {
+                if (!(row instanceof ContainerEventHandler widgets)) continue;
+
+                for (GuiEventListener widget : widgets.children()) {
+                    if (widget instanceof EditorEditBox<?> || widget instanceof EditorComboBox<?>) EditorWidgetFactory.lock((AbstractWidget) widget);
+                }
+            }
+        }
+
         if (draft.getType().codec() == null) return;
 
         // A list, set or map lays out one row per element under a `+` header. A stored default that does not
@@ -529,7 +561,8 @@ public final class VariableEditController {
             ? new EditorWidgetFactory.PropertySlot(
                 label, new ValueShape.Leaf(JsonElement.class, null), draft, draft::getDefaultJson, _ -> {})
             : new EditorWidgetFactory.PropertySlot(
-                label, ValueShape.of(draft.getType()), draft, draft::getDefaultVal, draft::setDefaultVal);
+                label, ValueShape.of(draft.getType()), draft, draft::getDefaultVal, draft::setDefaultVal,
+                draft.isInherited() ? draft::inheritedDefaultVal : null);
 
         factory.appendSlots(table, List.of(slot), () -> refreshDetails.run());
     }

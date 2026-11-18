@@ -13,7 +13,13 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintMembers;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintSignature;
+import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentAttachableHolder;
+import com.yesman.akytheralabs.dataholder.DataHolder;
+import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
+import com.yesman.akytheralabs.gui.widget.main.CategorizedSelectModal;
+import net.minecraft.core.Holder;
+import net.minecraft.resources.ResourceKey;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.editor.StoredJson;
 import com.yesman.akytheralabs.editor.ValueShape;
@@ -52,9 +58,11 @@ import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -83,6 +91,7 @@ public final class BlueprintEditorSession {
     private static final int NODE_GAP = 240;
 
     private static final String EVENTS_CATEGORY = "Events";
+    private static final String PARENT_CATEGORY = "Parent";
     private static final String FUNCTIONS_CATEGORY = "Functions";
     private static final String FIELDS_CATEGORY = "Blueprint Fields";
 
@@ -109,6 +118,10 @@ public final class BlueprintEditorSession {
     private final Map<String, ScriptGraphData> overrides = new LinkedHashMap<>();
 
     private final List<UserFunctionDraft> functions = new ArrayList<>();
+
+    /// The functions the data parents declare and do not keep private, which every canvas may call and the
+    /// blueprint may override.
+    private final List<BlueprintScriptData.UserFunction> inheritedFunctions;
 
     /// The canvas of each declared function. Stale for a function whose tab is open.
     private final Map<UserFunctionDraft, ScriptGraphData> functionGraphs = new HashMap<>();
@@ -180,10 +193,15 @@ public final class BlueprintEditorSession {
             functionGraphs.put(draft, function.graph());
         }
 
-        members = BlueprintMembers.of(layout, name -> {
-            UserFunctionDraft draft = draftOf(name);
+        inheritedFunctions = data.inheritedFunctions();
 
-            return draft == null ? null : draft.signature();
+        members = BlueprintMembers.of(layout, data.hasParentScript(), name -> {
+            UserFunctionDraft draft = draftOf(name);
+            BlueprintScriptData.UserFunction inherited = inheritedFunction(name);
+
+            if (draft != null) return draft.signature().withParentCallable(inherited != null);
+
+            return inherited == null ? null : inherited.signature();
         });
 
         eventGraph = newCanvas(null, members);
@@ -333,6 +351,69 @@ public final class BlueprintEditorSession {
     }
 
     // ***************************************************************
+    // Data parent
+    // ***************************************************************
+
+    /// The parent picker's category of data parents for the entry `own`, whose script is `data`: a row for none,
+    /// then every other entry of its registry the project or the level holds, but the ones laid over `own`. Each
+    /// value is an [Optional] of the entry's shared live holder, empty for none.
+    public static <T> CategorizedSelectModal.Category<Object> dataParentCategory(final ResourceKey<T> own, final BlueprintScriptData data) {
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        List<CategorizedSelectModal.Choice<Object>> choices = new ArrayList<>();
+
+        for (Holder<T> entry : project.getMergedHolders(own.registryKey())) {
+            ResourceKey<T> key = entry.unwrapKey().orElseThrow();
+            BlueprintScriptData entryData = project.<T, DataHolder<T>>getDataHolder(key).map(DataHolder::getScript).orElse(null);
+
+            if (key.equals(own) || entryData != null && entryData.ancestors().contains(data)) continue;
+
+            choices.add(new CategorizedSelectModal.Choice<>(ResourceProcessor.displayId(key), Optional.of(project.getEntryHolderOrDangling(key))));
+        }
+
+        choices.sort(Comparator.comparing(CategorizedSelectModal.Choice::label));
+        choices.addFirst(new CategorizedSelectModal.Choice<>(
+            Component.translatable(LangKeys.GUI_BLUEPRINT_PARENT_SELECT_MODAL_CHOICE_NO_DATA_PARENT).getString(), Optional.empty()));
+
+        return new CategorizedSelectModal.Category<>(
+            Component.translatable(LangKeys.GUI_BLUEPRINT_PARENT_SELECT_MODAL_CATEGORY_DATA_PARENT), choices);
+    }
+
+    /// Lays `data` over `picked`, a value of [#dataParentCategory], as one undo step. Data that had no parent
+    /// script gets a Parent node behind every event entry that leads nowhere, see
+    /// [BlueprintScriptData#seedParentCalls].
+    ///
+    /// @param apply runs the write it is handed between flushing the editor showing `data` and re-opening it, on
+    ///              the pick and on its undo and redo
+    public static void pickDataParent(final BlueprintScriptData data, final Optional<?> picked, final Consumer<Runnable> apply) {
+        Holder<?> parent = (Holder<?>) picked.orElse(null);
+        Holder<?> previous = data.getDataParent();
+
+        if (parent == previous) return;
+
+        Runnable write = () -> {
+            boolean hadParentScript = data.hasParentScript();
+
+            data.setDataParent(parent);
+
+            if (!hadParentScript) data.seedParentCalls();
+        };
+
+        HistoryManager.getInstance().pushHistory(new WorkHistory() {
+            @Override
+            public void undo() {
+                apply.accept(() -> data.setDataParent(previous));
+            }
+
+            @Override
+            public void redo() {
+                apply.accept(write);
+            }
+        });
+
+        apply.accept(write);
+    }
+
+    // ***************************************************************
     // Functions
     // ***************************************************************
 
@@ -349,16 +430,25 @@ public final class BlueprintEditorSession {
         return names;
     }
 
-    /// The parent's functions not overridden yet.
+    /// The functions of the parent class and of the data parents not overridden yet.
     public List<String> overridableFunctions() {
-        return layout.functions().stream()
-            .map(BlueprintLayout.Signature::name)
-            .filter(name -> !overrides.containsKey(name))
-            .toList();
+        return Stream.concat(
+            layout.functions().stream().map(BlueprintLayout.Signature::name).filter(name -> !overrides.containsKey(name)),
+            inheritedFunctions.stream().map(BlueprintScriptData.UserFunction::name).filter(name -> draftOf(name) == null)
+        ).toList();
     }
 
     public boolean isOverride(final String name) {
-        return overrides.containsKey(name);
+        return overrides.containsKey(name) || inheritedFunction(name) != null;
+    }
+
+    /// The function `name` a data parent declares and does not keep private, or null.
+    private BlueprintScriptData.@Nullable UserFunction inheritedFunction(final String name) {
+        for (BlueprintScriptData.UserFunction inherited : inheritedFunctions) {
+            if (inherited.name().equals(name)) return inherited;
+        }
+
+        return null;
     }
 
     public @Nullable String selectedFunction() {
@@ -366,8 +456,8 @@ public final class BlueprintEditorSession {
     }
 
     /// Selects the function `name` and brings its canvas up, seeding a canvas that holds nothing yet: an
-    /// override with its entry, a Parent call and a Return that answers what the parent answered, a declared
-    /// function with its entry and a Return.
+    /// override, of the parent class or of a data parent, with its entry, a Parent call and a Return that answers
+    /// what the parent answered, a declared function with its entry and a Return.
     public void openFunction(final String name) {
         selected = name;
 
@@ -387,7 +477,7 @@ public final class BlueprintEditorSession {
         if ((saved == null || saved.isEmpty()) && signature != null) {
             List<GraphNode> nodes = new ArrayList<>();
             List<ScriptGraphData.WireData> wires = new ArrayList<>();
-            boolean override = signature.kind() == BlueprintSignature.Kind.OVERRIDE;
+            boolean override = signature.parentCallable();
 
             nodes.add(new GraphNode(0, ENTRY_X, ENTRY_Y, new MethodEntryNodeData(name)));
 
@@ -431,8 +521,11 @@ public final class BlueprintEditorSession {
             name = "newFunction" + suffix;
         }
 
-        UserFunctionDraft draft = new UserFunctionDraft(name, List.of(), null, this::renameFunction);
+        declareFunction(new UserFunctionDraft(name, List.of(), null, false, this::renameFunction));
+    }
 
+    /// Declares `draft` as one undo step, and opens it.
+    private void declareFunction(final UserFunctionDraft draft) {
         functions.add(draft);
         functionGraphs.put(draft, ScriptGraphData.EMPTY);
 
@@ -452,11 +545,19 @@ public final class BlueprintEditorSession {
         });
 
         functionPanel.rebuildList();
-        openFunction(name);
+        openFunction(draft.getName());
     }
 
-    /// Overrides the parent's function `name`, and opens it.
+    /// Overrides the function `name` of the parent class, or of a data parent by declaring it again under its
+    /// signature, and opens it.
     public void overrideFunction(final String name) {
+        BlueprintScriptData.UserFunction inherited = inheritedFunction(name);
+
+        if (inherited != null) {
+            declareFunction(UserFunctionDraft.from(inherited, this::renameFunction));
+            return;
+        }
+
         overrides.put(name, ScriptGraphData.EMPTY);
 
         HistoryManager.getInstance().pushHistory(new WorkHistory() {
@@ -593,15 +694,13 @@ public final class BlueprintEditorSession {
     private ScriptNodeGraphWidget newCanvas(final @Nullable String function, final BlueprintMembers canvasMembers) {
         ScriptNodeGraphWidget canvas = ScriptNodeGraphWidget.create(font, ownerType);
 
-        // The host palette, then the entries of the events, the calls of the declared functions, the Return
-        // and Parent nodes of the canvas' own function, and the parent's fields
+        // The host palette, then the entries of the events and their Parent nodes, the calls of the declared and
+        // inherited functions, the Return and Parent nodes of the canvas' own function, and the parent's fields
         canvas.setSuggestionProvider((graph, context) -> {
             List<NodeSuggestModal.Suggestion<NodeWidgetFactory>> suggestions = palette.apply(graph, context);
             boolean statement = context.flow() && !context.dataFlowOnly() && context.providedType() == null;
 
-            // Only a free-standing spawn on the Event Graph places an entry, and an event placed already is
-            // listed but cannot be picked again.
-            if (statement && context.pureFunctions() && graph.enclosingFunction() == null) {
+            if (statement && graph.enclosingFunction() == null) {
                 Set<String> placed = graph.methodEntryNodes().stream()
                     .map(MethodEntryNodeWidget::method)
                     .collect(Collectors.toSet());
@@ -610,25 +709,32 @@ public final class BlueprintEditorSession {
                     String name = event.name();
                     BlueprintSignature signature = members.method(name);
 
-                    suggestions.add(new NodeSuggestModal.Suggestion<>(
-                        signature == null ? Component.literal(name) : signature.title(),
-                        (nodeFont, x, y) -> new MethodEntryNodeWidget(nodeFont, name, signature, x, y),
-                        EVENTS_CATEGORY,
-                        !placed.contains(name)));
+                    // Only a free-standing spawn places an entry, and an event placed already is listed but
+                    // cannot be picked again.
+                    if (context.pureFunctions()) {
+                        suggestions.add(new NodeSuggestModal.Suggestion<>(
+                            signature == null ? Component.literal(name) : signature.title(),
+                            (nodeFont, x, y) -> new MethodEntryNodeWidget(nodeFont, name, signature, x, y),
+                            EVENTS_CATEGORY,
+                            !placed.contains(name)));
+                    }
 
                     if (signature != null && signature.parentCallable()) {
                         suggestions.add(new NodeSuggestModal.Suggestion<>(
                             Component.translatable(LangKeys.GUI_BLUEPRINT_NODE_PARENT_CALL, signature.title()),
                             (nodeFont, x, y) -> new ParentCallNodeWidget(nodeFont, signature, name, x, y),
-                            EVENTS_CATEGORY));
+                            PARENT_CATEGORY));
                     }
                 }
             }
 
             if (statement) {
-                for (UserFunctionDraft declared : functions) {
-                    String name = declared.getName();
+                Set<String> callable = new LinkedHashSet<>();
 
+                functions.forEach(declared -> callable.add(declared.getName()));
+                inheritedFunctions.forEach(inherited -> callable.add(inherited.name()));
+
+                for (String name : callable) {
                     suggestions.add(new NodeSuggestModal.Suggestion<>(
                         Component.literal(ParseUtils.camelToSpacedPascal(name)),
                         (nodeFont, x, y) -> new FunctionCallNodeWidget(nodeFont, name, members.method(name), x, y),
@@ -646,11 +752,11 @@ public final class BlueprintEditorSession {
                             FUNCTIONS_CATEGORY));
                     }
 
-                    if (enclosing.kind() == BlueprintSignature.Kind.OVERRIDE) {
+                    if (enclosing.parentCallable()) {
                         suggestions.add(new NodeSuggestModal.Suggestion<>(
                             Component.translatable(LangKeys.GUI_BLUEPRINT_NODE_PARENT_CALL, enclosing.title()),
                             (nodeFont, x, y) -> new ParentCallNodeWidget(nodeFont, enclosing, null, x, y),
-                            FUNCTIONS_CATEGORY));
+                            PARENT_CATEGORY));
                     }
                 }
 
@@ -812,12 +918,16 @@ public final class BlueprintEditorSession {
     /// One Details slot per property of the parent that can hold a value, laid out by its type's
     /// [ValueShape] and written into the data in its codec's JSON form.
     ///
-    /// Writing the shape's unset value removes the property, which leaves the parent's own. A value that
-    /// does not encode yet, such as a list element with nothing picked, keeps the last value that did in the
-    /// data and fails [#validate]. A stored value that does not decode shows as its JSON, read-only.
+    /// A property the data leaves out shows what it falls back to: the value the nearest data parent sets, else
+    /// the shape's unset value, which is the parent class's own. Writing that value back removes the property.
+    /// Over a data parent the slot carries it as [EditorWidgetFactory.ValueSlot#parentValue]. A value that does
+    /// not encode yet, such as a list element with nothing picked, keeps the last value that did in the data and
+    /// fails [#validate]. A stored value that does not decode shows as its JSON, read-only.
     public List<EditorWidgetFactory.ValueSlot> propertySlots() {
         List<EditorWidgetFactory.ValueSlot> slots = new ArrayList<>();
         Map<String, StoredJson> values = data.getProperties();
+        Map<String, JsonElement> inherited = data.inheritedProperties();
+        boolean overParent = data.getDataParent() != null;
 
         for (BlueprintLayout.Property property : layout.properties()) {
             ValueShape shape = ValueShape.of(property.type());
@@ -826,9 +936,19 @@ public final class BlueprintEditorSession {
 
             if (!shape.encodable()) continue;
 
+            Object fallback = shape.unset();
+
+            try {
+                if (inherited.containsKey(key)) fallback = shape.fromJson(inherited.get(key));
+            } catch (RuntimeException e) {
+                fallback = shape.unset();
+            }
+
+            Object parentValue = fallback;
+
             if (!propertyValues.containsKey(key)) {
                 try {
-                    propertyValues.put(key, values.containsKey(key) ? shape.fromJson(values.get(key).json()) : shape.unset());
+                    propertyValues.put(key, values.containsKey(key) ? shape.fromJson(values.get(key).json()) : parentValue);
                 } catch (RuntimeException e) {
                     slots.add(new EditorWidgetFactory.PropertySlot(
                         label, new ValueShape.Leaf(JsonElement.class, null), data, () -> values.get(key).json(), _ -> {}));
@@ -843,7 +963,7 @@ public final class BlueprintEditorSession {
                     propertyValues.put(key, value);
                     incompleteProperties.remove(key);
 
-                    if (Objects.equals(value, shape.unset())) {
+                    if (Objects.equals(value, parentValue)) {
                         values.remove(key);
                         return;
                     }
@@ -853,7 +973,8 @@ public final class BlueprintEditorSession {
                     } catch (RuntimeException e) {
                         incompleteProperties.add(key);
                     }
-                }
+                },
+                overParent ? () -> parentValue : null
             ));
         }
 
@@ -889,24 +1010,41 @@ public final class BlueprintEditorSession {
             data.getFunctions().add(function.toData(functionGraphs.getOrDefault(function, ScriptGraphData.EMPTY)));
         }
 
-        data.setVariables(variableDrafts.stream().map(VariableDraft::toData).toList());
+        data.setVariables(variableDrafts.stream()
+            .filter(variable -> !variable.isInherited() || variable.overrides())
+            .map(VariableDraft::toData)
+            .toList());
     }
 
     /// Validates every declared function's signature, every member variable's name and default value, and every
     /// property value, and names the first that failed, or null when all passed. A function name must be a Java
-    /// identifier no other member of the blueprint has, every input needs a type, no member variable may share
+    /// identifier no other member of the blueprint has and no data parent keeps private, a function overriding a
+    /// data parent's must keep its input types and its output, every input needs a type, no member variable may share
     /// its name with a local a graph run binds, every member variable's default value must pass
     /// [VariableDraft#hasDefaultError], and every property value must encode. The canvases are checked by
     /// [#compileCanvases].
     public @Nullable Component validateMembers() {
         Component failed = null;
         Set<String> names = new HashSet<>();
+        Set<String> hidden = data.privateInheritedFunctions();
 
         for (UserFunctionDraft function : functions) {
             Set<String> parameters = new HashSet<>();
+            BlueprintScriptData.UserFunction inherited = inheritedFunction(function.getName());
+            BlueprintSignature signature = function.signature();
+
+            if (inherited != null && failed == null
+                && !(signature.parameters().stream().map(BlueprintSignature.Parameter::type).toList()
+                        .equals(inherited.signature().parameters().stream().map(BlueprintSignature.Parameter::type).toList())
+                    && Objects.equals(signature.returnType(), inherited.signature().returnType()))
+            ) {
+                failed = Component.translatable(LangKeys.GUI_BLUEPRINT_ERROR_FUNCTION_OVERRIDE, function.getName());
+            }
+
             boolean invalid = !isJavaName(function.getName())
                 || layout.method(function.getName()) != null
                 || layout.field(function.getName()) != null
+                || hidden.contains(function.getName())
                 || !names.add(function.getName())
                 || function.getInputs().stream().anyMatch(input ->
                     input.getType() == null || !isJavaName(input.getName()) || !parameters.add(input.getName()));

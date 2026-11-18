@@ -13,8 +13,9 @@ import java.util.List;
 /// parent and return nodes.
 ///
 /// @param returnType     null when it returns nothing
-/// @param parentCallable whether a Parent node may call the implementation it overrides: an overridden function, or
-///                       an event a class declares with a body
+/// @param parentCallable whether a Parent node may call the implementation it overrides: an overridden function, a
+///                       declared function named like one a data parent declares, or an event of a blueprint laid
+///                       over a parent script
 public record BlueprintSignature(
     String name, Kind kind, List<Parameter> parameters, @Nullable Class<?> returnType, boolean parentCallable
 ) {
@@ -49,10 +50,11 @@ public record BlueprintSignature(
             parameters.add(new Parameter(method.parameterNames().get(i), method.parameterTypes().get(i)));
         }
 
-        boolean parentCallable = kind == Kind.OVERRIDE
-            || kind == Kind.EVENT && !method.isAbstract() && !method.method().getDeclaringClass().isInterface();
+        return new BlueprintSignature(method.name(), kind, parameters, method.returnsValue() ? method.returnType() : null);
+    }
 
-        return new BlueprintSignature(method.name(), kind, parameters, method.returnsValue() ? method.returnType() : null, parentCallable);
+    public BlueprintSignature withParentCallable(final boolean parentCallable) {
+        return new BlueprintSignature(name, kind, parameters, returnType, parentCallable);
     }
 
     /// The name as spaced words, e.g. `On Join World` for `onJoinWorld` or `on_join_world`.

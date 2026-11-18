@@ -19,12 +19,10 @@ import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
-import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Stream;
@@ -39,7 +37,7 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
         instance -> instance.group(
             AkytheraRegistries.Frozen.SCRIPT_FUNCTION.byNameCodec().fieldOf("parent")
                 .forGetter(h -> h.ctor),
-            BlueprintScriptData.MAP_CODEC.forGetter(h -> h.script)
+            BlueprintScriptData.mapCodec(AkytheraRegistries.DataPack.ABILITY_KEY).forGetter(h -> h.script)
         ).apply(instance, (ctor, script) -> {
             AbilityBlueprintHolder holder = new AbilityBlueprintHolder();
 
@@ -81,15 +79,13 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
     public void readFrom(final AbilityBlueprint object) {
         // The runtime blueprint carries no on-canvas layout, so only the values round-trip.
         this.ctor = object.ctor();
-        this.script = new BlueprintScriptData(
-            ScriptGraphData.EMPTY, Map.of(), List.of(), object.body().properties(),
-            object.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
+        this.script = BlueprintScriptData.of(AkytheraRegistries.DataPack.ABILITY_KEY, object.body(), object.dataParent());
         this.script.typeProperties(layout());
     }
 
     @Override
     public AbilityBlueprint makeObject() {
-        return new AbilityBlueprint(ctor, script.compile(layout(), ownerType()));
+        return new AbilityBlueprint(ctor, script.exportedDataParent(), script.compile(layout(), ownerType()));
     }
 
     @Override

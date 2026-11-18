@@ -18,26 +18,62 @@
 <#import "method_list.ftl" as methodList>
 package ${package};
 
-public final class ${className} implements ${scriptInterface} {
+public class ${className} <#if superclass??>extends ${superclass}<#else>implements ${scriptInterface}</#if> {
 <#list fields as field>
     @ScriptField
-    private ${field.type} ${field.name}<#if field.defaultValue??> = ${field.defaultValue}</#if>;
+    protected ${field.type} ${field.name}<#if field.defaultValue??> = ${field.defaultValue}</#if>;
 
 </#list>
+<#if !superclass??>
     /// The container this script drives (the node graphs' `self`).
-    private final ${ownerType} owner;
+    protected final ${ownerType} owner;
+</#if>
+<#if parentScript??>
+
+    /// The source code script this one is laid over.
+    private final ${parentScript} parent;
+</#if>
 
     public ${className}(final ${ownerType} owner) {
+<#if superclass??>
+        super(owner);
+<#else>
         this.owner = owner;
+</#if>
+<#if parentScript??>
+        this.parent = new ${parentScript}(owner);
+</#if>
+<#list overriddenFields as field>
+<#if field.defaultValue??>
+        this.${field.name} = ${field.defaultValue};
+</#if>
+</#list>
     }
 <@methodList.methodList methods/>
 <@methodList.methodList widgetMethods/>
 
     @Override
     public Map<String, ComponentBlueprint<?, ?>> componentsToAttach() {
+<#if superclass?? || parentScript?? || inheritedComponents?size != 0>
+        Map<String, ComponentBlueprint<?, ?>> components = new LinkedHashMap<>();
+
+<#if superclass??>
+        components.putAll(super.componentsToAttach());
+</#if>
+<#if parentScript??>
+        components.putAll(this.parent.componentsToAttach());
+</#if>
+<#list inheritedComponents as inherited>
+        components.putAll(<@tpl.componentMap inherited "                "/>);
+</#list>
+        components.putAll(<@tpl.componentMap components "                "/>);
+
+        return components;
+<#else>
         return <@tpl.componentMap components "            "/>;
+</#if>
     }
-<#if events?has_content>
+<#if events?has_content || parentScript?? || superclass??>
 
     @Override
     public @Nullable Consumer<Object[]> widgetEvent(final String key, final List<String> argumentNames) {
@@ -45,11 +81,11 @@ public final class ${className} implements ${scriptInterface} {
 <#list events as event>
             case "${event.key}" -> arguments -> ${event.method}(${event.arguments});
 </#list>
-            default -> null;
+            default -> <#if superclass??>super.widgetEvent(key, argumentNames)<#elseif parentScript??>this.parent.widgetEvent(key, argumentNames)<#else>null</#if>;
         };
     }
 </#if>
-<#if bindings?has_content>
+<#if bindings?has_content || parentScript?? || superclass??>
 
     @Override
     public @Nullable Supplier<Object> widgetBinding(final String key) {
@@ -57,7 +93,7 @@ public final class ${className} implements ${scriptInterface} {
 <#list bindings as binding>
             case "${binding.key}" -> this::${binding.method};
 </#list>
-            default -> null;
+            default -> <#if superclass??>super.widgetBinding(key)<#elseif parentScript??>this.parent.widgetBinding(key)<#else>null</#if>;
         };
     }
 </#if>

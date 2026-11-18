@@ -101,6 +101,9 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
     /// Whether rows carry the switch box that sets [ComponentDataHolder#isEnabled].
     private final boolean switchable;
 
+    /// Whether the inherited rows are read-only, see [#lockInherited].
+    private boolean inheritedLocked;
+
     private final Runnable onChanged;
 
     /// Fired when the focused component changes, with the host it hangs off; both null when nothing
@@ -269,6 +272,11 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
 
         this.compileFailed = compileFailed;
         overridingStale = true;
+    }
+
+    /// Makes the inherited rows read-only: listed, but never focused nor copied into the patch.
+    public void lockInherited() {
+        inheritedLocked = true;
     }
 
     /// Wires the callback a row dragged out of the panel is released to.
@@ -959,6 +967,8 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
             return;
         }
 
+        if (inheritedLocked) return;
+
         pending.clear();
         dropUnchangedOverrides();
 
@@ -1036,6 +1046,8 @@ public final class ComponentEditorPanel extends AdjustablePanelManager.PanelArea
     /// before their hosts. Runs on a selection change, after a list edit, and before a save, so an
     /// undone first edit leaves no override behind.
     public void dropUnchangedOverrides() {
+        if (inheritedLocked) return;
+
         boolean dropped = false;
 
         for (Claim claim : committed.reversed()) {

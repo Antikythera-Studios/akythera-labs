@@ -75,6 +75,7 @@ import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import com.yesman.akytheralabs.gui.widget.script.ScriptNodeGraphWidget;
 import com.yesman.akytheralabs.gui.widget.viewer.DirectionArrowComponent;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -135,6 +136,9 @@ public final class EditorWidgetFactory {
 
     /// Label color of a row holding what it inherits.
     private static final int INHERITED_LABEL_COLOR = 0xFF7A7A7A;
+
+    /// Label color of a row holding a value of its own over what it inherits.
+    private static final int OWN_LABEL_COLOR = 0xFFFFFFFF;
 
     /// Text a floating-point box accepts while it is typed into, partial input ("-", "1.", "1e") included.
     private static final Predicate<String> DECIMAL_TEXT = s -> s.matches("-?\\d*\\.?\\d*([eE]-?\\d*)?");
@@ -216,6 +220,13 @@ public final class EditorWidgetFactory {
         /// [EditorWidgetFactory#ENTRY_BUTTON_GUTTER].
         default int rightGutter() {
             return 0;
+        }
+
+        /// What answers the value the slot falls back to once its own is removed, for a slot laid over a parent's
+        /// value. Its row greys its label while it holds that value, and carries a `✕` that writes it back. Null
+        /// for a slot laid over nothing.
+        default @Nullable Supplier<@Nullable Object> parentValue() {
+            return null;
         }
     }
 
@@ -339,15 +350,33 @@ public final class EditorWidgetFactory {
     ///
     /// @param annotation  the row settings, as a field's would be
     /// @param rightGutter right-hand pixels the row's editor columns leave free
+    /// @param parentValue see [ValueSlot#parentValue]
     public record PropertySlot(
         String label, ValueShape shape, Object owner, Supplier<@Nullable Object> getter, Consumer<@Nullable Object> setter,
-        EditorEditable annotation, int rightGutter
+        EditorEditable annotation, int rightGutter, @Nullable Supplier<@Nullable Object> parentValue
     ) implements ValueSlot {
         /// A slot whose rows take the [EditorEditable] defaults and the full width.
         public PropertySlot(
             final String label, final ValueShape shape, final Object owner, final Supplier<@Nullable Object> getter, final Consumer<@Nullable Object> setter
         ) {
-            this(label, shape, owner, getter, setter, DEFAULT_EDITABLE, 0);
+            this(label, shape, owner, getter, setter, DEFAULT_EDITABLE, 0, null);
+        }
+
+        /// A slot laid over nothing.
+        public PropertySlot(
+            final String label, final ValueShape shape, final Object owner, final Supplier<@Nullable Object> getter, final Consumer<@Nullable Object> setter,
+            final EditorEditable annotation, final int rightGutter
+        ) {
+            this(label, shape, owner, getter, setter, annotation, rightGutter, null);
+        }
+
+        /// A slot laid over `parentValue` when it is not null, whose rows take the [EditorEditable] defaults and
+        /// keep the gutter of the `✕`.
+        public PropertySlot(
+            final String label, final ValueShape shape, final Object owner, final Supplier<@Nullable Object> getter, final Consumer<@Nullable Object> setter,
+            final @Nullable Supplier<@Nullable Object> parentValue
+        ) {
+            this(label, shape, owner, getter, setter, DEFAULT_EDITABLE, parentValue == null ? 0 : ENTRY_BUTTON_GUTTER, parentValue);
         }
 
         @Override
@@ -596,6 +625,11 @@ public final class EditorWidgetFactory {
         public int rightGutter() {
             return delegate.rightGutter();
         }
+
+        @Override
+        public @Nullable Supplier<@Nullable Object> parentValue() {
+            return delegate.parentValue();
+        }
     }
 
     /// A slot that re-renders its block after every write, see [EditorEditable#rebuildOnWrite].
@@ -657,6 +691,11 @@ public final class EditorWidgetFactory {
         @Override
         public int rightGutter() {
             return delegate.rightGutter();
+        }
+
+        @Override
+        public @Nullable Supplier<@Nullable Object> parentValue() {
+            return delegate.parentValue();
         }
     }
 
@@ -883,6 +922,9 @@ public final class EditorWidgetFactory {
     /// own declaration and never greys.
     public boolean inheritsValue(ValueSlot slot) {
         EditorEditable ann = slot.annotation();
+        Supplier<@Nullable Object> parentValue = slot.parentValue();
+
+        if (parentValue != null) return Objects.equals(slot.get(), parentValue.get());
 
         return inherited != null
             && (ann.inheritable() || ann.declarerOwned())
@@ -895,8 +937,26 @@ public final class EditorWidgetFactory {
         return inherited != null && slot.annotation().declarerOwned();
     }
 
-    /// The label cell of one slot, greyed while [#inheritsValue] holds.
+    /// The label cell of one slot, greyed while [#inheritsValue] holds. A slot with a [ValueSlot#parentValue]
+    /// is asked again every frame, since a write into its row changes the answer without a re-render.
     public Static slotLabel(ValueSlot slot) {
+        if (slot.parentValue() != null) {
+            return new Static(
+                font,
+                AnchoredWidget.pixel(INDENT), AnchoredWidget.pixel(0),
+                AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
+                AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
+                AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
+                slot.labelComponent()
+            ) {
+                @Override
+                public void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks) {
+                    setColor(inheritsValue(slot) ? INHERITED_LABEL_COLOR : OWN_LABEL_COLOR);
+                    super.extractWidgetRenderState(graphics, mouseX, mouseY, partialTicks);
+                }
+            };
+        }
+
         Static label = makeLabel(font, slot.labelComponent());
 
         if (inheritsValue(slot)) label.setColor(INHERITED_LABEL_COLOR);
@@ -931,12 +991,17 @@ public final class EditorWidgetFactory {
     }
 
     /// Renders the rows of every slot of `slots` under the rows `table` already holds, see [#fillSlots].
-    /// The caller runs [WidgetTable#initialize] afterwards.
+    /// The caller runs [WidgetTable#initialize] afterwards. A slot with a [ValueSlot#parentValue] carries a `✕`
+    /// on its first row, which writes that value back as one undo step.
     public void appendSlots(WidgetTable table, List<? extends ValueSlot> slots, Runnable rebuild) {
         table.setMinTitleWidth(LABEL_W);
 
         for (ValueSlot slot : slots) {
-            appendShaped(table, slot, 0, rebuild, null);
+            Supplier<@Nullable Object> parentValue = slot.parentValue();
+
+            appendShaped(table, slot, 0, rebuild, parentValue == null ? null : () -> {
+                if (!inheritsValue(slot)) pushValueChange(slot, parentValue.get(), rebuild);
+            });
         }
     }
 

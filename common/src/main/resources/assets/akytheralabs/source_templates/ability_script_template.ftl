@@ -10,6 +10,8 @@
 <#if stateClass??>
 /// The blueprint's variables live in ${stateClass}, one per equipped instance.
 </#if>
+/// An ability laid over a data parent of the project extends that parent's class,
+/// and overrides the `<event>$graph` methods holding its event graphs.
 ///
 /// Its constructor is registered as an ABILITY_CTOR script function by the generated
 /// registries/*ScriptFunctions.java. Pick it as an ability's parent in Akythera Labs.
@@ -17,7 +19,7 @@
 <#import "method_list.ftl" as methodList>
 package ${package};
 
-public class ${className} extends ${supertype} {
+public class ${className}${typeParameters} extends ${supertype} {
 <#if !stateClass??>
 <#list fields as field>
     @ScriptField
@@ -31,20 +33,37 @@ public class ${className} extends ${supertype} {
 <#if stateClass??>
 
     @Override
+<#if stateType != stateClass>
+    @SuppressWarnings("unchecked")
+    public ${stateType} createState() {
+        return (${stateType}) new ${stateClass}();
+    }
+<#else>
     public ${stateClass} createState() {
         return new ${stateClass}();
     }
+</#if>
 </#if>
 <@methodList.methodList methods/>
 <#if stateClass??>
 
     /// The variables one equipped instance of this ability reads and writes.
-    public static final class ${stateClass} implements AbilityState {
+    public static class ${stateClass} <#if parentState??>extends ${parentState}<#else>implements AbilityState</#if> {
 <#list fields as field>
         @ScriptField
-        private ${field.type} ${field.name}<#if field.defaultValue??> = ${field.defaultValue}</#if>;
+        protected ${field.type} ${field.name}<#if field.defaultValue??> = ${field.defaultValue}</#if>;
 
 </#list>
+<#if overriddenFields?has_content>
+        public ${stateClass}() {
+<#list overriddenFields as field>
+<#if field.defaultValue??>
+            this.${field.name} = ${field.defaultValue};
+</#if>
+</#list>
+        }
+
+</#if>
         @Override
         public @Nullable StreamCodec<? super RegistryFriendlyByteBuf, ? extends AbilityState> streamCodec() {
             return null;
@@ -94,7 +113,7 @@ public class ${className} extends ${supertype} {
         public void copyState(final AbilityState from) {
             if (!(from instanceof ${stateClass} source)) return;
 
-<#list fields as field>
+<#list allFields as field>
             this.${field.name} = source.${field.name};
 </#list>
         }

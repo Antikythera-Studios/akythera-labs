@@ -15,7 +15,6 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
-import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.editor.NodeClipboard;
 import com.yesman.akytheralabs.editor.historytrack.DataChange;
@@ -120,9 +119,7 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
 
-        for (BlueprintScriptData.Variable variable : holder.getScript().getVariables()) {
-            variableDrafts.add(new VariableDraft(variable));
-        }
+        variableDrafts.addAll(VariableDraft.of(holder.getScript()));
 
         ScriptNodeSuggestions nodeSuggestions = new ScriptNodeSuggestions(holder::ownerType, variableDrafts);
 
@@ -179,55 +176,66 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
                     session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
                     Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
                 })
-                // Parent picker: every ability constructor. A pick re-opens the screen, and undo reaches
-                // the screen open at the time.
+                // Parent picker: every ability constructor, and the abilities this one may be laid over. A pick
+                // re-opens the screen, and undo reaches the screen open at the time.
                 .on(TopMenuOption.CHANGE_PARENT, () -> {
-                    List<CategorizedSelectModal.Choice<ScriptFunction>> ctors = AkytheraRegistries.Frozen.SCRIPT_FUNCTION.stream()
+                    List<CategorizedSelectModal.Choice<Object>> ctors = AkytheraRegistries.Frozen.SCRIPT_FUNCTION.stream()
                         .filter(function -> function.metadata().usage() == ScriptFunction.Usage.ABILITY_CTOR)
-                        .map(ctor -> new CategorizedSelectModal.Choice<>(ctor.metadata().label(), ctor))
+                        .map(ctor -> new CategorizedSelectModal.Choice<Object>(ctor.metadata().label(), ctor))
                         .toList();
 
-                    CategorizedSelectModal<ScriptFunction> modal = new CategorizedSelectModal<>(
+                    Consumer<Runnable> reopenWith = write -> {
+                        AbilityEditorScreen current =
+                            AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof AbilityEditorScreen open
+                                && open.resourceKey.equals(resourceKey) ? open : null;
+
+                        if (current != null) current.session.flush();
+
+                        write.run();
+
+                        if (current == null) return;
+
+                        AbilityEditorScreen reopened = new AbilityEditorScreen(resourceKey, holder);
+
+                        reopened.savePoint = current.savePoint;
+                        current.onClose();
+                        AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
+                    };
+
+                    CategorizedSelectModal<Object> modal = new CategorizedSelectModal<>(
                         minecraft.font,
                         PARENT_PICKER_W,
                         Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_PARENT),
-                        List.of(new CategorizedSelectModal.Category<>(
-                            Component.translatable(LangKeys.GUI_ABILITY_SCREEN_PARENT_CATEGORY), ctors)),
+                        List.of(
+                            new CategorizedSelectModal.Category<>(Component.translatable(LangKeys.GUI_ABILITY_SCREEN_PARENT_CATEGORY), ctors),
+                            BlueprintEditorSession.dataParentCategory(resourceKey, holder.getScript())
+                        ),
                         picked -> {
-                            if (picked == holder.getCtor()) return;
+                            if (picked instanceof Optional<?> dataParent) {
+                                BlueprintEditorSession.pickDataParent(holder.getScript(), dataParent, reopenWith);
+                                return;
+                            }
 
-                            if (!variableDrafts.isEmpty() && AbilityBlueprintHolder.stateSlot(picked) == null) {
+                            ScriptFunction pickedCtor = (ScriptFunction) picked;
+
+                            if (pickedCtor == holder.getCtor()) return;
+
+                            if (!variableDrafts.isEmpty() && AbilityBlueprintHolder.stateSlot(pickedCtor) == null) {
                                 RefusalPopup.open(
                                     Component.translatable(LangKeys.GUI_ABILITY_SCREEN_POPUP_VARIABLES_REFUSED_TITLE),
                                     Component.translatable(
                                         LangKeys.GUI_ABILITY_SCREEN_REFUSAL_PARENT_STATE,
-                                        picked.functionSignature().returnType().getSimpleName())
+                                        pickedCtor.functionSignature().returnType().getSimpleName())
                                 );
 
                                 return;
                             }
 
-                            Consumer<ScriptFunction> writer = value -> {
-                                AbilityEditorScreen current =
-                                    AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof AbilityEditorScreen open
-                                        && open.resourceKey.equals(resourceKey) ? open : null;
+                            Consumer<ScriptFunction> writer = value -> reopenWith.accept(() -> holder.setCtor(value));
 
-                                if (current != null) current.session.flush();
+                            HistoryManager.getInstance().pushHistory(new DataChange<>(holder.getCtor(), pickedCtor, writer));
 
-                                holder.setCtor(value);
-
-                                if (current == null) return;
-
-                                AbilityEditorScreen reopened = new AbilityEditorScreen(resourceKey, holder);
-
-                                reopened.savePoint = current.savePoint;
-                                current.onClose();
-                                AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
-                            };
-
-                            HistoryManager.getInstance().pushHistory(new DataChange<>(holder.getCtor(), picked, writer));
-
-                            writer.accept(picked);
+                            writer.accept(pickedCtor);
                         }
                     );
 

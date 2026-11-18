@@ -5,11 +5,13 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.api.component.ComponentAttachable;
 import com.yesman.akythera.api.data.modularize.AkytheraScriptFunctions;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
+import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
 import com.yesman.akythera.api.data.modularize.node.SequenceNode;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.client.api.gui.AkytheraHUD;
 import com.yesman.akythera.client.api.gui.AkytheraScreen;
+import com.yesman.akythera.core.blueprint.script.BlueprintBody;
 import com.yesman.akythera.core.blueprint.widget.DataDrivenWidgetBlueprint;
 import com.yesman.akythera.core.blueprint.widget.SourceCodeWidgetBlueprint;
 import com.yesman.akythera.core.blueprint.widget.WidgetBlueprint;
@@ -17,6 +19,7 @@ import com.yesman.akythera.core.blueprint.widget.WidgetUsage;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
+import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
 import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
@@ -37,6 +40,7 @@ import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import com.yesman.akytheralabs.gui.widget.script.ScriptGraphData;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -51,33 +55,31 @@ import java.util.stream.Stream;
 /// Modifiable data holder for a [WidgetBlueprint] (registry [AkytheraRegistries.DataPack#WIDGET_KEY]).
 ///
 /// The blueprint is the root [ComponentAttachableHolder] of its widget tree. Its [WidgetUsage] is not stored:
-/// it is what [#parent]'s constructor builds, see [#usageOf].
+/// it is what [#ctor] builds, see [#usageOf].
 ///
-/// [#parent] is either a container class, lowered into a [DataDrivenWidgetBlueprint], or a source code script,
-/// lowered into a [SourceCodeWidgetBlueprint] that carries nothing but the title.
+/// The data is laid over the source code script [BlueprintScriptData#getSourceParent] names, and over its data
+/// parent: the widgets, graphs, property values and variables here are what the blueprint adds to them or changes.
 public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBlueprint> implements ComponentAttachableHolder, DTOProvider {
     private static final int DEFAULT_CANVAS_WIDTH = 640;
     private static final int DEFAULT_CANVAS_HEIGHT = 360;
 
     public static final Codec<WidgetBlueprintHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
-            AkytheraRegistries.Frozen.SCRIPT_FUNCTION.byNameCodec().optionalFieldOf("parent").forGetter(h -> Optional.of(h.parent.ctor())),
+            AkytheraRegistries.Frozen.SCRIPT_FUNCTION.byNameCodec().optionalFieldOf("parent").forGetter(h -> Optional.of(h.ctor)),
             AkytheraRegistries.Frozen.SCRIPT_TYPE.byNameCodec().optionalFieldOf("source_code_script")
-                .forGetter(h -> h.parent instanceof BlueprintParentRef.SourceCodeScript sourceCode ? Optional.of(sourceCode.script()) : Optional.empty()),
+                .forGetter(h -> Optional.ofNullable(h.script.getSourceParent())),
             LocalizedMessage.CODEC.optionalFieldOf("title", LocalizedMessage.EMPTY).forGetter(h -> h.title),
             ComponentAttachableHolder.componentsField(() -> WidgetComponentHolders.REGISTRY).forGetter(ComponentAttachableHolder::componentsOf),
-            BlueprintScriptData.MAP_CODEC.forGetter(h -> h.script),
+            BlueprintScriptData.mapCodec(AkytheraRegistries.DataPack.WIDGET_KEY).forGetter(h -> h.script),
             Codec.INT.optionalFieldOf("canvas_width", DEFAULT_CANVAS_WIDTH).forGetter(h -> h.canvasWidth),
             Codec.INT.optionalFieldOf("canvas_height", DEFAULT_CANVAS_HEIGHT).forGetter(h -> h.canvasHeight)
         ).apply(instance, (ctor, sourceCodeScript, title, components, script, canvasWidth, canvasHeight) -> {
             WidgetBlueprintHolder holder = new WidgetBlueprintHolder();
-            ScriptFunction parentCtor = ctor.orElseGet(() -> defaultCtor(WidgetUsage.SCREEN));
-            holder.parent = sourceCodeScript
-                .<BlueprintParentRef>map(type -> new BlueprintParentRef.SourceCodeScript(parentCtor, type))
-                .orElseGet(() -> new BlueprintParentRef.ParentClass(parentCtor));
+            holder.ctor = ctor.orElseGet(() -> defaultCtor(WidgetUsage.SCREEN));
             holder.title = title;
             ComponentAttachableHolder.applyComponents(holder, components);
             holder.script = script;
+            script.setSourceParent(sourceCodeScript.orElse(null));
             holder.canvasWidth = canvasWidth;
             holder.canvasHeight = canvasHeight;
             script.typeProperties(holder.layout());
@@ -87,7 +89,7 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
 
     /// What the engine builds the container with. Its constructor's return type is the container's class, the
     /// script owner of every canvas, and decides the [WidgetUsage].
-    private BlueprintParentRef parent = new BlueprintParentRef.ParentClass(defaultCtor(WidgetUsage.SCREEN));
+    private ScriptFunction ctor = defaultCtor(WidgetUsage.SCREEN);
 
     /// The screen's title, which [AkytheraScriptFunctions#SCREEN_TITLE] reads.
     @EditorEditable(label = LangKeys.GUI_WIDGET_SCREEN_ROW_TITLE, order = 0, visibleWhen = "isScreen")
@@ -124,17 +126,29 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
         return WidgetUsage.WIDGET;
     }
 
+    /// [#ctor], with the source code script the data is laid over when it names one.
     public BlueprintParentRef getParent() {
-        return parent;
+        ScriptType sourceCodeScript = script.getSourceParent();
+
+        return sourceCodeScript == null
+            ? new BlueprintParentRef.ParentClass(ctor)
+            : new BlueprintParentRef.SourceCodeScript(ctor, sourceCodeScript);
     }
 
+    /// Sets [#ctor] and the source code script the data is laid over. A blueprint that had no parent script gets a
+    /// Parent node behind every event entry that leads nowhere, see [BlueprintScriptData#seedParentCalls].
     public void setParent(final BlueprintParentRef parent) {
-        this.parent = parent;
+        boolean hadParentScript = script.hasParentScript();
+
+        this.ctor = parent.ctor();
+        script.setSourceParent(parent instanceof BlueprintParentRef.SourceCodeScript sourceCode ? sourceCode.script() : null);
         script.typeProperties(layout());
+
+        if (!hadParentScript && script.hasParentScript()) script.seedParentCalls();
     }
 
     public WidgetUsage usage() {
-        return usageOf(parent.ctor());
+        return usageOf(ctor);
     }
 
     private boolean isScreen() {
@@ -143,7 +157,7 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
 
     /// The container's class: what `self` is on every canvas.
     public Class<?> ownerType() {
-        return parent.ctor().functionSignature().returnType();
+        return ctor.functionSignature().returnType();
     }
 
     /// The members [#ownerType] lays the editor out with.
@@ -166,6 +180,28 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
 
     public BlueprintScriptData getScript() {
         return script;
+    }
+
+    /// The widgets of the data parents the project holds, by name, the root's first. A nearer parent naming one
+    /// again replaces it.
+    @SuppressWarnings("unchecked")
+    public SequencedMap<String, ComponentDataHolder<?>> inheritedComponents() {
+        List<WidgetBlueprintHolder> ancestors = new ArrayList<>();
+        WidgetBlueprintHolder ancestor = this;
+
+        while (ancestor.script.getDataParent() != null) {
+            ancestor = AkytheraProject.getCurrentProject().<WidgetBlueprint, WidgetBlueprintHolder>getDataHolder(
+                (ResourceKey<WidgetBlueprint>) ancestor.script.getDataParent().unwrapKey().orElseThrow()).orElse(null);
+
+            if (ancestor == null || ancestor == this || ancestors.contains(ancestor)) break;
+
+            ancestors.addFirst(ancestor);
+        }
+
+        SequencedMap<String, ComponentDataHolder<?>> inherited = ComponentAttachableHolder.newComponentMap();
+        ancestors.forEach(parent -> inherited.putAll(parent.components));
+
+        return inherited;
     }
 
     /// The paths of the widgets in the tree that take input, which a HUD refuses.
@@ -195,68 +231,74 @@ public final class WidgetBlueprintHolder extends AbstractDataHolder<WidgetBluepr
         switch (object) {
             // The runtime blueprint carries no on-canvas layout, so only the values round-trip.
             case DataDrivenWidgetBlueprint dataDriven -> {
-                parent = new BlueprintParentRef.ParentClass(dataDriven.ctor());
+                ctor = dataDriven.ctor();
                 ComponentAttachableHolder.readComponents(this, WidgetComponentHolders.REGISTRY, dataDriven.components());
-                script = new BlueprintScriptData(
-                    ScriptGraphData.EMPTY, Map.of(), List.of(), dataDriven.body().properties(),
-                    dataDriven.body().variables().stream().map(BlueprintScriptData.Variable::of).toList());
+                script = BlueprintScriptData.of(AkytheraRegistries.DataPack.WIDGET_KEY, dataDriven.body(), dataDriven.dataParent());
+                script.setSourceParent(dataDriven.parentScript().orElse(null));
                 script.typeProperties(layout());
             }
-            case SourceCodeWidgetBlueprint sourceCode -> parent = new BlueprintParentRef.SourceCodeScript(sourceCode.ctor(), sourceCode.script());
+            case SourceCodeWidgetBlueprint sourceCode -> {
+                ctor = sourceCode.ctor();
+                script = new BlueprintScriptData();
+                script.setSourceParent(sourceCode.script());
+            }
         }
     }
 
+    /// A blueprint that adds nothing to the source code script it is laid over, and names no data parent, lowers
+    /// into a [SourceCodeWidgetBlueprint], which runs the script alone.
     @Override
     public WidgetBlueprint makeObject() {
-        return switch (parent) {
-            case BlueprintParentRef.ParentClass parentClass -> {
-                Map<String, FlowNode> events = new LinkedHashMap<>();
-                Map<String, FlowNode> bindings = new LinkedHashMap<>();
-                BlueprintMembers members = script.members(layout());
+        Map<String, FlowNode> events = new LinkedHashMap<>();
+        Map<String, FlowNode> bindings = new LinkedHashMap<>();
+        BlueprintMembers members = script.members(layout());
 
-                // A graph whose entry leads nowhere is left out
-                for (WidgetGraphSite site : widgetGraphSites()) {
-                    FlowNode flow = ScriptGraphCompiler.compile(
-                        site.graph(), ownerType(), BlueprintScriptData.entryOf(site.signature().name()), members.with(site.widgetSignatures()),
-                        site.signature().name(), site.key());
+        // A graph whose entry leads nowhere is left out
+        for (WidgetGraphSite site : widgetGraphSites()) {
+            FlowNode flow = ScriptGraphCompiler.compile(
+                site.graph(), ownerType(), BlueprintScriptData.entryOf(site.signature().name()), members.with(site.widgetSignatures()),
+                site.signature().name(), site.key());
 
-                    if (flow instanceof SequenceNode sequence && sequence.executionBlocks().isEmpty()) continue;
+            if (flow instanceof SequenceNode sequence && sequence.executionBlocks().isEmpty()) continue;
 
-                    (site.signature().returnType() == null ? events : bindings).put(site.key(), flow);
-                }
+            (site.signature().returnType() == null ? events : bindings).put(site.key(), flow);
+        }
 
-                yield new DataDrivenWidgetBlueprint(
-                    usage(), parentClass.ctor(), title, WidgetComponentHolder.lowerWidgets(components),
-                    script.compile(layout(), ownerType()), events, bindings);
-            }
-            case BlueprintParentRef.SourceCodeScript sourceCode -> new SourceCodeWidgetBlueprint(usage(), sourceCode.ctor(), title, sourceCode.script());
-        };
+        ScriptType sourceCodeScript = script.getSourceParent();
+        BlueprintBody body = script.compile(layout(), ownerType());
+
+        if (sourceCodeScript != null && script.getDataParent() == null && components.isEmpty() && body.equals(BlueprintBody.EMPTY)
+            && events.isEmpty() && bindings.isEmpty()
+        ) {
+            return new SourceCodeWidgetBlueprint(usage(), ctor, title, sourceCodeScript);
+        }
+
+        return new DataDrivenWidgetBlueprint(
+            usage(), ctor, title, WidgetComponentHolder.lowerWidgets(components), Optional.ofNullable(sourceCodeScript),
+            script.exportedDataParent(), body, events, bindings);
     }
 
     /// Tokens for `widget_blueprint_template.ftl`: the usage, the parent constructor, the title and the source code
-    /// script, which is the compiled class ([FreemarkerExporter#compiledClass]) of a container class parent.
+    /// script, which is the compiled class ([FreemarkerExporter#compiledClass]) of a data-driven entry.
     @Override
     public Map<String, Object> getDTO() {
-        String script = switch (parent) {
-            case BlueprintParentRef.ParentClass _ ->
+        String script = switch (makeObject()) {
+            case DataDrivenWidgetBlueprint _ ->
                 "ScriptType.of(" + Objects.requireNonNull(FreemarkerExporter.compiledClass(Objects.requireNonNull(getOwnResourceKey()))) + ".class)";
-            case BlueprintParentRef.SourceCodeScript sourceCode -> NodeTreeSourceRenderer.scriptType(sourceCode.script());
+            case SourceCodeWidgetBlueprint sourceCode -> NodeTreeSourceRenderer.scriptType(sourceCode.script());
         };
 
         return Map.of(
             "usage", "WidgetUsage." + usage().name(),
-            "ctor", NodeTreeSourceRenderer.scriptFunction(parent.ctor()),
+            "ctor", NodeTreeSourceRenderer.scriptFunction(ctor),
             "title", WidgetComponentHolder.sourceOf(title),
             "script", script
         );
     }
 
-    /// Also validates the graph of every widget event and binding, under its [WidgetGraphSite#key]. A source
-    /// code script lowers nothing from the canvases, so it checks none.
+    /// Also validates the graph of every widget event and binding, under its [WidgetGraphSite#key].
     @Override
     public void compile(final Compilation compilation) {
-        if (parent instanceof BlueprintParentRef.SourceCodeScript) return;
-
         BlueprintEditorSession.compileCanvases(compilation, script, layout(), ownerType(), this);
 
         BlueprintMembers members = script.members(layout());

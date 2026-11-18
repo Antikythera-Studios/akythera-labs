@@ -25,14 +25,12 @@ import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.dataholder.FailedComponentHolder;
-import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import com.yesman.akytheralabs.gui.panel.script.BlueprintEditorSession;
 import com.yesman.akytheralabs.gui.widget.script.Compilation;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.Item;
@@ -55,8 +53,8 @@ import java.util.stream.Stream;
 ///
 /// An item patch holds the parent reference, the component list and the graphs of its [ItemPatchScript] events,
 /// kept as one [BlueprintScriptData] with no member variable. [#parent] is a blueprint-level editable field,
-/// shown in the Details panel while no component is focused. A patch whose events are run by a Java class keeps
-/// the class in [#sourceCodeScript] and lowers no graph.
+/// shown in the Details panel while no component is focused. A patch laid over a Java class keeps the class in
+/// [#sourceCodeScript]: its graphs run over the class's events, which run over the parent patch's.
 ///
 /// [#readFrom] reconstructs the editor state as far as the component holders allow. Compiled script nodes
 /// cannot decompile back into a canvas: a component carrying them re-imports with that graph empty, and so
@@ -85,18 +83,18 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
                 .forGetter(ParseUtils.provideOptional(ItemPatchBlueprintHolder::getPreviewItem))
         ).apply(instance, (parent, components, sourceCodeScript, scriptData, previewItem) -> {
             ItemPatchBlueprintHolder h = new ItemPatchBlueprintHolder();
-            parent.ifPresent(h::setParent);
+            parent.ifPresent(value -> h.parent = value);
             ComponentAttachableHolder.applyComponents(h, components);
-            sourceCodeScript.ifPresent(h::setSourceCodeScript);
+            h.sourceCodeScript = sourceCodeScript.orElse(null);
             h.script = scriptData;
+            h.syncParentScript();
             previewItem.ifPresent(h::setPreviewItem);
             return h;
         })
     );
 
     /// The parent blueprint reference, the shared live holder. [DataHolder#EMPTY_REFERENCE] means no
-    /// parent and displays as `<none>`.
-    @EditorEditable(label = "gui.akytheralabs.item_patch_screen.row.parent")
+    /// parent.
     private Holder<ItemPatchBlueprint> parent = emptyParent();
 
     /// The attached components' editor holders, keyed by the name the engine attaches them under and
@@ -105,16 +103,8 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
 
     private BlueprintScriptData script = new BlueprintScriptData();
 
-    /// The [ItemPatchScript] class running the events in place of [#script], see [ItemPatchScript#runnable]. Null
-    /// when the graphs run them.
-    @EditorEditable(
-        label = "gui.akytheralabs.item_patch_screen.row.script_class",
-        order = 1,
-        candidates = "scriptClassCandidates",
-        candidateLabel = "scriptClassLabel",
-        searchable = true,
-        emptyCandidates = "gui.akytheralabs.item_patch_screen.empty.script_classes"
-    )
+    /// The [ItemPatchScript] class the graphs of [#script] are laid over, see [ItemPatchScript#runnable]. Null for
+    /// none.
     private @Nullable ScriptType sourceCodeScript;
 
     /// The item the editor preview draws this patch on. Only a **meta** patch reads it — an
@@ -133,15 +123,11 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
 
     /// The classes [#sourceCodeScript] may pick: every registered [ItemPatchScript#runnable] class but the data
     /// pack runner.
-    static List<ScriptType> scriptClassCandidates() {
+    public static List<ScriptType> scriptClassCandidates() {
         return AkytheraRegistries.Frozen.SCRIPT_TYPE.stream()
             .filter(type -> ItemPatchScript.runnable(type.type()) && type.type() != DataDrivenItemPatchScript.class)
             .sorted(Comparator.comparing(type -> type.type().getSimpleName()))
             .toList();
-    }
-
-    static Component scriptClassLabel(final ScriptType type) {
-        return Component.literal(type.type().getSimpleName());
     }
 
     private static Holder<ItemPatchBlueprint> emptyParent() {
@@ -181,7 +167,11 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
         parent = object.parent().map(ItemPatchBlueprintHolder::parentOf).orElseGet(ItemPatchBlueprintHolder::emptyParent);
         ComponentAttachableHolder.readComponents(this, ItemPatchComponentHolders.REGISTRY, object.components());
         script = new BlueprintScriptData();
-        sourceCodeScript = object.script() instanceof ItemPatchBlueprint.ByClass byClass ? byClass.type() : null;
+        sourceCodeScript = switch (object.script()) {
+            case ItemPatchBlueprint.ByClass byClass -> byClass.type();
+            case ItemPatchBlueprint.ByData byData -> byData.parentScript().orElse(null);
+        };
+        syncParentScript();
     }
 
     @Override
@@ -192,21 +182,15 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
         return new ItemPatchBlueprint(
             parentOpt,
             ComponentAttachableHolder.lowerComponents(components),
-            sourceCodeScript != null
-                ? new ItemPatchBlueprint.ByClass(sourceCodeScript)
-                : new ItemPatchBlueprint.ByData(script.compile(layout(), ItemPatch.class)));
+            new ItemPatchBlueprint.ByData(Optional.ofNullable(sourceCodeScript), script.compile(layout(), ItemPatch.class)));
     }
 
     /// Validates the Event Graph, the function canvases and the components' node graphs
-    /// ([EditorWidgetFactory#compileNodeGraphs]), then builds the patch. A source code script lowers nothing from
-    /// the Event Graph and the function canvases, so it checks neither.
+    /// ([EditorWidgetFactory#compileNodeGraphs]), then builds the patch.
     @Override
     public void compile(final Compilation compilation) {
-        if (sourceCodeScript == null) {
-            BlueprintEditorSession.compileCanvases(compilation, script, layout(), ItemPatch.class, null);
-            compilation.unresolved(script.failedNodes());
-        }
-
+        BlueprintEditorSession.compileCanvases(compilation, script, layout(), ItemPatch.class, null);
+        compilation.unresolved(script.failedNodes());
         EditorWidgetFactory.compileNodeGraphs(compilation, this, ItemPatch.class);
         compilation.build(this::makeObject);
     }
@@ -244,12 +228,12 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
 
         dto.put("components", ComponentDataHolder.sourcesOf(healthyComponents(), false));
 
-        String compiledClass = sourceCodeScript == null && getOwnResourceKey() != null ? FreemarkerExporter.compiledClass(getOwnResourceKey()) : null;
+        String compiledClass = getOwnResourceKey() != null ? FreemarkerExporter.compiledClass(getOwnResourceKey()) : null;
 
-        if (sourceCodeScript != null) {
-            dto.put("script", NodeTreeSourceRenderer.scriptType(sourceCodeScript));
-        } else if (compiledClass != null) {
+        if (compiledClass != null) {
             dto.put("script", "ScriptType.of(" + compiledClass + ".class)");
+        } else if (sourceCodeScript != null) {
+            dto.put("script", NodeTreeSourceRenderer.scriptType(sourceCodeScript));
         }
 
         return dto;
@@ -259,8 +243,21 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
         return parent;
     }
 
+    /// Sets the parent patch. A patch that had no parent script gets a Parent node behind every event entry that
+    /// leads nowhere, see [BlueprintScriptData#seedParentCalls].
     public void setParent(Holder<ItemPatchBlueprint> parent) {
+        boolean hadParentScript = script.hasParentScript();
+
         this.parent = parent;
+        syncParentScript();
+
+        if (!hadParentScript && script.hasParentScript()) script.seedParentCalls();
+    }
+
+    /// Tells [#script] what its graphs are laid over: [#sourceCodeScript], and the script of [#parent].
+    private void syncParentScript() {
+        script.setSourceParent(sourceCodeScript);
+        script.setHolderParent(!parent.is(DataHolder.EMPTY_REFERENCE));
     }
 
     /// The component map minus unknown-type placeholders. A [FailedComponentHolder] has no source
@@ -325,8 +322,15 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
         return sourceCodeScript;
     }
 
+    /// Sets the script class. A patch that had no parent script gets a Parent node behind every event entry that
+    /// leads nowhere, see [BlueprintScriptData#seedParentCalls].
     public void setSourceCodeScript(@Nullable ScriptType sourceCodeScript) {
+        boolean hadParentScript = script.hasParentScript();
+
         this.sourceCodeScript = sourceCodeScript;
+        syncParentScript();
+
+        if (!hadParentScript && script.hasParentScript()) script.seedParentCalls();
     }
 
     // ***************************************************************

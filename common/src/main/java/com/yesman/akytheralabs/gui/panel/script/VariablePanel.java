@@ -11,6 +11,7 @@ import com.yesman.akythera.core.reflection.BlueprintField;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
 import com.yesman.akythera.mixinaccessor.client.GuiGraphicsAccessor;
 import com.yesman.akytheralabs.SourceNames;
+import com.yesman.akytheralabs.editor.EditorWidgetFactory;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsEditBoxTheme;
@@ -49,6 +50,10 @@ import java.util.Map;
 /// The parent's [BlueprintField]s head the list in grey. They cannot be renamed or removed, and dragging one
 /// out hands it to the [FieldDropTarget].
 ///
+/// A variable standing for a data parent's is listed in grey too, and cannot be renamed, retyped or removed. It
+/// turns white and carries a `✕` once its default value or sync direction differs from the parent's; the `✕`
+/// puts the parent's back.
+///
 /// Once [#markSyncTargets] is called, a variable whose type has a stream codec carries a bar at its row's left
 /// edge, and its row explains the bar in a tooltip.
 public final class VariablePanel extends AdjustablePanelManager.PanelArea {
@@ -60,6 +65,7 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
     private static final int SYNC_MARK_COLOR = 0xFF4FA3E0;
     private static final int SELECTED_COLOR = 0xFF385470; // selected row, this panel focused
     private static final int SELECTED_UNFOCUSED_COLOR = 0xFF2C3440; // selected row, another panel focused
+    private static final int REVERT_BTN = 12; // the ✕ an overriding row carries
 
     /// Handed a variable released over the canvas so the host screen can spawn a Get / Set node.
     @FunctionalInterface
@@ -192,11 +198,16 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
             );
             EditorComboBox<ScriptType> typeCombo = controller.typeCombo(
                 draft,
-                AnchoredWidget.pixel(6), AnchoredWidget.fraction(44),
+                AnchoredWidget.pixel(draft.isInherited() ? 6 + REVERT_BTN : 6), AnchoredWidget.fraction(44),
                 AnchoredWidget.pixel(0), AnchoredWidget.pixel(VariableEditController.ROW_H),
                 AnchoredWidget.HorizontalAnchorType.RIGHT_WIDTH,
                 AnchoredWidget.VerticalAnchorType.TOP_HEIGHT
             );
+
+            if (draft.isInherited()) {
+                EditorWidgetFactory.lock(nameBox);
+                EditorWidgetFactory.lock(typeCombo);
+            }
 
             nameBoxes.put(draft, nameBox);
             typeCombos.put(draft, typeCombo);
@@ -228,9 +239,23 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
         // the row content — the name text and type combo draw on top and stay readable.
         graphics.fill(getX(), getY(), getRight(), getBottom(), bgColor);
         drawRowHighlights(graphics, mouseX, mouseY);
-        nameBoxes.forEach((draft, box) -> box.setTextColor(draft.hasDefaultError() ? ERROR_TEXT_COLOR : null));
+        nameBoxes.forEach((draft, box) -> box.setTextColor(
+            draft.hasDefaultError() ? Integer.valueOf(ERROR_TEXT_COLOR) : draft.isInherited() && !draft.overrides() ? FIELD_TEXT_COLOR : null));
         header.extractRenderState(graphics, mouseX, mouseY, a);
         table.extractRenderState(graphics, mouseX, mouseY, a);
+
+        for (int i = 0; i < controller.drafts().size(); i++) {
+            int top = table.getY() + 2 + (fields.size() + i) * VariableEditController.ROW_H;
+
+            if (top >= getBottom()) break;
+            if (!controller.drafts().get(i).overrides()) continue;
+
+            graphics.text(
+                font, Component.literal("✕"),
+                table.getRight() - REVERT_BTN, top + (VariableEditController.ROW_H - font.lineHeight) / 2,
+                overRevert(fields.size() + i, mouseX, mouseY) ? 0xFFFFFFFF : 0xFF888888, false
+            );
+        }
 
         if (marksSyncTargets) {
             List<VariableDraft> drafts = controller.drafts();
@@ -339,11 +364,20 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
 
         int row = rowIndexAt(event.y());
 
+        if (event.button() == 0 && row >= fields.size() && controller.drafts().get(row - fields.size()).overrides()
+            && overRevert(row, event.x(), event.y())
+        ) {
+            controller.revertVariable(controller.drafts().get(row - fields.size()));
+            return true;
+        }
+
         if (event.button() == 1) { // right-click → context menu
             if (row >= fields.size()) {
                 VariableDraft draft = controller.drafts().get(row - fields.size());
                 controller.select(draft);
-                openContextMenu(draft, (int) event.x(), (int) event.y());
+
+                // Rename and Remove would act on the data parent's variable
+                if (!draft.isInherited()) openContextMenu(draft, (int) event.x(), (int) event.y());
             }
             return true;
         }
@@ -374,7 +408,7 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
             return super.mouseClicked(event, doubleClick);
         }
 
-        if (doubleClick) {
+        if (doubleClick && !draft.isInherited()) {
             pressDraft = null;
             beginRename(draft);
             return true;
@@ -459,6 +493,15 @@ public final class VariablePanel extends AdjustablePanelManager.PanelArea {
 
         pressDraft = null;
         return super.mouseReleased(event);
+    }
+
+    /// Whether `(mouseX, mouseY)` is over the `✕` of the row at `row`, the [#REVERT_BTN] strip at the table's
+    /// right edge.
+    private boolean overRevert(int row, double mouseX, double mouseY) {
+        int top = table.getY() + 2 + row * VariableEditController.ROW_H;
+
+        return mouseX >= table.getRight() - REVERT_BTN && mouseX < table.getRight()
+            && mouseY >= top && mouseY < top + VariableEditController.ROW_H;
     }
 
     /// Whether `(x, y)` is inside `widget`'s laid-out bounds.

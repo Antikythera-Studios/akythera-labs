@@ -1,6 +1,8 @@
 package com.yesman.akytheralabs;
 
+import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
+import com.yesman.akythera.api.data.modularize.node.SequenceNode;
 import com.yesman.akythera.api.world.ability.Ability;
 import com.yesman.akythera.api.world.ability.AbilityCue;
 import com.yesman.akythera.api.world.ability.AbilityCueScript;
@@ -11,6 +13,7 @@ import com.yesman.akythera.client.api.particle.AkytheraParticleEmitter;
 import com.yesman.akythera.core.animation.animator.BlendingAnimator;
 import com.yesman.akythera.core.blueprint.AbilityBlueprint;
 import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
+import com.yesman.akythera.core.blueprint.Blueprint;
 import com.yesman.akythera.core.blueprint.DataDrivenEntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
@@ -30,7 +33,8 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.EnumerableDataBlock;
 import com.yesman.akythera.core.util.EnumerableDataBlockManager;
 import com.yesman.akythera.core.util.helper.ParseUtils;
-import com.yesman.akytheralabs.akythera.blueprint.BlueprintParentRef;
+import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
+import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintSignature;
 import com.yesman.akytheralabs.akythera.particle.ParticleModuleScriptHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleModulesProducer;
@@ -46,6 +50,7 @@ import com.yesman.akytheralabs.akythera.animation.MotionWarpTargetScriptHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.itempatch.ItemPatchBlueprintHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.component.ComponentDataHolder;
+import com.yesman.akytheralabs.gui.panel.main.processors.ResourceProcessor;
 import freemarker.template.TemplateException;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
@@ -67,12 +72,17 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 @NullMarked
 public final class FreemarkerExporter {
@@ -119,6 +129,9 @@ public final class FreemarkerExporter {
     /// script's field is `animator`, an entity-patch script's is `owner`, and an ability is its own.
     private static final String ANIMATOR_SELF = "this.animator";
     private static final String ENTITY_PATCH_SELF = "this.owner";
+
+    /// The field a generated entity patch script, or widget script, holds the source code script it is laid over in.
+    private static final String PARENT_FIELD = "this.parent";
     private static final String ITEM_PATCH_SELF = "this.owner";
     private static final String ABILITY_SELF = "this";
     private static final String ABILITY_CUE_SELF = "this.cue";
@@ -136,6 +149,9 @@ public final class FreemarkerExporter {
     /// function the blueprint declares receives it under.
     private static final String ABILITY_STATE_CLASS = "State";
     private static final String ABILITY_STATE_PARAMETER = "abilityState";
+
+    /// The type parameter a generated ability class its subclasses extend leaves its state class open as.
+    private static final String ABILITY_STATE_TYPE_PARAMETER = "T";
 
     /// The declared types of [#ANIMATOR_SELF] and [#ENTITY_PATCH_SELF] in the generated classes.
     private static final Class<?> ANIMATOR_SELF_TYPE = BlendingAnimator.class;
@@ -388,9 +404,9 @@ public final class FreemarkerExporter {
             model.put("className", className);
             model.put("fields", animatorFields(blueprint.body().variables()));
             model.put("methods", BlueprintSourceWriter.methods(
-                AnimatorScriptHolder.layout(), blueprint.body(), AnimatorScript.class, memberVariables, null,
+                AnimatorScriptHolder.layout(), List.of(blueprint.body()), AnimatorScript.class, memberVariables, null,
                 ANIMATOR_SELF, ANIMATOR_SELF_TYPE,
-                Map.of(DataDrivenAnimatorScript.CONSTRUCT, List.of("this.animator = animator;"))));
+                Map.of(DataDrivenAnimatorScript.CONSTRUCT, List.of("this.animator = animator;")), null, null));
             model.put("poseBody", ScriptNodeSourceCompiler.compileReturningFlow(
                 blueprint.poseGetter(), memberVariables, List.of("layers"), ANIMATOR_SELF, ANIMATOR_SELF_TYPE, "Pose.EMPTY_POSE"));
 
@@ -428,7 +444,13 @@ public final class FreemarkerExporter {
     /// attached component holder renders its own constructor expression ([#componentSources]) that the
     /// template collects into `componentsToAttach()`.
     ///
-    /// An entry parented on a source code script is already source, and is skipped.
+    /// An entry laid over a data parent the export writes as a class ([#compiledClass]) extends that class: it
+    /// declares only its own variables, graphs and components, and a Parent node is a `super` call.
+    ///
+    /// Otherwise an entry laid over a source code script holds one in its `parent` field: an event runs the script's
+    /// where its graph's Parent node sits, or when no graph implements it, and `componentsToAttach()` starts from the
+    /// script's. The graphs and components of the data parents are then written into the class too. An entry that
+    /// adds nothing to its source code script is already source, and is skipped.
     public static void exportEntityPatchScript(
         AkytheraProject project,
         ResourceKey<EntityPatchBlueprint> entryKey,
@@ -444,24 +466,89 @@ public final class FreemarkerExporter {
         String className = entityPatchScriptClass(entryKey);
 
         try {
-            if (!(holder.makeObject() instanceof DataDrivenEntityPatchBlueprint blueprint)) {
-                AkytheraLabs.LOGGER.info("Skipped {} for script export: its parent is a source code script", entryKey.identifier());
+            if (!(holder instanceof EntityPatchBlueprintHolder patchHolder) || !(patchHolder.makeObject() instanceof DataDrivenEntityPatchBlueprint blueprint)) {
+                AkytheraLabs.LOGGER.info("Skipped {} for script export: it adds nothing to its source code script", entryKey.identifier());
                 return;
             }
 
-            List<String> memberVariables = blueprint.body().variables().stream()
+            List<BlueprintBody> chain = bodyChain(entryKey, blueprint);
+            BlueprintBody body = BlueprintBody.fold(chain);
+            List<String> memberVariables = body.variables().stream()
                 .map(ScriptVariables.VariableInfo::name)
                 .toList();
+
+            Holder<?> dataParent = patchHolder.getScript().getDataParent();
+            String superclass = dataParent == null || patchHolder.getScript().getSourceParent() != null
+                ? null
+                : compiledClass(dataParent.unwrapKey().orElseThrow());
+
+            // A data parent the export writes as a class is extended
+            if (superclass != null) {
+                BlueprintBody inherited = BlueprintBody.fold(chain.subList(1, chain.size()));
+                Set<String> inheritedVariables = inherited.variables().stream().map(ScriptVariables.VariableInfo::name).collect(Collectors.toSet());
+
+                Map<String, Object> model = new HashMap<>();
+                model.put("package", subPackage(packageName, PATCHES_DIR));
+                model.put("modid", project.getProjectName());
+                model.put("className", className);
+                model.put("superclass", superclass);
+                model.put("fields", animatorFields(
+                    blueprint.body().variables().stream().filter(variable -> !inheritedVariables.contains(variable.name())).toList()));
+                model.put("overriddenFields", animatorFields(
+                    blueprint.body().variables().stream().filter(variable -> inheritedVariables.contains(variable.name())).toList()));
+                model.put("methods", BlueprintSourceWriter.methods(
+                    ScriptModularizeHelper.scanBlueprintLayout(EntityPatchScript.class), List.of(blueprint.body()),
+                    EntityPatchScript.class, memberVariables, null, ENTITY_PATCH_SELF, ENTITY_PATCH_SELF_TYPE, Map.of(),
+                    new BlueprintSourceWriter.ParentScript("super", true, inherited.functions().keySet()), null));
+                model.put("components", componentSources(holder));
+                model.put("inheritedComponents", List.of());
+
+                render("entity_patch_script_template.ftl", model, patchesRoot.resolve(className + ".java"), entryKey.identifier());
+                return;
+            }
+
+            // The data parents the project holds, the root's first, and the source code script of the nearest
+            // blueprint naming one
+            List<EntityPatchBlueprintHolder> ancestors = new ArrayList<>();
+            EntityPatchBlueprintHolder ancestor = patchHolder;
+
+            while (ancestor.getScript().getDataParent() != null) {
+                ancestor = project.<EntityPatchBlueprint, EntityPatchBlueprintHolder>getDataHolder(
+                    (ResourceKey<EntityPatchBlueprint>) ancestor.getScript().getDataParent().unwrapKey().orElseThrow()).orElse(null);
+
+                if (ancestor == null || ancestor == patchHolder || ancestors.contains(ancestor)) break;
+
+                ancestors.addFirst(ancestor);
+            }
+
+            ScriptType parentScript = Stream.concat(Stream.of(patchHolder), ancestors.reversed().stream())
+                .map(patch -> patch.getScript().getSourceParent())
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+
+            if (parentScript != null && parentScript.type().getSimpleName().equals(className)) {
+                AkytheraLabs.LOGGER.error(
+                    "Skipped {} for script export: the class {} it is laid over has the name of the class the export writes",
+                    entryKey.identifier(), parentScript.type().getName());
+
+                return;
+            }
 
             Map<String, Object> model = new HashMap<>();
             model.put("package", subPackage(packageName, PATCHES_DIR));
             model.put("modid", project.getProjectName());
             model.put("className", className);
-            model.put("fields", animatorFields(blueprint.body().variables()));
+            model.put("fields", animatorFields(body.variables()));
             model.put("methods", BlueprintSourceWriter.methods(
-                ScriptModularizeHelper.scanBlueprintLayout(EntityPatchScript.class), blueprint.body(),
-                EntityPatchScript.class, memberVariables, null, ENTITY_PATCH_SELF, ENTITY_PATCH_SELF_TYPE, Map.of()));
+                ScriptModularizeHelper.scanBlueprintLayout(EntityPatchScript.class), chain,
+                EntityPatchScript.class, memberVariables, null, ENTITY_PATCH_SELF, ENTITY_PATCH_SELF_TYPE, Map.of(),
+                parentScript == null ? null : new BlueprintSourceWriter.ParentScript(PARENT_FIELD, false, Set.of()), null));
             model.put("components", componentSources(holder));
+            model.put("overriddenFields", List.of());
+            model.put("inheritedComponents", ancestors.stream().map(FreemarkerExporter::componentSources).toList());
+
+            if (parentScript != null) model.put("parentScript", SourceNames.typeName(parentScript.type()));
 
             render("entity_patch_script_template.ftl", model, patchesRoot.resolve(className + ".java"), entryKey.identifier());
         } catch (Exception e) {
@@ -483,15 +570,22 @@ public final class FreemarkerExporter {
     }
 
     /// An item patch's graphs as its own [#itemPatchScriptClass]: an [ItemPatchScript] whose events and declared
-    /// functions are methods, with `self` bound to the `owner` field. A patch authoring no event, and one already run
-    /// by a source code script, writes no class.
+    /// functions are methods, with `self` bound to the `owner` field. A patch authoring no event writes no class.
+    /// A patch laid over a source code script extends that script's class. An event runs the parent's only where
+    /// its graph's Parent node sits.
     public static void exportItemPatchScript(AkytheraProject project, ResourceKey<?> entryKey, Path sourceCodeRoot, String packageName) {
         @SuppressWarnings("unchecked")
         DataHolder<?> holder = project.getDataHolderOrThrow((ResourceKey<Object>) entryKey);
         if (!notBroken(entryKey, holder) || !(holder instanceof ItemPatchBlueprintHolder patchHolder)) return;
 
         try {
-            if (!(patchHolder.makeObject().script() instanceof ItemPatchBlueprint.ByData(BlueprintBody body)) || body.methods().isEmpty()) return;
+            if (!(patchHolder.makeObject().script() instanceof ItemPatchBlueprint.ByData(Optional<ScriptType> parentScript, BlueprintBody body))
+                || body.methods().isEmpty()
+            ) {
+                return;
+            }
+
+            Class<?> base = parentScript.<Class<?>>map(ScriptType::type).orElse(ItemPatchScript.class);
 
             Path patchesRoot = sourceCodeRoot.resolve(ITEM_PATCHES_DIR);
             if (!prepareDirectory(patchesRoot)) return;
@@ -503,8 +597,10 @@ public final class FreemarkerExporter {
             model.put("modid", project.getProjectName());
             model.put("entryId", entryKey.identifier().toString());
             model.put("className", className);
+            model.put("supertype", SourceNames.typeName(base));
             model.put("methods", BlueprintSourceWriter.methods(
-                ItemPatchBlueprintHolder.layout(), body, ItemPatchScript.class, List.of(), null, ITEM_PATCH_SELF, ItemPatch.class, Map.of()));
+                ItemPatchBlueprintHolder.layout(), List.of(body), base, List.of(), null, ITEM_PATCH_SELF, ItemPatch.class, Map.of(),
+                new BlueprintSourceWriter.ParentScript("super", true, Set.of()), null));
 
             render("item_patch_script_template.ftl", model, patchesRoot.resolve(className + ".java"), entryKey.identifier());
         } catch (Exception e) {
@@ -537,6 +633,12 @@ public final class FreemarkerExporter {
     /// [#ABILITY_STATE_CLASS] the ability builds per instance, which binds the parent's state type parameter.
     /// An entry whose parent binds that parameter itself and that declares variables is skipped; the editor
     /// refuses to make one.
+    ///
+    /// An entry laid over a data parent built by the same constructor, which the export writes as a class
+    /// ([#compiledClass]), extends that class: it declares only its own graphs and property values, and its state
+    /// class extends the nearest ancestor's with the variables it adds. An entry another entry of the project is
+    /// laid over that way leaves the state type open as a type parameter, and writes each event graph as a
+    /// [BlueprintSourceWriter#GRAPH_SUFFIX] method its subclasses override, see [BlueprintSourceWriter.GraphMethods].
     public static void exportAbilityScript(
         AkytheraProject project,
         ResourceKey<AbilityBlueprint> entryKey,
@@ -554,24 +656,63 @@ public final class FreemarkerExporter {
         try {
             AbilityBlueprint blueprint = holder.makeObject();
             Class<?> base = abilityHolder.ownerType();
-            List<ScriptVariables.VariableInfo> variables = blueprint.body().variables();
+            List<BlueprintBody> chain = bodyChain(entryKey, blueprint);
+            List<ScriptVariables.VariableInfo> variables = BlueprintBody.fold(chain).variables();
             BlueprintSourceWriter.MemberHolder state = null;
+            TypeVariable<?> slot = AbilityBlueprintHolder.stateSlot(abilityHolder.getCtor());
 
-            if (!variables.isEmpty()) {
-                TypeVariable<?> slot = AbilityBlueprintHolder.stateSlot(abilityHolder.getCtor());
+            if (!variables.isEmpty() && slot == null) {
+                AkytheraLabs.LOGGER.error(
+                    "Skipped {} for script export: it declares variables, but its parent {} binds its own state",
+                    entryKey.identifier(), base.getName()
+                );
 
-                if (slot == null) {
-                    AkytheraLabs.LOGGER.error(
-                        "Skipped {} for script export: it declares variables, but its parent {} binds its own state",
-                        entryKey.identifier(), base.getName()
-                    );
+                return;
+            }
 
-                    return;
-                }
+            // The data parents this entry extends the classes of, the nearest first
+            List<ResourceKey<AbilityBlueprint>> extended = new ArrayList<>();
+            AbilityBlueprintHolder ancestor = abilityHolder;
 
-                // Qualified, since the supertype clause lies outside the class body the nested class is in scope in.
-                state = new BlueprintSourceWriter.MemberHolder(
-                    slot, className + "." + ABILITY_STATE_CLASS, ABILITY_STATE_PARAMETER);
+            while (ancestor.getScript().getDataParent() != null) {
+                ResourceKey<AbilityBlueprint> parentKey = (ResourceKey<AbilityBlueprint>) ancestor.getScript().getDataParent().unwrapKey().orElseThrow();
+                AbilityBlueprintHolder parent = project.<AbilityBlueprint, AbilityBlueprintHolder>getDataHolder(parentKey).orElse(null);
+
+                if (parent == null || !parent.getCtor().equals(abilityHolder.getCtor()) || extended.contains(parentKey) || parentKey.equals(entryKey)) break;
+
+                extended.add(parentKey);
+                ancestor = parent;
+            }
+
+            String superclass = extended.isEmpty() ? null : compiledClass(extended.getFirst());
+
+            // Another entry extends this entry's class
+            boolean open = project.<AbilityBlueprint, DataHolder<AbilityBlueprint>>getModifiableEntries(AkytheraRegistries.DataPack.ABILITY_KEY).stream()
+                .anyMatch(entry -> entry.getValue() instanceof AbilityBlueprintHolder child
+                    && child.getScript().getDataParent() != null
+                    && child.getScript().getDataParent().unwrapKey().orElseThrow().equals(entryKey)
+                    && child.getCtor().equals(abilityHolder.getCtor()));
+
+            BlueprintBody inherited = superclass == null ? BlueprintBody.EMPTY : BlueprintBody.fold(chain.subList(1, chain.size()));
+            Set<String> inheritedVariables = inherited.variables().stream().map(ScriptVariables.VariableInfo::name).collect(Collectors.toSet());
+            List<ScriptVariables.VariableInfo> ownVariables = superclass == null ? variables : blueprint.body().variables();
+
+            // The state class of the nearest extended class declaring one
+            String parentState = superclass == null ? null : extended.stream()
+                .filter(key -> !project.<AbilityBlueprint, AbilityBlueprintHolder>getDataHolder(key).orElseThrow().getScript().getVariables().isEmpty())
+                .map(key -> abilityClass(key) + "." + ABILITY_STATE_CLASS)
+                .findFirst()
+                .orElse(null);
+
+            // Qualified, since the supertype clause lies outside the class body the nested class is in scope in.
+            String stateName = ownVariables.isEmpty() ? parentState : className + "." + ABILITY_STATE_CLASS;
+            String stateBound = stateName != null ? stateName : slot == null ? null : SourceNames.typeName(slot, Map.of());
+            boolean generic = open && slot != null;
+
+            if (generic) {
+                state = new BlueprintSourceWriter.MemberHolder(slot, ABILITY_STATE_TYPE_PARAMETER, ABILITY_STATE_PARAMETER);
+            } else if (stateName != null) {
+                state = new BlueprintSourceWriter.MemberHolder(slot, stateName, ABILITY_STATE_PARAMETER);
             }
 
             List<String> memberVariables = variables.stream().map(ScriptVariables.VariableInfo::name).toList();
@@ -589,16 +730,29 @@ public final class FreemarkerExporter {
             model.put("package", subPackage(packageName, ABILITIES_DIR));
             model.put("modid", project.getProjectName());
             model.put("className", className);
-            model.put("supertype", BlueprintSourceWriter.supertype(base, state));
-            model.put("superCall", superCall);
-            model.put("fields", animatorFields(variables));
+            model.put("typeParameters", generic ? "<" + ABILITY_STATE_TYPE_PARAMETER + " extends " + stateBound + ">" : "");
+            model.put("supertype", superclass == null
+                ? BlueprintSourceWriter.supertype(base, state)
+                : superclass + (slot == null ? "" : "<" + (generic ? ABILITY_STATE_TYPE_PARAMETER : stateBound) + ">"));
+            model.put("superCall", superclass == null ? superCall : "super(blueprint);");
+            model.put("fields", animatorFields(
+                ownVariables.stream().filter(variable -> !inheritedVariables.contains(variable.name())).toList()));
+            model.put("overriddenFields", animatorFields(
+                ownVariables.stream().filter(variable -> inheritedVariables.contains(variable.name())).toList()));
+            model.put("allFields", animatorFields(variables));
             model.put("methods", BlueprintSourceWriter.methods(
-                abilityHolder.layout(), blueprint.body(), base, memberVariables, state, ABILITY_SELF, base, Map.of()));
+                abilityHolder.layout(), superclass == null ? chain : List.of(blueprint.body()), base, memberVariables, state, ABILITY_SELF,
+                base, Map.of(),
+                superclass == null ? null : new BlueprintSourceWriter.ParentScript("super", true, inherited.functions().keySet()),
+                superclass == null && !open ? null : new BlueprintSourceWriter.GraphMethods(inherited.methods().keySet())));
 
-            if (state != null) {
+            if (!ownVariables.isEmpty()) {
                 model.put("stateClass", ABILITY_STATE_CLASS);
+                model.put("stateType", generic ? ABILITY_STATE_TYPE_PARAMETER : ABILITY_STATE_CLASS);
                 model.put("clientBound", syncedFields(variables, PacketFlow.CLIENTBOUND));
                 model.put("serverBound", syncedFields(variables, PacketFlow.SERVERBOUND));
+
+                if (parentState != null) model.put("parentState", parentState);
             }
 
             render("ability_script_template.ftl", model, abilitiesRoot.resolve(className + ".java"), entryKey.identifier());
@@ -642,9 +796,10 @@ public final class FreemarkerExporter {
         String className = abilityCueClass(entryKey);
 
         try {
-            AbilityCueBlueprint blueprint = holder.makeObject();
+            List<BlueprintBody> chain = List.of(holder.makeObject().body());
+            BlueprintBody body = BlueprintBody.fold(chain);
 
-            List<String> memberVariables = blueprint.body().variables().stream()
+            List<String> memberVariables = body.variables().stream()
                 .map(ScriptVariables.VariableInfo::name)
                 .toList();
 
@@ -652,11 +807,11 @@ public final class FreemarkerExporter {
             model.put("package", subPackage(packageName, ABILITY_CUES_DIR));
             model.put("modid", project.getProjectName());
             model.put("className", className);
-            model.put("fields", animatorFields(blueprint.body().variables()));
+            model.put("fields", animatorFields(body.variables()));
             model.put("methods", BlueprintSourceWriter.methods(
-                ScriptModularizeHelper.scanBlueprintLayout(AbilityCueScript.class), blueprint.body(),
+                ScriptModularizeHelper.scanBlueprintLayout(AbilityCueScript.class), chain,
                 AbilityCueScript.class, memberVariables, null, ABILITY_CUE_SELF, AbilityCue.class,
-                Map.of("onActivate", List.of("this.cue = cue;"))));
+                Map.of("onActivate", List.of("this.cue = cue;")), null, null));
 
             render("ability_cue_script_template.ftl", model, cuesRoot.resolve(className + ".java"), entryKey.identifier());
         } catch (Exception e) {
@@ -695,7 +850,14 @@ public final class FreemarkerExporter {
     /// a widget holds for one of its events or bindings becomes a private method, which `widgetEvent()` and
     /// `widgetBinding()` answer the widget's `<path>.<name>` with.
     ///
-    /// An entry parented on a source code script is already source, and is skipped.
+    /// An entry laid over a data parent the export writes as a class ([#compiledClass]) extends that class: it
+    /// declares only its own variables, graphs and widgets, and a Parent node is a `super` call.
+    ///
+    /// Otherwise an entry laid over a source code script holds one in its `parent` field: an event runs the script's
+    /// where its graph's Parent node sits, or when no graph implements it, `componentsToAttach()` starts from the
+    /// script's, and the script answers the widget events and bindings the entry holds no graph for. The graphs and
+    /// widgets of the data parents are then written into the class too. An entry that adds nothing to its source
+    /// code script is already source, and is skipped.
     public static void exportWidgetScript(
         AkytheraProject project,
         ResourceKey<WidgetBlueprint> entryKey,
@@ -712,25 +874,73 @@ public final class FreemarkerExporter {
 
         try {
             if (!(holder.makeObject() instanceof DataDrivenWidgetBlueprint blueprint)) {
-                AkytheraLabs.LOGGER.info("Skipped {} for script export: its parent is a source code script", entryKey.identifier());
+                AkytheraLabs.LOGGER.info("Skipped {} for script export: it adds nothing to its source code script", entryKey.identifier());
                 return;
             }
 
             BlueprintLayout layout = widgetHolder.layout();
             Class<?> ownerType = widgetHolder.ownerType();
-            List<String> memberVariables = blueprint.body().variables().stream()
+            List<BlueprintBody> chain = bodyChain(entryKey, blueprint);
+            BlueprintBody body = BlueprintBody.fold(chain);
+            List<String> memberVariables = body.variables().stream()
                 .map(ScriptVariables.VariableInfo::name)
                 .toList();
+
+            Holder<?> dataParent = widgetHolder.getScript().getDataParent();
+            String superclass = dataParent == null || widgetHolder.getScript().getSourceParent() != null
+                ? null
+                : compiledClass(dataParent.unwrapKey().orElseThrow());
+            BlueprintBody inherited = BlueprintBody.fold(chain.subList(superclass == null ? 0 : 1, chain.size()));
+            Set<String> inheritedVariables = superclass == null
+                ? Set.of()
+                : inherited.variables().stream().map(ScriptVariables.VariableInfo::name).collect(Collectors.toSet());
+
+            // The blueprint, then the data parents the project holds up to the root, and the source code script of
+            // the nearest one naming one. A data parent the export writes as a class is extended, and ends the walk.
+            List<WidgetBlueprintHolder> lineage = new ArrayList<>(List.of(widgetHolder));
+
+            while (superclass == null && lineage.getLast().getScript().getDataParent() != null) {
+                WidgetBlueprintHolder ancestor = project.<WidgetBlueprint, WidgetBlueprintHolder>getDataHolder(
+                    (ResourceKey<WidgetBlueprint>) lineage.getLast().getScript().getDataParent().unwrapKey().orElseThrow()).orElse(null);
+
+                if (ancestor == null || lineage.contains(ancestor)) break;
+
+                lineage.add(ancestor);
+            }
+
+            ScriptType parentScript = lineage.stream()
+                .map(widget -> widget.getScript().getSourceParent())
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+
+            if (parentScript != null && parentScript.type().getSimpleName().equals(className)) {
+                AkytheraLabs.LOGGER.error(
+                    "Skipped {} for script export: the class {} it is laid over has the name of the class the export writes",
+                    entryKey.identifier(), parentScript.type().getName());
+
+                return;
+            }
+
             List<Map<String, Object>> widgetMethods = new ArrayList<>();
             List<Map<String, Object>> events = new ArrayList<>();
             List<Map<String, Object>> bindings = new ArrayList<>();
+            Set<String> written = new HashSet<>();
 
-            for (WidgetBlueprintHolder.WidgetGraphSite site : widgetHolder.widgetGraphSites()) {
+            // Each widget graph is the nearest blueprint's
+            List<WidgetBlueprintHolder.WidgetGraphSite> sites = lineage.stream()
+                .flatMap(widget -> widget.widgetGraphSites().stream())
+                .filter(site -> written.add(site.key()))
+                .toList();
+
+            for (WidgetBlueprintHolder.WidgetGraphSite site : sites) {
                 BlueprintSignature signature = site.signature();
                 boolean binding = signature.returnType() != null;
-                FlowNode flow = (binding ? blueprint.widgetBindings() : blueprint.widgetEvents()).get(site.key());
+                FlowNode flow = ScriptGraphCompiler.compile(
+                    site.graph(), ownerType, BlueprintScriptData.entryOf(signature.name()),
+                    widgetHolder.getScript().members(layout).with(site.widgetSignatures()), signature.name(), site.key());
 
-                if (flow == null) continue;
+                if (flow instanceof SequenceNode sequence && sequence.executionBlocks().isEmpty()) continue;
 
                 String pascal = ParseUtils.pascalCase(site.key());
                 String method = Character.toLowerCase(pascal.charAt(0)) + pascal.substring(1);
@@ -766,11 +976,29 @@ public final class FreemarkerExporter {
             model.put("className", className);
             model.put("scriptInterface", SourceNames.typeName(layout.provider()));
             model.put("ownerType", SourceNames.typeName(ownerType));
-            model.put("fields", animatorFields(blueprint.body().variables()));
+            model.put("fields", animatorFields(
+                (superclass == null ? body : blueprint.body()).variables().stream()
+                    .filter(variable -> !inheritedVariables.contains(variable.name()))
+                    .toList()));
+            model.put("overriddenFields", animatorFields(
+                blueprint.body().variables().stream().filter(variable -> inheritedVariables.contains(variable.name())).toList()));
             model.put("methods", BlueprintSourceWriter.methods(
-                layout, blueprint.body(), layout.provider(), memberVariables, null, WIDGET_SELF, ownerType, Map.of()));
+                layout, superclass == null ? chain : List.of(blueprint.body()), layout.provider(), memberVariables, null, WIDGET_SELF,
+                ownerType, Map.of(),
+                superclass != null ? new BlueprintSourceWriter.ParentScript("super", true, inherited.functions().keySet())
+                    : parentScript != null ? new BlueprintSourceWriter.ParentScript(PARENT_FIELD, false, Set.of())
+                    : null,
+                null));
+
+            if (superclass != null) model.put("superclass", superclass);
             model.put("widgetMethods", widgetMethods);
             model.put("components", ComponentDataHolder.sourcesOf(widgetHolder.getComponents(), true));
+            model.put("inheritedComponents", lineage.reversed().stream()
+                .filter(widget -> widget != widgetHolder)
+                .map(widget -> ComponentDataHolder.sourcesOf(widget.getComponents(), true))
+                .toList());
+
+            if (parentScript != null) model.put("parentScript", SourceNames.typeName(parentScript.type()));
             model.put("events", events);
             model.put("bindings", bindings);
 
@@ -818,7 +1046,7 @@ public final class FreemarkerExporter {
         }
 
         if (registry.equals(AkytheraRegistries.DataPack.ITEM_PATCH_KEY) && holder instanceof ItemPatchBlueprintHolder itemPatch
-            && itemPatch.makeObject().script() instanceof ItemPatchBlueprint.ByData(BlueprintBody body) && !body.methods().isEmpty()
+            && itemPatch.makeObject().script() instanceof ItemPatchBlueprint.ByData byData && !byData.body().methods().isEmpty()
         ) {
             return generated(ITEM_PATCHES_DIR, itemPatchScriptClass(key));
         }
@@ -834,7 +1062,7 @@ public final class FreemarkerExporter {
         }
 
         if (registry.equals(AkytheraRegistries.DataPack.WIDGET_KEY) && holder instanceof WidgetBlueprintHolder widget
-            && widget.getParent() instanceof BlueprintParentRef.ParentClass
+            && widget.makeObject() instanceof DataDrivenWidgetBlueprint
         ) {
             return generated(WIDGETS_DIR, widgetScriptClass(key, widget.usage()));
         }
@@ -871,7 +1099,8 @@ public final class FreemarkerExporter {
         String className = particleModuleClass(entryKey);
 
         try {
-            BlueprintBody body = moduleHolder.compileBody();
+            List<BlueprintBody> chain = List.of(moduleHolder.compileBody());
+            BlueprintBody body = BlueprintBody.fold(chain);
             BlueprintLayout layout = moduleHolder.layout();
             List<String> memberVariables = body.variables().stream().map(ScriptVariables.VariableInfo::name).toList();
 
@@ -883,8 +1112,8 @@ public final class FreemarkerExporter {
             model.put("moduleInterface", SourceNames.typeName(layout.provider()));
             model.put("fields", animatorFields(body.variables()));
             model.put("methods", BlueprintSourceWriter.methods(
-                layout, body, layout.provider(), memberVariables, null, PARTICLE_MODULE_SELF, AkytheraParticleEmitter.class,
-                layout.events().stream().collect(Collectors.toMap(BlueprintLayout.Signature::name, _ -> PARTICLE_MODULE_PROLOGUE))));
+                layout, chain, layout.provider(), memberVariables, null, PARTICLE_MODULE_SELF, AkytheraParticleEmitter.class,
+                layout.events().stream().collect(Collectors.toMap(BlueprintLayout.Signature::name, _ -> PARTICLE_MODULE_PROLOGUE)), null, null));
 
             render("particle_module_template.ftl", model, particlesRoot.resolve(className + ".java"), entryKey.identifier());
         } catch (Exception e) {
@@ -918,7 +1147,8 @@ public final class FreemarkerExporter {
         String className = motionWarpTargetClass(entryKey);
 
         try {
-            BlueprintBody body = targetHolder.makeObject().body();
+            List<BlueprintBody> chain = List.of(targetHolder.makeObject().body());
+            BlueprintBody body = BlueprintBody.fold(chain);
             List<String> memberVariables = body.variables().stream().map(ScriptVariables.VariableInfo::name).toList();
 
             Map<String, Object> model = new HashMap<>();
@@ -928,8 +1158,8 @@ public final class FreemarkerExporter {
             model.put("className", className);
             model.put("fields", animatorFields(body.variables()));
             model.put("methods", BlueprintSourceWriter.methods(
-                targetHolder.layout(), body, MotionWarpTarget.class, memberVariables, null, MOTION_WARP_TARGET_SELF, EntityPatch.class,
-                Map.of("find", MOTION_WARP_TARGET_PROLOGUE)));
+                targetHolder.layout(), chain, MotionWarpTarget.class, memberVariables, null, MOTION_WARP_TARGET_SELF, EntityPatch.class,
+                Map.of("find", MOTION_WARP_TARGET_PROLOGUE), null, null));
 
             render("motion_warp_target_script_template.ftl", model, targetsRoot.resolve(className + ".java"), entryKey.identifier());
         } catch (Exception e) {
@@ -1105,6 +1335,30 @@ public final class FreemarkerExporter {
 
     /// The attached components as `{ name, source }` rows, in the holder's stored order — see
     /// [ComponentDataHolder#sourcesOf].
+    /// The body of `blueprint`, the compiled entry `entryKey`, then the last saved body of each data parent up to
+    /// the root. Ends at a parent neither the project nor the level holds, and at one met twice.
+    @SuppressWarnings("unchecked")
+    private static List<BlueprintBody> bodyChain(ResourceKey<?> entryKey, Blueprint<?, ?> blueprint) {
+        ResourceKey<? extends Registry<Blueprint<?, ?>>> registry = (ResourceKey<? extends Registry<Blueprint<?, ?>>>) (ResourceKey<?>) entryKey.registryKey();
+        AkytheraProject project = AkytheraProject.getCurrentProject();
+        List<BlueprintBody> chain = new ArrayList<>(List.of(blueprint.body()));
+        Set<Identifier> visited = new HashSet<>();
+        Blueprint<?, ?> current = blueprint;
+
+        while (current.dataParent().isPresent() && visited.add(current.dataParent().get())) {
+            Identifier parentId = current.dataParent().get();
+            Holder<Blueprint<?, ?>> parent = project.getEntryFromProjectAndRegistry(registry, ResourceProcessor.projectId(registry, parentId));
+
+            if (parent == null) parent = project.getEntryFromProjectAndRegistry(registry, parentId);
+            if (parent == null || !parent.isBound()) break;
+
+            current = parent.value();
+            chain.add(current.body());
+        }
+
+        return chain;
+    }
+
     private static List<Map<String, String>> componentSources(DataHolder<EntityPatchBlueprint> holder) {
         if (!(holder instanceof EntityPatchBlueprintHolder patchHolder)) {
             return List.of();

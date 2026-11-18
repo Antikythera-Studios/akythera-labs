@@ -48,6 +48,7 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -67,6 +68,7 @@ import java.util.function.Consumer;
 /// - **Preview**: the widgets take no input and run no script. They are rebuilt whenever what the editor would save
 ///   for them changes, which covers every edit, undo and redo. A placed widget blueprint is drawn as a box.
 public final class WidgetCanvas extends AbstractContainerWidget implements AnchoredWidget {
+    private static final int INHERITED_DIM_COLOR = 0x90303030; // over a widget of a data parent
     private static final int TOOLBAR_H = 20;
 
     /// Half the side of a resize handle, and how far from an edge a press grabs it, in screen pixels.
@@ -138,6 +140,9 @@ public final class WidgetCanvas extends AbstractContainerWidget implements Ancho
     /// The preview widgets in draw order, each with the holder it was built from.
     private final List<Placed> placed = new ArrayList<>();
 
+    /// The preview widgets built from the widgets of the root's data parents, which take no click.
+    private final List<AbstractWidget> inheritedWidgets = new ArrayList<>();
+
     private @Nullable ComponentDataHolder<?> selected;
 
     private @Nullable Drag drag;
@@ -202,9 +207,14 @@ public final class WidgetCanvas extends AbstractContainerWidget implements Ancho
     // Preview
     // ***************************************************************
 
-    /// Rebuilds the preview when what the editor would save for the root's widgets changed since the last build.
+    /// Rebuilds the preview when what the editor would save for the root's widgets, or for the widgets of its data
+    /// parents, changed since the last build. A widget of the root takes the place of the inherited one it names
+    /// again.
     private void refreshPreview() {
-        List<Map.Entry<String, JsonElement>> current = root.getComponents().entrySet().stream()
+        Map<String, ComponentDataHolder<?>> shown = new LinkedHashMap<>(root.inheritedComponents());
+        shown.putAll(root.getComponents());
+
+        List<Map.Entry<String, JsonElement>> current = shown.entrySet().stream()
             .map(entry -> Map.entry(entry.getKey(), WidgetComponentHolders.REGISTRY.codec().encodeStart(JsonOps.INSTANCE, entry.getValue())
                 .result().orElse(JsonNull.INSTANCE)))
             .toList();
@@ -217,6 +227,7 @@ public final class WidgetCanvas extends AbstractContainerWidget implements Ancho
 
         builtFrom = current;
         placed.clear();
+        inheritedWidgets.clear();
         preview = new AkytheraWidget(
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0), AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             HorizontalAnchorType.LEFT_RIGHT, VerticalAnchorType.TOP_BOTTOM
@@ -224,7 +235,7 @@ public final class WidgetCanvas extends AbstractContainerWidget implements Ancho
 
         AkytheraWidget host = preview;
 
-        root.getComponents().forEach((name, holder) -> {
+        shown.forEach((name, holder) -> {
             PatchComponent component;
 
             // A placed widget blueprint is an empty widget of its layout, so neither its script nor the world's
@@ -241,7 +252,12 @@ public final class WidgetCanvas extends AbstractContainerWidget implements Ancho
             if (!(component instanceof AbstractWidget widget)) return;
 
             host.addComponent(name, (AbstractWidget & PatchComponent) widget);
-            list(widget, holder, host, true, 0);
+
+            if (root.getComponents().get(name) == holder) {
+                list(widget, holder, host, true, 0);
+            } else {
+                inheritedWidgets.add(widget);
+            }
         });
 
         host.relocate(frameRectangle());
@@ -394,6 +410,10 @@ public final class WidgetCanvas extends AbstractContainerWidget implements Ancho
 
         // The preview takes no input, so it sees no pointer either
         if (preview != null) preview.extractRenderState(graphics, -1, -1, a);
+
+        for (AbstractWidget inherited : inheritedWidgets) {
+            graphics.fill(inherited.getX(), inherited.getY(), inherited.getRight(), inherited.getBottom(), INHERITED_DIM_COLOR);
+        }
 
         for (Placed entry : placed) {
             if (!(entry.holder() instanceof WidgetBlueprintRefHolder reference) || !entry.widget().visible) continue;

@@ -15,7 +15,7 @@
 <#import "method_list.ftl" as methodList>
 package ${package};
 
-public final class ${className} extends ItemPatchScript {
+public final class ${className} extends ${supertype} {
     public ${className}(final ItemPatch owner, final @Nullable ItemPatchScript parent) {
         super(owner, parent);
     }

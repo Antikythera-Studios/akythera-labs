@@ -42,7 +42,6 @@ import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintParentRef;
-import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.blueprint.ComponentPaths;
 import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
@@ -141,8 +140,8 @@ import java.util.stream.Stream;
 ///
 /// The title beside the close button names what the engine builds this patch with, and
 /// `File > Change Parent` picks another: an [EntityPatch] subclass, which is the script owner type of
-/// every canvas on the screen and re-opens it, or a source code [EntityPatchScript], which locks
-/// everything below the top menu.
+/// every canvas on the screen, a source code [EntityPatchScript] the patch is laid over, or another entity patch
+/// it is laid over. Each pick re-opens the screen.
 public final class EntityPatchEditorScreen extends Screen
     implements ModalAccessibleScreen, PreviewModelScreen, SafeCloseScreen, NodeGraphTabHost, DebuggableScreen, GraphTabScreen
 {
@@ -151,7 +150,6 @@ public final class EntityPatchEditorScreen extends Screen
     /// Width of the parent picker, in screen pixels.
     private static final int PARENT_PICKER_W = 240;
 
-    private static final int LOCK_DIM_COLOR = 0xC0101010;
 
     /// Seed positions for a fresh result canvas: params entry left, result root right.
     private static final int RESULT_ENTRY_X = -180;
@@ -259,9 +257,7 @@ public final class EntityPatchEditorScreen extends Screen
             AnchoredWidget.VerticalAnchorType.TOP_BOTTOM
         );
 
-        for (BlueprintScriptData.Variable variable : holder.getScript().getVariables()) {
-            variableDrafts.add(new VariableDraft(variable));
-        }
+        variableDrafts.addAll(VariableDraft.of(holder.getScript()));
 
         session = new BlueprintEditorSession(
             minecraft.font, this, holder.layout(), ownerType(), holder.getScript(), centerTabs, variableDrafts,
@@ -299,19 +295,40 @@ public final class EntityPatchEditorScreen extends Screen
                             .isAssignableFrom(b.functionSignature().parameters().get(1)) ? b : a)
                         .orElseGet(() -> holder.getParent().ctor());
 
-                    List<CategorizedSelectModal.Choice<BlueprintParentRef>> sourceCodeScripts = AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
-                        .filter(entry -> SourceCodeEntityPatchBlueprint.runnable(entry.getValue().type()))
-                        .map(entry -> new CategorizedSelectModal.Choice<BlueprintParentRef>(
+                    List<CategorizedSelectModal.Choice<Object>> sourceCodeScripts = AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
+                        .filter(entry -> SourceCodeEntityPatchBlueprint.runnable(entry.getValue().type()) && entry.getValue().type() != DataDrivenEntityPatchScript.class)
+                        .map(entry -> new CategorizedSelectModal.Choice<Object>(
                             entry.getKey().identifier().toString(),
                             new BlueprintParentRef.SourceCodeScript(narrowestCtor, entry.getValue())))
                         .toList();
 
-                    List<CategorizedSelectModal.Choice<BlueprintParentRef>> patchClasses = ctors.stream()
-                        .map(ctor -> new CategorizedSelectModal.Choice<BlueprintParentRef>(
+                    List<CategorizedSelectModal.Choice<Object>> patchClasses = ctors.stream()
+                        .map(ctor -> new CategorizedSelectModal.Choice<Object>(
                             ctor.metadata().label(), new BlueprintParentRef.ParentClass(ctor)))
                         .toList();
 
-                    CategorizedSelectModal<BlueprintParentRef> modal = new CategorizedSelectModal<>(
+                    // Every pick re-opens the screen: a patch class may change its layout, and a parent script
+                    // changes what the canvases and the Variables panel inherit. Undo reaches the screen open at
+                    // the time.
+                    Consumer<Runnable> reopenWith = write -> {
+                        EntityPatchEditorScreen current =
+                            AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof EntityPatchEditorScreen open
+                                && open.resourceKey.equals(resourceKey) ? open : null;
+
+                        if (current != null) current.flushToHolder();
+
+                        write.run();
+
+                        if (current == null) return;
+
+                        EntityPatchEditorScreen reopened = new EntityPatchEditorScreen(resourceKey, holder);
+
+                        reopened.savePoint = current.savePoint;
+                        current.onClose();
+                        AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
+                    };
+
+                    CategorizedSelectModal<Object> modal = new CategorizedSelectModal<>(
                         minecraft.font,
                         PARENT_PICKER_W,
                         Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_PARENT),
@@ -319,39 +336,24 @@ public final class EntityPatchEditorScreen extends Screen
                             new CategorizedSelectModal.Category<>(Component.translatable(
                                 LangKeys.GUI_ENTITY_PATCH_PARENT_SELECT_MODAL_CATEGORY_SOURCE_CODE_SCRIPT), sourceCodeScripts),
                             new CategorizedSelectModal.Category<>(Component.translatable(
-                                LangKeys.GUI_ENTITY_PATCH_PARENT_SELECT_MODAL_CATEGORY_ENTITY_PATCH_CLASS), patchClasses)
+                                LangKeys.GUI_ENTITY_PATCH_PARENT_SELECT_MODAL_CATEGORY_ENTITY_PATCH_CLASS), patchClasses),
+                            BlueprintEditorSession.dataParentCategory(resourceKey, holder.getScript())
                         ),
                         picked -> {
-                            if (picked.equals(holder.getParent())) return;
+                            if (picked instanceof Optional<?> dataParent) {
+                                BlueprintEditorSession.pickDataParent(holder.getScript(), dataParent, reopenWith);
+                                return;
+                            }
 
-                            // A patch class re-opens the screen, whose layout it may change, and a source
-                            // code script re-locks it. Undo reaches the screen open at the time.
-                            Consumer<BlueprintParentRef> writer = value -> {
-                                EntityPatchEditorScreen current =
-                                    AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof EntityPatchEditorScreen open
-                                        && open.resourceKey.equals(resourceKey) ? open : null;
+                            BlueprintParentRef pickedParent = (BlueprintParentRef) picked;
 
-                                if (current != null) current.flushToHolder();
+                            if (pickedParent.equals(holder.getParent())) return;
 
-                                holder.setParent(value);
+                            Consumer<BlueprintParentRef> writer = value -> reopenWith.accept(() -> holder.setParent(value));
 
-                                if (current == null) return;
+                            HistoryManager.getInstance().pushHistory(new DataChange<>(holder.getParent(), pickedParent, writer));
 
-                                if (value instanceof BlueprintParentRef.SourceCodeScript) {
-                                    current.rebuildWidgets();
-                                    return;
-                                }
-
-                                EntityPatchEditorScreen reopened = new EntityPatchEditorScreen(resourceKey, holder);
-
-                                reopened.savePoint = current.savePoint;
-                                current.onClose();
-                                AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
-                            };
-
-                            HistoryManager.getInstance().pushHistory(new DataChange<>(holder.getParent(), picked, writer));
-
-                            writer.accept(picked);
+                            writer.accept(pickedParent);
                         }
                     );
 
@@ -646,22 +648,7 @@ public final class EntityPatchEditorScreen extends Screen
         topMenuBar.setMessage(menuBarTitle());
         addRenderableWidget(topMenuBar);
 
-        if (holder.getParent() instanceof BlueprintParentRef.SourceCodeScript sourceCode) {
-            // Locked: the panels take no input and draw without the cursor, under a dimmer
-            addRenderableOnly((graphics, _, _, a) -> panelManager.extractRenderState(graphics, -1, -1, a));
-            addRenderableOnly((graphics, _, _, _) -> {
-                graphics.fill(panelManager.getX(), panelManager.getY(), panelManager.getRight(), panelManager.getBottom(), LOCK_DIM_COLOR);
-                graphics.centeredText(
-                    font,
-                    Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_MESSAGE_LOCKED, sourceCode.displayLabel()),
-                    panelManager.getX() + panelManager.getWidth() / 2,
-                    panelManager.getY() + (panelManager.getHeight() - font.lineHeight) / 2,
-                    0xFFCCCCCC
-                );
-            });
-        } else {
-            addRenderableWidget(panelManager);
-        }
+        addRenderableWidget(panelManager);
     }
 
     private void layoutWidgets() {
