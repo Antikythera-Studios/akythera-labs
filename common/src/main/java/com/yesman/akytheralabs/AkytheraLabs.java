@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs;
 
+import com.yesman.akythera.api.animation.notify.impl.BlockSlamNotify;
 import com.yesman.akythera.api.animation.notify.impl.CancelOnMoveNotifyState;
 import com.yesman.akythera.api.animation.notify.impl.ExtendDeathTimeNotifyState;
 import com.yesman.akythera.api.animation.notify.impl.NoGravityNotifyState;
@@ -13,6 +14,7 @@ import com.yesman.akythera.api.animation.notify.impl.PlaySoundNotify;
 import com.yesman.akythera.api.animation.notify.impl.StartRagdollNotifyState;
 import com.yesman.akythera.api.animation.notify.impl.TrailParticleNotifyState;
 import com.yesman.akytheralabs.dataholder.DataHolderMapper;
+import com.yesman.akytheralabs.akythera.animation.notify.impl.BlockSlamNotifyHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.CancelOnMoveNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.ExtendDeathTimeNotifyStateHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.impl.NoGravityNotifyStateHolder;
@@ -53,6 +55,7 @@ public class AkytheraLabs {
         DataHolderMapper.registerNotify(LogNotify.CODEC, LogNotifyHolder::new);
         DataHolderMapper.registerNotify(PlaySoundNotify.CODEC, PlaySoundNotifyHolder::new);
         DataHolderMapper.registerNotify(LivingHurtNotify.CODEC, LivingHurtNotifyHolder::new);
+        DataHolderMapper.registerNotify(BlockSlamNotify.CODEC, BlockSlamNotifyHolder::new);
         DataHolderMapper.registerNotifyState(LogNotifyState.CODEC, LogNotifyStateHolder::new);
         DataHolderMapper.registerNotifyState(LockMovementNotifyState.CODEC, LockMovementNotifyStateHolder::new);
         DataHolderMapper.registerNotifyState(CancelOnMoveNotifyState.CODEC, CancelOnMoveNotifyStateHolder::new);

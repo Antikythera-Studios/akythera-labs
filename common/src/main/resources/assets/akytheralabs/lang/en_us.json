@@ -575,6 +575,8 @@
   "gui.akytheralabs.notify_tracks.field.shared": "Share Struck Entities",
   "gui.akytheralabs.notify_tracks.field.ignore_invulnerable_time": "Ignore Invulnerable Time",
   "gui.akytheralabs.notify_tracks.field.range": "Range",
+  "gui.akytheralabs.notify_tracks.field.radius": "Radius",
+  "gui.akytheralabs.notify_tracks.field.offset": "Offset",
   "gui.akytheralabs.notify_tracks.field.warp_target": "Warp Target",
   "gui.akytheralabs.notify_tracks.field.update_rate": "Update Rate (ticks)",
   "gui.akytheralabs.notify_tracks.field.warp_translation": "Warp Translation",
