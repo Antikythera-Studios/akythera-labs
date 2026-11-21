@@ -16,6 +16,7 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.blueprint.ScriptBlueprintHolder;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.editor.NodeClipboard;
+import com.yesman.akytheralabs.editor.historytrack.DataChange;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
@@ -30,6 +31,7 @@ import com.yesman.akytheralabs.gui.widget.AwaitIconModal;
 import com.yesman.akytheralabs.gui.widget.TabPanel;
 import com.yesman.akytheralabs.gui.widget.VariableDropModal;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
+import com.yesman.akytheralabs.gui.widget.main.CategorizedSelectModal;
 import com.yesman.akytheralabs.gui.widget.main.ConsoleModal;
 import com.yesman.akytheralabs.gui.widget.main.EditorPreferencesModalGenerator;
 import com.yesman.akytheralabs.gui.widget.main.LanguageSelectionModal;
@@ -60,14 +62,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 /// Editor screen for a [ScriptBlueprintHolder]: Functions, or the [Extension#sidePanel] in their place, over
 /// Variables on the left, the Event Graph and the function tabs in the center, and the Details panel on the right,
 /// all laid out by the holder's layout with [ScriptBlueprintHolder#scriptOwner] as the graphs' Self.
 /// The Details panel shows the cue's properties, the signature of the declared function picked in the
 /// Functions panel, or the default value of the picked variable.
+///
+/// For a holder with [ScriptBlueprintHolder#parentCandidates], `File > Change Parent` picks another parent and re-opens
+/// the screen laid out by it. The values of properties the new parent lacks are kept until the screen closes.
 public final class ScriptBlueprintEditorScreen<T> extends Screen implements ModalAccessibleScreen, SafeCloseScreen, GraphTabScreen, DebuggableScreen {
     private static final int TOP_BAR_H = 22;
+
+    /// Width of the parent picker, in screen pixels.
+    private static final int PARENT_PICKER_W = 240;
 
     private final AdjustablePanelManager panelManager;
     private final TopMenuBar topMenuBar;
@@ -125,9 +134,11 @@ public final class ScriptBlueprintEditorScreen<T> extends Screen implements Moda
 
         graphTabs.addTab(Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SCREEN_TAB_EVENT_GRAPH), session.eventGraph());
 
+        ScriptFunction parent = holder.getParent();
+
         topMenuBar = new TopMenuBar(
             minecraft.font,
-            Component.literal(resourceKey.identifier().toString()),
+            Component.literal(resourceKey.identifier() + (parent == null ? "" : " (" + holder.scriptOwner().getSimpleName() + ")")),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(0),
             AnchoredWidget.pixel(0), AnchoredWidget.pixel(TOP_BAR_H),
             AnchoredWidget.HorizontalAnchorType.LEFT_RIGHT,
@@ -142,6 +153,51 @@ public final class ScriptBlueprintEditorScreen<T> extends Screen implements Moda
                     if (extension != null) extension.flush();
                     session.canvases().forEach(ScriptNodeGraphWidget::clearValidationErrors);
                     Compilation.compileInEditor(holder, compilation -> compilation.fail(session.validateMembers()));
+                })
+                // A pick re-opens the screen, and undo reaches the screen open at the time
+                .on(TopMenuOption.CHANGE_PARENT, () -> !holder.parentCandidates().isEmpty(), () -> {
+                    List<CategorizedSelectModal.Choice<ScriptFunction>> parents = holder.parentCandidates().stream()
+                        .map(candidate -> new CategorizedSelectModal.Choice<>(candidate.metadata().label(), candidate))
+                        .toList();
+
+                    CategorizedSelectModal<ScriptFunction> modal = new CategorizedSelectModal<>(
+                        minecraft.font,
+                        PARENT_PICKER_W,
+                        Component.translatable(LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_PARENT),
+                        List.of(new CategorizedSelectModal.Category<>(
+                            Component.translatable(LangKeys.GUI_SCRIPT_BLUEPRINT_SCREEN_PARENT_CATEGORY), parents)),
+                        picked -> {
+                            if (picked == holder.getParent()) return;
+
+                            Consumer<ScriptFunction> writer = value -> {
+                                ScriptBlueprintEditorScreen<?> current =
+                                    AkytheraEditorLayoutManager.getInstance().getRecentEditorScreen() instanceof ScriptBlueprintEditorScreen<?> open
+                                        && open.resourceKey.equals(resourceKey) ? open : null;
+
+                                if (current != null) current.session.flush();
+
+                                holder.setParent(value);
+
+                                if (current == null) return;
+
+                                ScriptBlueprintEditorScreen<T> reopened = new ScriptBlueprintEditorScreen<>(resourceKey, holder, extension);
+
+                                reopened.savePoint = current.savePoint;
+                                current.removeScreen();
+                                AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
+                            };
+
+                            HistoryManager.getInstance().pushHistory(new DataChange<>(holder.getParent(), picked, writer));
+
+                            writer.accept(picked);
+                        }
+                    );
+
+                    // The modal places itself by its units
+                    modal.setX1(AnchoredWidget.pixel((width - PARENT_PICKER_W) / 2));
+                    modal.setY1(AnchoredWidget.pixel((height - modal.getHeight()) / 2));
+
+                    ModalManager.getInstance().openModalWidgetAtCenter(modal);
                 })
                 .on(TopMenuOption.LANGUAGE, () -> LanguageSelectionModal.open(minecraft.font))
                 .on(TopMenuOption.EDITOR_PREFERENCES, () -> EditorPreferencesModalGenerator.open(minecraft.font))
@@ -348,8 +404,15 @@ public final class ScriptBlueprintEditorScreen<T> extends Screen implements Moda
         );
     }
 
+    /// Drops the property values the parent does not declare, then closes.
     @Override
     public void onClose() {
+        holder.getScript().retainProperties(holder.layout());
+        removeScreen();
+    }
+
+    /// Closes the screen, leaving the holder as it is.
+    private void removeScreen() {
         if (extension != null) extension.close();
 
         AkytheraProject.getCurrentProject().saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());

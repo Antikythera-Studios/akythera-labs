@@ -36,6 +36,7 @@ import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
 import com.yesman.akythera.core.asset.loader.json.JsonAssetLoader;
 import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
 import com.yesman.akythera.core.blueprint.AbilityBlueprint;
+import com.yesman.akythera.core.blueprint.AbilityResourceBlueprint;
 import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
@@ -55,6 +56,7 @@ import com.yesman.akytheralabs.akythera.behavior.BehaviorTreeBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityCueBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityEffectHolder;
+import com.yesman.akytheralabs.akythera.ability.AbilityResourceBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.InputActionHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationMontageHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimationSequenceHolder;
@@ -409,6 +411,7 @@ public final class AkytheraProject {
         loadDatapackRegistry(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.ITEM_PATCH_KEY);
+        loadDatapackRegistry(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.INPUT_ACTION_KEY);
         loadDatapackRegistry(AkytheraRegistries.DataPack.ABILITY_CUE_KEY);
@@ -688,6 +691,7 @@ public final class AkytheraProject {
         AkytheraRegistries.DataPack.ENTITY_PATCH_KEY,
         AkytheraRegistries.DataPack.ABILITY_KEY,
         AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY,
+        AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY,
         AkytheraRegistries.DataPack.ABILITY_CUE_KEY,
         AkytheraRegistries.DataPack.INPUT_ACTION_KEY,
         AkytheraRegistries.DataPack.WIDGET_KEY,
@@ -1600,6 +1604,7 @@ public final class AkytheraProject {
         createProjectRegistry(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, ItemPatchBlueprintHolder::new, ItemPatchBlueprintHolder.EDITOR_CODEC);
 
         createProjectRegistry(AkytheraRegistries.DataPack.ABILITY_KEY, AbilityBlueprintHolder::new, AbilityBlueprintHolder.EDITOR_CODEC);
+        createProjectRegistry(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY, AbilityResourceBlueprintHolder::new, AbilityResourceBlueprintHolder.EDITOR_CODEC);
         createProjectRegistry(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY, AbilityEffectHolder::new, AbilityEffectHolder.EDITOR_CODEC);
         createProjectRegistry(AkytheraRegistries.DataPack.ABILITY_CUE_KEY, AbilityCueBlueprintHolder::new, AbilityCueBlueprintHolder.EDITOR_CODEC);
         createProjectRegistry(AkytheraRegistries.DataPack.INPUT_ACTION_KEY, InputActionHolder::new, InputActionHolder.EDITOR_CODEC);
@@ -2697,6 +2702,7 @@ public final class AkytheraProject {
         collectDataPackEntries(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, DataDrivenAnimatorScript.AnimatorScriptBlueprint.CODEC, ops, false, dataEntries);
         collectDataPackEntries(AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, EntityPatchBlueprint.CODEC, ops, true, dataEntries);
         collectDataPackEntries(AkytheraRegistries.DataPack.ITEM_PATCH_KEY, ItemPatchBlueprint.CODEC, ops, true, dataEntries);
+        collectDataPackEntries(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY, AbilityResourceBlueprint.CODEC, ops, false, dataEntries);
         collectDataPackEntries(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY, AbilityEffect.CODEC, ops, false, dataEntries);
         collectDataPackEntries(AkytheraRegistries.DataPack.INPUT_ACTION_KEY, InputAction.CODEC, ops, false, dataEntries);
         collectDataPackEntries(AkytheraRegistries.DataPack.ABILITY_CUE_KEY, AbilityCueBlueprint.CODEC, ops, false, dataEntries);

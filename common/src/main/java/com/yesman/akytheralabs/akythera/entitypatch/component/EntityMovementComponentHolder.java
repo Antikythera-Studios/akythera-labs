@@ -45,20 +45,27 @@ public final class EntityMovementComponentHolder extends ComponentDataHolder<Ent
     public EntityMovementComponent.BodyRotation bodyRotation = EntityMovementComponent.BodyRotation.VANILLA;
 
     /// Whether the entity can swim up in water at all.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_CAN_FLOAT_IN_WATER, order = 1)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_CAN_FLOAT_IN_WATER, order = 1, rebuildOnWrite = true)
     public boolean canFloatInWater = true;
 
     /// Whether a player owner may sprint in any direction it moves, not only forward.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_OMNIDIRECTIONAL_SPRINT, order = 2)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_OMNIDIRECTIONAL_SPRINT, order = 3)
     public boolean omnidirectionalSprint;
 
     /// Whether each jump from the ground needs the jump key pressed again since the last jump.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_JUMP_REQUIRES_PRESS, order = 3)
+    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_JUMP_REQUIRES_PRESS, order = 4)
     public boolean jumpRequiresPress;
 
     /// Part of its height a floating owner keeps under the water, 0 for vanilla swimming.
-    @EditorEditable(label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_SURFACE_FLOAT, order = 4, min = 0.0F, max = 1.0F)
+    @EditorEditable(
+        label = LangKeys.GUI_ENTITY_PATCH_SCREEN_ROW_SURFACE_FLOAT, order = 2, min = 0.0F, max = 1.0F, visibleWhen = "canFloatInWater",
+        indent = 1
+    )
     public float surfaceFloat;
+
+    public boolean canFloatInWater() {
+        return canFloatInWater;
+    }
 
     public static EntityMovementComponentHolder createDefault() {
         return new EntityMovementComponentHolder();

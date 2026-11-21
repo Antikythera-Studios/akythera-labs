@@ -2,9 +2,11 @@ package com.yesman.akytheralabs.akythera.ability;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.yesman.akythera.api.data.modularize.AkytheraScriptTypes;
 import com.yesman.akythera.api.data.serializable.AttributeModifierEntry;
 import com.yesman.akythera.api.world.ability.AbilityEffect;
-import com.yesman.akythera.api.world.ability.AbilityResources;
+import com.yesman.akythera.api.world.ability.AbilityResourceRef;
+import com.yesman.akythera.api.world.ability.Health;
 import com.yesman.akythera.core.util.StaticRegistryAccess;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
@@ -16,11 +18,9 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
-import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 /// Modifiable data holder for [AbilityEffect]. The fields are the editor's properties panel; the
@@ -131,10 +131,10 @@ public final class AbilityEffectHolder extends AbstractDataHolder<AbilityEffect>
 
         private static final Codec<ModifierHolder> RESOURCE_CODEC = RecordCodecBuilder.create(
             instance -> instance.group(
-                Identifier.CODEC.optionalFieldOf("resource").forGetter(ParseUtils.provideOptional(m -> m.resource)),
+                AbilityResourceRef.CODEC.fieldOf("resource").forGetter(m -> m.resource),
                 Codec.FLOAT.fieldOf("amount").forGetter(m -> (float) m.amount)
             ).apply(instance, (resource, amount) -> new ModifierHolder(
-                AbilityEffect.ModifierType.RESOURCE, EMPTY_ATTRIBUTE, resource.orElse(null), amount, AttributeModifier.Operation.ADD_VALUE))
+                AbilityEffect.ModifierType.RESOURCE, EMPTY_ATTRIBUTE, resource, amount, AttributeModifier.Operation.ADD_VALUE))
         );
 
         static final Codec<ModifierHolder> CODEC = ParseUtils.enumCodec(AbilityEffect.ModifierType.class).dispatch(
@@ -152,14 +152,8 @@ public final class AbilityEffectHolder extends AbstractDataHolder<AbilityEffect>
         @EditorEditable(label = LangKeys.GUI_ABILITY_EFFECT_SCREEN_WIDGET_ATTRIBUTE, order = 1, visibleWhen = "isAttribute")
         private ResourceKey<Attribute> attribute;
 
-        @EditorEditable(
-            label = LangKeys.GUI_ABILITY_EFFECT_SCREEN_WIDGET_RESOURCE,
-            order = 1,
-            candidates = "resourceCandidates",
-            searchable = true,
-            visibleWhen = "isResource"
-        )
-        private @Nullable Identifier resource;
+        @EditorEditable(label = LangKeys.GUI_ABILITY_EFFECT_SCREEN_WIDGET_RESOURCE, order = 1, visibleWhen = "isResource")
+        private AbilityResourceRef resource;
 
         @EditorEditable(label = LangKeys.GUI_ABILITY_EFFECT_SCREEN_WIDGET_AMOUNT, order = 2)
         private double amount;
@@ -170,7 +164,7 @@ public final class AbilityEffectHolder extends AbstractDataHolder<AbilityEffect>
         ModifierHolder(
             AbilityEffect.ModifierType modifierType,
             ResourceKey<Attribute> attribute,
-            @Nullable Identifier resource,
+            AbilityResourceRef resource,
             double amount,
             AttributeModifier.Operation operation
         ) {
@@ -194,19 +188,13 @@ public final class AbilityEffectHolder extends AbstractDataHolder<AbilityEffect>
             AbilityEffect.AbilityResourceSpec spec = Objects.requireNonNull(modifier.asAbilitySource());
 
             return new ModifierHolder(
-                AbilityEffect.ModifierType.RESOURCE, EMPTY_ATTRIBUTE, AbilityResources.getIdOrThrow(spec.abilityResource()),
-                spec.amount(), AttributeModifier.Operation.ADD_VALUE
+                AbilityEffect.ModifierType.RESOURCE, EMPTY_ATTRIBUTE, spec.resource(), spec.amount(), AttributeModifier.Operation.ADD_VALUE
             );
         }
 
-        /// The first registered [AbilityResources] entry, or null when none is.
-        static @Nullable Identifier firstResource() {
-            return AbilityResources.entryStream().findFirst().map(Map.Entry::getKey).orElse(null);
-        }
-
-        /// Every registered [AbilityResources] entry, see [EditorEditable#candidates].
-        static List<Identifier> resourceCandidates() {
-            return AbilityResources.entryStream().map(Map.Entry::getKey).toList();
+        /// The built-in [Health] class.
+        static AbilityResourceRef firstResource() {
+            return new AbilityResourceRef.ByClass(AkytheraScriptTypes.HEALTH.value());
         }
 
         /// See [EditorEditable#visibleWhen].
@@ -231,10 +219,7 @@ public final class AbilityEffectHolder extends AbstractDataHolder<AbilityEffect>
                 );
                 case RESOURCE -> new AbilityEffect.Modifier<>(
                     AbilityEffect.ModifierType.RESOURCE,
-                    new AbilityEffect.AbilityResourceSpec(
-                        AbilityResources.getOrThrow(Objects.requireNonNull(resource, "No ability resource is picked")),
-                        (float) amount
-                    )
+                    new AbilityEffect.AbilityResourceSpec(resource, (float) amount)
                 );
             };
         }

@@ -78,8 +78,8 @@ import java.util.function.Consumer;
 /// variable.
 ///
 /// `File > Change Parent` picks another ability class and re-opens the screen, whose layout the class may
-/// change. A parent that binds its own state holds no variables: adding one is refused under it, and it
-/// cannot be picked while the ability has any.
+/// change. The values of properties the new parent lacks are kept until the screen closes. A parent that binds its own
+/// state holds no variables: adding one is refused under it, and it cannot be picked while the ability has any.
 public final class AbilityEditorScreen extends Screen implements ModalAccessibleScreen, SafeCloseScreen, GraphTabScreen {
     private static final int TOP_BAR_H = 22;
 
@@ -219,7 +219,7 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
                                 AbilityEditorScreen reopened = new AbilityEditorScreen(resourceKey, holder);
 
                                 reopened.savePoint = current.savePoint;
-                                current.onClose();
+                                current.removeScreen();
                                 AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
                             };
 
@@ -439,8 +439,15 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
         );
     }
 
+    /// Drops the property values the parent does not declare, then closes.
     @Override
     public void onClose() {
+        holder.getScript().retainProperties(holder.layout());
+        removeScreen();
+    }
+
+    /// Closes the screen, leaving the holder as it is.
+    private void removeScreen() {
         AkytheraProject.getCurrentProject().saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());
         AkytheraEditorLayoutManager.getInstance().removeLastScreen();
     }

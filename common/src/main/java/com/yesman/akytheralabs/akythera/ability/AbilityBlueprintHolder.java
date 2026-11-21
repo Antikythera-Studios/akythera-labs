@@ -36,7 +36,7 @@ public final class AbilityBlueprintHolder extends AbstractDataHolder<AbilityBlue
         instance -> instance.group(
             AkytheraRegistries.Frozen.SCRIPT_FUNCTION.byNameCodec().fieldOf("parent")
                 .forGetter(h -> h.ctor),
-            BlueprintScriptData.MAP_CODEC.forGetter(h -> h.script)
+            BlueprintScriptData.MAP_CODEC.forGetter(h -> h.script.withPropertiesOf(h.layout()))
         ).apply(instance, (ctor, script) -> {
             AbilityBlueprintHolder holder = new AbilityBlueprintHolder();
 

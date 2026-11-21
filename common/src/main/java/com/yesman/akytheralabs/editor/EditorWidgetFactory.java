@@ -4,6 +4,8 @@ import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.api.data.serializable.RGBA;
+import com.yesman.akythera.api.world.ability.AbilityResourceRef;
+import com.yesman.akythera.api.world.ability.AbilityResourceScript;
 import com.yesman.akythera.api.world.ability.AbilityTag;
 import com.yesman.akythera.api.world.ability.AbilityTagSet;
 import com.yesman.akythera.client.api.gui.*;
@@ -691,6 +693,7 @@ public final class EditorWidgetFactory {
         registerWidgetProducer(AbilityTagSet.class, EditorWidgetFactory::abilityTagSetPopup);
         registerWidgetProducer(AssetAccessor.class, EditorWidgetFactory::accessorPopup);
         registerWidgetProducer(AnimatorScriptRef.class, EditorWidgetFactory::animatorScriptPopup);
+        registerWidgetProducer(AbilityResourceRef.class, EditorWidgetFactory::abilityResourcePopup);
         registerWidgetProducer(AnimationRef.class, EditorWidgetFactory::animationRefPopup);
         registerWidgetProducer(ReferencePose.class, new ReferencePoseProducer());
         registerWidgetProducer(Item.class, EditorWidgetFactory::itemPopup);
@@ -2182,6 +2185,8 @@ public final class EditorWidgetFactory {
                 accessor.identifier().equals(DataHolder.EMPTY_REFERENCE) || AccessorSelectionModal.resolves(accessor);
             case AnimatorScriptRef.ClassScript c -> AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(c.scriptType()) != null;
             case AnimatorScriptRef.DataPackScript d -> resolves(d.holder());
+            case AbilityResourceRef.ByClass c -> AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(c.type()) != null;
+            case AbilityResourceRef.ByData d -> resolves(d.key());
             case AnimationRef.Empty ignored -> true;
             case AnimationRef.Sequence s -> s.holder().isBound();
             case AnimationRef.Montage m -> m.holder().isBound();
@@ -2248,6 +2253,33 @@ public final class EditorWidgetFactory {
         ).withValidator(EditorWidgetFactory::resolves).setOnCleared(b -> clearSlot(
             slot,
             AnimatorScriptRef.dataPack(ResourceKey.create(AkytheraRegistries.DataPack.ANIMATOR_SCRIPT_KEY, DataHolder.EMPTY_REFERENCE)),
+            b
+        ));
+
+        factory.bindPlaceholder(slot, box);
+
+        return List.of(box);
+    }
+
+    private static List<? extends AbstractWidget> abilityResourcePopup(EditorWidgetFactory factory, ValueSlot slot) {
+        PopupBox<Object> box = new PopupBox<>(
+            factory.font,
+            columnStart(slot, 0, 1), columnSize(slot, 0, 1),
+            AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
+            AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
+            AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
+            slot::get,
+            _ -> {},
+            v -> switch (v) {
+                case AbilityResourceRef.ByClass c -> Objects.toString(AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(c.type()));
+                case AbilityResourceRef.ByData d -> isEmptyReference(d.key()) ? "<none>" : d.key().identifier().toString();
+                case null, default -> Objects.toString(v);
+            },
+            Component.empty(),
+            b -> factory.openAbilityResourceSelect(slot, b)
+        ).withValidator(EditorWidgetFactory::resolves).setOnCleared(b -> clearSlot(
+            slot,
+            new AbilityResourceRef.ByData(ResourceKey.create(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY, DataHolder.EMPTY_REFERENCE)),
             b
         ));
 
@@ -3165,6 +3197,47 @@ public final class EditorWidgetFactory {
                     Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SELECT_MODAL_CATEGORY_CLASS), classScripts),
                 new CategorizedSelectModal.Category<>(
                     Component.translatable(LangKeys.GUI_ANIMATOR_SCRIPT_SELECT_MODAL_CATEGORY_DATA), dataPackScripts)
+            ),
+            picked -> {
+                pushSlotChange(slot, picked, box);
+                box.valueSetter().accept(picked);
+            }
+        );
+
+        ModalManager.getInstance().openModalWidgetUnder(box, modal);
+    }
+
+    /// Opens the ability resource picker for an [AbilityResourceRef] slot, dropped down under the box. Lists the
+    /// [AbilityResourceScript] classes a no-argument constructor builds, then the data pack entries (the project's
+    /// merged with the loaded world's).
+    private void openAbilityResourceSelect(ValueSlot slot, PopupBox<Object> box) {
+        List<CategorizedSelectModal.Choice<AbilityResourceRef>> classes = AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
+            .filter(entry -> {
+                Class<?> type = entry.getValue().type();
+
+                if (!AbilityResourceScript.class.isAssignableFrom(type) || Modifier.isAbstract(type.getModifiers())) return false;
+
+                return Arrays.stream(type.getConstructors()).anyMatch(constructor -> constructor.getParameterCount() == 0);
+            })
+            .map(entry -> new CategorizedSelectModal.Choice<AbilityResourceRef>(
+                entry.getKey().identifier().toString(), new AbilityResourceRef.ByClass(entry.getValue())))
+            .toList();
+
+        List<CategorizedSelectModal.Choice<AbilityResourceRef>> entries = AkytheraProject.getCurrentProject()
+            .getMergedEntries(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY).stream()
+            .map(entry -> new CategorizedSelectModal.Choice<AbilityResourceRef>(
+                entry.getKey().identifier().toString(), new AbilityResourceRef.ByData(entry.getKey())))
+            .toList();
+
+        CategorizedSelectModal<AbilityResourceRef> modal = new CategorizedSelectModal<>(
+            font,
+            box.getWidth(),
+            Component.translatable(LangKeys.GUI_ABILITY_EFFECT_SCREEN_WIDGET_RESOURCE),
+            List.of(
+                new CategorizedSelectModal.Category<>(
+                    Component.translatable(LangKeys.GUI_ABILITY_RESOURCE_SELECT_MODAL_CATEGORY_CLASS), classes),
+                new CategorizedSelectModal.Category<>(
+                    Component.translatable(LangKeys.GUI_ABILITY_RESOURCE_SELECT_MODAL_CATEGORY_DATA), entries)
             ),
             picked -> {
                 pushSlotChange(slot, picked, box);
