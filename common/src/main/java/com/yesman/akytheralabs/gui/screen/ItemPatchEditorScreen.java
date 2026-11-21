@@ -952,9 +952,10 @@ public final class ItemPatchEditorScreen extends Screen
 
         ItemPatchEditorScreen reopened = new ItemPatchEditorScreen(resourceKey, holder);
 
+        current.model3DViewer.destroy();
+        AkytheraProject.getCurrentProject().saveLayoutOfScreen(current, current.panelManager.serializePanelDividerPositions());
+        AkytheraEditorLayoutManager.getInstance().replaceLastScreen(reopened);
         reopened.savePoint = current.savePoint;
-        current.onClose();
-        AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
     }
 
     /// A row of the parent picker.

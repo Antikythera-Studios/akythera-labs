@@ -212,6 +212,9 @@ public final class FreemarkerExporter {
         Map.entry(AkytheraRegistries.DataPack.ABILITY_KEY,
             new SourceTemplate("ability_blueprint_template.ftl", "abilities", "Abilities")),
 
+        Map.entry(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY,
+            new SourceTemplate("ability_effect_template.ftl", "effects", "AbilityEffects")),
+
         Map.entry(AkytheraRegistries.DataPack.WIDGET_KEY,
             new SourceTemplate("widget_blueprint_template.ftl", "widgets", "WidgetBlueprints"))
     );
@@ -232,6 +235,9 @@ public final class FreemarkerExporter {
 
         AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY, List.of(
             new ModularizedFunctions(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, FreemarkerExporter::exportMotionWarpTarget)),
+
+        AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY, List.of(
+            new ModularizedFunctions(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY, FreemarkerExporter::exportAbilityResourceScript)),
 
         AkytheraRegistries.DataPack.PARTICLE_SYSTEM_KEY, List.of(
             new ModularizedFunctions(AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY, FreemarkerExporter::exportParticleModule),
@@ -487,7 +493,7 @@ public final class FreemarkerExporter {
                 .toList();
 
             Holder<?> dataParent = patchHolder.getScript().getDataParent();
-            String superclass = dataParent == null || patchHolder.getScript().getSourceParent() != null
+            String superclass = dataParent == null || parentOtherThan(patchHolder.getScript().getSourceParent(), className) != null
                 ? null
                 : compiledClass(dataParent.unwrapKey().orElseThrow());
 
@@ -531,18 +537,10 @@ public final class FreemarkerExporter {
             }
 
             ScriptType parentScript = Stream.concat(Stream.of(patchHolder), ancestors.reversed().stream())
-                .map(patch -> patch.getScript().getSourceParent())
+                .map(patch -> parentOtherThan(patch.getScript().getSourceParent(), className))
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
-
-            if (parentScript != null && parentScript.type().getSimpleName().equals(className)) {
-                AkytheraLabs.LOGGER.error(
-                    "Skipped {} for script export: the class {} it is laid over has the name of the class the export writes",
-                    entryKey.identifier(), parentScript.type().getName());
-
-                return;
-            }
 
             Map<String, Object> model = new HashMap<>();
             model.put("package", subPackage(packageName, PATCHES_DIR));
@@ -594,12 +592,12 @@ public final class FreemarkerExporter {
                 return;
             }
 
-            Class<?> base = parentScript.<Class<?>>map(ScriptType::type).orElse(ItemPatchScript.class);
+            String className = itemPatchScriptClass(entryKey);
+            ScriptType parent = parentOtherThan(parentScript.orElse(null), className);
+            Class<?> base = parent == null ? ItemPatchScript.class : parent.type();
 
             Path patchesRoot = sourceCodeRoot.resolve(ITEM_PATCHES_DIR);
             if (!prepareDirectory(patchesRoot)) return;
-
-            String className = itemPatchScriptClass(entryKey);
 
             Map<String, Object> model = new HashMap<>();
             model.put("package", subPackage(packageName, ITEM_PATCHES_DIR));
@@ -849,13 +847,9 @@ public final class FreemarkerExporter {
     /// An ability resource entry as its own [#abilityResourceClass]: an implementation of the
     /// class its parent constructor builds, an [AbilityResourceScript] or a [StoredAbilityResource] subclass, whose
     /// overridden functions, declared functions and property values are real methods.
-    public static void exportAbilityResourceScript(
-        AkytheraProject project,
-        ResourceKey<AbilityResourceBlueprint> entryKey,
-        Path sourceCodeRoot,
-        String packageName
-    ) {
-        DataHolder<AbilityResourceBlueprint> holder = project.getDataHolderOrThrow(entryKey);
+    public static void exportAbilityResourceScript(AkytheraProject project, ResourceKey<?> entryKey, Path sourceCodeRoot, String packageName) {
+        @SuppressWarnings("unchecked")
+        DataHolder<?> holder = project.getDataHolderOrThrow((ResourceKey<Object>) entryKey);
         if (!notBroken(entryKey, holder) || !(holder instanceof AbilityResourceBlueprintHolder resourceHolder)) return;
 
         Path resourcesRoot = sourceCodeRoot.resolve(ABILITY_RESOURCES_DIR);
@@ -864,7 +858,7 @@ public final class FreemarkerExporter {
         String className = abilityResourceClass(entryKey);
 
         try {
-            List<BlueprintBody> chain = List.of(holder.makeObject().body());
+            List<BlueprintBody> chain = List.of(resourceHolder.makeObject().body());
             BlueprintBody body = BlueprintBody.fold(chain);
             Class<?> base = resourceHolder.scriptOwner();
             List<String> memberVariables = body.variables().stream()
@@ -954,7 +948,7 @@ public final class FreemarkerExporter {
                 .toList();
 
             Holder<?> dataParent = widgetHolder.getScript().getDataParent();
-            String superclass = dataParent == null || widgetHolder.getScript().getSourceParent() != null
+            String superclass = dataParent == null || parentOtherThan(widgetHolder.getScript().getSourceParent(), className) != null
                 ? null
                 : compiledClass(dataParent.unwrapKey().orElseThrow());
             BlueprintBody inherited = BlueprintBody.fold(chain.subList(superclass == null ? 0 : 1, chain.size()));
@@ -976,18 +970,10 @@ public final class FreemarkerExporter {
             }
 
             ScriptType parentScript = lineage.stream()
-                .map(widget -> widget.getScript().getSourceParent())
+                .map(widget -> parentOtherThan(widget.getScript().getSourceParent(), className))
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
-
-            if (parentScript != null && parentScript.type().getSimpleName().equals(className)) {
-                AkytheraLabs.LOGGER.error(
-                    "Skipped {} for script export: the class {} it is laid over has the name of the class the export writes",
-                    entryKey.identifier(), parentScript.type().getName());
-
-                return;
-            }
 
             List<Map<String, Object>> widgetMethods = new ArrayList<>();
             List<Map<String, Object>> events = new ArrayList<>();
@@ -1155,6 +1141,12 @@ public final class FreemarkerExporter {
         return className;
     }
 
+    /// `parent`, or null when it is a class named `className`: an entry laid over a class of its own name is laid
+    /// over its earlier export, which the export overwrites.
+    private static @Nullable ScriptType parentOtherThan(@Nullable ScriptType parent, String className) {
+        return parent == null || parent.type().getSimpleName().equals(className) ? null : parent;
+    }
+
 
     /// A particle module node graph as its own [#particleModuleClass]: a `ParticleInitializerModule` or a
     /// `ParticleUpdateModule` whose event and declared functions are methods, with `self` bound to the `emitter`
@@ -1236,6 +1228,26 @@ public final class FreemarkerExporter {
         } catch (Exception e) {
             AkytheraLabs.LOGGER.error("Failed to export motion warp target {} as source", entryKey.identifier(), e);
         }
+    }
+
+    /// The ids [#exportScriptTypes] registers the classes the open project compiles to under. Empty with no project
+    /// open.
+    @SuppressWarnings("unchecked")
+    public static Set<Identifier> projectScriptTypes() {
+        AkytheraProject project = AkytheraProject.getCurrentProjectOrNull();
+        if (project == null) return Set.of();
+
+        Set<Identifier> ids = new HashSet<>();
+
+        for (ResourceKey<? extends Registry<?>> registry : SCRIPT_TYPE_REGISTRIES.keySet()) {
+            for (var entry : project.<Object, DataHolder<Object>>getModifiableEntries((ResourceKey<? extends Registry<Object>>) registry)) {
+                String className = compiledClass(entry.getKey());
+
+                if (className != null) ids.add(Identifier.fromNamespaceAndPath(project.getProjectName(), ParseUtils.camelToSnake(className)));
+            }
+        }
+
+        return ids;
     }
 
     /// `<PascalCaseModid>ScriptTypes.java` under [#REGISTRIES_DIR]: a [ScriptType] registration of every class the

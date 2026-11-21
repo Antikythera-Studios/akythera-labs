@@ -32,6 +32,7 @@ import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import freemarker.template.TemplateNotFoundException;
 import net.minecraft.resources.Identifier;
+import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.NullMarked;
@@ -214,7 +215,11 @@ public final class ScriptNodeSourceCompiler {
                 scopedNames.retainAll(enclosingNames);
             }
             case FlowFunctionNode fn -> {
-                out.add(line(indent, functionExpr(fn.function(), argsOf(fn.function(), fn.params())) + ";"));
+                String call = functionExpr(fn.function(), argsOf(fn.function(), fn.params()));
+                Class<?> returnType = fn.function().functionSignature().returnType();
+
+                // A template that renders a value in parentheses, not a call, is no statement in Java
+                out.add(line(indent, (returnType != void.class && returnType != Void.class && call.startsWith("(") ? "var _ = " : "") + call + ";"));
                 if (fn.nextNode() != null) statements(fn.nextNode(), out, indent);
             }
             case ScriptVariableSetterNode setter -> out.add(line(indent, assignment(setter)));
@@ -336,7 +341,19 @@ public final class ScriptNodeSourceCompiler {
             case NullNode _ -> "null";
             case LiteralNode<?> literal -> literal(literal);
             case RegistryEntryNode entry -> BlueprintSourceWriter.propertyLiteral(entry.type(), new JsonPrimitive(entry.id().toString()));
-            case RegistryKeyNode key -> BlueprintSourceWriter.registryKey(Objects.requireNonNull(key.type().registry()), key.id().toString());
+            // An ability resource the open project compiles is keyed by its compiled class's id, which wins the entry
+            case RegistryKeyNode key -> {
+                ResourceKey<? extends Registry<?>> registry = Objects.requireNonNull(key.type().registry());
+                @SuppressWarnings({"unchecked", "rawtypes"})
+                String compiled = registry.equals(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY)
+                    ? FreemarkerExporter.compiledClass(ResourceKey.create((ResourceKey) registry, key.id()))
+                    : null;
+
+                yield compiled != null
+                    ? "ResourceKey.create(" + BlueprintSourceWriter.registry(registry)
+                        + ", AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(ScriptType.of(" + compiled + ".class)))"
+                    : BlueprintSourceWriter.registryKey(registry, key.id().toString());
+            }
             case ContextVariableAccessNode access -> access.localVariableName();
             case ParticleSystemParameterNode parameter -> selfExpr + ".getSystem().getParameters().<"
                 + (parameter.type().container() == ScriptType.Container.SINGLE

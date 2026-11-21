@@ -1,2 +1,2 @@
 <#-- akythera:widget_owner (host) -> Object; client implementation --><#t>
-(${params[0]} instanceof AkytheraScreen ownerScreen ? ownerScreen.getOwner() : ${params[0]} instanceof AkytheraWidget ownerWidget ? ownerWidget.getOwner() : null)<#t>
+(switch ((Object) (${params[0]})) { case AkytheraScreen ownerScreen -> ownerScreen.getOwner(); case AkytheraWidget ownerWidget -> ownerWidget.getOwner(); case null, default -> null; })<#t>

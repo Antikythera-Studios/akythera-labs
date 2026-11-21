@@ -22,6 +22,7 @@ import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHol
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 
 import java.lang.reflect.Modifier;
@@ -99,8 +100,10 @@ public final class MotionWarpingNotifyStateHolder extends AnimationNotifyStateHo
             .forEach(candidates::add);
 
         // A target class is one a user wrote: the built-in targets and the data pack runner are left out
+        Set<Identifier> projectScriptTypes = FreemarkerExporter.projectScriptTypes();
         AkytheraRegistries.Frozen.SCRIPT_TYPE.stream()
             .filter(type -> MotionWarpTarget.class.isAssignableFrom(type.type())
+                && !projectScriptTypes.contains(AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(type))
                 && !type.type().isInterface()
                 && !Modifier.isAbstract(type.type().getModifiers())
                 && type.type() != DataDrivenMotionWarpTarget.class

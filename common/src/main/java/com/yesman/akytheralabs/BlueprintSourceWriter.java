@@ -2,6 +2,7 @@ package com.yesman.akytheralabs;
 
 import com.google.common.reflect.TypeToken;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.yesman.akythera.api.data.modularize.ScriptType;
 import com.yesman.akythera.api.data.modularize.node.FlowNode;
 import com.yesman.akythera.api.world.ability.AbilityTag;
@@ -412,7 +413,7 @@ public final class BlueprintSourceWriter {
         }
 
         return NodeTreeSourceRenderer.scriptType(type)
-            + ".parse(JsonParser.parseString(" + ScriptNodeSourceCompiler.valueLiteral(json.toString()) + "))";
+            + ".parse(" + SourceNames.typeName(JsonParser.class) + ".parseString(" + ScriptNodeSourceCompiler.valueLiteral(json.toString()) + "))";
     }
 
     /// The ability tags a JSON array names, each as its project enum constant or its manager lookup.

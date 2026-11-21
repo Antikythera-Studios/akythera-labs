@@ -1,5 +1,6 @@
 package com.yesman.akytheralabs;
 
+import com.google.gson.JsonParser;
 import com.yesman.akythera.api.asset.AssetAccessor;
 import com.yesman.akythera.api.data.modularize.ScriptFunction;
 import com.yesman.akythera.api.data.modularize.ScriptType;
@@ -195,7 +196,7 @@ public final class NodeTreeSourceRenderer {
                 .toList(), indent + 1),
             mapOf(body.properties().entrySet().stream()
                 .map(property -> entry(
-                    property.getKey(), "JsonParser.parseString(" + quote(property.getValue().toString()) + ")"))
+                    property.getKey(), SourceNames.typeName(JsonParser.class) + ".parseString(" + quote(property.getValue().toString()) + ")"))
                 .toList(), indent + 1),
             listOf(body.variables().stream().map(variable -> variableInfo(variable, indent + 2)).toList(), indent + 1));
     }

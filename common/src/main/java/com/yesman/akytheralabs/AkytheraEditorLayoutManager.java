@@ -85,8 +85,11 @@ public final class AkytheraEditorLayoutManager {
     /// The world viewport's camera apart from the local player, released when the editor layout closes.
     private final ViewportCamera viewportCamera = new ViewportCamera();
 
+    /// An open editor screen, and what the content browser opened it for ([#markOpenedFor]) or null.
+    private record OpenScreen(Screen screen, @Nullable Object opened) {}
+
     /// The editor's own open-screen history.
-    private final Stack<Screen> screenStacks = new Stack<> ();
+    private final Stack<OpenScreen> screenStacks = new Stack<> ();
 
     /// The editor's root screen.
     private MainEditorScreen mainScreen;
@@ -118,7 +121,7 @@ public final class AkytheraEditorLayoutManager {
         if (!getInstance().isActive()) return;
 
         if (event.getModal() instanceof WidgetContainerModal wcm && wcm.saveHistory()) {
-            HistoryManager.getInstance().requestSavePointOnNextAction();
+            HistoryManager.getInstance().requestSavePointOnNextAction(wcm);
         }
 
         if (event.getModal() instanceof WorldViewportHost) {
@@ -130,7 +133,7 @@ public final class AkytheraEditorLayoutManager {
         if (!getInstance().isActive()) return;
 
         if (event.getModal() instanceof WidgetContainerModal wcm && wcm.saveHistory()) {
-            HistoryManager.getInstance().popScreen();
+            HistoryManager.getInstance().popScreen(wcm);
         }
 
         if (event.getModal() instanceof WorldViewportHost) {
@@ -156,7 +159,7 @@ public final class AkytheraEditorLayoutManager {
             int guiW = minecraft.getWindow().getScreenWidth() / scale;
             int guiH = minecraft.getWindow().getScreenHeight() / scale;
             mainScreen.init(guiW, guiH);
-            screenStacks.push(mainScreen);
+            screenStacks.push(new OpenScreen(mainScreen, null));
             ModalManager.getInstance().setHostScreen(this::getRecentEditorScreen);
             minecraft.mouseHandler.releaseMouse();
 
@@ -171,7 +174,7 @@ public final class AkytheraEditorLayoutManager {
     public void closeEditorLayout() {
         if (mainScreen != null) {
             while (!screenStacks.isEmpty()) {
-                screenStacks.lastElement().onClose();
+                screenStacks.lastElement().screen().onClose();
             }
 
             mainScreen = null;
@@ -195,22 +198,57 @@ public final class AkytheraEditorLayoutManager {
     /// Opens a screen and pushes it onto the open-screen history.
     public void openNewScreen(final Screen screen) {
         ModalManager.getInstance().closeAllModals();
-        HistoryManager.getInstance().requestSavePointOnNextAction();
+        HistoryManager.getInstance().requestSavePointOnNextAction(screen);
 
         int scale = AkytheraLabsConfig.getEditorGuiScale();
         // Init at editor scale, not the game's current GUI scale
         int guiW = minecraft.getWindow().getScreenWidth() / scale;
         int guiH = minecraft.getWindow().getScreenHeight() / scale;
         screen.init(guiW, guiH);
-        screenStacks.push(screen);
+        screenStacks.push(new OpenScreen(screen, null));
+    }
+
+    /// The open screen the content browser opened for `opened` ([#markOpenedFor]), or null.
+    public @Nullable Screen screenOpenedFor(final Object opened) {
+        return screenStacks.stream().filter(open -> opened.equals(open.opened())).map(OpenScreen::screen).findFirst().orElse(null);
+    }
+
+    /// Marks `screen` as the screen the content browser opened for `opened`.
+    public void markOpenedFor(final Screen screen, final Object opened) {
+        screenStacks.replaceAll(open -> open.screen() == screen ? new OpenScreen(screen, opened) : open);
+    }
+
+    /// Moves the open `screen` to the top with its unsaved changes and its undo history.
+    public void bringToTop(final Screen screen) {
+        OpenScreen open = screenStacks.stream().filter(entry -> entry.screen() == screen).findFirst().orElseThrow();
+        if (screenStacks.lastElement() == open) return;
+
+        ModalManager.getInstance().closeAllModals();
+        NodeClipboard.getInstance().cancelCut();
+        screenStacks.remove(open);
+        screenStacks.push(open);
+        HistoryManager.getInstance().bringToTop(screen);
     }
 
     /// Closes the last screen on stack
     public void closeLastScreen() {
         if (!screenStacks.isEmpty()) {
             ModalManager.getInstance().closeAllModals();
-            screenStacks.lastElement().onClose();
+            screenStacks.lastElement().screen().onClose();
         }
+    }
+
+    /// Swaps the last screen for `screen`, which takes over its scope of the undo history: nothing is popped, and no
+    /// new save point is requested.
+    public void replaceLastScreen(final Screen screen) {
+        ModalManager.getInstance().closeAllModals();
+        NodeClipboard.getInstance().cancelCut();
+        OpenScreen replaced = screenStacks.pop();
+        HistoryManager.getInstance().replaceOwner(replaced.screen(), screen);
+
+        int scale = AkytheraLabsConfig.getEditorGuiScale();
+        screen.init(minecraft.getWindow().getScreenWidth() / scale, minecraft.getWindow().getScreenHeight() / scale);
+        screenStacks.push(new OpenScreen(screen, replaced.opened()));
     }
 
     /// Removes screen on the last stack
@@ -219,18 +257,18 @@ public final class AkytheraEditorLayoutManager {
     /// If you want to close the screen, the UI control, use [#closeLastScreen].
     public void removeLastScreen() {
         ModalManager.getInstance().closeAllModals();
-        HistoryManager.getInstance().popScreen();
+        HistoryManager.getInstance().popScreen(screenStacks.lastElement().screen());
         NodeClipboard.getInstance().cancelCut();
         screenStacks.pop();
     }
 
     /// The open editor screens, from the main screen to the top one.
     public List<Screen> getOpenScreens() {
-        return List.copyOf(screenStacks);
+        return screenStacks.stream().map(OpenScreen::screen).toList();
     }
 
     public @Nullable Screen getRecentEditorScreen() {
-        return screenStacks.isEmpty() ? null : screenStacks.lastElement();
+        return screenStacks.isEmpty() ? null : screenStacks.lastElement().screen();
     }
 
     /// The most recently opened editor screen.
@@ -241,7 +279,7 @@ public final class AkytheraEditorLayoutManager {
         }
 
         try {
-            task.accept((T)screenStacks.lastElement());
+            task.accept((T)screenStacks.lastElement().screen());
         } catch (ClassCastException _) {
         }
     }
@@ -339,8 +377,8 @@ public final class AkytheraEditorLayoutManager {
             editorRenderTarget.resize(width, height);
             int scale = AkytheraLabsConfig.getEditorGuiScale();
 
-            for (Screen screen : screenStacks) {
-                screen.resize(width / scale, height / scale);
+            for (OpenScreen open : screenStacks) {
+                open.screen().resize(width / scale, height / scale);
             }
 
             ModalManager.getInstance().relocateModals();
@@ -352,7 +390,8 @@ public final class AkytheraEditorLayoutManager {
             return;
         }
 
-        for (Screen screen : screenStacks) {
+        for (OpenScreen open : screenStacks) {
+            Screen screen = open.screen();
             int guiW = Minecraft.getInstance().getWindow().getScreenWidth() / scale;
             int guiH = Minecraft.getInstance().getWindow().getScreenHeight() / scale;
             screen.init(guiW, guiH);
@@ -497,7 +536,7 @@ public final class AkytheraEditorLayoutManager {
         // prevents activating hover effects for objects behind it.
         boolean pointerOnModalLayer = ModalManager.getInstance().claimsPointer(mouseX, mouseY);
 
-        screenStacks.lastElement().extractRenderStateWithTooltipAndSubtitles(
+        screenStacks.lastElement().screen().extractRenderStateWithTooltipAndSubtitles(
             graphics,
             pointerOnModalLayer ? -1 : mouseX,
             pointerOnModalLayer ? -1 : mouseY,

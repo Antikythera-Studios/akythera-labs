@@ -122,10 +122,13 @@ public final class ItemPatchBlueprintHolder extends AbstractDataHolder<ItemPatch
     }
 
     /// The classes [#sourceCodeScript] may pick: every registered [ItemPatchScript#runnable] class but the data
-    /// pack runner.
+    /// pack runner and the classes the open project compiles to ([FreemarkerExporter#projectScriptTypes]).
     public static List<ScriptType> scriptClassCandidates() {
+        Set<Identifier> projectScriptTypes = FreemarkerExporter.projectScriptTypes();
+
         return AkytheraRegistries.Frozen.SCRIPT_TYPE.stream()
-            .filter(type -> ItemPatchScript.runnable(type.type()) && type.type() != DataDrivenItemPatchScript.class)
+            .filter(type -> ItemPatchScript.runnable(type.type()) && type.type() != DataDrivenItemPatchScript.class
+                && !projectScriptTypes.contains(AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(type)))
             .sorted(Comparator.comparing(type -> type.type().getSimpleName()))
             .toList();
     }

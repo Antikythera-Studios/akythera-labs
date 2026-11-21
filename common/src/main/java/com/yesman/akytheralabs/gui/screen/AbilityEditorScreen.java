@@ -14,6 +14,7 @@ import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
 import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
 import com.yesman.akytheralabs.editor.NodeClipboard;
@@ -59,6 +60,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -68,6 +70,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -140,8 +143,9 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
                             "Ability/Cue"
                         )));
 
+                    Set<Identifier> projectScriptTypes = FreemarkerExporter.projectScriptTypes();
                     AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
-                        .filter(entry -> AbilityCueScript.runnable(entry.getValue().type()))
+                        .filter(entry -> AbilityCueScript.runnable(entry.getValue().type()) && !projectScriptTypes.contains(entry.getKey().identifier()))
                         .sorted(Comparator.comparing(entry -> entry.getKey().identifier().toString()))
                         .forEach(entry -> suggestions.add(new NodeSuggestModal.Suggestion<>(
                             Component.literal(entry.getKey().identifier().toString()),
@@ -197,9 +201,9 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
 
                         AbilityEditorScreen reopened = new AbilityEditorScreen(resourceKey, holder);
 
+                        AkytheraProject.getCurrentProject().saveLayoutOfScreen(current, current.panelManager.serializePanelDividerPositions());
+                        AkytheraEditorLayoutManager.getInstance().replaceLastScreen(reopened);
                         reopened.savePoint = current.savePoint;
-                        current.removeScreen();
-                        AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
                     };
 
                     CategorizedSelectModal<Object> modal = new CategorizedSelectModal<>(
@@ -453,11 +457,7 @@ public final class AbilityEditorScreen extends Screen implements ModalAccessible
     @Override
     public void onClose() {
         holder.getScript().retainProperties(holder.layout());
-        removeScreen();
-    }
 
-    /// Closes the screen, leaving the holder as it is.
-    private void removeScreen() {
         AkytheraProject.getCurrentProject().saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());
         AkytheraEditorLayoutManager.getInstance().removeLastScreen();
     }

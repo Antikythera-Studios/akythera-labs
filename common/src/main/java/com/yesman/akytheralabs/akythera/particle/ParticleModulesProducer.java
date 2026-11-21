@@ -158,8 +158,10 @@ public final class ParticleModulesProducer implements EditorWidgetFactory.Widget
                         .map(ref -> new CategorizedSelectModal.Choice<>(ref.displayLabel(), ref, CHOICE_COLOR, MODULE_ICON))
                         .toList();
                     // A module class is one a user wrote: the built-in modules and the data pack runner are left out
+                    Set<Identifier> projectScriptTypes = FreemarkerExporter.projectScriptTypes();
                     List<CategorizedSelectModal.Choice<ModuleRef>> classes = AkytheraRegistries.Frozen.SCRIPT_TYPE.stream()
                         .filter(type -> moduleInterface.isAssignableFrom(type.type())
+                            && !projectScriptTypes.contains(AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(type))
                             && !Modifier.isAbstract(type.type().getModifiers())
                             && type.type() != DataDrivenParticleModule.class
                             && !ParticleInitializerBlueprint.class.isAssignableFrom(type.type())

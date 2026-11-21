@@ -771,6 +771,7 @@
   "gui.akytheralabs.blueprint.error.unknown_method": "%s is no event or function of this blueprint",
   "gui.akytheralabs.blueprint.error.unknown_field": "%s is no field of this blueprint's parent",
   "gui.akytheralabs.blueprint.error.parent_outside_override": "A Parent node runs only on an overridden function",
+  "gui.akytheralabs.blueprint.error.parent_without_parent": "No parent script to call. Pick a parent, or remove this node",
   "gui.akytheralabs.blueprint.error.function_name": "%s is no Java name, or another member already has it",
   "gui.akytheralabs.blueprint.error.function_override": "%s must keep the input types and the output of the function it overrides",
   "gui.akytheralabs.blueprint.panel.functions": "Functions",

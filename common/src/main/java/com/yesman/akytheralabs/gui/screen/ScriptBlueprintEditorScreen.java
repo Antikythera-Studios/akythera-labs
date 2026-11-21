@@ -184,9 +184,11 @@ public final class ScriptBlueprintEditorScreen<T> extends Screen implements Moda
 
                                 ScriptBlueprintEditorScreen<T> reopened = new ScriptBlueprintEditorScreen<>(resourceKey, holder, extension);
 
+                                if (current.extension != null) current.extension.close();
+
+                                AkytheraProject.getCurrentProject().saveLayoutOfScreen(current, current.panelManager.serializePanelDividerPositions());
+                                AkytheraEditorLayoutManager.getInstance().replaceLastScreen(reopened);
                                 reopened.savePoint = current.savePoint;
-                                current.removeScreen();
-                                AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
                             };
 
                             HistoryManager.getInstance().pushHistory(new DataChange<>(holder.getParent(), picked, writer));
@@ -410,11 +412,7 @@ public final class ScriptBlueprintEditorScreen<T> extends Screen implements Moda
     @Override
     public void onClose() {
         holder.getScript().retainProperties(holder.layout());
-        removeScreen();
-    }
 
-    /// Closes the screen, leaving the holder as it is.
-    private void removeScreen() {
         if (extension != null) extension.close();
 
         AkytheraProject.getCurrentProject().saveLayoutOfScreen(this, panelManager.serializePanelDividerPositions());

@@ -44,11 +44,13 @@ public final class ParentCallNodeWidget extends AbstractNodeWidget {
         relayout();
     }
 
+    /// A Parent node on an event of a blueprint with no parent script names that cause.
     @Override
     public List<Component> intrinsicErrors() {
-        return function == null || !function.parentCallable()
-            ? List.of(Component.translatable(LangKeys.GUI_BLUEPRINT_ERROR_PARENT_OUTSIDE_OVERRIDE))
-            : List.of();
+        if (function != null && function.parentCallable()) return List.of();
+
+        return List.of(Component.translatable(
+            event != null ? LangKeys.GUI_BLUEPRINT_ERROR_PARENT_WITHOUT_PARENT : LangKeys.GUI_BLUEPRINT_ERROR_PARENT_OUTSIDE_OVERRIDE));
     }
 
     @Override

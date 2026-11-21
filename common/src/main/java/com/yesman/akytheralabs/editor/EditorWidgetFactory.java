@@ -27,6 +27,7 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akythera.core.util.helper.QuaternionUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.ProjectTags;
 import com.yesman.akytheralabs.akythera.animation.AnimationRef;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
@@ -108,6 +109,7 @@ import java.lang.reflect.WildcardType;
 import java.util.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
@@ -2295,9 +2297,10 @@ public final class EditorWidgetFactory {
             case AssetAccessor<?> accessor ->
                 accessor.identifier().equals(DataHolder.EMPTY_REFERENCE) || AccessorSelectionModal.resolves(accessor);
             case AnimatorScriptRef.ClassScript c -> AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(c.scriptType()) != null;
-            case AnimatorScriptRef.DataPackScript d -> resolves(d.holder());
+            case AnimatorScriptRef.DataPackScript d -> resolves(d.holder())
+                || d.holder().unwrapKey().map(key -> ScriptType.classOf(key, AnimatorScript.class) != null).orElse(false);
             case AbilityResourceRef.ByClass c -> AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(c.type()) != null;
-            case AbilityResourceRef.ByData d -> resolves(d.key());
+            case AbilityResourceRef.ByData d -> resolves(d.key()) || ScriptType.classOf(d.key(), AbilityResourceScript.class) != null;
             case AnimationRef.Empty ignored -> true;
             case AnimationRef.Sequence s -> s.holder().isBound();
             case AnimationRef.Montage m -> m.holder().isBound();
@@ -3290,8 +3293,9 @@ public final class EditorWidgetFactory {
     /// pack script blueprints (the project's entries merged with the loaded world's); a data pack pick
     /// resolves to the shared live holder inside [AnimatorScriptRef#dataPack].
     private void openAnimatorScriptSelect(ValueSlot slot, PopupBox<Object> box) {
+        Set<Identifier> projectScriptTypes = FreemarkerExporter.projectScriptTypes();
         List<CategorizedSelectModal.Choice<AnimatorScriptRef>> classScripts = AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
-            .filter(entry -> AnimatorScript.class.isAssignableFrom(entry.getValue().type()))
+            .filter(entry -> AnimatorScript.class.isAssignableFrom(entry.getValue().type()) && !projectScriptTypes.contains(entry.getKey().identifier()))
             .map(entry -> new CategorizedSelectModal.Choice<AnimatorScriptRef>(
                 entry.getKey().identifier().toString(), new AnimatorScriptRef.ClassScript(entry.getValue())))
             .toList();
@@ -3325,11 +3329,14 @@ public final class EditorWidgetFactory {
     /// [AbilityResourceScript] classes a no-argument constructor builds, then the data pack entries (the project's
     /// merged with the loaded world's).
     private void openAbilityResourceSelect(ValueSlot slot, PopupBox<Object> box) {
+        Set<Identifier> projectScriptTypes = FreemarkerExporter.projectScriptTypes();
         List<CategorizedSelectModal.Choice<AbilityResourceRef>> classes = AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
             .filter(entry -> {
                 Class<?> type = entry.getValue().type();
 
-                if (!AbilityResourceScript.class.isAssignableFrom(type) || Modifier.isAbstract(type.getModifiers())) return false;
+                if (!AbilityResourceScript.class.isAssignableFrom(type) || Modifier.isAbstract(type.getModifiers())
+                    || projectScriptTypes.contains(entry.getKey().identifier())
+                ) return false;
 
                 return Arrays.stream(type.getConstructors()).anyMatch(constructor -> constructor.getParameterCount() == 0);
             })

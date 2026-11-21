@@ -41,6 +41,7 @@ import com.yesman.akythera.mixinaccessor.common.EntityAccessor;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintParentRef;
 import com.yesman.akytheralabs.akythera.blueprint.ComponentPaths;
 import com.yesman.akytheralabs.akythera.collider.ColliderComponentHolder;
@@ -295,8 +296,10 @@ public final class EntityPatchEditorScreen extends Screen
                             .isAssignableFrom(b.functionSignature().parameters().get(1)) ? b : a)
                         .orElseGet(() -> holder.getParent().ctor());
 
+                    Set<Identifier> projectScriptTypes = FreemarkerExporter.projectScriptTypes();
                     List<CategorizedSelectModal.Choice<Object>> sourceCodeScripts = AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
-                        .filter(entry -> SourceCodeEntityPatchBlueprint.runnable(entry.getValue().type()) && entry.getValue().type() != DataDrivenEntityPatchScript.class)
+                        .filter(entry -> SourceCodeEntityPatchBlueprint.runnable(entry.getValue().type()) && entry.getValue().type() != DataDrivenEntityPatchScript.class
+                            && !projectScriptTypes.contains(entry.getKey().identifier()))
                         .map(entry -> new CategorizedSelectModal.Choice<Object>(
                             entry.getKey().identifier().toString(),
                             new BlueprintParentRef.SourceCodeScript(narrowestCtor, entry.getValue())))
@@ -323,9 +326,10 @@ public final class EntityPatchEditorScreen extends Screen
 
                         EntityPatchEditorScreen reopened = new EntityPatchEditorScreen(resourceKey, holder);
 
+                        current.model3DViewer.destroy();
+                        AkytheraProject.getCurrentProject().saveLayoutOfScreen(current, current.panelManager.serializePanelDividerPositions());
+                        AkytheraEditorLayoutManager.getInstance().replaceLastScreen(reopened);
                         reopened.savePoint = current.savePoint;
-                        current.onClose();
-                        AkytheraEditorLayoutManager.getInstance().openNewScreen(reopened);
                     };
 
                     CategorizedSelectModal<Object> modal = new CategorizedSelectModal<>(

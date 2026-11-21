@@ -99,6 +99,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -115,6 +116,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /// A single [ContentBrowserPanel] object button
 ///
@@ -239,6 +241,27 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
     }
 
     public abstract void onDoubleClicked();
+
+    /// Opens the editor of this content ([#onDoubleClicked]), or brings the screen already open for it to the top with
+    /// its unsaved changes. True when it brought an open screen up.
+    public boolean open() {
+        AkytheraEditorLayoutManager layout = AkytheraEditorLayoutManager.getInstance();
+        Object opened = Objects.requireNonNullElse(getReferencingObject(), path);
+        Screen open = layout.screenOpenedFor(opened);
+
+        if (open != null) {
+            layout.bringToTop(open);
+            return true;
+        }
+
+        Screen before = layout.getRecentEditorScreen();
+        onDoubleClicked();
+        Screen after = layout.getRecentEditorScreen();
+
+        if (after != null && after != before) layout.markOpenedFor(after, opened);
+
+        return false;
+    }
 
     public Path getPath() {
         return path;
@@ -533,7 +556,7 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
                     && failed.getOwnResourceKey() != null) {
                     showReplaceFailedEntryPopup(failed);
                 } else {
-                    onDoubleClicked();
+                    open();
                 }
             }
             stopEditing();
@@ -573,7 +596,7 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
                         // authoritative, the save writes it, and the tile un-reddens.
                         failedHolder.markResolved();
                         AkytheraProject.getCurrentProject().saveEntry(key);
-                        onDoubleClicked();
+                        open();
                     })
                     .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                     .build(),

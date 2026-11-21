@@ -7,9 +7,16 @@ import com.yesman.akythera.api.data.serializable.AttributeModifierEntry;
 import com.yesman.akythera.api.world.ability.AbilityEffect;
 import com.yesman.akythera.api.world.ability.AbilityResourceRef;
 import com.yesman.akythera.api.world.ability.Health;
+import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.StaticRegistryAccess;
 import com.yesman.akythera.core.util.helper.ParseUtils;
+import com.yesman.akytheralabs.BlueprintSourceWriter;
+import com.yesman.akytheralabs.FreemarkerExporter;
+import com.yesman.akytheralabs.NodeTreeSourceRenderer;
+import com.yesman.akytheralabs.ScriptNodeSourceCompiler;
+import com.yesman.akytheralabs.SourceNames;
 import com.yesman.akytheralabs.dataholder.AbstractDataHolder;
+import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
@@ -21,11 +28,12 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /// Modifiable data holder for [AbilityEffect]. The fields are the editor's properties panel; the
 /// record is rebuilt from them on [#makeObject], named after the entry's own registry key.
-public final class AbilityEffectHolder extends AbstractDataHolder<AbilityEffect> {
+public final class AbilityEffectHolder extends AbstractDataHolder<AbilityEffect> implements DTOProvider {
     public static final Codec<AbilityEffectHolder> EDITOR_CODEC = RecordCodecBuilder.create(
         instance -> instance.group(
             ModifierHolder.CODEC.listOf().optionalFieldOf("modifiers", List.of()).forGetter(h -> h.modifiers),
@@ -96,6 +104,18 @@ public final class AbilityEffectHolder extends AbstractDataHolder<AbilityEffect>
             applicationType,
             duration,
             maxStack
+        );
+    }
+
+    /// Tokens for `ability_effect_template.ftl`: the application type, the duration, the max stack, and each modifier
+    /// as its constructor expression, where `id` is the effect's own id.
+    @Override
+    public Map<String, Object> getDTO() {
+        return Map.of(
+            "type", "AbilityEffect.ApplicationType." + applicationType.name(),
+            "duration", duration,
+            "maxStack", maxStack,
+            "modifiers", modifiers.stream().map(ModifierHolder::source).toList()
         );
     }
 
@@ -205,6 +225,29 @@ public final class AbilityEffectHolder extends AbstractDataHolder<AbilityEffect>
         /// See [EditorEditable#visibleWhen].
         boolean isResource() {
             return modifierType == AbilityEffect.ModifierType.RESOURCE;
+        }
+
+        /// This modifier as the expression that builds it, its attribute modifier named `id`. A data reference to an
+        /// ability resource the open project compiles names the compiled class ([FreemarkerExporter#compiledClass]).
+        String source() {
+            return switch (modifierType) {
+                case ATTRIBUTE -> "new AbilityEffect.Modifier<>(AbilityEffect.ModifierType.ATTRIBUTE, new AttributeModifierEntry("
+                    + "BuiltInRegistries.ATTRIBUTE.getOrThrow(" + BlueprintSourceWriter.registryKey(Registries.ATTRIBUTE, attribute.identifier().toString()) + "), "
+                    + "new " + SourceNames.typeName(AttributeModifier.class) + "(id, " + ScriptNodeSourceCompiler.valueLiteral(amount) + ", "
+                    + SourceNames.typeName(AttributeModifier.Operation.class) + "." + operation.name() + ")))";
+                case RESOURCE -> {
+                    String compiled = resource instanceof AbilityResourceRef.ByData byData ? FreemarkerExporter.compiledClass(byData.key()) : null;
+                    String ref = switch (resource) {
+                        case AbilityResourceRef.ByData _ when compiled != null -> "new AbilityResourceRef.ByClass(ScriptType.of(" + compiled + ".class))";
+                        case AbilityResourceRef.ByData byData -> "new AbilityResourceRef.ByData("
+                            + BlueprintSourceWriter.registryKey(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY, byData.key().identifier().toString()) + ")";
+                        case AbilityResourceRef.ByClass byClass -> "new AbilityResourceRef.ByClass(" + NodeTreeSourceRenderer.scriptType(byClass.type()) + ")";
+                    };
+
+                    yield "new AbilityEffect.Modifier<>(AbilityEffect.ModifierType.RESOURCE, new AbilityEffect.AbilityResourceSpec("
+                        + ref + ", " + ScriptNodeSourceCompiler.valueLiteral((float) amount) + "))";
+                }
+            };
         }
 
         /// The engine modifier. An attribute modifier takes `effectId` as its own id.

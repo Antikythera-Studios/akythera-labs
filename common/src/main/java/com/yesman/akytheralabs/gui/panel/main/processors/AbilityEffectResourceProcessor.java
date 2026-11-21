@@ -7,6 +7,7 @@ import com.yesman.akytheralabs.gui.panel.main.ContentBrowserPanel;
 import com.yesman.akytheralabs.gui.panel.main.ExplorerPanel;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
 import com.yesman.akytheralabs.gui.widget.main.ContentWidget;
+import com.yesman.akytheralabs.gui.widget.main.ExportModalGenerator;
 import net.minecraft.client.gui.Font;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.Nullable;
@@ -55,5 +56,11 @@ public final class AbilityEffectResourceProcessor implements ResourceProcessor<A
     @Override
     public @Nullable ContentWidget<?> createContentWidget(final Font font, final Path path) {
         return ResourceProcessor.resolveDatapackWidget(font, path, AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY, ContentWidget.AbilityEffectContent::new);
+    }
+
+    /// The ability effects' data provider, and the classes of the ability resources it names.
+    @Override
+    public ExportModalGenerator.Compile categoryCompile() {
+        return ExportModalGenerator.Compile.objects(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY);
     }
 }

@@ -192,7 +192,8 @@ public final class McpTools {
         register(McpTool.of(
             "open_editor",
             "Opens the editor screen of a project file, the same as double-clicking it in the content browser. "
-                + "The editor layout must be open.",
+                + "When the file already has an open editor screen, that screen comes to the top with its unsaved changes "
+                + "instead, and the result starts with 'Focused' rather than 'Opened'. The editor layout must be open.",
             """
             {
               "type": "object",
@@ -222,12 +223,17 @@ public final class McpTools {
                     if (content == null || !content.isOpenable()) return McpToolResult.error("The file has no editor: " + root.relativize(file));
 
                     Screen before = layout.getRecentEditorScreen();
-                    content.onDoubleClicked();
+                    boolean focused = content.open();
                     Screen after = layout.getRecentEditorScreen();
 
-                    if (after == before) return McpToolResult.error("No editor screen opened for " + root.relativize(file));
+                    if (after == null || after == before) {
+                        return focused
+                            ? McpToolResult.text("Focused " + after.getClass().getSimpleName() + " (" + after.getTitle().getString() + "): it was already the top screen")
+                            : McpToolResult.error("No editor screen opened for " + root.relativize(file));
+                    }
 
-                    return McpToolResult.text("Opened " + after.getClass().getSimpleName() + " (" + after.getTitle().getString() + ")");
+                    return McpToolResult.text((focused ? "Focused the open " : "Opened ")
+                        + after.getClass().getSimpleName() + " (" + after.getTitle().getString() + ")");
                 });
             }
         ));
@@ -262,9 +268,11 @@ public final class McpTools {
             """,
             _ -> onClient(() -> {
                 List<String> unsaved = new ArrayList<>();
+                AkytheraEditorLayoutManager layout = AkytheraEditorLayoutManager.getInstance();
 
-                for (Screen screen : AkytheraEditorLayoutManager.getInstance().getOpenScreens()) {
-                    boolean dirty = findWidgets(screen, TopMenuBar.class).stream().anyMatch(TopMenuBar::isDirty);
+                for (Screen screen : layout.getOpenScreens()) {
+                    Supplier<Boolean> dirtyProbe = () -> findWidgets(screen, TopMenuBar.class).stream().anyMatch(TopMenuBar::isDirty);
+                    boolean dirty = screen == layout.getRecentEditorScreen() ? dirtyProbe.get() : HistoryManager.getInstance().asSeenBy(screen, dirtyProbe);
 
                     if (dirty) unsaved.add(screen.getClass().getSimpleName() + " (" + screen.getTitle().getString() + ")");
                 }

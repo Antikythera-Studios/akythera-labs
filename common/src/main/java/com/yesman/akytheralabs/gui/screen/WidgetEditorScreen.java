@@ -16,6 +16,7 @@ import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
+import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintParentRef;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintScriptData;
 import com.yesman.akytheralabs.akythera.blueprint.BlueprintSignature;
@@ -73,6 +74,7 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -250,8 +252,10 @@ public final class WidgetEditorScreen extends Screen implements ModalAccessibleS
                 .on(TopMenuOption.CHANGE_PARENT, () -> {
                     ScriptFunction currentCtor = holder.getParent().ctor();
 
+                    Set<Identifier> projectScriptTypes = FreemarkerExporter.projectScriptTypes();
                     List<CategorizedSelectModal.Choice<Object>> sourceCodeScripts = AkytheraRegistries.Frozen.SCRIPT_TYPE.entrySet().stream()
                         .filter(entry -> WidgetContainerScript.class.isAssignableFrom(entry.getValue().type())
+                            && !projectScriptTypes.contains(entry.getKey().identifier())
                             && Arrays.stream(entry.getValue().type().getConstructors()).anyMatch(constructor ->
                                 constructor.getParameterCount() == 1 && constructor.getParameterTypes()[0].isAssignableFrom(ownerType())))
                         .map(entry -> new CategorizedSelectModal.Choice<Object>(

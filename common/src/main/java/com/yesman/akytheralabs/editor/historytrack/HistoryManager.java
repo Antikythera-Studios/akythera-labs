@@ -7,6 +7,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Stack;
+import java.util.function.Supplier;
 
 /// The editor's undo / redo stacks.
 public final class HistoryManager {
@@ -43,6 +44,12 @@ public final class HistoryManager {
     /// back to `false`.
     private boolean needsSavePoint = false;
 
+    /// The screen or screen-like modal the pending [ScreenSavePoint] of [#needsSavePoint] belongs to.
+    private @Nullable Object pendingOwner;
+
+    /// The owner [#currentSavePoint] answers for inside [#asSeenBy], or null for the top of the stack.
+    private @Nullable Object viewer;
+
     /// What [#pushHistory] hands its entries to while a [#capture] runs, or null.
     private @Nullable List<WorkHistory> captured;
 
@@ -61,13 +68,7 @@ public final class HistoryManager {
             return;
         }
 
-        if (needsSavePoint) {
-            ScreenSavePoint savePoint = new ScreenSavePoint();
-
-            openedOver.put(savePoint, currentSavePoint());
-            toUndo.push(savePoint);
-            needsSavePoint = false;
-        }
+        if (needsSavePoint) pushSavePoint();
 
         if (!toUndo.isEmpty() && !toUndo.peek().staysUnder(workHistory)) scopes.remove(toUndo.pop());
 
@@ -137,7 +138,7 @@ public final class HistoryManager {
                 if (entryScope == scope) continue;
 
                 if (i < lowest) {
-                    WorkHistory renewed = entry instanceof ScreenSavePoint ? new ScreenSavePoint() : new Renewed(entry);
+                    WorkHistory renewed = entry instanceof ScreenSavePoint savePoint ? new ScreenSavePoint(savePoint.owner) : new Renewed(entry);
 
                     if (entryScope != null) scopes.put(renewed, entryScope);
                     entry = renewed;
@@ -146,7 +147,7 @@ public final class HistoryManager {
                 kept.add(entry);
             }
 
-            if (kept.isEmpty() || !(kept.getFirst() instanceof ScreenSavePoint)) kept.addFirst(new ScreenSavePoint());
+            if (kept.isEmpty() || !(kept.getFirst() instanceof ScreenSavePoint)) kept.addFirst(new ScreenSavePoint(null));
 
             toUndo.clear();
             toUndo.addAll(kept);
@@ -212,9 +213,54 @@ public final class HistoryManager {
     }
 
     /// Marks the next user push to be preceded by a [ScreenSavePoint], scoping everything above it
-    /// to the screen or screen-like modal about to open.
-    public void requestSavePointOnNextAction() {
+    /// to `owner`, the screen or screen-like modal about to open.
+    public void requestSavePointOnNextAction(final Object owner) {
+        // The owner still pending pushed nothing yet, and keeps its own marker under the next one
+        if (needsSavePoint) pushSavePoint();
+
         needsSavePoint = true;
+        pendingOwner = owner;
+    }
+
+    private void pushSavePoint() {
+        ScreenSavePoint savePoint = new ScreenSavePoint(pendingOwner);
+
+        openedOver.put(savePoint, currentSavePoint());
+        toUndo.push(savePoint);
+        needsSavePoint = false;
+        pendingOwner = null;
+    }
+
+    /// Moves the entries of `owner`, from its [ScreenSavePoint] up to the next one, to the top of the undo stack, and
+    /// drops the redo stack. An owner with no entries gets its [ScreenSavePoint] on the next push.
+    public void bringToTop(final Object owner) {
+        toRedo.forEach(scopes::remove);
+        toRedo.clear();
+
+        // The screen still pending keeps its own marker, under the owner's entries
+        if (needsSavePoint) pushSavePoint();
+
+        int start = savePointOf(owner);
+
+        if (start < 0) {
+            requestSavePointOnNextAction(owner);
+            return;
+        }
+
+        int end = sliceEnd(start);
+        List<WorkHistory> entries = new ArrayList<>(toUndo.subList(start, end));
+
+        toUndo.subList(start, end).clear();
+        toUndo.addAll(entries);
+    }
+
+    /// Hands the entries of `owner` to `next`, which takes its place.
+    public void replaceOwner(final Object owner, final Object next) {
+        if (pendingOwner == owner) pendingOwner = next;
+
+        for (WorkHistory entry : toUndo) {
+            if (entry instanceof ScreenSavePoint savePoint && savePoint.owner == owner) savePoint.owner = next;
+        }
     }
 
     /// The topmost entry of the undo stack that [WorkHistory#changesData], or `null` when there is none. For the
@@ -225,19 +271,56 @@ public final class HistoryManager {
     /// marker off it: a screen is dirty while this no longer equals the snapshot, and clean again once
     /// a save — or an undo back to that point — restores it. The comparison is by identity.
     public @Nullable WorkHistory currentSavePoint() {
-        WorkHistory top = toUndo.reversed().stream().filter(WorkHistory::changesData).findFirst().orElse(null);
+        int start = viewer == null ? -1 : savePointOf(viewer);
+        List<WorkHistory> entries = start < 0 ? toUndo : toUndo.subList(start, sliceEnd(start));
+        WorkHistory top = entries.reversed().stream().filter(WorkHistory::changesData).findFirst().orElse(null);
 
         return top instanceof ScreenSavePoint && openedOver.containsKey(top) ? openedOver.get(top) : top;
     }
 
+    /// Runs `task` with [#currentSavePoint] answering for the entries of `owner` alone, as it does while `owner` is
+    /// the top screen. An owner with no [ScreenSavePoint] is answered for the whole stack.
+    public <T> T asSeenBy(final Object owner, final Supplier<T> task) {
+        Object previous = viewer;
+        viewer = owner;
+
+        try {
+            return task.get();
+        } finally {
+            viewer = previous;
+        }
+    }
+
+    /// The index of `owner`'s [ScreenSavePoint] on the undo stack, or -1.
+    private int savePointOf(final Object owner) {
+        for (int i = toUndo.size() - 1; i >= 0; i--) {
+            if (toUndo.get(i) instanceof ScreenSavePoint savePoint && savePoint.owner == owner) return i;
+        }
+
+        return -1;
+    }
+
+    /// The index after the entries of the [ScreenSavePoint] at `start`: the next marker, or the stack's size.
+    private int sliceEnd(final int start) {
+        int end = start + 1;
+
+        while (end < toUndo.size() && !(toUndo.get(end) instanceof ScreenSavePoint)) end++;
+
+        return end;
+    }
+
     /// Pops the undo stack down to, and including, the most recent [ScreenSavePoint] — the scope of
-    /// the screen or screen-like modal now closing.
-    public void popScreen() {
+    /// `owner`, the screen or screen-like modal now closing. Pops nothing when that marker is not `owner`'s.
+    public void popScreen(final Object owner) {
         // A pending save point means nothing was pushed under it, so there is nothing to pop.
-        if (needsSavePoint) {
+        if (needsSavePoint && pendingOwner == owner) {
             needsSavePoint = false;
+            pendingOwner = null;
             return;
         }
+
+        ScreenSavePoint last = (ScreenSavePoint) toUndo.reversed().stream().filter(ScreenSavePoint.class::isInstance).findFirst().orElse(null);
+        if (last == null || last.owner != owner) return;
 
         while (!toUndo.isEmpty()) {
             WorkHistory top = toUndo.pop();
@@ -258,6 +341,7 @@ public final class HistoryManager {
         scopes.clear();
         openedOver.clear();
         needsSavePoint = false;
+        pendingOwner = null;
     }
 
     /// An entry kept by [#removeHistory] under a new identity, doing what the entry does.
