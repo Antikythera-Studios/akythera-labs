@@ -13,6 +13,7 @@ import com.yesman.akythera.core.blueprint.script.BlueprintBody;
 import com.yesman.akythera.core.blueprint.script.FunctionGraph;
 import com.yesman.akythera.core.blueprint.script.ScriptVariables;
 import com.yesman.akythera.core.reflection.BlueprintLayout;
+import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.akythera.animation.ScriptGraphCompiler;
@@ -304,11 +305,13 @@ public final class BlueprintScriptData {
     }
 
     /// Lowers this data for a parent laid out by `layout`, whose script owner is `ownerType`. An event whose
-    /// entry node leads nowhere, or only into a Parent call, is left out, and so falls back to the parent.
+    /// entry node leads nowhere, or only into a Parent call, is left out, and so falls back to the parent. Only the
+    /// properties `layout` declares are written.
     ///
-    /// @throws IllegalStateException when two declared functions share a name, one has the name of a function a
-    ///                               data parent keeps private, a canvas carries an unresolved node, or a
-    ///                               variable's default value does not decode
+    /// @throws IllegalStateException when an abstract function of `layout` has no override here or in a data parent,
+    ///                               two declared functions share a name, one has the name of a function a data
+    ///                               parent keeps private, a canvas carries an unresolved node, or a variable's
+    ///                               default value does not decode
     public BlueprintBody compile(final BlueprintLayout layout, final Class<?> ownerType) {
         BlueprintMembers members = members(layout);
         Map<String, FlowNode> methods = new LinkedHashMap<>();
@@ -325,6 +328,10 @@ public final class BlueprintScriptData {
 
         for (BlueprintLayout.Signature function : layout.functions()) {
             ScriptGraphData graph = overrides.get(function.name());
+
+            if (graph == null && function.isAbstract() && ancestors().stream().noneMatch(ancestor -> ancestor.overrides.containsKey(function.name()))) {
+                throw new IllegalStateException(ParseUtils.camelToSpacedPascal(function.name()) + " must be overridden");
+            }
 
             if (graph != null) {
                 methods.put(function.key(), ScriptGraphCompiler.compile(
@@ -351,7 +358,7 @@ public final class BlueprintScriptData {
             ));
         }
 
-        return new BlueprintBody(methods, declared, propertyJson(), variables.stream().map(Variable::toInfo).toList());
+        return new BlueprintBody(methods, declared, propertyJson(layout), variables.stream().map(Variable::toInfo).toList());
     }
 
     /// Every canvas this data holds, the Event Graph first.
@@ -387,6 +394,22 @@ public final class BlueprintScriptData {
         for (BlueprintLayout.Property property : layout.properties()) {
             properties.computeIfPresent(property.key(), (_, value) -> StoredJson.of(property.type(), value.json()));
         }
+    }
+
+    /// Drops every property value `layout` does not declare.
+    public void retainProperties(final BlueprintLayout layout) {
+        properties.keySet().retainAll(layout.properties().stream().map(BlueprintLayout.Property::key).toList());
+    }
+
+    /// A copy holding only the property values `layout` declares, which is what a save writes.
+    public BlueprintScriptData withPropertiesOf(final BlueprintLayout layout) {
+        BlueprintScriptData copy = new BlueprintScriptData(eventGraph, overrides, functions, propertyJson(layout), variables);
+
+        copy.dataParent = dataParent;
+        copy.sourceParent = sourceParent;
+        copy.holderParent = holderParent;
+
+        return copy;
     }
 
     /// The first unresolved node a canvas kept, or null when every canvas is clean.
@@ -426,6 +449,14 @@ public final class BlueprintScriptData {
     public Map<String, JsonElement> propertyJson() {
         Map<String, JsonElement> json = new LinkedHashMap<>();
         properties.forEach((key, value) -> json.put(key, value.json()));
+
+        return json;
+    }
+
+    /// [#propertyJson] of the properties `layout` declares.
+    public Map<String, JsonElement> propertyJson(final BlueprintLayout layout) {
+        Map<String, JsonElement> json = propertyJson();
+        json.keySet().retainAll(layout.properties().stream().map(BlueprintLayout.Property::key).toList());
 
         return json;
     }

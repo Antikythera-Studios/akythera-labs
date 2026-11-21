@@ -7,7 +7,6 @@ import com.yesman.akythera.api.asset.armature.ArmatureManager;
 import com.yesman.akythera.api.lifecycle.ComponentsFactory;
 import com.yesman.akythera.core.animation.ik.IKCurves;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
-import com.yesman.akythera.core.animation.keyframe.AnimationMirror;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.asset.loader.AssetLoader;
@@ -32,25 +31,24 @@ import java.util.Set;
 /// plus the preview entity type only the editor reads. Lives on the animation's accessor, one per
 /// identifier — see [AkytheraProject.EditorAnimationAccessor#metadata].
 public final class AnimationMetadataHolder {
-    @EditorEditable(label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_IMPORT_TYPE, order = 0)
+    /// The armature this clip was authored against: the skeleton of a mesh space additive bake and the bone pairs of a
+    /// mirrored bake.
+    @EditorEditable(label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_VENDOR, order = 0)
+    private AssetAccessor<? extends Armature> vendor;
+
+    @EditorEditable(label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_IMPORT_TYPE, order = 1, rebuildOnWrite = true)
     private AnimationLoader.ImportType importType;
 
-    @EditorEditable(label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_REFERENCE_POSE, order = 1)
+    @EditorEditable(label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_REFERENCE_POSE, order = 2)
     private ReferencePose referencePose;
 
-    /// The armature this clip was authored against. Its sidecar carries the bone pairs a mirrored
-    /// bake moves tracks along.
-    @EditorEditable(
-        label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_MIRROR_VENDOR,
-        category = LangKeys.GUI_ANIMATION_ASSET_SCREEN_CATEGORY_MIRRORING,
-        order = 2
-    )
-    private AssetAccessor<? extends Armature> vendor;
+    @EditorEditable(label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_ADDITIVE_SPACE, order = 3, visibleWhen = "isAdditive")
+    private AnimationLoader.AdditiveSpace additiveSpace;
 
     @EditorEditable(
         label = LangKeys.GUI_ANIMATION_ASSET_SCREEN_WIDGET_ENABLE_MIRRORING,
         category = LangKeys.GUI_ANIMATION_ASSET_SCREEN_CATEGORY_MIRRORING,
-        order = 3
+        order = 4
     )
     private boolean enableMirroring;
 
@@ -64,16 +62,13 @@ public final class AnimationMetadataHolder {
     /// The entity the previewer shows this animation on.
     private @Nullable Identifier previewEntityType;
 
-    private AnimationMetadataHolder(
-        final AkytheraProject.EditorAnimationAccessor accessor,
-        final AnimationLoader.Metadata metadata,
-        final AnimationMirror.Setup mirror
-    ) {
+    private AnimationMetadataHolder(final AkytheraProject.EditorAnimationAccessor accessor, final AnimationLoader.Metadata metadata) {
         this.accessor = accessor;
         importType = metadata.importType();
         referencePose = new ReferencePose(metadata.refPoseProvider(), metadata.refPoseTimeStamp());
-        vendor = mirror.vendor() == null ? ArmatureManager.EMPTY_ARMATURE_ACCESSOR : mirror.vendor();
-        enableMirroring = mirror.enabled();
+        additiveSpace = metadata.additiveSpace();
+        vendor = metadata.vendor() == null ? ArmatureManager.EMPTY_ARMATURE_ACCESSOR : metadata.vendor();
+        enableMirroring = metadata.enableMirroring();
         ikCurves.putAll(metadata.ik());
     }
 
@@ -82,7 +77,7 @@ public final class AnimationMetadataHolder {
         return readSidecar(
             accessor.identifier(),
             editorCodec(accessor),
-            new AnimationMetadataHolder(accessor, AnimationLoader.Metadata.DEFAULT, AnimationMirror.Setup.DISABLED)
+            new AnimationMetadataHolder(accessor, AnimationLoader.Metadata.DEFAULT)
         );
     }
 
@@ -123,11 +118,10 @@ public final class AnimationMetadataHolder {
             instance ->
                 instance.group(
                     EditorAssetAccessors.ANIMATION_METADATA_MAP_CODEC.forGetter(AnimationMetadataHolder::makeMetadata),
-                    EditorAssetAccessors.ANIMATION_MIRROR_MAP_CODEC.forGetter(AnimationMetadataHolder::makeMirrorSetup),
                     Identifier.CODEC.optionalFieldOf("preview_entity_type")
                         .forGetter(ParseUtils.provideOptional(AnimationMetadataHolder::getPreviewEntityType))
-                ).apply(instance, (metadata, mirror, previewEntityType) -> {
-                    AnimationMetadataHolder holder = new AnimationMetadataHolder(accessor, metadata, mirror);
+                ).apply(instance, (metadata, previewEntityType) -> {
+                    AnimationMetadataHolder holder = new AnimationMetadataHolder(accessor, metadata);
                     previewEntityType.ifPresent(holder::setPreviewEntityType);
 
                     return holder;
@@ -154,11 +148,16 @@ public final class AnimationMetadataHolder {
     }
 
     public AnimationLoader.Metadata makeMetadata() {
-        return new AnimationLoader.Metadata(importType, referencePose.clip(), referencePose.timeStamp(), Map.copyOf(ikCurves));
+        return new AnimationLoader.Metadata(
+            importType, referencePose.clip(), referencePose.timeStamp(), additiveSpace, vendor, enableMirroring, Map.copyOf(ikCurves)
+        );
     }
 
-    public AnimationMirror.Setup makeMirrorSetup() {
-        return new AnimationMirror.Setup(vendor, enableMirroring);
+    /// Whether the sidecar asks for a mesh space additive or a mirrored bake and names no vendor, which fails the clip's load.
+    public boolean lacksVendor() {
+        boolean meshSpace = isAdditive() && additiveSpace == AnimationLoader.AdditiveSpace.MESH;
+
+        return (meshSpace || enableMirroring) && vendor == ArmatureManager.EMPTY_ARMATURE_ACCESSOR;
     }
 
     /// Writes the sidecar next to its asset, then drops the parsed clip: the metadata decides
@@ -182,6 +181,19 @@ public final class AnimationMetadataHolder {
 
     public void setImportType(final AnimationLoader.ImportType importType) {
         this.importType = importType;
+    }
+
+    /// See [EditorEditable#visibleWhen].
+    boolean isAdditive() {
+        return importType == AnimationLoader.ImportType.ADDITIVE;
+    }
+
+    public AnimationLoader.AdditiveSpace getAdditiveSpace() {
+        return additiveSpace;
+    }
+
+    public void setAdditiveSpace(final AnimationLoader.AdditiveSpace additiveSpace) {
+        this.additiveSpace = additiveSpace;
     }
 
     public ReferencePose getReferencePose() {

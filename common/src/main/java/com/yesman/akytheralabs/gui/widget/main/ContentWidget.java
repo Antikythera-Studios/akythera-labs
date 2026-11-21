@@ -19,6 +19,7 @@ import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.physics.ArmaturePhysicsData;
 import com.yesman.akythera.core.blueprint.AbilityBlueprint;
 import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
+import com.yesman.akythera.core.blueprint.AbilityResourceBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
 import com.yesman.akythera.core.blueprint.particle.ParticleBlueprint;
@@ -40,6 +41,7 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FileSystemHelper;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityCueBlueprintHolder;
+import com.yesman.akytheralabs.akythera.ability.AbilityResourceBlueprintHolder;
 import com.yesman.akytheralabs.akythera.ability.AbilityEffectHolder;
 import com.yesman.akytheralabs.akythera.ability.InputActionHolder;
 import com.yesman.akytheralabs.akythera.particle.ParticleBlueprintHolder;
@@ -1079,6 +1081,25 @@ public abstract class ContentWidget<T> extends AbstractWidget implements PatchCo
         private static final Identifier ICON = AkytheraLabs.identifier("widget/script");
 
         public AbilityCueContent(Font font, ResourceKey<@NonNull AbilityCueBlueprint> resourceKey, Path path, String name) {
+            super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
+        }
+
+        @Override
+        public void onDoubleClicked() {
+            AkytheraEditorLayoutManager.getInstance().openNewScreen(new ScriptBlueprintEditorScreen<>(
+                resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey)));
+        }
+
+        @Override
+        protected void renderIcon(@NonNull GuiGraphicsExtractor graphics, boolean showLabel) {
+            blitIconAtCenter(graphics, ICON, showLabel, getX(), getY(), getWidth(), getHeight());
+        }
+    }
+
+    public static class AbilityResourceContent extends DataDrivenObjectContent<AbilityResourceBlueprint, AbilityResourceBlueprintHolder> {
+        private static final Identifier ICON = AkytheraLabs.identifier("widget/script");
+
+        public AbilityResourceContent(Font font, ResourceKey<@NonNull AbilityResourceBlueprint> resourceKey, Path path, String name) {
             super(font, name, path, resourceKey, AkytheraProject.getCurrentProject().getDataHolderOrThrow(resourceKey));
         }
 

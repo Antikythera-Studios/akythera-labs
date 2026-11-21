@@ -35,6 +35,7 @@ import com.yesman.akytheralabs.editor.historytrack.WorkHistory;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
+import com.yesman.akytheralabs.gui.widget.RefusalPopup;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.PanelHeader;
 import com.yesman.akytheralabs.gui.widget.curve.FloatCurveEditorWidget;
@@ -104,6 +105,9 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
     private final PanelHeader curveEditorHeader;
     private final FloatCurveEditorWidget curveEditor;
     private @Nullable ScreenRectangle curveListRect;
+
+    /// The last rectangle [#propertiesTable] was laid out in, null before the first layout.
+    private @Nullable ScreenRectangle propertiesRect;
 
     /// The curve [#curveEditor] edits, null while none is picked.
     private @Nullable CurvePick pickedCurve;
@@ -177,9 +181,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
             ROW_H
         );
 
-        new EditorWidgetFactory(minecraft.font).fillWidgetTable(propertiesTable, holder);
-
-        propertiesTable.newRow().addWidget(mirrorPreviewButton);
+        fillProperties();
 
         curveListHeader = new PanelHeader(minecraft.font, Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_SECTION_IK_CURVES));
         curveListTable = new WidgetTable(
@@ -249,6 +251,7 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
             curveEditor.relocate(rect);
         });
         detailsAndCurves.get(0).resizeCallback(rect -> {
+            propertiesRect = rect;
             propertiesHeader.relocate(rect);
             propertiesTable.relocate(rect);
         });
@@ -260,6 +263,14 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
 
         topMenuBar.setDirtyChecker(this::hasUnsavedChanges);
         savePoint = HistoryManager.getInstance().currentSavePoint();
+    }
+
+    /// Fills [#propertiesTable] from the holder, again whenever a row asks for a rebuild.
+    private void fillProperties() {
+        new EditorWidgetFactory(minecraft.font).fillWidgetTable(propertiesTable, holder, this::fillProperties);
+        propertiesTable.newRow().addWidget(mirrorPreviewButton);
+
+        if (propertiesRect != null) propertiesTable.relocate(propertiesRect);
     }
 
     @Override
@@ -504,12 +515,26 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
             : LangKeys.GUI_ANIMATION_ASSET_SCREEN_BUTTON_PREVIEW_MIRROR));
     }
 
-    private void save() {
-        if (!holder.save()) return;
+    /// Writes the sidecar, refused while [AnimationMetadataHolder#lacksVendor].
+    ///
+    /// @return whether the sidecar was written
+    private boolean save() {
+        if (holder.lacksVendor()) {
+            RefusalPopup.open(
+                Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_POPUP_NO_VENDOR_TITLE),
+                Component.translatable(LangKeys.GUI_ANIMATION_ASSET_SCREEN_REFUSAL_NO_VENDOR)
+            );
+
+            return false;
+        }
+
+        if (!holder.save()) return false;
 
         previewModelDirty = false;
         refreshPreviewAnimation();
         savePoint = HistoryManager.getInstance().currentSavePoint();
+
+        return true;
     }
 
     private boolean hasUnsavedChanges() {
@@ -524,8 +549,8 @@ public final class AnimationAssetEditorScreen extends Screen implements ModalAcc
             hasUnsavedChanges(),
             () -> {
                 ModalManager.getInstance().closeModal();
-                save();
-                onClose();
+
+                if (save()) onClose();
             },
             this::onClose
         );

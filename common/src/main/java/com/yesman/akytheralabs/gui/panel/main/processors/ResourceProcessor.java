@@ -60,6 +60,8 @@ public interface ResourceProcessor<T> {
         Map.entry(AkytheraRegistries.DataPack.ABILITY_KEY,         AbilityResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.ABILITY_CUE_KEY,     AbilityCueResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.ABILITY_EFFECT_KEY,  AbilityEffectResourceProcessor.INSTANCE),
+        Map.entry(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY,
+            new NewEntryResourceProcessor<>(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY, "resource", ContentWidget.AbilityResourceContent::new)),
         Map.entry(AkytheraRegistries.DataPack.INPUT_ACTION_KEY,    InputActionResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.WIDGET_KEY,          WidgetBlueprintResourceProcessor.INSTANCE),
         Map.entry(AkytheraRegistries.DataPack.PARTICLE_PIECE_KEY,  ParticlePieceResourceProcessor.INSTANCE),

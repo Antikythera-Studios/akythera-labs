@@ -7,6 +7,8 @@ import com.yesman.akythera.api.world.ability.Ability;
 import com.yesman.akythera.api.world.ability.AbilityCue;
 import com.yesman.akythera.api.world.ability.AbilityCueScript;
 import com.yesman.akythera.api.animation.warping.MotionWarpTarget;
+import com.yesman.akythera.api.world.ability.AbilityResourceScript;
+import com.yesman.akythera.api.world.ability.StoredAbilityResource;
 import com.yesman.akythera.api.world.patch.entity.EntityPatch;
 import com.yesman.akythera.api.world.patch.item.ItemPatch;
 import com.yesman.akythera.client.api.particle.AkytheraParticleEmitter;
@@ -14,6 +16,7 @@ import com.yesman.akythera.core.animation.animator.BlendingAnimator;
 import com.yesman.akythera.core.blueprint.AbilityBlueprint;
 import com.yesman.akythera.core.blueprint.AbilityCueBlueprint;
 import com.yesman.akythera.core.blueprint.Blueprint;
+import com.yesman.akythera.core.blueprint.AbilityResourceBlueprint;
 import com.yesman.akythera.core.blueprint.DataDrivenEntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.EntityPatchBlueprint;
 import com.yesman.akythera.core.blueprint.ItemPatchBlueprint;
@@ -45,6 +48,7 @@ import com.yesman.akytheralabs.dataholder.DTOProvider;
 import com.yesman.akytheralabs.dataholder.DataHolder;
 import com.yesman.akytheralabs.dataholder.ProjectObjectRegistry;
 import com.yesman.akytheralabs.akythera.ability.AbilityBlueprintHolder;
+import com.yesman.akytheralabs.akythera.ability.AbilityResourceBlueprintHolder;
 import com.yesman.akytheralabs.akythera.animation.AnimatorScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.MotionWarpTargetScriptHolder;
 import com.yesman.akytheralabs.akythera.entitypatch.EntityPatchBlueprintHolder;
@@ -100,6 +104,8 @@ public final class FreemarkerExporter {
     private static final String ABILITIES_DIR = "scripts/abilities";
     /// Sub-directory (and sub-package) the generated `*CueScript` classes land in.
     private static final String ABILITY_CUES_DIR = "scripts/abilitycues";
+    /// Sub-directory (and sub-package) the generated `*AbilityResource` classes land in.
+    private static final String ABILITY_RESOURCES_DIR = "scripts/abilityresources";
     /// Sub-directory (and sub-package) the generated `*ScreenScript`, `*WidgetScript` and `*HUDScript` classes
     /// land in.
     private static final String WIDGETS_DIR = "scripts/widgets";
@@ -117,6 +123,7 @@ public final class FreemarkerExporter {
         AkytheraRegistries.DataPack.ENTITY_PATCH_KEY, false,
         AkytheraRegistries.DataPack.ITEM_PATCH_KEY, false,
         AkytheraRegistries.DataPack.ABILITY_CUE_KEY, false,
+        AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY, false,
         AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, false,
         AkytheraRegistries.DataPack.WIDGET_KEY, true,
         AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY, true,
@@ -135,6 +142,7 @@ public final class FreemarkerExporter {
     private static final String ITEM_PATCH_SELF = "this.owner";
     private static final String ABILITY_SELF = "this";
     private static final String ABILITY_CUE_SELF = "this.cue";
+    private static final String ABILITY_RESOURCE_SELF = "this";
     private static final String WIDGET_SELF = "this.owner";
     private static final String PARTICLE_MODULE_SELF = "this.emitter";
     private static final String MOTION_WARP_TARGET_SELF = "this.owner";
@@ -251,6 +259,7 @@ public final class FreemarkerExporter {
             exportItemPatchScripts(project, sourceCodeRoot, packageName);
             exportAbilityScripts(project, sourceCodeRoot, packageName);
             exportAbilityCueScripts(project, sourceCodeRoot, packageName);
+            exportAbilityResourceScripts(project, sourceCodeRoot, packageName);
             exportWidgetScripts(project, sourceCodeRoot, packageName);
             exportParticleModules(project, sourceCodeRoot, packageName);
             exportMotionWarpTargets(project, sourceCodeRoot, packageName);
@@ -819,6 +828,64 @@ public final class FreemarkerExporter {
         }
     }
 
+    /// Every ability resource entry the project holds, through [#exportAbilityResourceScript].
+    private static void exportAbilityResourceScripts(AkytheraProject project, Path sourceCodeRoot, String packageName) {
+        ProjectObjectRegistry<AbilityResourceBlueprint, DataHolder<AbilityResourceBlueprint>> registry =
+            project.getModifiableRegistry(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY);
+
+        if (registry == null) return;
+
+        for (var entry : registry.dataHolderEntrySet()) {
+            exportAbilityResourceScript(project, entry.getKey(), sourceCodeRoot, packageName);
+        }
+    }
+
+    /// The class [#exportAbilityResourceScript] writes the ability resource `entryKey` as: the entry's leaf name, then
+    /// `AbilityResource`.
+    public static String abilityResourceClass(ResourceKey<?> entryKey) {
+        return leafPascalCase(entryKey) + "AbilityResource";
+    }
+
+    /// An ability resource entry as its own [#abilityResourceClass]: an implementation of the
+    /// class its parent constructor builds, an [AbilityResourceScript] or a [StoredAbilityResource] subclass, whose
+    /// overridden functions, declared functions and property values are real methods.
+    public static void exportAbilityResourceScript(
+        AkytheraProject project,
+        ResourceKey<AbilityResourceBlueprint> entryKey,
+        Path sourceCodeRoot,
+        String packageName
+    ) {
+        DataHolder<AbilityResourceBlueprint> holder = project.getDataHolderOrThrow(entryKey);
+        if (!notBroken(entryKey, holder) || !(holder instanceof AbilityResourceBlueprintHolder resourceHolder)) return;
+
+        Path resourcesRoot = sourceCodeRoot.resolve(ABILITY_RESOURCES_DIR);
+        if (!prepareDirectory(resourcesRoot)) return;
+
+        String className = abilityResourceClass(entryKey);
+
+        try {
+            List<BlueprintBody> chain = List.of(holder.makeObject().body());
+            BlueprintBody body = BlueprintBody.fold(chain);
+            Class<?> base = resourceHolder.scriptOwner();
+            List<String> memberVariables = body.variables().stream()
+                .map(ScriptVariables.VariableInfo::name)
+                .toList();
+
+            Map<String, Object> model = new HashMap<>();
+            model.put("package", subPackage(packageName, ABILITY_RESOURCES_DIR));
+            model.put("modid", project.getProjectName());
+            model.put("className", className);
+            model.put("inheritance", (base.isInterface() ? "implements " : "extends ") + BlueprintSourceWriter.supertype(base, null));
+            model.put("fields", animatorFields(body.variables()));
+            model.put("methods", BlueprintSourceWriter.methods(
+                resourceHolder.layout(), chain, base, memberVariables, null, ABILITY_RESOURCE_SELF, base, Map.of(), null, null));
+
+            render("ability_resource_script_template.ftl", model, resourcesRoot.resolve(className + ".java"), entryKey.identifier());
+        } catch (Exception e) {
+            AkytheraLabs.LOGGER.error("Failed to export ability resource {} as source", entryKey.identifier(), e);
+        }
+    }
+
     /// Every widget blueprint entry the project holds, through [#exportWidgetScript].
     private static void exportWidgetScripts(AkytheraProject project, Path sourceCodeRoot, String packageName) {
         ProjectObjectRegistry<WidgetBlueprint, DataHolder<WidgetBlueprint>> registry =
@@ -1059,6 +1126,10 @@ public final class FreemarkerExporter {
 
         if (registry.equals(AkytheraRegistries.DataPack.ABILITY_CUE_KEY)) {
             return generated(ABILITY_CUES_DIR, abilityCueClass(key));
+        }
+
+        if (registry.equals(AkytheraRegistries.DataPack.ABILITY_RESOURCE_KEY)) {
+            return generated(ABILITY_RESOURCES_DIR, abilityResourceClass(key));
         }
 
         if (registry.equals(AkytheraRegistries.DataPack.WIDGET_KEY) && holder instanceof WidgetBlueprintHolder widget

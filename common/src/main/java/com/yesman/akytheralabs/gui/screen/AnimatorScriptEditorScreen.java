@@ -20,6 +20,7 @@ import com.yesman.akythera.core.animation.driver.AnimationDriver;
 import com.yesman.akythera.core.animation.driver.AnimationStateTransition;
 import com.yesman.akythera.core.animation.driver.LayeredBlendPerBoneDriver;
 import com.yesman.akythera.core.animation.driver.ModifyBoneDriver;
+import com.yesman.akythera.core.animation.driver.OrientBodyDriver;
 import com.yesman.akythera.core.animation.keyframe.Pose;
 import com.yesman.akythera.core.animation.playable.AnimationSequence;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
@@ -511,6 +512,13 @@ public final class AnimatorScriptEditorScreen extends Screen implements ModalAcc
                 (font, x, y) -> new OrientationWarpNodeWidget(font, x, y),
                 BONE_CONTROL_CATEGORY
             ));
+            for (OrientBodyDriver.PitchSource pitchSource : OrientBodyDriver.PitchSource.values()) {
+                suggestions.add(new NodeSuggestModal.Suggestion<>(
+                    OrientBodyNodeWidget.title(pitchSource),
+                    (font, x, y) -> new OrientBodyNodeWidget(font, pitchSource, x, y),
+                    BONE_CONTROL_CATEGORY
+                ));
+            }
 
             // Anim Layer nodes register one engine AnimationLayer per AnimationLayerSignature. Every
             // signature is offered whether or not one is already placed — a duplicate is reported by

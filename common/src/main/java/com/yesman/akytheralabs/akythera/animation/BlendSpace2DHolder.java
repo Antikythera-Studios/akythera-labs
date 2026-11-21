@@ -1,8 +1,12 @@
 package com.yesman.akytheralabs.akythera.animation;
 
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yesman.akythera.core.animation.playable.BlendSpace2D;
+import com.yesman.akythera.core.animation.playable.PlayableAnimation;
+import com.yesman.akythera.core.asset.loader.AnimationLoader;
+import com.yesman.akythera.core.asset.loader.ResourceLoadingFailureException;
 import com.yesman.akythera.core.math.algorithm.DelaunayTriangulation;
 import com.yesman.akythera.core.util.helper.ParseUtils;
 import com.yesman.akytheralabs.SourceTemplateEngine;
@@ -31,8 +35,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         instance -> instance.group(
             Codec.FLOAT.fieldOf("fade_in_time").forGetter(BlendSpace2DHolder::getFadeInTime),
             Codec.FLOAT.fieldOf("fade_out_time").forGetter(BlendSpace2DHolder::getFadeOutTime),
-            Codec.FLOAT.fieldOf("smooth_x").forGetter(BlendSpace2DHolder::getSmoothX),
-            Codec.FLOAT.fieldOf("smooth_y").forGetter(BlendSpace2DHolder::getSmoothY),
+            Smoothing.MAP_CODEC.forGetter(h -> new Smoothing(h.smoothX, h.smoothY, h.weightSpeed)),
             Codec.FLOAT.fieldOf("min_x").forGetter(BlendSpace2DHolder::getMinX),
             Codec.FLOAT.fieldOf("min_y").forGetter(BlendSpace2DHolder::getMinY),
             Codec.FLOAT.fieldOf("max_x").forGetter(BlendSpace2DHolder::getMaxX),
@@ -50,13 +53,15 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
             AxisNames.CODEC.optionalFieldOf("axis_names", AxisNames.DEFAULT)
                 .forGetter(h -> new AxisNames(h.axisNameX, h.axisNameY)),
             AxisWraps.CODEC.optionalFieldOf("axis_wraps", AxisWraps.DEFAULT)
-                .forGetter(h -> new AxisWraps(h.wrapX, h.wrapY))
-        ).apply(instance, (fadeIn, fadeOut, sx, sy, mnX, mnY, mxX, mxY, lp, ns, prevModel, hDiv, vDiv, snap, axisNames, axisWraps) -> {
+                .forGetter(h -> new AxisWraps(h.wrapX, h.wrapY)),
+            Codec.BOOL.optionalFieldOf("additive", false).forGetter(BlendSpace2DHolder::isAdditive)
+        ).apply(instance, (fadeIn, fadeOut, smoothing, mnX, mnY, mxX, mxY, lp, ns, prevModel, hDiv, vDiv, snap, axisNames, axisWraps, additive) -> {
             BlendSpace2DHolder h = new BlendSpace2DHolder();
             h.fadeInTime = fadeIn;
             h.fadeOutTime = fadeOut;
-            h.smoothX = sx;
-            h.smoothY = sy;
+            h.smoothX = smoothing.x();
+            h.smoothY = smoothing.y();
+            h.weightSpeed = smoothing.weightSpeed();
             h.minX = mnX;
             h.minY = mnY;
             h.maxX = mxX;
@@ -68,6 +73,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
             h.axisNameY = axisNames.y();
             h.wrapX = axisWraps.x();
             h.wrapY = axisWraps.y();
+            h.additive = additive;
 
             for (NodeData n : ns) {
                 MutableAnimNode mn = h.new MutableAnimNode(n.x(), n.y(), -1, n.animation());
@@ -130,6 +136,13 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
     @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_SNAP_TO_GRID, order = 15)
     private boolean snapToGrid = true;
 
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_WEIGHT_SPEED, min = 0F, order = 16)
+    private float weightSpeed;
+
+    /// Whether the nodes play additive animations, see [BlendSpace2D#additive].
+    @EditorEditable(label = LangKeys.GUI_BLEND_SPACE_2D_SCREEN_WIDGET_ADDITIVE, order = 17)
+    private boolean additive;
+
     @Nullable
     private Identifier previewEntityType;
 
@@ -160,9 +173,9 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         BlendSpace2D.BlendSpace2DBuilder b =
             BlendSpace2D.builder()
                 .fadeInTime(fadeInTime).fadeOutTime(fadeOutTime)
-                .smoothX(smoothX).smoothY(smoothY)
+                .smoothX(smoothX).smoothY(smoothY).weightSpeed(weightSpeed)
                 .wrapX(wrapX).wrapY(wrapY)
-                .loops(loops)
+                .loops(loops).additive(additive)
                 .minX(nodeSpace.minX()).maxX(nodeSpace.maxX()).minY(nodeSpace.minY()).maxY(nodeSpace.maxY());
 
         for (MutableAnimNode n : nodeSpace.getAllPoints()) {
@@ -191,9 +204,43 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
                 return new IllegalStateException(
                     "Node at (" + node.x() + ", " + node.y() + ") has no animation assigned");
             }
+
+            if (!isCompatible(node)) {
+                return new IllegalStateException(
+                    "Node at (" + node.x() + ", " + node.y() + ") plays " + (additive
+                        ? "an animation that isn't additive in the space of the other nodes, in an additive blend space"
+                        : "an additive animation in a common blend space"));
+            }
         }
 
         return null;
+    }
+
+    /// Whether `node`'s animation matches the import type this blend space takes: additive in the space of the first
+    /// additive node when [#additive], common otherwise. An empty node, or one whose animation can't be read, matches.
+    public boolean isCompatible(final MutableAnimNode node) {
+        if (node.animation().toEngineHolder().value() == PlayableAnimation.EMPTY_ANIM_HOLDER.get().value()) return true;
+
+        AnimationLoader.AdditiveSpace space = additiveSpaceOf(node);
+
+        if (!additive) return space == null;
+        if (space == null) return false;
+
+        for (MutableAnimNode other : nodes) {
+            AnimationLoader.AdditiveSpace first = additiveSpaceOf(other);
+
+            if (first != null) return first == space;
+        }
+
+        return true;
+    }
+
+    private static AnimationLoader.@Nullable AdditiveSpace additiveSpaceOf(final MutableAnimNode node) {
+        try {
+            return node.animation().toEngineHolder().value().additiveSpace();
+        } catch (ResourceLoadingFailureException e) {
+            return null;
+        }
     }
 
     /// The project entries this blendspace references, one per non-empty node's animation. Empty and
@@ -217,6 +264,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         dto.put("fade_out_time", SourceTemplateEngine.floatLiteral(fadeOutTime));
         dto.put("smooth_x", SourceTemplateEngine.floatLiteral(smoothX));
         dto.put("smooth_y", SourceTemplateEngine.floatLiteral(smoothY));
+        dto.put("weight_speed", SourceTemplateEngine.floatLiteral(weightSpeed));
         dto.put("wrap_x", Boolean.toString(wrapX));
         dto.put("wrap_y", Boolean.toString(wrapY));
         dto.put("min_x", SourceTemplateEngine.floatLiteral(minX));
@@ -224,6 +272,7 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
         dto.put("max_x", SourceTemplateEngine.floatLiteral(maxX));
         dto.put("max_y", SourceTemplateEngine.floatLiteral(maxY));
         dto.put("loops", Boolean.toString(loops));
+        dto.put("additive", Boolean.toString(additive));
 
         boolean usesSequence = false;
         boolean usesMontage = false;
@@ -332,6 +381,24 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
 
     public void setSmoothX(float smoothX) {
         this.smoothX = smoothX;
+        markBuiltObjectDirty();
+    }
+
+    public boolean isAdditive() {
+        return additive;
+    }
+
+    public void setAdditive(boolean additive) {
+        this.additive = additive;
+        markBuiltObjectDirty();
+    }
+
+    public float getWeightSpeed() {
+        return weightSpeed;
+    }
+
+    public void setWeightSpeed(float weightSpeed) {
+        this.weightSpeed = weightSpeed;
         markBuiltObjectDirty();
     }
 
@@ -573,6 +640,17 @@ public final class BlendSpace2DHolder extends AbstractDataHolder<BlendSpace2D> i
                 Codec.STRING.optionalFieldOf("x", "X").forGetter(AxisNames::x),
                 Codec.STRING.optionalFieldOf("y", "Y").forGetter(AxisNames::y)
             ).apply(i, AxisNames::new)
+        );
+    }
+
+    /// Codec-only intermediate carrying the smoothing fields, flat in the wire shape.
+    private record Smoothing(float x, float y, float weightSpeed) {
+        static final MapCodec<Smoothing> MAP_CODEC = RecordCodecBuilder.mapCodec(
+            i -> i.group(
+                Codec.FLOAT.fieldOf("smooth_x").forGetter(Smoothing::x),
+                Codec.FLOAT.fieldOf("smooth_y").forGetter(Smoothing::y),
+                Codec.FLOAT.optionalFieldOf("weight_speed", 0.0F).forGetter(Smoothing::weightSpeed)
+            ).apply(i, Smoothing::new)
         );
     }
 

@@ -42,6 +42,10 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
     private static final int PADDING = 24;
     private static final int NODE_RADIUS = 4;
     private static final int LINE_COLOR = 0xFF3A5A3A;
+    private static final int NODE_COLOR = 0xFF44AAFF;
+    private static final int SELECTED_NODE_COLOR = 0xFFFFCC00;
+    private static final int INCOMPATIBLE_NODE_COLOR = 0xFFFF4444; // animation of the wrong import type
+    private static final int SELECTED_INCOMPATIBLE_NODE_COLOR = 0xFFFF8844;
 
     /// Translucent blue used for the in-progress Asset-Browser drop preview (the node's blue at ~50% alpha).
     private static final int GHOST_NODE_COLOR = 0x8044AAFF;
@@ -601,7 +605,9 @@ public final class BlendSpaceNodeGraphWidget extends AbstractContainerWidget imp
             boolean selected = this == BlendSpaceNodeGraphWidget.this.selectedNodeWidget;
             int sx = getX();
             int sy = getY();
-            int color = selected ? 0xFFFFCC00 : 0xFF44AAFF;
+            int color = blendSpace2DHolder.isCompatible(bsNode)
+                ? (selected ? SELECTED_NODE_COLOR : NODE_COLOR)
+                : (selected ? SELECTED_INCOMPATIBLE_NODE_COLOR : INCOMPATIBLE_NODE_COLOR);
             drawDiamond(graphics, sx, sy, NODE_RADIUS, color);
         }
 

@@ -11,7 +11,6 @@ import com.yesman.akythera.client.core.asset.mesh.Mesh;
 import com.yesman.akythera.client.core.asset.mesh.SkeletalMesh;
 import com.yesman.akythera.core.animation.ik.IKCurves;
 import com.yesman.akythera.core.animation.keyframe.AnimationClip;
-import com.yesman.akythera.core.animation.keyframe.AnimationMirror;
 import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akythera.core.asset.loader.AnimationLoader;
 import com.yesman.akythera.core.util.helper.ParseUtils;
@@ -63,6 +62,12 @@ public final class EditorAssetAccessors {
                         .forGetter(ParseUtils.provideOptional(AnimationLoader.Metadata::refPoseProvider)),
                     Codec.FLOAT.fieldOf("ref_pose_timestamp")
                         .forGetter(AnimationLoader.Metadata::refPoseTimeStamp),
+                    AnimationLoader.AdditiveSpace.CODEC.optionalFieldOf("additive_space", AnimationLoader.AdditiveSpace.LOCAL)
+                        .forGetter(AnimationLoader.Metadata::additiveSpace),
+                    ARMATURE_CODEC.optionalFieldOf("vendor")
+                        .forGetter(ParseUtils.provideOptional(AnimationLoader.Metadata::vendor)),
+                    Codec.BOOL.optionalFieldOf("enable_mirroring", false)
+                        .forGetter(AnimationLoader.Metadata::enableMirroring),
                     Codec.unboundedMap(Codec.STRING, IKCurves.CODEC).optionalFieldOf("ik", Map.of())
                         .forGetter(AnimationLoader.Metadata::ik)
                 ).apply(instance, AnimationLoader.Metadata::new)
@@ -70,19 +75,6 @@ public final class EditorAssetAccessors {
 
     public static final Codec<AnimationLoader.Metadata> ANIMATION_METADATA_CODEC =
         ANIMATION_METADATA_MAP_CODEC.codec();
-
-    /// [AnimationMirror.Setup] with `vendor` read through [#ARMATURE_CODEC]. The fields and their
-    /// names are the engine's, so the sidecar file is the same either way.
-    public static final MapCodec<AnimationMirror.Setup> ANIMATION_MIRROR_MAP_CODEC =
-        RecordCodecBuilder.mapCodec(
-            instance ->
-                instance.group(
-                    ARMATURE_CODEC.optionalFieldOf("vendor")
-                        .forGetter(ParseUtils.provideOptional(AnimationMirror.Setup::vendor)),
-                    Codec.BOOL.optionalFieldOf("enable_mirroring", false)
-                        .forGetter(AnimationMirror.Setup::enabled)
-                ).apply(instance, AnimationMirror.Setup::new)
-        );
 
     public static AssetAccessor<AnimationClip> animation(final Identifier trimmedId) {
         AkytheraProject project = projectOwning(trimmedId);
