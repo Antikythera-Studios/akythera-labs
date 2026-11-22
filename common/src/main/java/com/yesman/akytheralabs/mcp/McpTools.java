@@ -459,10 +459,11 @@ public final class McpTools {
             "compile_source_code",
             "Compiles the source code of the game's hot reload units (the project's mod, and on the engine developer's "
                 + "machine Akythera and AkytheraLabs) and swaps the classes the game runs, the same as Tools > Compile "
-                + "Source Code. Then registers the script functions and types anew, reloads every project entry from disk "
-                + "and reloads the world. Closes every editor screen above the main one first. Static initializers do not "
-                + "run again and existing objects keep their fields. Returns the compile errors, or the redefined, added, "
-                + "removed and refused classes. A script function removed from the source code fails when a graph runs it.",
+                + "Source Code. Covers added and removed fields and methods, and method body changes. Then reloads every "
+                + "project entry from disk and reloads the world. Closes every editor screen above the main one first. "
+                + "Static initializers do not run again, so registry entries (script functions, script types) keep what "
+                + "they registered at launch, and a new or removed one needs a relaunch. Existing objects keep their "
+                + "fields. Returns the compile errors, or the redefined, added, removed and refused classes.",
             """
             {
               "type": "object",

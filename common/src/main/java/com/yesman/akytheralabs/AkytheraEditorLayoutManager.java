@@ -118,6 +118,10 @@ public final class AkytheraEditorLayoutManager {
     /// The running [#closeEditorScreens], or null.
     private @Nullable ScreenClosing screenClosing;
 
+    /// The save prompt [#screenClosing] waits on, or null. Closing it other than by its Save or Quit button stops
+    /// the closing.
+    private @Nullable AbstractWidget closingPrompt;
+
     public AkytheraEditorLayoutManager() {
         minecraft = Minecraft.getInstance();
         editorRenderTarget = new MainTarget(minecraft.getWindow().getWidth(), minecraft.getWindow().getHeight());
@@ -154,6 +158,8 @@ public final class AkytheraEditorLayoutManager {
         if (event.getModal() instanceof WorldViewportHost) {
             getInstance().resizeWorldViewportToHost();
         }
+
+        if (event.getModal() == getInstance().closingPrompt) getInstance().cancelClosingEditorScreens();
     }
 
     /// Opens a layout of main Epic Engine screen.
@@ -304,7 +310,13 @@ public final class AkytheraEditorLayoutManager {
         if (canceled == null) return;
 
         screenClosing = null;
+        closingPrompt = null;
         canceled.closed().cancel(false);
+    }
+
+    /// Marks `prompt` as the save prompt the running [#closeEditorScreens] waits on, or answered when null.
+    public void setClosingPrompt(final @Nullable AbstractWidget prompt) {
+        closingPrompt = prompt;
     }
 
     /// Closes the top screen for the running [#closeEditorScreens], or completes it once the main screen is on top.

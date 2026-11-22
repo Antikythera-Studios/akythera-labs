@@ -1,7 +1,6 @@
 package com.yesman.akytheralabs.dev.hotreload;
 
 import com.sun.management.HotSpotDiagnosticMXBean;
-import com.yesman.akythera.api.event.registry.RegisterObjectsEvent;
 import com.yesman.akythera.core.reflection.ScriptModularizeHelper;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -43,12 +42,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
 /// Compiles the source code of the reload units ([HotReloadUnit]) in game and swaps the bytes of the classes the
-/// game runs ([Instrumentation#redefineClasses]), then registers the [RegisterObjectsEvent] entries anew and
-/// reloads the project.
+/// game runs ([Instrumentation#redefineClasses]), then reloads the project.
 ///
-/// Needs the JetBrains Runtime with `-XX:+AllowEnhancedClassRedefinition` for anything beyond method body changes,
-/// `-javaagent:<AkytheraLabs jar>` ([HotReloadAgent]) and the compile specs in [#SPECS_PROPERTY]. Static
-/// initializers do not run again, and objects keep their fields.
+/// Covers added and removed fields and methods, and method body changes. Needs the JetBrains Runtime with
+/// `-XX:+AllowEnhancedClassRedefinition` for anything beyond method body changes, `-javaagent:<AkytheraLabs jar>`
+/// ([HotReloadAgent]) and the compile specs in [#SPECS_PROPERTY]. Static initializers do not run again, so registry
+/// entries keep what they registered at launch, and objects keep their fields.
 public final class HotReloader {
     /// The system property listing the compile spec files, separated by [File#pathSeparator].
     public static final String SPECS_PROPERTY = "akytheralabs.hotreload.specs";
@@ -175,8 +174,7 @@ public final class HotReloader {
         return new Compilation(errors, classes);
     }
 
-    /// Swaps in what `compilation` compiled for `units`, then registers the units' namespaces anew, while the
-    /// integrated server waits for it.
+    /// Swaps in what `compilation` compiled for `units`, while the integrated server waits for it.
     ///
     /// A changed class the game has loaded is redefined. One it has not loaded yet is written into the unit's
     /// output folder; when the class loader would still not read those bytes (the unit is a jar), it is defined
@@ -206,7 +204,6 @@ public final class HotReloader {
         List<String> refused = new ArrayList<>();
         List<ClassDefinition> definitions = new ArrayList<>();
         List<Runnable> afterSwap = new ArrayList<>();
-        Set<String> namespaces = new LinkedHashSet<>();
 
         try {
             for (int i = 0; i < units.size(); i++) {
@@ -221,8 +218,6 @@ public final class HotReloader {
                     .findFirst()
                     .<ClassLoader>map(Class::getClassLoader)
                     .orElse(HotReloader.class.getClassLoader());
-
-                namespaces.addAll(unit.namespaces());
 
                 for (Map.Entry<String, byte[]> entry : after.entrySet()) {
                     String name = entry.getKey();
@@ -315,7 +310,6 @@ public final class HotReloader {
             }
 
             afterSwap.forEach(Runnable::run);
-            FrozenRegistryReloader.reload(namespaces);
             ScriptModularizeHelper.clearBlueprintLayouts();
         };
 

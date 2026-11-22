@@ -5,6 +5,7 @@ import com.yesman.akythera.client.api.gui.AkytheraButton;
 import com.yesman.akythera.client.api.gui.ContextMenuContainer;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akythera.platform.ModPlatformProvider;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.UniversalMenu;
@@ -239,8 +240,11 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
         layoutButtons();
     }
 
+    /// The actions of a screen's bar, starting with the ones every editor screen offers:
+    /// [TopMenuOption#COMPILE_SOURCE_CODE] in a development environment.
     public static UniversalMenu.Actions<TopMenuOption> actions() {
-        return UniversalMenu.actions();
+        return UniversalMenu.<TopMenuOption>actions()
+            .on(TopMenuOption.COMPILE_SOURCE_CODE, ModPlatformProvider.get()::isDevelopmentEnvironment, () -> CompileSourceCodeModalGenerator.open(Minecraft.getInstance().font));
     }
 
     /// One top-level menu of [#MENUS] — the bar button plus the rows of its dropdown.

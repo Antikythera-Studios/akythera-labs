@@ -62,7 +62,6 @@ val writeHotReloadSpec = tasks.register("writeHotReloadSpec") {
         if (compileJava.options.isDebug) options += compileJava.options.debugOptions.debugLevel?.let { "-g:$it" } ?: "-g"
 
         val spec = mapOf(
-            "namespaces" to listOf(modId),
             "sources" to sources,
             "classpath" to compileJava.classpath.files.map { it.absolutePath },
             "options" to options,

@@ -27,8 +27,6 @@ public final class HotReloadUnit {
     /// The compile spec file, read again on every reload.
     private final Path specFile;
 
-    /// The registry namespaces whose entries the unit's classes register.
-    private List<String> namespaces = List.of();
     private List<SourceRoot> sources = List.of();
     private List<Path> classpath = List.of();
     private List<String> options = List.of();
@@ -54,7 +52,6 @@ public final class HotReloadUnit {
             spec = JsonParser.parseReader(reader).getAsJsonObject();
         }
 
-        namespaces = strings(spec.getAsJsonArray("namespaces"));
         classpath = strings(spec.getAsJsonArray("classpath")).stream().map(Path::of).toList();
         options = strings(spec.getAsJsonArray("options"));
         output = Path.of(spec.get("output").getAsString());
@@ -121,10 +118,6 @@ public final class HotReloadUnit {
 
     public Path specFile() {
         return specFile;
-    }
-
-    public List<String> namespaces() {
-        return namespaces;
     }
 
     public List<Path> classpath() {

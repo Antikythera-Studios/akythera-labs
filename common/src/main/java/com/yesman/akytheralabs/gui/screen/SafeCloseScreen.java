@@ -49,7 +49,7 @@ public interface SafeCloseScreen {
         int popupW = 200;
         int btnW = WidgetContainerModal.evenButtonWidth(popupW, 3);
 
-        ModalManager.getInstance().openModalWidgetAtCenter(
+        WidgetContainerModal prompt =
             WidgetContainerModal
                 .builder(font, Component.empty(), popupW)
                     .textLines(message)
@@ -58,10 +58,7 @@ public interface SafeCloseScreen {
                             .buttonBuilder(
                                 font,
                                 LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
-                                () -> {
-                                    ModalManager.getInstance().closeModal();
-                                    layoutManager.cancelClosingEditorScreens();
-                                }
+                                () -> ModalManager.getInstance().closeModal()
                             )
                             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                             .build(),
@@ -72,7 +69,10 @@ public interface SafeCloseScreen {
                             .buttonBuilder(
                                 font,
                                 LocalizedMessage.translatable(LangKeys.GUI_QUIT),
-                                () -> quit.run()
+                                () -> {
+                                    layoutManager.setClosingPrompt(null);
+                                    quit.run();
+                                }
                             )
                             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                             .build(),
@@ -83,13 +83,19 @@ public interface SafeCloseScreen {
                             .buttonBuilder(
                                 font,
                                 LocalizedMessage.translatable(LangKeys.GUI_SAVE),
-                                () -> save.run()
+                                () -> {
+                                    layoutManager.setClosingPrompt(null);
+                                    save.run();
+                                }
                             )
                             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                             .build(),
                         btnW
                     )
-                    .build()
-        );
+                    .build();
+
+        if (closing != null) layoutManager.setClosingPrompt(prompt);
+
+        ModalManager.getInstance().openModalWidgetAtCenter(prompt);
     }
 }
