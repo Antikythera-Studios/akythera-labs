@@ -3,6 +3,7 @@ package com.yesman.akytheralabs.gui.screen;
 import com.yesman.akythera.api.data.serializable.LocalizedMessage;
 import com.yesman.akythera.client.api.gui.AkytheraButton;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
+import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.generated.LangKeys;
 import com.yesman.akytheralabs.gui.widget.AkytheraLabsButtonTheme;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
@@ -17,14 +18,30 @@ public interface SafeCloseScreen {
     /// No runnable parameter for cancel button press. hardcoded to close modal.
     ///
     /// When `hasUnsavedChanges` is false the screen has nothing to save since its last save point, so
-    /// the "Save ...?" prompt is skipped and `quit` runs straight away.
+    /// the "Save ...?" prompt is skipped and `quit` runs straight away. While
+    /// [AkytheraEditorLayoutManager#closeEditorScreens] runs without asking, its rule picks `save` or `quit`.
     static void openQuiteScreen(Font font, Component message, boolean hasUnsavedChanges, Runnable save, Runnable quit) {
+        AkytheraEditorLayoutManager layoutManager = AkytheraEditorLayoutManager.getInstance();
+
         if (ModalManager.getInstance().getModal() != null) {
             ModalManager.getInstance().closeModal();
+            layoutManager.cancelClosingEditorScreens();
             return;
         }
 
         if (!hasUnsavedChanges) {
+            quit.run();
+            return;
+        }
+
+        AkytheraEditorLayoutManager.UnsavedChanges closing = layoutManager.closingUnsavedChanges();
+
+        if (closing == AkytheraEditorLayoutManager.UnsavedChanges.SAVE) {
+            save.run();
+            return;
+        }
+
+        if (closing == AkytheraEditorLayoutManager.UnsavedChanges.DISCARD) {
             quit.run();
             return;
         }
@@ -41,7 +58,10 @@ public interface SafeCloseScreen {
                             .buttonBuilder(
                                 font,
                                 LocalizedMessage.translatable(LangKeys.GUI_CANCEL),
-                                () -> ModalManager.getInstance().closeModal()
+                                () -> {
+                                    ModalManager.getInstance().closeModal();
+                                    layoutManager.cancelClosingEditorScreens();
+                                }
                             )
                             .theme(AkytheraLabsButtonTheme.AKYTHERA_EDITOR_BUTTON)
                             .build(),

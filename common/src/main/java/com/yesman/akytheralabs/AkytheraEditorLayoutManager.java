@@ -17,6 +17,7 @@ import com.yesman.akytheralabs.editor.historytrack.ScreenSavePoint;
 import com.yesman.akytheralabs.editor.keybind.EditorKeyMappings;
 import com.yesman.akytheralabs.gui.screen.LoadAkytheraProjectScreen;
 import com.yesman.akytheralabs.gui.screen.MainEditorScreen;
+import com.yesman.akytheralabs.gui.screen.SafeCloseScreen;
 import com.yesman.akytheralabs.gui.widget.WidgetContainerModal;
 import com.yesman.akytheralabs.gui.widget.WorldViewportHost;
 import com.yesman.akytheralabs.gui.widget.main.WorldViewport;
@@ -41,6 +42,7 @@ import org.jspecify.annotations.Nullable;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Stack;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /// Owns every screen of the Akythera editor and hosts the modal layer of [ModalManager] over them.
@@ -88,6 +90,16 @@ public final class AkytheraEditorLayoutManager {
     /// An open editor screen, and what the content browser opened it for ([#markOpenedFor]) or null.
     private record OpenScreen(Screen screen, @Nullable Object opened) {}
 
+    /// What [#closeEditorScreens] does with a screen that has unsaved changes.
+    public enum UnsavedChanges {
+        ASK, // the screen's save prompt
+        SAVE,
+        DISCARD
+    }
+
+    /// A running [#closeEditorScreens] and the future it completes.
+    private record ScreenClosing(UnsavedChanges unsaved, CompletableFuture<Void> closed) {}
+
     /// The editor's own open-screen history.
     private final Stack<OpenScreen> screenStacks = new Stack<> ();
 
@@ -102,6 +114,9 @@ public final class AkytheraEditorLayoutManager {
 
     /// Whether the last frame presented [#editorRenderTarget] rather than the game's render target.
     private boolean layoutPresented;
+
+    /// The running [#closeEditorScreens], or null.
+    private @Nullable ScreenClosing screenClosing;
 
     public AkytheraEditorLayoutManager() {
         minecraft = Minecraft.getInstance();
@@ -260,6 +275,59 @@ public final class AkytheraEditorLayoutManager {
         HistoryManager.getInstance().popScreen(screenStacks.lastElement().screen());
         NodeClipboard.getInstance().cancelCut();
         screenStacks.pop();
+
+        // The removed screen is still inside its own onClose
+        if (screenClosing != null) minecraft.schedule(this::closeNextEditorScreen);
+    }
+
+    /// Closes every screen above [MainEditorScreen] from the top down. A screen with unsaved changes is handled
+    /// by `unsaved`. Completes once the main screen is on top; canceled when the user cancels a save prompt.
+    public CompletableFuture<Void> closeEditorScreens(final UnsavedChanges unsaved) {
+        cancelClosingEditorScreens();
+
+        CompletableFuture<Void> closed = new CompletableFuture<>();
+        screenClosing = new ScreenClosing(unsaved, closed);
+        closeNextEditorScreen();
+
+        return closed;
+    }
+
+    /// How the running [#closeEditorScreens] handles unsaved changes, or null when none runs.
+    public @Nullable UnsavedChanges closingUnsavedChanges() {
+        return screenClosing == null ? null : screenClosing.unsaved();
+    }
+
+    /// Stops the running [#closeEditorScreens]. The screens it has not closed yet stay open.
+    public void cancelClosingEditorScreens() {
+        ScreenClosing canceled = screenClosing;
+
+        if (canceled == null) return;
+
+        screenClosing = null;
+        canceled.closed().cancel(false);
+    }
+
+    /// Closes the top screen for the running [#closeEditorScreens], or completes it once the main screen is on top.
+    private void closeNextEditorScreen() {
+        ScreenClosing closing = screenClosing;
+
+        if (closing == null) return;
+
+        Screen top = getRecentEditorScreen();
+
+        if (top == null || top == mainScreen) {
+            screenClosing = null;
+            closing.closed().complete(null);
+            return;
+        }
+
+        ModalManager.getInstance().closeAllModals();
+
+        if (top instanceof SafeCloseScreen safeClose) {
+            safeClose.handleQuitRequest();
+        } else {
+            closeLastScreen();
+        }
     }
 
     /// The open editor screens, from the main screen to the top one.

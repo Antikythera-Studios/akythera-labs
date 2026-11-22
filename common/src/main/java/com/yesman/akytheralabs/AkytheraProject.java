@@ -1354,6 +1354,13 @@ public final class AkytheraProject {
         }
     }
 
+    /// [#reloadEntryFromDisk] for every entry of the project.
+    public void reloadAllEntriesFromDisk() {
+        for (ProjectObjectRegistry<?, ?> registry : modifiableRegistries.values()) {
+            List.copyOf(registry.registryKeySet()).forEach(this::reloadEntryFromDisk);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     public <T> @Nullable ResourceKey<T> renameEntry(ResourceKey<T> oldKey, String newName) {
         ResourceKey<? extends Registry<T>> regKey = oldKey.registryKey();

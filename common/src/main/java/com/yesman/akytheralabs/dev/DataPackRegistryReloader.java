@@ -147,7 +147,7 @@ public final class DataPackRegistryReloader {
     /// loaders. Tags are left untouched — they reference the same rebound `Holder.Reference`s and
     /// stay valid.
     @SuppressWarnings("unchecked")
-    private static <T> void refill(WritableRegistry<T> registry, Map<ResourceKey<T>, T> entries) {
+    public static <T> void refill(WritableRegistry<T> registry, Map<ResourceKey<T>, T> entries) {
         MappedRegistryAccessor<T> accessor = (MappedRegistryAccessor<T>) registry;
 
         accessor.akythera$setFrozen(false);

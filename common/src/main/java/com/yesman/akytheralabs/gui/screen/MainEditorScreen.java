@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.screen;
 
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalAccessibleScreen;
+import com.yesman.akythera.platform.ModPlatformProvider;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
@@ -80,6 +81,7 @@ public final class MainEditorScreen extends Screen implements ModalAccessibleScr
                 .on(TopMenuOption.MODEL_SKINNING, () -> AkytheraEditorLayoutManager.getInstance().openNewScreen(new ModelSkinningScreen()))
                 .on(TopMenuOption.CONSOLE, () -> ConsoleModal.open(font))
                 .on(TopMenuOption.OPEN_MCP, () -> McpServerModalGenerator.open(font))
+                .on(TopMenuOption.COMPILE_SOURCE_CODE, ModPlatformProvider.get()::isDevelopmentEnvironment, () -> CompileSourceCodeModalGenerator.open(font))
                 .on(TopMenuOption.DOCS, () -> {})
                 .on(TopMenuOption.ISSUE_REPORT, () -> {})
         );

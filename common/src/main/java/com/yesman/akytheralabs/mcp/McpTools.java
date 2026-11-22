@@ -17,6 +17,7 @@ import com.yesman.akythera.core.asset.armature.Armature;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.dev.ProjectReloader;
+import com.yesman.akytheralabs.dev.hotreload.HotReloader;
 import com.yesman.akytheralabs.editor.debug.EditorLogBuffer;
 import com.yesman.akytheralabs.editor.historytrack.HistoryManager;
 import com.yesman.akytheralabs.gui.panel.AdjustablePanelManager;
@@ -267,15 +268,7 @@ public final class McpTools {
             {"type": "object", "properties": {}}
             """,
             _ -> onClient(() -> {
-                List<String> unsaved = new ArrayList<>();
-                AkytheraEditorLayoutManager layout = AkytheraEditorLayoutManager.getInstance();
-
-                for (Screen screen : layout.getOpenScreens()) {
-                    Supplier<Boolean> dirtyProbe = () -> findWidgets(screen, TopMenuBar.class).stream().anyMatch(TopMenuBar::isDirty);
-                    boolean dirty = screen == layout.getRecentEditorScreen() ? dirtyProbe.get() : HistoryManager.getInstance().asSeenBy(screen, dirtyProbe);
-
-                    if (dirty) unsaved.add(screen.getClass().getSimpleName() + " (" + screen.getTitle().getString() + ")");
-                }
+                List<String> unsaved = unsavedEditors();
 
                 return McpToolResult.text(unsaved.isEmpty() ? "No open editor has unsaved changes" : String.join("\n", unsaved));
             })
@@ -463,6 +456,60 @@ public final class McpTools {
         ));
 
         register(McpTool.of(
+            "compile_source_code",
+            "Compiles the source code of the game's hot reload units (the project's mod, and on the engine developer's "
+                + "machine Akythera and AkytheraLabs) and swaps the classes the game runs, the same as Tools > Compile "
+                + "Source Code. Then registers the script functions and types anew, reloads every project entry from disk "
+                + "and reloads the world. Closes every editor screen above the main one first. Static initializers do not "
+                + "run again and existing objects keep their fields. Returns the compile errors, or the redefined, added, "
+                + "removed and refused classes. A script function removed from the source code fails when a graph runs it.",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "unsaved": {
+                  "type": "string",
+                  "enum": ["abort", "save", "discard"],
+                  "description": "What to do when an open editor screen has unsaved changes: 'abort' does nothing and lists those screens, 'save' saves them, 'discard' closes them without saving. Default: 'abort'."
+                }
+              }
+            }
+            """,
+            arguments -> {
+                String unsaved = arguments.has("unsaved") ? arguments.get("unsaved").getAsString() : "abort";
+                CompletableFuture<McpToolResult> reloaded = onClient(() -> {
+                    List<String> missing = HotReloader.missingSetup();
+
+                    if (!missing.isEmpty()) {
+                        return CompletableFuture.completedFuture(McpToolResult.error("The game was started without:\n" + String.join("\n", missing)));
+                    }
+
+                    List<String> dirty = unsavedEditors();
+
+                    if (unsaved.equals("abort") && !dirty.isEmpty()) {
+                        return CompletableFuture.completedFuture(McpToolResult.error(
+                            "These editor screens have unsaved changes; pass unsaved='save' or 'discard':\n" + String.join("\n", dirty)
+                        ));
+                    }
+
+                    AkytheraEditorLayoutManager.UnsavedChanges policy = unsaved.equals("save")
+                        ? AkytheraEditorLayoutManager.UnsavedChanges.SAVE
+                        : AkytheraEditorLayoutManager.UnsavedChanges.DISCARD;
+
+                    return AkytheraEditorLayoutManager.getInstance().closeEditorScreens(policy)
+                        .thenCompose(_ -> HotReloader.reload())
+                        .thenApply(result -> {
+                            String json = PRETTY_GSON.toJson(result.toJson());
+
+                            return result.succeeded() ? McpToolResult.text(json) : McpToolResult.error(json);
+                        });
+                });
+
+                return await(reloaded, RELOAD_TIMEOUT_SECONDS);
+            }
+        ));
+
+        register(McpTool.of(
             "capture_screenshot",
             "Captures the last presented frame as a PNG and saves it under '<game folder>/screenshots/akytheralabs_mcp'. "
                 + "'window' is what the user sees, the editor layout included. 'world' is the 3D world viewport alone.",
@@ -639,6 +686,21 @@ public final class McpTools {
         } catch (ExecutionException e) {
             throw e.getCause() instanceof Exception cause ? cause : e;
         }
+    }
+
+    /// The open editor screens with unsaved changes, from bottom to top, as `ClassName (title)`. Client thread only.
+    static List<String> unsavedEditors() {
+        List<String> unsaved = new ArrayList<>();
+        AkytheraEditorLayoutManager layout = AkytheraEditorLayoutManager.getInstance();
+
+        for (Screen screen : layout.getOpenScreens()) {
+            Supplier<Boolean> dirtyProbe = () -> findWidgets(screen, TopMenuBar.class).stream().anyMatch(TopMenuBar::isDirty);
+            boolean dirty = screen == layout.getRecentEditorScreen() ? dirtyProbe.get() : HistoryManager.getInstance().asSeenBy(screen, dirtyProbe);
+
+            if (dirty) unsaved.add(screen.getClass().getSimpleName() + " (" + screen.getTitle().getString() + ")");
+        }
+
+        return unsaved;
     }
 
     static AkytheraProject requireProject() {

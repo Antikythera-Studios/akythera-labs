@@ -40,3 +40,51 @@ tasks.processResources {
     dependsOn(commonProcessResources)
     from(commonProcessResources.map { it.outputs.files })
 }
+
+// Writes the compile spec AkytheraLabs's in-game hot reload (Tools > Compile Source Code) compiles this platform's
+// classes with: the source folders and their patterns, the compile classpath and options, the class and resource
+// output folders. Written to build/akytheralabs/hotreload_spec.json after every compileJava.
+val writeHotReloadSpec = tasks.register("writeHotReloadSpec") {
+    val specFile = layout.buildDirectory.file("akytheralabs/hotreload_spec.json")
+
+    outputs.file(specFile)
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val compileJava = tasks.compileJava.get()
+        val sources = listOf(sourceSets.main.get().java, commonProject.sourceSets.main.get().java).flatMap { set ->
+            set.srcDirs.map { dir -> mapOf("dir" to dir.absolutePath, "includes" to set.includes.toList(), "excludes" to set.excludes.toList()) }
+        }
+        val options = compileJava.options.allCompilerArgs.toMutableList()
+
+        compileJava.options.release.orNull?.let { options += listOf("--release", it.toString()) }
+        compileJava.options.encoding?.let { options += listOf("-encoding", it) }
+        if (compileJava.options.isDebug) options += compileJava.options.debugOptions.debugLevel?.let { "-g:$it" } ?: "-g"
+
+        val spec = mapOf(
+            "namespaces" to listOf(modId),
+            "sources" to sources,
+            "classpath" to compileJava.classpath.files.map { it.absolutePath },
+            "options" to options,
+            "output" to compileJava.destinationDirectory.get().asFile.absolutePath,
+            "resources" to tasks.processResources.get().destinationDir.absolutePath,
+        )
+        val file = specFile.get().asFile
+
+        file.parentFile.mkdirs()
+        file.writeText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(spec)))
+    }
+}
+
+tasks.compileJava { finalizedBy(writeHotReloadSpec) }
+
+// The jar is also AkytheraLabs's Java agent (-javaagent:<this jar>), which hands the in-game hot reload its
+// Instrumentation
+tasks.jar {
+    manifest {
+        attributes(
+            "Premain-Class" to "com.yesman.akytheralabs.dev.hotreload.HotReloadAgent",
+            "Can-Redefine-Classes" to "true",
+        )
+    }
+}

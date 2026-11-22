@@ -63,7 +63,8 @@ public final class TopMenuBar extends AbstractContainerWidget implements Anchore
             new UniversalMenu.OptionRow<>(TopMenuOption.MODEL_SKINNING),
             new UniversalMenu.OptionRow<>(TopMenuOption.DEBUG),
             new UniversalMenu.OptionRow<>(TopMenuOption.CONSOLE),
-            new UniversalMenu.OptionRow<>(TopMenuOption.OPEN_MCP)
+            new UniversalMenu.OptionRow<>(TopMenuOption.OPEN_MCP),
+            new UniversalMenu.OptionRow<>(TopMenuOption.COMPILE_SOURCE_CODE)
         )),
         new Menu(LocalizedMessage.translatable(LangKeys.GUI_MENU_BAR_HELP), List.of(
             new UniversalMenu.OptionRow<>(TopMenuOption.DOCS),
