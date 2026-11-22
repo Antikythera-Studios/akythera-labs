@@ -185,7 +185,7 @@ public final class ScriptNodeDetailsPanel extends AdjustablePanelManager.PanelAr
                 case FloatRow floatRow -> table.addWidget(numberBox(
                     floatRow.current(), floatRow.apply(),
                     floatRow.min(), floatRow.max(), floatRow.step(), -floatRow.step(),
-                    Float::parseFloat, ParseUtils::floatingPointToString, Float::compareTo, Float::sum));
+                    Float::parseFloat, f -> ParseUtils.toRoundedString(f, ParseUtils.DISPLAY_DECIMALS), Float::compareTo, Float::sum));
                 case IntRow intRow -> table.addWidget(numberBox(
                     intRow.current(), intRow.apply(),
                     intRow.min(), intRow.max(), 1, -1,
