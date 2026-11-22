@@ -23,7 +23,7 @@ final class McpEntryTools {
             "get_entry",
             "Returns a data entry of the open project as JSON, in the form of its .json file, as the editor holds it in "
                 + "memory: unsaved edits included. 'path' is the entry's file under 'data/', e.g. "
-                + "'data/particle/piece/sweep.json'. Use it to learn the form set_entry takes, from an entry of the same "
+                + "'data/world/particle/piece/sweep.json'. Use it to learn the form set_entry takes, from an entry of the same "
                 + "folder.",
             """
             {
@@ -56,7 +56,7 @@ final class McpEntryTools {
             {
               "type": "object",
               "properties": {
-                "path": {"type": "string", "description": "The entry's file, relative to the project root, e.g. 'data/particle/piece/overlay/stain.json'."},
+                "path": {"type": "string", "description": "The entry's file, relative to the project root, e.g. 'data/world/particle/piece/overlay/stain.json'."},
                 "entry": {"type": "object", "description": "The whole entry."},
                 "merge": {"type": "object", "description": "Top-level keys to replace in the existing entry."}
               },

@@ -30,6 +30,8 @@ import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.ProjectTags;
 import com.yesman.akytheralabs.akythera.animation.AnimationRef;
+import com.yesman.akytheralabs.akythera.animation.notify.impl.MotionWarpTargetProducer;
+import com.yesman.akytheralabs.akythera.animation.notify.impl.MotionWarpTargetRef;
 import com.yesman.akytheralabs.akythera.asset.AnimationMetadataHolder;
 import com.yesman.akytheralabs.akythera.asset.EditorAssetAccessors;
 import com.yesman.akytheralabs.akythera.asset.ReferencePose;
@@ -765,6 +767,7 @@ public final class EditorWidgetFactory {
         registerWidgetProducer(WidgetGraphs.class, new WidgetGraphsProducer());
         registerWidgetProducer(ParticleRef.class, new ParticleRefProducer());
         registerWidgetProducer(ParticleModuleList.class, new ParticleModulesProducer());
+        registerWidgetProducer(MotionWarpTargetRef.class, new MotionWarpTargetProducer());
     }
 
     private final Map<Class<?>, List<RowBuilder>> rowCache = new ConcurrentHashMap<>();

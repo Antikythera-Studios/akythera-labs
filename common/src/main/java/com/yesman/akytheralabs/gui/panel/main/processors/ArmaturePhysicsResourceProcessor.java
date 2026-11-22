@@ -65,9 +65,12 @@ public final class ArmaturePhysicsResourceProcessor implements ResourceProcessor
     }
 
     @Override
-    public @Nullable ContentWidget<?> createContentWidget(Font font, Path path) {
-        if (!path.toString().endsWith(".json")) return null;
+    public boolean lists(Path file) {
+        return file.toString().endsWith(".json");
+    }
 
+    @Override
+    public @Nullable ContentWidget<?> createContentWidget(Font font, Path path) {
         return new ContentWidget.ArmaturePhysicsContent(font, path, ResourceProcessor.fileNameNoExt(path));
     }
 }

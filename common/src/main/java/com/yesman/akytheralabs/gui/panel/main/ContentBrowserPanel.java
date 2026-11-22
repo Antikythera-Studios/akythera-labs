@@ -7,7 +7,6 @@ import com.yesman.akythera.client.api.gui.AkytheraButton;
 import com.yesman.akythera.client.api.gui.Grid;
 import com.yesman.akythera.client.api.gui.common.AnchoredWidget;
 import com.yesman.akythera.client.api.gui.modal.ModalManager;
-import com.yesman.akythera.core.asset.loader.AssetLoader;
 import com.yesman.akytheralabs.AkytheraEditorLayoutManager;
 import com.yesman.akytheralabs.AkytheraLabs;
 import com.yesman.akytheralabs.AkytheraProject;
@@ -260,6 +259,7 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     private void rebuildGrid() {
         clearContentSelection();
         grid.clearComponents();
+        AkytheraEditorLayoutManager.getInstance().<MainEditorScreen>ifLastScreen(mainEditorScreen -> mainEditorScreen.explorerPanel.recountFiles());
         String query = searchBox.getText().toLowerCase();
 
         if (selectedNode != null && selectedNode.directoryPath != null && Files.isDirectory(selectedNode.directoryPath)) {
@@ -279,26 +279,22 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
 
                             if (Files.isDirectory(path)) {
                                 if (path.equals(project.getProjectRoot().resolve("data").resolve(ProjectTags.DIRECTORY))) return;
+                                if (project.isAssetFolder(path)) return;
 
                                 ContentWidget<?> w = new ContentWidget.FolderContent(font, name, path, !project.isReservedDirectory(path));
 
                                 if (query.isEmpty() || name.toLowerCase().contains(query)) {
                                     folders.add(w);
                                 }
-                            } else if (Files.isRegularFile(path) && (!name.endsWith(AssetLoader.METADATA_EXTENSION) || project.isSoundEvent(path))) {
-                                // A sidecar belongs to the asset next to it, not to the grid — the
-                                // processors parse whatever file they are handed, and a sidecar is not
-                                // an asset of any of their types. A sound event is no sidecar.
+                            } else if (Files.isRegularFile(path) && selectedNode.processor != null && selectedNode.processor.lists(path)) {
                                 ContentWidget<?> w = null;
 
-                                if (selectedNode.processor != null) {
-                                    try {
-                                        w = selectedNode.processor.createContentWidget(font, path);
-                                    } catch (NoSuchElementException e) {
-                                        AkytheraLabs.LOGGER.error(
-                                            "Couldn't find registered object parsed from {}. This error means the data file is corrupted",
-                                            path);
-                                    }
+                                try {
+                                    w = selectedNode.processor.createContentWidget(font, path);
+                                } catch (NoSuchElementException e) {
+                                    AkytheraLabs.LOGGER.error(
+                                        "Couldn't find registered object parsed from {}. This error means the data file is corrupted",
+                                        path);
                                 }
 
                                 if (w != null) {
@@ -335,6 +331,8 @@ public final class ContentBrowserPanel extends AdjustablePanelManager.PanelArea 
     /// listing `assets` itself. They are fixed project layout, hence no rename box.
     private void collectAssetRegistryFolders(Path assetsRoot, String query, List<ContentWidget<?>> folders) {
         for (String directory : AkytheraProject.ASSETS_FOLDERS) {
+            if (AkytheraProject.enclosingAssetFolder(directory) != null) continue;
+
             Path path = assetsRoot.resolve(directory);
             String name = path.getFileName().toString();
 

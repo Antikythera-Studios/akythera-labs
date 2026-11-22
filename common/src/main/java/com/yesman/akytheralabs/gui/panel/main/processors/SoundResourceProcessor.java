@@ -88,10 +88,14 @@ public final class SoundResourceProcessor implements ResourceProcessor<Identifie
         return result;
     }
 
+    /// Sound events only; the sound files are reached through them.
+    @Override
+    public boolean lists(Path file) {
+        return file.getFileName().toString().endsWith(AkytheraProject.SOUND_EVENT_EXTENSION);
+    }
+
     @Override
     public @Nullable ContentWidget<?> createContentWidget(Font font, Path path) {
-        if (!path.getFileName().toString().endsWith(AkytheraProject.SOUND_EVENT_EXTENSION)) return null;
-
         return new ContentWidget.SoundEventContent(font, path, ResourceProcessor.fileNameNoExt(path));
     }
 

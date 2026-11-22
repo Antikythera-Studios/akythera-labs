@@ -82,6 +82,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         this.font = font;
         this.roots = buildTree();
         applyFolderStates(roots, AkytheraProject.getCurrentProject().getSavedFolderStates());
+        recountFiles(roots);
 
         this.searchBox = EditorEditBox.stringBox(
             font,
@@ -182,6 +183,27 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         }
     }
 
+    /// Recounts every node's [TreeNode#fileCount] from disk.
+    public void recountFiles() {
+        recountFiles(roots);
+    }
+
+    /// A node counts the files its processor lists in its own directory, plus its children's counts.
+    private static void recountFiles(List<TreeNode> nodes) {
+        for (TreeNode node : nodes) {
+            recountFiles(node.children);
+            node.fileCount = node.children.stream().mapToInt(child -> child.fileCount).sum();
+
+            if (node.processor == null || node.directoryPath == null || !Files.isDirectory(node.directoryPath)) continue;
+
+            try (Stream<Path> files = Files.list(node.directoryPath)) {
+                node.fileCount += (int) files.filter(file -> Files.isRegularFile(file) && node.processor.lists(file)).count();
+            } catch (IOException e) {
+                Akythera.LOGGER.warn("Failed to count the files of {}", node.directoryPath, e);
+            }
+        }
+    }
+
     private static void applyFolderStates(List<TreeNode> nodes, Map<String, Boolean> saved) {
         for (TreeNode node : nodes) {
             if (saved.containsKey(node.name)) {
@@ -197,17 +219,21 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         Path projectRoot = project.getProjectRoot();
         TreeNode assetsRoot = new TreeNode("assets", false, projectRoot.resolve("assets"), null);
         TreeNode dataRoot = new TreeNode("data", false, projectRoot.resolve("data"), null);
+        Map<String, TreeNode> assetFolderNodes = new HashMap<>();
 
+        // Sorted, so a nesting asset folder is built before the ones inside it
         AkytheraProject.ASSETS_FOLDERS.stream()
             .sorted()
             .forEach(directory -> {
                 Path registryDir = projectRoot.resolve("assets").resolve(directory);
                 String displayName = Path.of(directory).getFileName().toString();
                 ResourceProcessor<?> processor = ResourceProcessor.forTag(directory);
+                TreeNode parent = assetFolderNodes.getOrDefault(AkytheraProject.enclosingAssetFolder(directory), assetsRoot);
                 TreeNode registryNode = new TreeNode(displayName, false, registryDir, processor);
-                registryNode.parentNode = assetsRoot;
+                registryNode.parentNode = parent;
                 scanSubDirectories(registryDir, processor, registryNode);
-                assetsRoot.children.add(registryNode);
+                parent.children.add(registryNode);
+                assetFolderNodes.put(directory, registryNode);
             });
 
         AkytheraProject.DATAPACK_REGISTRIES.stream()
@@ -217,7 +243,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
                 Path registryDir = projectRoot.resolve("data").resolve(key.identifier().getPath());
                 ResourceProcessor<?> processor = ResourceProcessor.forTag(key);
 
-                // Registry keys may share path prefixes (`script/animator`, `script/entity_patch`);
+                // Registry keys may share path prefixes (`animations/anim_montage`, `animations/animator`);
                 // fold them under shared intermediate folder nodes instead of one flat node per key.
                 String[] segments = key.identifier().getPath().split("/");
                 TreeNode parent = dataRoot;
@@ -290,7 +316,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         AkytheraProject project = AkytheraProject.getCurrentProject();
 
         try (Stream<Path> entries = Files.list(dir)) {
-            entries.filter(Files::isDirectory)
+            entries.filter(path -> Files.isDirectory(path) && !project.isAssetFolder(path))
                 .sorted(Comparator.comparing(p -> p.getFileName().toString()))
                 .forEach(subdir -> {
                     String name = subdir.getFileName().toString();
@@ -407,6 +433,7 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
         roots.addAll(buildTree());
 
         applyFolderStates(roots, AkytheraProject.getCurrentProject().getSavedFolderStates());
+        recountFiles(roots);
 
         treeList.rebuildEntries();
     }
@@ -613,6 +640,9 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
 
         @Nullable
         public TreeNode parentNode;
+
+        /// The items [ContentBrowserPanel] lists under [#directoryPath], those of every subdirectory included.
+        public int fileCount;
 
         TreeNode(
             String name,
@@ -1028,7 +1058,9 @@ public final class ExplorerPanel extends AdjustablePanelManager.PanelArea {
                 } else {
                     int nameW = Math.max(0, getX() + getWidth() - textX - ARROW_W - ENTRY_PADDING);
 
-                    graphics.text(font, font.plainSubstrByWidth(node.name, nameW), textX + ARROW_W, textY, node.modifiable ? 0xFFCCCCCC : 0xFFE8C97A, false);
+                    String label = node.directoryPath == null ? node.name : node.name + " (" + node.fileCount + ")";
+
+                    graphics.text(font, font.plainSubstrByWidth(label, nameW), textX + ARROW_W, textY, node.modifiable ? 0xFFCCCCCC : 0xFFE8C97A, false);
                 }
             }
 

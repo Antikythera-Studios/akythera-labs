@@ -1,50 +1,28 @@
 package com.yesman.akytheralabs.akythera.animation.notify.impl;
 
-import com.google.gson.JsonObject;
-import com.mojang.serialization.JsonOps;
 import com.yesman.akythera.api.animation.notify.impl.MotionWarpingNotifyState;
 import com.yesman.akythera.api.animation.warping.AttackTargetWarpTarget;
-import com.yesman.akythera.api.animation.warping.DataDrivenMotionWarpTarget;
-import com.yesman.akythera.api.animation.warping.MotionWarpTarget;
 import com.yesman.akythera.client.api.gui.viewer.Model3DViewer;
 import com.yesman.akythera.core.blueprint.warping.MotionWarpTargetBlueprint;
-import com.yesman.akythera.core.blueprint.warping.MotionWarpTargetScriptBlueprint;
 import com.yesman.akythera.core.math.TimeWindow;
 import com.yesman.akythera.core.registry.AkytheraRegistries;
 import com.yesman.akythera.core.util.LogicalSide;
-import com.yesman.akythera.core.util.helper.ParseUtils;
-import com.yesman.akytheralabs.AkytheraProject;
 import com.yesman.akytheralabs.BlueprintSourceWriter;
 import com.yesman.akytheralabs.FreemarkerExporter;
 import com.yesman.akytheralabs.NodeTreeSourceRenderer;
-import com.yesman.akytheralabs.akythera.animation.MotionWarpTargetScriptHolder;
 import com.yesman.akytheralabs.akythera.animation.notify.AnimationNotifyStateHolder;
+import com.yesman.akytheralabs.dataholder.EditorHolderCodecs;
+import com.yesman.akytheralabs.dataholder.EditorReference;
 import com.yesman.akytheralabs.editor.EditorEditable;
 import com.yesman.akytheralabs.generated.LangKeys;
-import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
-import net.minecraft.resources.ResourceKey;
 
-import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /// Editor holder for a [MotionWarpingNotifyState].
 public final class MotionWarpingNotifyStateHolder extends AnimationNotifyStateHolder<MotionWarpingNotifyState> {
-    @EditorEditable(
-        label = LangKeys.GUI_NOTIFY_TRACKS_FIELD_WARP_TARGET,
-        order = 0,
-        candidates = "targetCandidates",
-        candidateLabel = "targetLabel",
-        candidateCategory = "targetCategory",
-        searchable = true
-    )
-    private MotionWarpTargetBlueprint target = AttackTargetWarpTarget.INSTANCE;
+    @EditorEditable(label = LangKeys.GUI_NOTIFY_TRACKS_FIELD_WARP_TARGET, order = 0, rebuildOnWrite = true)
+    private MotionWarpTargetRef target = new MotionWarpTargetRef.Blueprint(AttackTargetWarpTarget.INSTANCE);
 
     @EditorEditable(label = LangKeys.GUI_NOTIFY_TRACKS_FIELD_UPDATE_RATE, order = 1, min = 1.0F)
     private int updateRate = 1;
@@ -72,68 +50,6 @@ public final class MotionWarpingNotifyStateHolder extends AnimationNotifyStateHo
     @EditorEditable(label = LangKeys.GUI_NOTIFY_TRACKS_FIELD_MAX_ROTATION_RATE, order = 8, min = 0.0F, indent = 1, visibleWhen = "isWarpRotation")
     private float maxRotationRate = 30.0F;
 
-    /// The targets [#target] may pick, built-in ones first, then the project's, the data packs' and the classes'.
-    static List<MotionWarpTargetBlueprint> targetCandidates() {
-        List<MotionWarpTargetBlueprint> candidates = new ArrayList<>();
-        AkytheraProject project = AkytheraProject.getCurrentProject();
-        Set<ResourceKey<MotionWarpTargetScriptBlueprint>> projectKeys = project
-            .<MotionWarpTargetScriptBlueprint, MotionWarpTargetScriptHolder>getModifiableEntries(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY).stream()
-            .map(Map.Entry::getKey)
-            .collect(Collectors.toSet());
-
-        // A built-in target is a type that decodes from no field
-        AkytheraRegistries.Frozen.MOTION_WARP_TARGET_TYPES.stream()
-            .flatMap(codec -> codec.codec().parse(JsonOps.INSTANCE, new JsonObject()).result().stream())
-            .filter(blueprint -> !(blueprint instanceof MotionWarpTargetBlueprint.ByClass || blueprint instanceof MotionWarpTargetBlueprint.ByData))
-            .forEach(candidates::add);
-
-        projectKeys.stream()
-            .sorted(Comparator.comparing(key -> key.identifier().toString()))
-            .map(MotionWarpTargetBlueprint.ByData::new)
-            .forEach(candidates::add);
-
-        project.getMergedEntries(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY).stream()
-            .map(Map.Entry::getKey)
-            .filter(key -> !projectKeys.contains(key))
-            .sorted(Comparator.comparing(key -> key.identifier().toString()))
-            .map(MotionWarpTargetBlueprint.ByData::new)
-            .forEach(candidates::add);
-
-        // A target class is one a user wrote: the built-in targets and the data pack runner are left out
-        Set<Identifier> projectScriptTypes = FreemarkerExporter.projectScriptTypes();
-        AkytheraRegistries.Frozen.SCRIPT_TYPE.stream()
-            .filter(type -> MotionWarpTarget.class.isAssignableFrom(type.type())
-                && !projectScriptTypes.contains(AkytheraRegistries.Frozen.SCRIPT_TYPE.getKey(type))
-                && !type.type().isInterface()
-                && !Modifier.isAbstract(type.type().getModifiers())
-                && type.type() != DataDrivenMotionWarpTarget.class
-                && !MotionWarpTargetBlueprint.class.isAssignableFrom(type.type()))
-            .map(MotionWarpTargetBlueprint.ByClass::new)
-            .forEach(candidates::add);
-
-        return candidates;
-    }
-
-    static Component targetLabel(final MotionWarpTargetBlueprint target) {
-        return Component.literal(switch (target) {
-            case MotionWarpTargetBlueprint.ByData byData -> byData.target().identifier().toString();
-            case MotionWarpTargetBlueprint.ByClass byClass -> byClass.type().type().getSimpleName();
-            default -> ParseUtils.toDisplayName(Objects.requireNonNull(AkytheraRegistries.Frozen.MOTION_WARP_TARGET_TYPES.getKey(target.mapCodec())).getPath());
-        });
-    }
-
-    static Component targetCategory(final MotionWarpTargetBlueprint target) {
-        return Component.translatable(switch (target) {
-            case MotionWarpTargetBlueprint.ByData byData ->
-                AkytheraProject.getCurrentProject().getModifiableEntries(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY).stream()
-                    .anyMatch(entry -> entry.getKey().identifier().equals(byData.target().identifier()))
-                    ? LangKeys.GUI_NOTIFY_TRACKS_CATEGORY_PROJECT
-                    : LangKeys.GUI_NOTIFY_TRACKS_CATEGORY_DATAPACK;
-            case MotionWarpTargetBlueprint.ByClass _ -> LangKeys.GUI_NOTIFY_TRACKS_CATEGORY_CLASS;
-            default -> LangKeys.GUI_NOTIFY_TRACKS_CATEGORY_BUILT_IN;
-        });
-    }
-
     boolean isWarpTranslation() {
         return warpTranslation;
     }
@@ -144,7 +60,7 @@ public final class MotionWarpingNotifyStateHolder extends AnimationNotifyStateHo
 
     @Override
     public void readFrom(final MotionWarpingNotifyState object) {
-        target = object.target();
+        target = MotionWarpTargetRef.of(object.target());
         updateRate = object.updateRate();
         warpTranslation = object.warpTranslation();
         maxStretch = object.maxStretch();
@@ -157,7 +73,12 @@ public final class MotionWarpingNotifyStateHolder extends AnimationNotifyStateHo
 
     @Override
     public MotionWarpingNotifyState makeObject() {
-        return new MotionWarpingNotifyState(target, updateRate, warpTranslation, maxStretch, smooth, modifyX, modifyY, warpRotation, maxRotationRate);
+        return new MotionWarpingNotifyState(target.toBlueprint(), updateRate, warpTranslation, maxStretch, smooth, modifyX, modifyY, warpRotation, maxRotationRate);
+    }
+
+    @Override
+    public Stream<EditorReference> referencedReferences() {
+        return target instanceof MotionWarpTargetRef.Entry entry ? EditorHolderCodecs.referenceOf(entry.holder()) : Stream.empty();
     }
 
     /// Only a montage plays a root motion.
@@ -195,7 +116,8 @@ public final class MotionWarpingNotifyStateHolder extends AnimationNotifyStateHo
 
     @Override
     public Map<String, Object> getDTO() {
-        String targetSource = switch (target) {
+        MotionWarpTargetBlueprint blueprint = target.toBlueprint();
+        String targetSource = switch (blueprint) {
             case MotionWarpTargetBlueprint.ByData byData -> {
                 String compiled = FreemarkerExporter.compiledClass(byData.target());
 
@@ -205,7 +127,7 @@ public final class MotionWarpingNotifyStateHolder extends AnimationNotifyStateHo
                         + BlueprintSourceWriter.registryKey(AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY, byData.target().identifier().toString()) + ")";
             }
             case MotionWarpTargetBlueprint.ByClass byClass -> "new MotionWarpTargetBlueprint.ByClass(" + NodeTreeSourceRenderer.scriptType(byClass.type()) + ")";
-            default -> "new " + target.getClass().getSimpleName() + "()";
+            default -> "new " + blueprint.getClass().getSimpleName() + "()";
         };
 
         return Map.of(

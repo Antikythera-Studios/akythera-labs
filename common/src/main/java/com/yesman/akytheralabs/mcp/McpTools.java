@@ -218,7 +218,7 @@ public final class McpTools {
 
                     if (folder == null || folder.processor == null) return McpToolResult.error("The file is not inside an asset folder of the project");
 
-                    ContentWidget<?> content = folder.processor.createContentWidget(Minecraft.getInstance().font, file);
+                    ContentWidget<?> content = folder.processor.lists(file) ? folder.processor.createContentWidget(Minecraft.getInstance().font, file) : null;
 
                     if (content == null || !content.isOpenable()) return McpToolResult.error("The file has no editor: " + root.relativize(file));
 

@@ -66,9 +66,12 @@ public final class TextureResourceProcessor implements ResourceProcessor<Identif
     }
 
     @Override
-    public @Nullable ContentWidget<?> createContentWidget(Font font, Path path) {
-        if (!path.getFileName().toString().endsWith(TEXTURE_EXTENSION)) return null;
+    public boolean lists(Path file) {
+        return file.getFileName().toString().endsWith(TEXTURE_EXTENSION);
+    }
 
+    @Override
+    public @Nullable ContentWidget<?> createContentWidget(Font font, Path path) {
         return new ContentWidget.TextureAssetContent(font, path, ResourceProcessor.fileNameNoExt(path));
     }
 }

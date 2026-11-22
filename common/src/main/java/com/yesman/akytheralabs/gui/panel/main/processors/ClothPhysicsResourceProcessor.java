@@ -65,9 +65,12 @@ public final class ClothPhysicsResourceProcessor implements ResourceProcessor<Id
 
     /// The `.akasset` of a cloth; its `.akmeta` sidecar is not an entry.
     @Override
-    public @Nullable ContentWidget<?> createContentWidget(Font font, Path path) {
-        if (!path.toString().endsWith("." + AssetLoader.BINARY_EXTENSION)) return null;
+    public boolean lists(Path file) {
+        return file.toString().endsWith("." + AssetLoader.BINARY_EXTENSION);
+    }
 
+    @Override
+    public @Nullable ContentWidget<?> createContentWidget(Font font, Path path) {
         return new ContentWidget.ClothPhysicsContent(font, path, ResourceProcessor.fileNameNoExt(path));
     }
 }

@@ -183,6 +183,11 @@ public interface ResourceProcessor<T> {
         throw new UnsupportedOperationException(getClass().getSimpleName() + " imports no files");
     }
 
+    /// Whether [ContentBrowserPanel] lists `file`, a file of this category. A sidecar goes with the asset beside it.
+    default boolean lists(Path file) {
+        return !file.getFileName().toString().endsWith(AssetLoader.METADATA_EXTENSION);
+    }
+
     /// Whether `file` is an engine asset file: binary, or json.
     static boolean isAssetFile(Path file) {
         String fileName = file.getFileName().toString();
@@ -275,12 +280,12 @@ public interface ResourceProcessor<T> {
     }
 
     /// Walks parents to find the registry-root node — the topmost ancestor
-    /// whose parent does not own a processor. Returns null if `node` is itself
+    /// whose parent does not own the same processor. Returns null if `node` is itself
     /// a top-level root (no processor).
     static ExplorerPanel.@Nullable TreeNode regRootOf(ExplorerPanel.TreeNode node) {
         ExplorerPanel.TreeNode cur = node;
 
-        while (cur.parentNode != null && cur.parentNode.processor != null) {
+        while (cur.parentNode != null && cur.parentNode.processor != null && cur.parentNode.processor == cur.processor) {
             cur = cur.parentNode;
         }
 

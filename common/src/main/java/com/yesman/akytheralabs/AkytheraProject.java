@@ -175,7 +175,7 @@ public final class AkytheraProject {
     /// The armature physics asset belonging to the armature `armatureId`: its own path under
     /// [ArmaturePhysicsManager#DIRECTORY]. Null for an id that is not an armature's.
     public static @Nullable Identifier armaturePhysicsIdOf(Identifier armatureId) {
-        if (!armatureId.getPath().startsWith(ArmatureManager.DIRECTORY)) return null;
+        if (!ArmatureManager.DIRECTORY.equals(assetFolderOf(armatureId.getPath()))) return null;
 
         return Identifier.fromNamespaceAndPath(
             armatureId.getNamespace(),
@@ -467,10 +467,12 @@ public final class AkytheraProject {
     }
 
     private void walkAssetFiles(String directory, Consumer<Path> handler) {
-        Path dir = projectRoot.resolve("assets").resolve(directory);
+        Path assetsRoot = projectRoot.resolve("assets");
+        Path dir = assetsRoot.resolve(directory);
         FileSystemHelper.forEachFile(dir, p -> {
             String s = p.toString();
-            return s.endsWith("." + AssetLoader.BINARY_EXTENSION) || s.endsWith(".json");
+            return (s.endsWith("." + AssetLoader.BINARY_EXTENSION) || s.endsWith(".json"))
+                && directory.equals(assetFolderOf(FileSystemHelper.relativeIdPath(assetsRoot, p)));
         }, handler);
     }
 
@@ -670,6 +672,23 @@ public final class AkytheraProject {
         PARTICLE_SPRITES_DIRECTORY
     );
 
+    /// The [#ASSETS_FOLDERS] entry `relativePath`, a path under `assets`, lies in: the innermost one where
+    /// they nest. Null outside them.
+    public static @Nullable String assetFolderOf(String relativePath) {
+        return ASSETS_FOLDERS.stream()
+            .filter(relativePath::startsWith)
+            .max(Comparator.comparingInt(String::length))
+            .orElse(null);
+    }
+
+    /// The [#ASSETS_FOLDERS] entry the entry `directory` nests in. Null for a top-level one.
+    public static @Nullable String enclosingAssetFolder(String directory) {
+        return ASSETS_FOLDERS.stream()
+            .filter(folder -> !folder.equals(directory) && directory.startsWith(folder))
+            .max(Comparator.comparingInt(String::length))
+            .orElse(null);
+    }
+
     public static final Set<ResourceKey<? extends Registry<?>>> DATAPACK_REGISTRIES = Set.of(
         AkytheraRegistries.DataPack.ANIM_MONTAGE_KEY,
         AkytheraRegistries.DataPack.ANIM_SEQUENCE_KEY,
@@ -698,7 +717,8 @@ public final class AkytheraProject {
     /// The [#DATAPACK_REGISTRIES] the explorer does not list. Their entries are reached from the editors that use them.
     public static final Set<ResourceKey<? extends Registry<?>>> EXPLORER_HIDDEN_REGISTRIES = Set.of(
         AkytheraRegistries.DataPack.PARTICLE_INITIALIZER_KEY,
-        AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY
+        AkytheraRegistries.DataPack.PARTICLE_UPDATER_KEY,
+        AkytheraRegistries.DataPack.MOTION_WARP_TARGET_KEY
     );
 
     private final Map<ResourceKey<? extends Registry<?>>, ProjectObjectRegistry<?, ?>> modifiableRegistries = new HashMap<>();
@@ -1263,7 +1283,7 @@ public final class AkytheraProject {
     }
 
     /// A data entry's file path relative to the project root, slash-separated — e.g.
-    /// `data/script/animator/player.json`. The form entries are named to the user in the
+    /// `data/animations/animator/player.json`. The form entries are named to the user in the
     /// broken-entries warning; mirrors [#getEntryFilePath], which owns the on-disk layout.
     public String getRelativeEntryPath(ResourceKey<?> key) {
         return projectRoot.relativize(getEntryFilePath(key)).toString().replace('\\', '/');
@@ -1445,6 +1465,13 @@ public final class AkytheraProject {
         });
 
         return true;
+    }
+
+    /// Whether `directory` is one of [#ASSETS_FOLDERS].
+    public boolean isAssetFolder(Path directory) {
+        Path assetsRoot = projectRoot.resolve("assets");
+
+        return directory.startsWith(assetsRoot) && ASSETS_FOLDERS.contains(FileSystemHelper.relativeIdPath(assetsRoot, directory) + "/");
     }
 
     /// Whether `directory` is one of [#RESERVED_DIRECTORIES], or a directory on the way to one.
@@ -2071,19 +2098,20 @@ public final class AkytheraProject {
         String rel = FileSystemHelper.relativeIdPath(assetsRoot, file);
         String pathNoExt = ParseUtils.trimExtensions(rel, AssetLoader.BINARY_EXTENSION, "json");
         Identifier id = Identifier.fromNamespaceAndPath(projectName, pathNoExt);
+        String folder = assetFolderOf(rel);
 
-        if (rel.startsWith(MeshManager.DIRECTORY)) {
+        if (MeshManager.DIRECTORY.equals(folder)) {
             editorMeshes.remove(id);
             issuedEditorMeshAccessors.remove(id);
-        } else if (rel.startsWith(ArmatureManager.DIRECTORY)) {
+        } else if (ArmatureManager.DIRECTORY.equals(folder)) {
             editorArmatures.remove(id);
             issuedEditorArmatureAccessors.remove(id);
-        } else if (rel.startsWith(AnimationManager.DIRECTORY)) {
+        } else if (AnimationManager.DIRECTORY.equals(folder)) {
             editorAnimations.remove(id);
             issuedEditorAnimationAccessors.remove(id);
-        } else if (rel.startsWith(ArmaturePhysicsManager.DIRECTORY)) {
+        } else if (ArmaturePhysicsManager.DIRECTORY.equals(folder)) {
             issuedEditorArmaturePhysicsAccessors.remove(id);
-        } else if (rel.startsWith(ClothPhysicsLoader.DIRECTORY)) {
+        } else if (ClothPhysicsLoader.DIRECTORY.equals(folder)) {
             Identifier meshId = Identifier.fromNamespaceAndPath(
                 id.getNamespace(),
                 MeshManager.DIRECTORY + id.getPath().substring(ClothPhysicsLoader.DIRECTORY.length())
@@ -2182,16 +2210,16 @@ public final class AkytheraProject {
 
         if (!fileName.endsWith("." + AssetLoader.BINARY_EXTENSION) && !fileName.endsWith(".json")) return;
 
-        String rel = FileSystemHelper.relativeIdPath(assetsRoot, file);
+        String folder = assetFolderOf(FileSystemHelper.relativeIdPath(assetsRoot, file));
 
         try {
-            if (rel.startsWith(MeshManager.DIRECTORY)) {
+            if (MeshManager.DIRECTORY.equals(folder)) {
                 getEditorMeshAccessorByPath(file);
-            } else if (rel.startsWith(ArmatureManager.DIRECTORY)) {
+            } else if (ArmatureManager.DIRECTORY.equals(folder)) {
                 getEditorArmatureAccessorByPath(file);
-            } else if (rel.startsWith(AnimationManager.DIRECTORY)) {
+            } else if (AnimationManager.DIRECTORY.equals(folder)) {
                 getEditorAnimationAccessorByPath(file);
-            } else if (rel.startsWith(ArmaturePhysicsManager.DIRECTORY)) {
+            } else if (ArmaturePhysicsManager.DIRECTORY.equals(folder)) {
                 getEditorArmaturePhysicsAccessorByPath(file);
             }
         } catch (Exception e) {
@@ -2338,8 +2366,9 @@ public final class AkytheraProject {
         String rel = FileSystemHelper.relativeIdPath(assetsRoot, file);
         String pathNoExt = ParseUtils.trimExtensions(rel, AssetLoader.BINARY_EXTENSION, "json");
         Identifier id = Identifier.fromNamespaceAndPath(projectName, pathNoExt);
+        String folder = assetFolderOf(rel);
 
-        if (rel.startsWith(MeshManager.DIRECTORY)) {
+        if (MeshManager.DIRECTORY.equals(folder)) {
             AssetAccessor<? extends Mesh<?>> accessor = issuedEditorMeshAccessors.get(id);
             Mesh<?> loaded = editorMeshes.get(id);
 
@@ -2347,7 +2376,7 @@ public final class AkytheraProject {
                 if (accessor != null) issuedEditorMeshAccessors.put(id, accessor);
                 if (loaded != null) editorMeshes.put(id, loaded);
             });
-        } else if (rel.startsWith(ArmatureManager.DIRECTORY)) {
+        } else if (ArmatureManager.DIRECTORY.equals(folder)) {
             AssetAccessor<? extends Armature> accessor = issuedEditorArmatureAccessors.get(id);
             Armature loaded = editorArmatures.get(id);
 
@@ -2355,7 +2384,7 @@ public final class AkytheraProject {
                 if (accessor != null) issuedEditorArmatureAccessors.put(id, accessor);
                 if (loaded != null) editorArmatures.put(id, loaded);
             });
-        } else if (rel.startsWith(AnimationManager.DIRECTORY)) {
+        } else if (AnimationManager.DIRECTORY.equals(folder)) {
             AssetAccessor<AnimationClip> accessor = issuedEditorAnimationAccessors.get(id);
             AnimationClip loaded = editorAnimations.get(id);
 
@@ -2378,14 +2407,15 @@ public final class AkytheraProject {
 
         String rel = FileSystemHelper.relativeIdPath(assetsRoot, assetFile);
         String stem = ParseUtils.trimExtensions(rel, AssetLoader.BINARY_EXTENSION, "json");
+        String folder = assetFolderOf(rel);
 
-        if (rel.startsWith(MeshManager.DIRECTORY)) {
+        if (MeshManager.DIRECTORY.equals(folder)) {
             return assetsRoot.resolve(FileSystemHelper.toOsString(
                 ClothPhysicsLoader.DIRECTORY + stem.substring(MeshManager.DIRECTORY.length()) + "." + AssetLoader.BINARY_EXTENSION
             ));
         }
 
-        if (rel.startsWith(ArmatureManager.DIRECTORY)) {
+        if (ArmatureManager.DIRECTORY.equals(folder)) {
             return assetsRoot.resolve(FileSystemHelper.toOsString(
                 ArmaturePhysicsManager.DIRECTORY + stem.substring(ArmatureManager.DIRECTORY.length()) + ".json"
             ));
@@ -2425,12 +2455,13 @@ public final class AkytheraProject {
 
         String oldRel = FileSystemHelper.relativeIdPath(assetsRoot, oldPath);
         String newRel = FileSystemHelper.relativeIdPath(assetsRoot, newPath);
+        String oldFolder = assetFolderOf(oldRel);
 
-        if (oldRel.startsWith(MeshManager.DIRECTORY)) {
+        if (MeshManager.DIRECTORY.equals(oldFolder)) {
             renameAssetIn(editorMeshes, issuedEditorMeshAccessors, oldRel, newRel);
-        } else if (oldRel.startsWith(ArmatureManager.DIRECTORY)) {
+        } else if (ArmatureManager.DIRECTORY.equals(oldFolder)) {
             renameAssetIn(editorArmatures, issuedEditorArmatureAccessors, oldRel, newRel);
-        } else if (oldRel.startsWith(AnimationManager.DIRECTORY)) {
+        } else if (AnimationManager.DIRECTORY.equals(oldFolder)) {
             renameAssetIn(editorAnimations, issuedEditorAnimationAccessors, oldRel, newRel);
         } else if (oldRel.startsWith(TEXTURES_DIRECTORY)) {
             Identifier oldId = getTextureIdentifier(oldPath);

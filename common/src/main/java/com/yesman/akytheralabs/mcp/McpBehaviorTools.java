@@ -182,7 +182,7 @@ final class McpBehaviorTools {
                 + "creating it when missing. Ops, applied in order: {op:'add_state', state:<signature id>, x, y}, "
                 + "{op:'remove_state', state}, {op:'add_transition', from:<signature id or 'entry'>, to}, "
                 + "{op:'remove_transition', from, to}, {op:'set_transition', from, to, abort_task_immediately?, check_latency?, "
-                + "transition_priority?}. Signatures are entries of the state_ids/mob_behavior data block.",
+                + "transition_priority?}. Signatures are entries of the state_machine/mob_behavior data block.",
             """
             {
               "type": "object",
