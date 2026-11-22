@@ -150,12 +150,21 @@ public final class EditorWidgetFactory {
     /// Text an integral box accepts while it is typed into, a lone "-" included.
     private static final Predicate<String> INTEGER_TEXT = s -> s.matches("-?\\d*");
 
-    /// A float as a number box shows it. Infinity and NaN, which the box can neither type nor commit,
-    /// show as an empty box, so any number typed replaces them.
-    private static final Function<Float, String> FLOAT_TEXT = f -> Float.isFinite(f) ? Float.toString(f) : "";
+    /// A float as a number box shows it, rounded to [ParseUtils#DISPLAY_DECIMALS] places. Infinity and NaN,
+    /// which the box can neither type nor commit, show as an empty box, so any number typed replaces them.
+    private static final Function<Float, String> FLOAT_TEXT = f -> Float.isFinite(f) ? ParseUtils.toRoundedString(f, ParseUtils.DISPLAY_DECIMALS) : "";
 
     /// A double as a number box shows it, see [#FLOAT_TEXT].
-    private static final Function<Double, String> DOUBLE_TEXT = d -> Double.isFinite(d) ? Double.toString(d) : "";
+    private static final Function<Double, String> DOUBLE_TEXT = d -> Double.isFinite(d) ? ParseUtils.toRoundedString(d, ParseUtils.DISPLAY_DECIMALS) : "";
+
+    /// Width of the `X:` / `Y:` / `Z:` tag in front of each box of a three-axis row, gap included, in pixels.
+    private static final int AXIS_TAG_W = 12;
+
+    /// Tag and box theme of each column of a three-axis row, by axis (0 = x, 1 = y, 2 = z).
+    private static final String[] AXIS_TAGS = { "X:", "Y:", "Z:" };
+    private static final AkytheraLabsEditBoxTheme[] AXIS_THEMES = {
+        AkytheraLabsEditBoxTheme.AXIS_X_EDIT_BOX, AkytheraLabsEditBoxTheme.AXIS_Y_EDIT_BOX, AkytheraLabsEditBoxTheme.AXIS_Z_EDIT_BOX
+    };
 
     /// Produces the editor widget(s) of one [ValueSlot], label excluded. Returned widgets must
     /// implement [AnchoredWidget] with a `TOP_HEIGHT` vertical anchor, and take their horizontal
@@ -1786,7 +1795,7 @@ public final class EditorWidgetFactory {
         EditorEditable ann = slot.annotation();
 
         if (isBounded(ann)) {
-            return dragBox(factory, slot, ann.min(), ann.max(), Float::parseFloat, ParseUtils::floatingPointToString, d -> (float) d);
+            return dragBox(factory, slot, ann.min(), ann.max(), Float::parseFloat, FLOAT_TEXT, d -> (float) d);
         }
 
         PendingValue pending = PendingValue.of(slot);
@@ -1807,7 +1816,7 @@ public final class EditorWidgetFactory {
         EditorEditable ann = slot.annotation();
 
         if (isBounded(ann)) {
-            return dragBox(factory, slot, (double) ann.min(), (double) ann.max(), Double::parseDouble, d -> Double.toString(d), d -> d);
+            return dragBox(factory, slot, (double) ann.min(), (double) ann.max(), Double::parseDouble, DOUBLE_TEXT, d -> d);
         }
 
         PendingValue pending = PendingValue.of(slot);
@@ -2038,6 +2047,34 @@ public final class EditorWidgetFactory {
         };
     }
 
+    /// The x / y / z `boxes` of a three-axis row, each behind its `X:` / `Y:` / `Z:` tag and in its axis color.
+    private static List<AbstractWidget> axisRow(EditorWidgetFactory factory, ValueSlot slot, EditorEditBox<?>[] boxes) {
+        List<AbstractWidget> widgets = new ArrayList<>();
+
+        for (int axis = 0; axis < boxes.length; axis++) {
+            AnchoredWidget.Unit start = columnStart(slot, axis, boxes.length);
+            AnchoredWidget.Unit size = columnSize(slot, axis, boxes.length);
+
+            Static tag = new Static(
+                factory.font,
+                start, AnchoredWidget.pixel(AXIS_TAG_W),
+                AnchoredWidget.pixel(0), AnchoredWidget.pixel(ROW_H),
+                AnchoredWidget.HorizontalAnchorType.LEFT_WIDTH,
+                AnchoredWidget.VerticalAnchorType.TOP_HEIGHT,
+                Component.literal(AXIS_TAGS[axis])
+            );
+
+            boxes[axis].setX1((rect, xy) -> start.pixels(rect, xy) + AXIS_TAG_W);
+            boxes[axis].setX2((rect, xy) -> size.pixels(rect, xy) - AXIS_TAG_W);
+            boxes[axis].setTheme(AXIS_THEMES[axis]);
+
+            widgets.add(tag);
+            widgets.add(boxes[axis]);
+        }
+
+        return widgets;
+    }
+
     /// Three per-axis double boxes over one [Vec3] slot. An axis setter writes a whole new vector
     /// live; a commit pushes one [DataChange] holding full old/new vectors, whose replay refreshes
     /// all three boxes.
@@ -2107,7 +2144,7 @@ public final class EditorWidgetFactory {
             }
         }
 
-        return List.of(boxes);
+        return axisRow(factory, slot, boxes);
     }
 
     /// Three Euler angle boxes (XYZ, in degrees) over one [Quaterniond] slot, see
@@ -2184,7 +2221,7 @@ public final class EditorWidgetFactory {
             }));
         }
 
-        return List.of(boxes);
+        return axisRow(factory, slot, boxes);
     }
 
     /// Combo over the merged data block set: everything compiled into the manager plus the current

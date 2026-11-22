@@ -2,6 +2,7 @@ package com.yesman.akytheralabs.gui.widget;
 
 import com.yesman.akythera.client.api.gui.AkytheraEditBox;
 import com.yesman.akythera.client.api.gui.BuiltInButtonTheme;
+import com.yesman.akythera.client.api.gui.BuiltInEditBoxTheme;
 import com.yesman.akythera.client.api.gui.EditBoxTheme;
 import com.yesman.akythera.client.api.gui.common.WidgetTheme;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -58,7 +59,13 @@ public enum AkytheraLabsEditBoxTheme implements EditBoxTheme {
             graphics.fill(x, y + 1, x + w, y + h - 1, border);
             graphics.fill(x + 1, y + 1, x + w - 1, y + h - 1, 0xFF151515);
         }
-    );
+    ),
+    /// X component of a three-axis row: [BuiltInEditBoxTheme#DEFAULT_EDIT_BOX] with a red border.
+    AXIS_X_EDIT_BOX(axisRenderer(0xFFA03030, 0xFFFF5555)),
+    /// Y component of a three-axis row: [BuiltInEditBoxTheme#DEFAULT_EDIT_BOX] with a blue border.
+    AXIS_Y_EDIT_BOX(axisRenderer(0xFF3060A0, 0xFF55AAFF)),
+    /// Z component of a three-axis row: [BuiltInEditBoxTheme#DEFAULT_EDIT_BOX] with a green border.
+    AXIS_Z_EDIT_BOX(axisRenderer(0xFF308040, 0xFF55DD66));
 
     final EditBoxRenderer renderer;
     final int id;
@@ -71,6 +78,19 @@ public enum AkytheraLabsEditBoxTheme implements EditBoxTheme {
     @Override
     public void renderBackground(AkytheraEditBox<?> widget, GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
         renderer.renderBackground(widget, graphics, mouseX, mouseY, a);
+    }
+
+    /// Black fill with a 1px border, `idle` or `focused` by focus. Border color priority: warned (red) > axis.
+    private static EditBoxRenderer axisRenderer(int idle, int focused) {
+        return (widget, graphics, _, _, _) -> {
+            int x = widget.getX();
+            int y = widget.getY();
+            int w = widget.getWidth();
+            int h = widget.getHeight();
+            int border = widget.isWarned() ? 0xFFAA2222 : widget.isFocused() ? focused : idle;
+            graphics.fill(x, y, x + w, y + h, 0xFF000000);
+            graphics.outline(x, y, w, h, border);
+        };
     }
 
     @Override
